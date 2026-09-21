@@ -102,6 +102,77 @@ export const releaseJailAction = defineAction(
   },
 );
 
+/**
+ * Alle laufenden Jails aufheben und ihre Eintraege loeschen.
+ *
+ * Eigene Berechtigung, nicht `release`: wer einzeln freilaesst, soll nicht
+ * nebenbei den gesamten laufenden Bestand entfernen koennen.
+ *
+ * Das eigene Rate Limit ist streng - diese Aktion fasst in einem Zug jede
+ * gejailte Person auf dem Server an, und zweimal hintereinander gibt es dafuer
+ * keinen Grund.
+ */
+export const purgeJailsAction = defineAction(
+  {
+    name: 'jail.purge',
+    module: MODULE_ID,
+    permission: jail.JAIL_PERMISSIONS.purge,
+    schema: jail.purgeJailsSchema,
+    rateLimit: 'jailPurge',
+    freshness: 'critical',
+  },
+  async ({ ctx, input, metadata }) => {
+    await assertModuleEnabled(MODULE_ID);
+
+    /*
+     * Der Bestand muss der sein, der bestaetigt wurde.
+     *
+     * Zwischen dem Aufbau der Seite und dem Klick koennen Minuten liegen. Ist
+     * in dieser Zeit jemand dazugekommen, stuende im Dialog eine Zahl, die
+     * nicht mehr stimmt - und es verschwaende jemand, ueber den niemand
+     * entschieden hat. Dann lieber abbrechen und die Seite neu zeigen.
+     */
+    const aktuell = await jail.countActiveJails();
+    if (aktuell !== input.erwartet) {
+      throw new AppError('CONFLICT', {
+        userMessage:
+          aktuell === 0
+            ? 'Es gibt derzeit keine laufenden Jails mehr.'
+            : `Der Bestand hat sich geändert: es sind jetzt ${aktuell} laufende Jails statt ${input.erwartet}. Bitte die Seite neu laden und erneut prüfen.`,
+      });
+    }
+
+    const ergebnis = await jail.releaseAndPurgeActiveJails({
+      metadata,
+      actor: {
+        discordId: ctx.user.discordId,
+        username: ctx.user.username,
+        avatarHash: ctx.user.avatarHash,
+        roleIds: ctx.roleIds,
+        isOwner: ctx.user.isOwner,
+        moderationLevel: ctx.moderationLevel,
+      },
+    });
+
+    logger.info('Alle laufenden Jails aufgehoben und gelöscht', {
+      actor: ctx.user.discordId,
+      ...ergebnis,
+      fehlgeschlagen: ergebnis.fehlgeschlagen.length,
+    });
+
+    revalidatePath('/moderation/jail');
+    revalidatePath('/dashboard');
+
+    return {
+      gefunden: ergebnis.gefunden,
+      freigelassen: ergebnis.freigelassen,
+      geloescht: ergebnis.geloescht,
+      fehlgeschlagen: ergebnis.fehlgeschlagen,
+      warnings: ergebnis.warnings,
+    };
+  },
+);
+
 /** Wie der Picker ein Ziel beschreibt - dieselbe Form wie die Mitgliedersuche. */
 const alsPickerEintrag = (ziel: jail.VoteJailTarget) => ({
   discordId: ziel.discordId,

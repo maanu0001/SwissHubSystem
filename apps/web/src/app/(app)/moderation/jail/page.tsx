@@ -14,6 +14,7 @@ import { StatusBadge } from '@/components/shared/status-badge';
 import { EmptyState } from '@/components/shared/states';
 import { CreateJailDialog } from '@/modules/jail/components/create-jail-dialog';
 import { JailRowActions } from '@/modules/jail/components/jail-row-actions';
+import { PurgeJailsButton } from '@/modules/jail/components/purge-jails-button';
 import { RemainingTime } from '@/modules/jail/components/remaining-time';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { cn } from '@/lib/utils';
@@ -37,16 +38,21 @@ export default async function JailPage({ searchParams }: JailPageProps): Promise
     search: params.search,
   });
 
-  const [result, settings, enabled, grundVorlagen] = await Promise.all([
+  const [result, settings, enabled, grundVorlagen, aktiveJails] = await Promise.all([
     jail.listJails(query),
     getModuleSettings<jail.JailSettings>(jail.JAIL_MODULE_ID),
     isModuleEnabled(jail.JAIL_MODULE_ID),
     moderationReasonTemplates('JAIL'),
+    // Eigene Zählung statt `result.total`: die Liste zeigt eine Seite und
+    // richtet sich nach Reiter und Suche. Der Knopf räumt aber alles
+    // Laufende weg - er muss die ganze Zahl nennen, nicht die gefilterte.
+    jail.countActiveJails(),
   ]);
 
   const csrfToken = csrfTokenFor(context);
   const canRelease = can(context, jail.JAIL_PERMISSIONS.release);
   const canCreate = can(context, jail.JAIL_PERMISSIONS.create);
+  const canPurge = can(context, jail.JAIL_PERMISSIONS.purge);
 
   const buildHref = (page: number, tab = query.tab): string => {
     const search = new URLSearchParams();
@@ -220,15 +226,27 @@ export default async function JailPage({ searchParams }: JailPageProps): Promise
 
       <PageToolbar
         actions={
-          canCreate && enabled ? (
-            <CreateJailDialog
-              csrfToken={csrfToken}
-              durationPresets={jail.JAIL_DURATION_PRESETS}
-              maxDurationSeconds={settings.maxDurationSeconds}
-              reasonPresets={grundVorlagen}
-              announceByDefault={!settings.silentByDefault}
-            />
-          ) : null
+          <>
+            {/*
+              Links die Sammelaktion, rechts die gewöhnliche.
+
+              Sie steht nur im Reiter «Aktiv»: unter «Vergangen» fasst sie
+              nichts an, was dort zu sehen ist, und ein Knopf, der etwas
+              anderes wegräumt als die Liste darunter zeigt, ist eine Falle.
+            */}
+            {canPurge && enabled && query.tab === 'active' ? (
+              <PurgeJailsButton csrfToken={csrfToken} aktive={aktiveJails} />
+            ) : null}
+            {canCreate && enabled ? (
+              <CreateJailDialog
+                csrfToken={csrfToken}
+                durationPresets={jail.JAIL_DURATION_PRESETS}
+                maxDurationSeconds={settings.maxDurationSeconds}
+                reasonPresets={grundVorlagen}
+                announceByDefault={!settings.silentByDefault}
+              />
+            ) : null}
+          </>
         }
       >
         <div className="inline-flex h-10 items-center gap-1 rounded-lg border border-border bg-card/60 p-1">

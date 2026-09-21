@@ -42,6 +42,14 @@ export const JAIL_PERMISSIONS = {
   create: 'jail.create',
   edit: 'jail.edit',
   release: 'jail.release',
+  /**
+   * Darf alle aktiven Jails auf einmal aufheben und deren Eintraege loeschen.
+   *
+   * Bewusst nicht `release`: wer einzeln freilaesst, soll nicht nebenbei den
+   * gesamten laufenden Bestand samt Eintraegen entfernen koennen. Das ist
+   * eine eigene Entscheidung, also eine eigene Berechtigung.
+   */
+  purge: 'jail.purge',
   settings: 'jail.settings',
   /** Darf eine Community-Abstimmung starten. */
   voteStart: 'jail.vote.start',
@@ -615,6 +623,14 @@ export const jailModule: ModuleDefinition = registerModule({
       key: JAIL_PERMISSIONS.release,
       label: 'Jail aufheben',
       description: 'Mitglieder vorzeitig freilassen.',
+      module: JAIL_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: JAIL_PERMISSIONS.purge,
+      label: 'Alle Jails aufheben und löschen',
+      description:
+        'Hebt sämtliche laufenden Jails auf und löscht deren Einträge unwiderruflich. Die Moderationshistorie bleibt erhalten.',
       module: JAIL_MODULE_ID,
       critical: true,
     },

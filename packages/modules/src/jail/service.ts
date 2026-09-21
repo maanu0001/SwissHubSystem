@@ -1025,3 +1025,159 @@ export async function markMemberLeftDuringJail(discordId: string): Promise<boole
   log.info('Mitglied hat den Server während eines Jails verlassen', { jailId: active.id });
   return true;
 }
+
+/** Die Bedingung, unter der ein Jail als «aktiv» gilt. */
+const AKTIVE_JAILS: PrismaTypes.JailEntryWhereInput = {
+  // Dieselbe Bedingung wie im Reiter «Aktiv» der Übersicht: wer den Server
+  // verlassen hat, sitzt weiter ein - seine Strafe läuft beim Wiedereintritt
+  // weiter. Eine zweite Definition von «aktiv» liefe irgendwann auseinander,
+  // und dann räumte dieser Knopf etwas anderes weg, als die Liste zeigt.
+  releasedAt: null,
+  status: { in: ['COMPLETED', 'PARTIAL'] },
+  lifecycle: { in: ['ACTIVE', 'PENDING_REJOIN', 'RESTORE_FAILED'] },
+};
+
+/** Wie viele aktive Jails es gerade gibt - für die Rückfrage vor dem Knopf. */
+export async function countActiveJails(): Promise<number> {
+  return prisma.jailEntry.count({ where: AKTIVE_JAILS });
+}
+
+export interface PurgeActiveJailsOptions extends JailServiceOptions {
+  actor: JailActor;
+  reason?: string;
+}
+
+export interface PurgeActiveJailsResult {
+  /** Wie viele aktive Jails zu Beginn vorlagen. */
+  gefunden: number;
+  /** Wie viele davon tatsächlich freigelassen wurden. */
+  freigelassen: number;
+  /** Wie viele Einträge danach gelöscht wurden. */
+  geloescht: number;
+  /** Wer nicht freigelassen werden konnte - mit Grund. */
+  fehlgeschlagen: Array<{ jailId: string; label: string; grund: string }>;
+  warnings: string[];
+}
+
+/**
+ * Alle laufenden Jails aufheben und ihre Einträge löschen.
+ *
+ * Zwei Schritte, und die Reihenfolge ist die ganze Sicherheit dieser
+ * Funktion: **erst freilassen, dann löschen.** Umgekehrt - oder ohne den
+ * ersten Schritt - verschwänden nur die Zeilen aus der Datenbank, während die
+ * Betroffenen ihre Jail-Rolle auf Discord behielten: gesperrt, ohne dass
+ * irgendwo noch stünde, warum, und ohne dass die Oberfläche sie noch fände.
+ *
+ * Freigelassen wird über `releaseJail` - dieselbe Funktion wie beim einzelnen
+ * Knopf in der Zeile. Rollen zurück, Jail-Rolle weg, Moderationslog,
+ * Benachrichtigung, Audit-Eintrag je Person. Eine zweite Freilassungslogik
+ * gäbe es hier nicht.
+ *
+ * **Gelöscht wird nur, was wirklich freigelassen wurde.** Scheitert eine
+ * Freilassung - Discord nicht erreichbar, Rolle verschwunden, Mitglied nicht
+ * mehr auf dem Server -, bleibt dieser Eintrag stehen. Er ist dann das
+ * Einzige, was noch verrät, dass dort jemand die Jail-Rolle trägt.
+ *
+ * Nacheinander statt gleichzeitig: jede Freilassung sind mehrere
+ * Discord-Anfragen, und fünfzig davon parallel wären ein selbstgebautes
+ * Rate-Limit-Problem. Der Ausführungskontext wird einmal geladen und
+ * weitergereicht, statt ihn je Person neu zu holen.
+ *
+ * Was **nicht** gelöscht wird: die Moderationshistorie. `ModerationAction`
+ * verweist über eine freie Kennung, nicht über einen Fremdschlüssel - die
+ * Einträge «X wurde gejailt», «X wurde freigelassen» bleiben also stehen.
+ * Ebenso der Verlauf unter «Vergangen»: dieser Knopf fasst nur an, was
+ * gerade läuft. Rollenschnappschüsse hängen am Jail und gehen mit ihm.
+ */
+export async function releaseAndPurgeActiveJails(
+  options: PurgeActiveJailsOptions,
+): Promise<PurgeActiveJailsResult> {
+  const gateway = options.gateway ?? defaultDiscord;
+  const context = options.context ?? (await loadJailContext(gateway));
+
+  const aktive = await prisma.jailEntry.findMany({
+    where: AKTIVE_JAILS,
+    orderBy: { startedAt: 'asc' },
+    select: { id: true, targetUsername: true, targetDisplayName: true },
+  });
+
+  const ergebnis: PurgeActiveJailsResult = {
+    gefunden: aktive.length,
+    freigelassen: 0,
+    geloescht: 0,
+    fehlgeschlagen: [],
+    warnings: [],
+  };
+
+  if (aktive.length === 0) {
+    return ergebnis;
+  }
+
+  const freigegeben: string[] = [];
+
+  for (const eintrag of aktive) {
+    const label = eintrag.targetDisplayName ?? eintrag.targetUsername;
+    try {
+      const freilassung = await releaseJail(eintrag.id, {
+        releaseType: 'MANUAL',
+        actor: options.actor,
+        reason: options.reason ?? 'Sammelfreilassung über das Dashboard',
+        metadata: options.metadata,
+        gateway,
+        context,
+      });
+      freigegeben.push(eintrag.id);
+      ergebnis.freigelassen += 1;
+      // Die Warnungen der einzelnen Freilassung - etwa eine Rolle, die es
+      // nicht mehr gibt - mit dem Namen davor. Ohne ihn wäre am Ende nicht
+      // mehr erkennbar, wen sie betrifft.
+      for (const warnung of freilassung.warnings) {
+        ergebnis.warnings.push(`${label}: ${warnung}`);
+      }
+    } catch (error) {
+      // Ein Fehler beendet den Durchlauf nicht: die übrigen sollen trotzdem
+      // freikommen. Er verhindert aber das Löschen genau dieses Eintrags.
+      const grund =
+        error instanceof AppError ? error.userMessage : ((error as Error)?.message ?? 'Unbekannter Fehler');
+      ergebnis.fehlgeschlagen.push({ jailId: eintrag.id, label, grund });
+      log.warn('Sammelfreilassung: ein Jail konnte nicht aufgehoben werden', {
+        jailId: eintrag.id,
+        error,
+      });
+    }
+  }
+
+  if (freigegeben.length > 0) {
+    const geloescht = await prisma.jailEntry.deleteMany({ where: { id: { in: freigegeben } } });
+    ergebnis.geloescht = geloescht.count;
+  }
+
+  await safeRecordAudit({
+    action: AUDIT_ACTIONS.JAIL_PURGED,
+    module: JAIL_MODULE_ID,
+    actorDiscordId: options.actor.discordId,
+    actorUsername: options.actor.username,
+    targetLabel: `${ergebnis.geloescht} Jail-Einträge`,
+    // Erfolgreich nur, wenn niemand hängen geblieben ist. Ein «erledigt» mit
+    // drei gescheiterten Freilassungen darunter wäre im Protokoll später
+    // nicht mehr von einem sauberen Durchlauf zu unterscheiden.
+    success: ergebnis.fehlgeschlagen.length === 0,
+    metadata: {
+      gefunden: ergebnis.gefunden,
+      freigelassen: ergebnis.freigelassen,
+      geloescht: ergebnis.geloescht,
+      fehlgeschlagen: ergebnis.fehlgeschlagen.map((eintrag) => eintrag.jailId),
+    },
+    ipHash: options.metadata?.ipHash,
+    userAgent: options.metadata?.userAgent,
+  });
+
+  log.info('Sammelfreilassung abgeschlossen', {
+    gefunden: ergebnis.gefunden,
+    freigelassen: ergebnis.freigelassen,
+    geloescht: ergebnis.geloescht,
+    fehlgeschlagen: ergebnis.fehlgeschlagen.length,
+  });
+
+  return ergebnis;
+}

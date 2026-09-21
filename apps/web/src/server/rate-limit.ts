@@ -20,6 +20,9 @@ export const RATE_LIMITS = {
   analyticsExport: { limit: 5, windowMs: 10 * 60 * 1000 },
   jailCreate: { limit: 10, windowMs: 5 * 60 * 1000 },
   jailRelease: { limit: 20, windowMs: 5 * 60 * 1000 },
+  // Fasst in einem Zug jede gejailte Person an. Zweimal hintereinander gibt
+  // es dafuer keinen Grund; die zweite Ausfuehrung waere ein Versehen.
+  jailPurge: { limit: 2, windowMs: 60 * 60 * 1000 },
   settingsWrite: { limit: 30, windowMs: 5 * 60 * 1000 },
   discordAction: { limit: 60, windowMs: 5 * 60 * 1000 },
   reconciliation: { limit: 5, windowMs: 15 * 60 * 1000 },

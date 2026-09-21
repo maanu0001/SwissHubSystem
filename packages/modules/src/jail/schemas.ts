@@ -142,6 +142,21 @@ export const releaseJailSchema = z.object({
 
 export type ReleaseJailInput = z.infer<typeof releaseJailSchema>;
 
+/**
+ * Alle laufenden Jails aufheben und loeschen.
+ *
+ * Die Bestaetigung traegt die Zahl mit, die dem Bedienenden angezeigt wurde.
+ * Weicht sie beim Ausfuehren ab, ist in der Zwischenzeit jemand dazugekommen
+ * oder freigelassen worden - dann bricht die Aktion ab, statt ueber einen
+ * Bestand zu fahren, den so niemand bestaetigt hat.
+ */
+export const purgeJailsSchema = z.object({
+  erwartet: z.coerce.number().int().min(0).max(10_000),
+  idempotencyKey: z.string().uuid('Ungültiger Idempotency Key'),
+});
+
+export type PurgeJailsInput = z.infer<typeof purgeJailsSchema>;
+
 export const jailListQuerySchema = z.object({
   tab: z.enum(['active', 'past']).default('active'),
   page: z.coerce.number().int().min(1).max(1000).default(1),
