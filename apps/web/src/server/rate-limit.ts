@@ -35,6 +35,10 @@ export const RATE_LIMITS = {
   spielersucheCreate: { limit: 10, windowMs: 10 * 60 * 1000 },
   spielersucheWrite: { limit: 40, windowMs: 5 * 60 * 1000 },
   levelWrite: { limit: 40, windowMs: 5 * 60 * 1000 },
+  // Faehrt in einem Zug ueber jeden XP-Stand auf dem Server. Zweimal
+  // hintereinander gibt es dafuer keinen Grund; die zweite Ausfuehrung
+  // waere ein Versehen.
+  levelReset: { limit: 2, windowMs: 60 * 60 * 1000 },
   /**
    * Teilnahme an einer Verlosung.
    *

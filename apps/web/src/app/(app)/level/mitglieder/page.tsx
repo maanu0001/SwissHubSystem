@@ -11,6 +11,7 @@ import { Pagination } from '@/components/shared/pagination';
 import { ErrorState } from '@/components/shared/states';
 import { LevelSectionNav } from '@/modules/level/components/section-nav';
 import { AdjustXpDialog } from '@/modules/level/components/adjust-xp-dialog';
+import { ResetLevelsButton } from '@/modules/level/components/reset-levels-button';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { levelSections } from '@/server/level';
 
@@ -54,7 +55,21 @@ export default async function LevelMembersPage({
   });
 
   const canManage = can(context, level.LEVEL_PERMISSIONS.membersManage);
+  const canReset = can(context, level.LEVEL_PERMISSIONS.reset);
   const totalPages = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
+
+  /*
+   * Der Knopf raeumt den ganzen Bestand, nicht die gefilterte Seite - also
+   * wird auch der ganze Bestand gezaehlt, nicht `result.total`. Die Einsaetze
+   * kommen dazu, weil in einer laufenden Verlosung gebundene XP bei einer
+   * Rueckzahlung wieder auftauchen wuerden; davor muss der Dialog warnen.
+   */
+  const [betroffen, verlosungsEinsaetze] = canReset
+    ? await Promise.all([
+        level.countLevelProfilesWithXp(),
+        level.raffle.gebundeneVerlosungsEinsaetze().then((einsaetze) => einsaetze.xp),
+      ])
+    : [0, 0];
 
   const buildHref = (target: number): string => {
     const search = new URLSearchParams();
@@ -73,6 +88,15 @@ export default async function LevelMembersPage({
       <PageHeader
         title="Mitglieder"
         description="XP-Stand, Level und Aktivität. Änderungen von Hand landen im Journal."
+        actions={
+          canReset ? (
+            <ResetLevelsButton
+              csrfToken={csrfToken}
+              betroffen={betroffen}
+              verlosungsEinsaetze={verlosungsEinsaetze}
+            />
+          ) : null
+        }
       />
       {sections}
 

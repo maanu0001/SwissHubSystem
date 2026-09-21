@@ -356,3 +356,32 @@ export async function hatLaufendeVerlosung(jetzt: Date = new Date()): Promise<bo
   });
   return treffer > 0;
 }
+
+export interface GebundeneEinsaetze {
+  /** Teilnahmen, deren Einsatz noch aussteht. */
+  teilnahmen: number;
+  /** Summe der dafür abgebuchten XP. */
+  xp: number;
+}
+
+/**
+ * XP, die gerade in einer noch nicht abgeschlossenen Verlosung liegen.
+ *
+ * Der Einsatz ist beim Mitspielen bereits abgebucht worden; zurück kommt er
+ * erst bei einem Abbruch oder einer Rückzahlung. Wird der Stand aller
+ * Mitglieder zwischendurch auf null gesetzt, entstünde bei dieser Rückzahlung
+ * XP aus dem Nichts - darauf muss hingewiesen werden, bevor jemand
+ * zurücksetzt.
+ *
+ * Bewusst nicht `hatLaufendeVerlosung`: die Antwort dort schliesst die
+ * vierundzwanzig Stunden nach einer abgeschlossenen Ziehung mit ein. Dort ist
+ * nichts mehr gebunden - eine Warnung wäre falsch.
+ */
+export async function gebundeneVerlosungsEinsaetze(): Promise<GebundeneEinsaetze> {
+  const summe = await prisma.xpRaffleEntry.aggregate({
+    where: { status: 'ACTIVE', raffle: { status: { in: [...NAVIGATION_STATUSES] } } },
+    _count: { _all: true },
+    _sum: { entryXp: true },
+  });
+  return { teilnahmen: summe._count._all, xp: summe._sum.entryXp ?? 0 };
+}

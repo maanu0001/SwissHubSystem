@@ -2,8 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { level } from '@swisshub/modules';
+import { AppError } from '@swisshub/shared';
+import { createLogger } from '@swisshub/logger';
 import { defineAction } from '@/server/action';
 import { assertModuleEnabled } from '@/server/modules';
+
+const logger = createLogger('level:actions');
 
 const MODULE_ID = level.LEVEL_MODULE_ID;
 const PERMISSIONS = level.LEVEL_PERMISSIONS;
@@ -197,5 +201,62 @@ export const discardLevelImportAction = defineAction(
     );
     revalidatePath('/level/import');
     return { importId: input.importId };
+  },
+);
+
+/**
+ * Alle XP-Stände auf null setzen.
+ *
+ * Eine eigene Berechtigung, nicht `membersManage`: wer einer Person XP gibt
+ * oder nimmt, soll nicht nebenbei den Stand des ganzen Servers löschen
+ * können. Das eigene Rate Limit ist streng - diese Aktion fasst in einem Zug
+ * jedes Profil auf dem Server an.
+ */
+export const resetLevelsAction = defineAction(
+  {
+    name: 'level.reset',
+    module: MODULE_ID,
+    permission: PERMISSIONS.reset,
+    schema: level.resetLevelsSchema,
+    rateLimit: 'levelReset',
+    freshness: 'critical',
+  },
+  async ({ ctx, input, metadata }) => {
+    await assertModuleEnabled(MODULE_ID);
+
+    /*
+     * Der Bestand muss der sein, der bestaetigt wurde.
+     *
+     * Zwischen dem Aufbau der Seite und dem Klick koennen Minuten liegen, und
+     * im Level-System vergeht keine Minute ohne Bewegung: jede Nachricht und
+     * jede Minute im Voice bucht XP. Weicht die Zahl ab, stand im Dialog eine
+     * andere - dann lieber abbrechen und den frischen Stand zeigen.
+     */
+    const aktuell = await level.countLevelProfilesWithXp();
+    if (aktuell !== input.erwartet) {
+      throw new AppError('CONFLICT', {
+        userMessage:
+          aktuell === 0
+            ? 'Es gibt derzeit keine XP-Stände mehr, die zurückzusetzen wären.'
+            : `Der Bestand hat sich geändert: es sind jetzt ${aktuell} Mitglieder mit XP statt ${input.erwartet}. Bitte die Seite neu laden und erneut prüfen.`,
+      });
+    }
+
+    const ergebnis = await level.resetAllLevels({
+      idempotencyKey: input.idempotencyKey,
+      metadata,
+      actor: { discordId: ctx.user.discordId, username: ctx.user.username },
+    });
+
+    logger.info('Alle XP-Stände zurückgesetzt', {
+      actor: ctx.user.discordId,
+      ...ergebnis,
+      warnings: ergebnis.warnings.length,
+    });
+
+    revalidateLevel();
+    revalidatePath('/level/rollen');
+
+    return ergebnis;
   },
 );

@@ -72,6 +72,14 @@ export const LEVEL_PERMISSIONS = {
   settingsManage: 'level.settings.manage',
   import: 'level.import',
   /**
+   * Alle XP-Staende auf null setzen.
+   *
+   * Bewusst nicht an `membersManage` gehaengt: wer einer Person XP gibt oder
+   * nimmt, soll nicht nebenbei den Stand des ganzen Servers loeschen koennen.
+   * Das ist eine andere Entscheidung, also eine eigene Berechtigung.
+   */
+  reset: 'level.reset',
+  /**
    * XP-Verlosungen ("XP-Glücksrad").
    *
    * `view` und `participate` sind für gewöhnliche Mitglieder gedacht; alles
@@ -925,6 +933,13 @@ registerModule({
       key: LEVEL_PERMISSIONS.import,
       label: 'Altdaten übernehmen',
       description: 'XP-Stände aus der alten levels.db übernehmen.',
+      module: LEVEL_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: LEVEL_PERMISSIONS.reset,
+      label: 'Alle XP zurücksetzen',
+      description: 'Den XP-Stand jedes Mitglieds auf null setzen. Lässt sich nicht rückgängig machen.',
       module: LEVEL_MODULE_ID,
       critical: true,
     },

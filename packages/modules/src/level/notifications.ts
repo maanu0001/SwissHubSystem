@@ -124,3 +124,32 @@ export async function logDecayEnded(context: LevelContext, discordId: string): P
     color: context.accentColor,
   });
 }
+
+export interface LevelResetLog {
+  /** Wie viele Profile auf null gesetzt wurden. */
+  betroffen: number;
+  /** Summe der entzogenen XP. */
+  entzogeneXp: number;
+  actorDiscordId: string;
+}
+
+/**
+ * Meldet, dass alle XP-Stände zurückgesetzt wurden.
+ *
+ * Eine Nachricht für den ganzen Vorgang, nicht eine je Person: `logXpChange`
+ * pro Profil wären bei ein paar tausend Mitgliedern ebenso viele
+ * Discord-Anfragen und ein unlesbares Protokoll. Was zählt, steht in einer
+ * Zeile - wer es ausgelöst hat, wie viele es betrifft und wie viel XP weg ist.
+ * Der Verlauf je Person steht im XP-Journal.
+ */
+export async function logLevelReset(context: LevelContext, entry: LevelResetLog): Promise<void> {
+  await send(context, context.settings.levelLogChannelId, {
+    title: '🧹 Alli XP zruggsetzt',
+    description: [
+      `Betroffe: **${entry.betroffen}** Mitglieder`,
+      `Entzoge: **${formatXp(entry.entzogeneXp)} XP**`,
+      `Usgführt vo: <@${entry.actorDiscordId}>`,
+    ].join('\n'),
+    color: context.accentColor,
+  });
+}

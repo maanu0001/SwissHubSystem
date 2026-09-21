@@ -27,6 +27,21 @@ export const adjustXpSchema = z.object({
 
 export type AdjustXpInputSchema = z.infer<typeof adjustXpSchema>;
 
+/**
+ * Alle XP-Staende auf null setzen.
+ *
+ * `erwartet` traegt die Zahl mit, die dem Bedienenden im Dialog angezeigt
+ * wurde. Weicht sie beim Ausfuehren ab, hat sich der Bestand in der
+ * Zwischenzeit geaendert - dann bricht die Aktion ab, statt ueber einen
+ * Stand zu fahren, den so niemand bestaetigt hat.
+ */
+export const resetLevelsSchema = z.object({
+  erwartet: z.coerce.number().int().min(0).max(1_000_000),
+  idempotencyKey: z.string().uuid('Ungültiger Idempotency Key'),
+});
+
+export type ResetLevelsInput = z.infer<typeof resetLevelsSchema>;
+
 export const milestoneSchema = z.object({
   level: z
     .number()
