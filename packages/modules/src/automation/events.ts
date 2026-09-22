@@ -21,6 +21,7 @@ import { registerEvent } from '@swisshub/automation';
  */
 
 const discordId = z.string().regex(/^\d{17,20}$/u);
+const optionalDiscordId = discordId.nullable().optional();
 
 // --- Mitglieder -------------------------------------------------------------
 
@@ -162,6 +163,26 @@ registerEvent({
 // --- Verifikation -----------------------------------------------------------
 
 registerEvent({
+  type: 'verification.requested',
+  label: 'Verifikation eröffnet',
+  description: 'Jemand wartet am Eingang auf eine Entscheidung.',
+  module: 'verification',
+  payloadSchema: z.object({
+    requestId: z.string(),
+    discordId,
+    username: z.string().nullable(),
+    displayName: z.string().nullable(),
+    /** Alter des Discord-Kontos in Tagen - der nuetzlichste Wert gegen Wegwerfkonten. */
+    kontoAlterTage: z.number().int().nullable(),
+  }),
+  variables: [
+    { path: 'payload.displayName', label: 'Anzeigename', type: 'string' },
+    { path: 'payload.kontoAlterTage', label: 'Kontoalter in Tagen', type: 'number' },
+    { path: 'event.subjectId', label: 'Discord-ID', type: 'string' },
+  ],
+});
+
+registerEvent({
   type: 'verification.completed',
   label: 'Mitglied wurde verifiziert',
   description: 'Ein Vorgang wurde freigeschaltet - von einem Menschen oder von der AI.',
@@ -287,10 +308,21 @@ registerEvent({
     discordId,
     titel: z.string(),
     status: z.string(),
+    /**
+     * Teil der Adresse: `/kalender/<slug>`.
+     *
+     * Ergaenzt, damit eine Meldung auf den Termin zeigen kann. Rein additiv -
+     * bestehende Automationen kennen das Feld nicht und brauchen es nicht.
+     * Optional, weil aeltere Ereignisse in der Tabelle es nicht tragen.
+     */
+    slug: z.string().optional(),
+    /** Wer den Termin angelegt hat - die Person, die von der Anmeldung erfaehrt. */
+    organizerDiscordId: optionalDiscordId,
   }),
   variables: [
     { path: 'payload.titel', label: 'Titel des Termins', type: 'string' },
     { path: 'payload.status', label: 'Status', type: 'string' },
+    { path: 'payload.slug', label: 'Kurzname des Termins', type: 'string' },
   ],
 });
 

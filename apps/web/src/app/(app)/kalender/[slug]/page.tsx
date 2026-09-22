@@ -6,7 +6,9 @@ import { can } from '@swisshub/auth';
 import { calendar, isModuleEnabled } from '@swisshub/modules';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { systemRoutes } from '@swisshub/shared';
 import { PageHeader } from '@/components/shared/page-header';
+import { ZurueckLink } from '@/components/shared/zurueck-link';
 import { Panel } from '@/components/shared/panel';
 import { ErrorState } from '@/components/shared/states';
 import { Markdown } from '@/components/shared/markdown';
@@ -39,11 +41,14 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
  */
 export default async function EventDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ von?: string }>;
 }): Promise<React.JSX.Element> {
   const context = await requirePagePermission([P.view, P.create, P.manageOwn]);
   const { slug } = await params;
+  const { von } = await searchParams;
 
   if (!(await isModuleEnabled(calendar.CALENDAR_MODULE_ID))) {
     return <ErrorState title="Modul deaktiviert" description="Der Community-Kalender ist deaktiviert." />;
@@ -114,6 +119,8 @@ export default async function EventDetailPage({
 
   return (
     <>
+      <ZurueckLink von={von} fallback={systemRoutes.kalender()} fallbackLabel="Kalender" />
+
       <PageHeader
         title={event.title}
         description={event.shortDescription ?? undefined}

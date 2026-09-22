@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Bot, Lock, ShieldAlert } from 'lucide-react';
-import { formatDate } from '@swisshub/shared';
+import { formatDate, mitRueckkehr, systemRoutes } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { DiscordAvatar } from './discord-avatar';
@@ -21,10 +21,20 @@ export interface MemberCardData {
 }
 
 /** Kompakte Mitgliederkarte für Such- und Listenansichten. */
-export function MemberCard({ member }: { member: MemberCardData }): React.JSX.Element {
+export function MemberCard({
+  member,
+  kontext,
+}: {
+  member: MemberCardData;
+  /**
+   * Die Adresse der Liste, aus der diese Karte stammt - samt Suche, Filter
+   * und Seitenzahl. Sie reist mit, damit «Zurück» in dieselbe Liste führt.
+   */
+  kontext?: string | null;
+}): React.JSX.Element {
   return (
     <Link
-      href={`/members/${member.discordId}`}
+      href={mitRueckkehr(systemRoutes.mitglied(member.discordId), kontext)}
       className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <Card className="h-full transition-colors hover:border-primary/40">

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { mitRueckkehr, systemRoutes } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { calendar } from '@swisshub/modules';
@@ -124,11 +125,11 @@ export function belegungsText(zeile: {
  * Bewusst knapp: in einer Monatszelle ist Platz fuer Uhrzeit und Namen, mehr
  * nicht. Alles Weitere steht auf der Detailseite.
  */
-export function EventChip({ zeile }: { zeile: Zeile }): React.JSX.Element {
+export function EventChip({ zeile, kontext }: { zeile: Zeile; kontext?: string | null }): React.JSX.Element {
   const farbe = zeile.category?.color ?? 'var(--color-primary)';
   return (
     <Link
-      href={`/kalender/${zeile.slug}`}
+      href={mitRueckkehr(systemRoutes.event(zeile.slug), kontext)}
       className={cn(
         'group flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-xs transition-colors hover:bg-muted',
         zeile.status === 'CANCELLED' && 'opacity-60',
@@ -167,11 +168,11 @@ export function EventChip({ zeile }: { zeile: Zeile }): React.JSX.Element {
  * Auf dem Telefon ersetzt diese Darstellung das Gitter: eine
  * zusammengequetschte Monatsansicht laesst sich weder lesen noch treffen.
  */
-export function EventKarte({ zeile }: { zeile: Zeile }): React.JSX.Element {
+export function EventKarte({ zeile, kontext }: { zeile: Zeile; kontext?: string | null }): React.JSX.Element {
   const plaetze = belegungsText(zeile);
   return (
     <Link
-      href={`/kalender/${zeile.slug}`}
+      href={mitRueckkehr(systemRoutes.event(zeile.slug), kontext)}
       className={cn(
         'flex gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/40',
         zeile.status === 'CANCELLED' && 'opacity-70',

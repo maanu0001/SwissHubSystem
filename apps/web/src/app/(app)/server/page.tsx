@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AlertTriangle, ExternalLink, Hash, RefreshCw, Shield, Users } from 'lucide-react';
 import { branding } from '@swisshub/config/client';
-import { guildIconUrl } from '@swisshub/discord/cdn';
+import { guildIconUrl, guildLink } from '@swisshub/discord/cdn';
 import { getGuildConfig, getSyncStatus, getSystemHealth } from '@swisshub/modules';
 import { formatDateTime } from '@swisshub/shared';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -61,7 +61,7 @@ export default async function ServerOverviewPage(): Promise<React.JSX.Element> {
               <CardDescription className="font-mono text-xs">{guild.guildId}</CardDescription>
             </div>
             <Link
-              href={`https://discord.com/channels/${guild.guildId}`}
+              href={guildLink(guild.guildId)}
               target="_blank"
               rel="noreferrer noopener"
               className="ml-auto inline-flex items-center gap-1.5 text-sm text-primary hover:underline"

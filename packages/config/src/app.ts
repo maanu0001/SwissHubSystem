@@ -18,6 +18,8 @@ export const COOKIE = {
   oauthVerifier: 'swisshub_oauth_verifier',
   oauthRedirect: 'swisshub_oauth_redirect',
   csrf: 'swisshub_csrf',
+  /** Laufende «Ansicht als …». Kurzlebig und signiert - siehe `server/preview.ts`. */
+  preview: 'swisshub_preview',
 } as const;
 
 /** Session behaviour derived from the validated environment. */

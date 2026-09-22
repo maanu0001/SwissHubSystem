@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { formatDateTime } from '@swisshub/shared';
+import { formatDateTime, mitRueckkehr, systemRoutes } from '@swisshub/shared';
 import { EmptyState } from '@/components/shared/states';
 import { PriorityBadge, StatusBadge } from './ticket-badges';
 
@@ -32,10 +32,20 @@ export function TicketList({
   rows,
   leerTitel = 'Keine Tickets',
   leerText,
+  kontext,
 }: {
   rows: TicketListRow[];
   leerTitel?: string;
   leerText?: string;
+  /**
+   * Die Adresse dieser Liste samt Filter, Suche und Seitenzahl.
+   *
+   * Sie reist an jedem Ticket mit, damit «Zurück» wieder hierher fuehrt und
+   * nicht auf eine zurueckgesetzte Uebersicht. Fehlt sie, bleibt der
+   * Rueckweg der kanonische Elternbereich - die Liste funktioniert ohne sie
+   * unveraendert.
+   */
+  kontext?: string | null;
 }): React.JSX.Element {
   if (rows.length === 0) {
     return <EmptyState title={leerTitel} description={leerText} />;
@@ -46,7 +56,7 @@ export function TicketList({
       {rows.map(({ ticket, categoryName, tagNames, messageCount }) => (
         <li key={ticket.id}>
           <Link
-            href={`/tickets/${ticket.id}`}
+            href={mitRueckkehr(systemRoutes.ticket(ticket.id), kontext)}
             className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-card/70 sm:px-5"
           >
             <span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">

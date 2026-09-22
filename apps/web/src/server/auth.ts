@@ -33,7 +33,16 @@ export const getOptionalAuthContext = cache(async (): Promise<AuthContext | null
     return null;
   }
 
-  return buildAuthContext({ user: validated.user, sessionId: validated.session.id });
+  const context = await buildAuthContext({ user: validated.user, sessionId: validated.session.id });
+  /*
+   * Die Vorschau wirkt nur auf das Ansehen.
+   *
+   * Sie hängt hier und nicht in `buildAuthContext`: Seiten fragen über diesen
+   * Weg, Server Actions über `getActionAuthContext`. Dort bleibt der Kontext
+   * bewusst unangetastet - was der Server tut, folgt nie einer Vorschau.
+   */
+  const { mitVorschau } = await import('./preview');
+  return mitVorschau(context);
 });
 
 /**
@@ -60,7 +69,24 @@ export async function getActionAuthContext(freshness: Freshness = 'critical'): P
     await setSessionCookie(validated.rotatedToken);
   }
 
-  return buildAuthContext({ user: validated.user, sessionId: validated.session.id, freshness });
+  const context = await buildAuthContext({
+    user: validated.user,
+    sessionId: validated.session.id,
+    freshness,
+  });
+
+  /*
+   * Auch hier wird die Vorschau gelesen - aber nur, um sie zu **kennen**.
+   *
+   * Die Permissions bleiben die echten (`mitVorschau` setzt `permissions` auf
+   * die der Vorschau und die echten daneben; `assertPermission` folgt den
+   * echten). Gebraucht wird das Feld von `defineAction`: es sperrt jede
+   * Aktion, solange eine Vorschau läuft. Ohne diese Zeile wüsste die
+   * Aktionskette nichts davon, und die Sperre bliebe eine Frage der
+   * Oberfläche.
+   */
+  const { mitVorschau } = await import('./preview');
+  return mitVorschau(context);
 }
 
 /** Erzwingt eine Anmeldung. Leitet sonst zur Login-Seite weiter. */
@@ -150,6 +176,17 @@ export async function requirePagePermission(
   if (!zugelassen) {
     if (options.allowDuringSetup && (await hasSetupAccess())) {
       return context;
+    }
+    /*
+     * In der Vorschau ist «nicht erlaubt» ein Ergebnis, keine Panne.
+     *
+     * Genau danach hat der Admin gefragt: ob diese Person diese Seite sähe.
+     * Eine 403-Seite beantwortete die Frage zwar auch, sähe aber aus wie ein
+     * Fehler - und der Admin weiss im Zweifel nicht mehr, ob die Vorschau
+     * schuld war oder seine eigenen Rechte.
+     */
+    if (context.preview) {
+      redirect(`/vorschau/gesperrt?permission=${encodeURIComponent(erlaubte[0] ?? '')}`);
     }
     redirect(`/403?permission=${encodeURIComponent(erlaubte[0] ?? '')}`);
   }

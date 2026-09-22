@@ -431,3 +431,45 @@ export function groupNavigation(entries: NavigationEntry[]): Array<{
     items: entries.filter((entry) => entry.group === group.id),
   })).filter((group) => group.items.length > 0);
 }
+
+/**
+ * Wie ein Bereich heisst, auf den ein Rückweg zeigt.
+ *
+ * «← Zurück zu Tickets» braucht einen Namen für eine Adresse. Den gibt es
+ * bereits - er steht in der Module Registry, und die Seitenleiste zeigt ihn
+ * an derselben Stelle an. Eine zweite Liste von Pfad zu Beschriftung liefe
+ * beim ersten umbenannten Bereich auseinander.
+ *
+ * Gesucht wird der längste passende Eintrag: `/tickets/offen` gewinnt gegen
+ * `/tickets`, sonst hiesse jede Unterseite wie ihr Modul. Geprüft wird
+ * **ohne** Berechtigungen - die Beschriftung eines Bereichs ist kein
+ * Geheimnis, und wer dem Rückweg folgt, landet auf einer Seite, die ihre
+ * Berechtigung selbst prüft.
+ */
+export function routenBezeichnung(pfad: string): string | null {
+  const ohneAbfrage = pfad.split(/[?#]/u)[0] ?? pfad;
+  let treffer: { href: string; label: string } | null = null;
+
+  const pruefe = (href: string, label: string): void => {
+    if (ohneAbfrage !== href && !ohneAbfrage.startsWith(`${href}/`)) {
+      return;
+    }
+    if (!treffer || href.length > treffer.href.length) {
+      treffer = { href, label };
+    }
+  };
+
+  for (const definition of listModuleDefinitions()) {
+    for (const eintrag of definition.navigation) {
+      pruefe(eintrag.href, eintrag.label);
+      if (eintrag.titlePrefix) {
+        pruefe(eintrag.titlePrefix, eintrag.label);
+      }
+      for (const ausweich of eintrag.alternatives ?? []) {
+        pruefe(ausweich.href, ausweich.label);
+      }
+    }
+  }
+
+  return treffer === null ? null : (treffer as { href: string; label: string }).label;
+}

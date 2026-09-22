@@ -3,13 +3,14 @@ import Link from 'next/link';
 import { CalendarDays, Plus, Settings2 } from 'lucide-react';
 import { can } from '@swisshub/auth';
 import { calendar, isModuleEnabled } from '@swisshub/modules';
-import { tageSpaeter, teileIn } from '@swisshub/shared';
+import { systemRoutes, tageSpaeter, teileIn } from '@swisshub/shared';
 import { Button } from '@/components/ui/button';
 import { EmptyState, ErrorState } from '@/components/shared/states';
 import { Agendaansicht, Monatsansicht, Wochenansicht } from '@/modules/calendar/components/kalender-gitter';
 import { KalenderFilter } from '@/modules/calendar/components/kalender-filter';
 import { EventKarte } from '@/modules/calendar/components/shared';
 import { requirePagePermission } from '@/server/auth';
+import { listenKontext } from '@/server/navigation-context';
 
 export const metadata: Metadata = { title: 'Community-Kalender' };
 export const dynamic = 'force-dynamic';
@@ -112,7 +113,15 @@ export default async function KalenderPage({
   const nachher =
     schritt > 0 ? tageSpaeter(anker, zone, schritt) : new Date(Date.UTC(teile.jahr, teile.monat, 15, 12));
 
-  const gitterProps = { zeilen, von, bis, anker, zone, heute };
+  /*
+   * Zeitraum, Ansicht und Filter reisen an jedem Event mit.
+   *
+   * Sie stehen ohnehin in der Adresse - das ist in dieser Anwendung die
+   * Quelle der Wahrheit fuer Listen. Hier wird sie nur weitergereicht, damit
+   * der Rueckweg von einem Termin genau in diese Ansicht fuehrt.
+   */
+  const kontext = listenKontext(systemRoutes.kalender(), params);
+  const gitterProps = { zeilen, von, bis, anker, zone, heute, kontext };
 
   return (
     <>
@@ -212,7 +221,7 @@ export default async function KalenderPage({
               .filter((zeile) => zeile.startAt >= heute && zeile.status !== 'CANCELLED')
               .slice(0, 6)
               .map((zeile) => (
-                <EventKarte key={zeile.id} zeile={zeile} />
+                <EventKarte kontext={kontext} key={zeile.id} zeile={zeile} />
               ))}
           </div>
         </section>

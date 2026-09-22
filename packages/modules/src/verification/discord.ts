@@ -1,5 +1,6 @@
 import { prisma } from '@swisshub/database';
 import type { VerificationRequest } from '@swisshub/database';
+import { imSystemOeffnen, systemRoutes } from '../links';
 import {
   BUTTON_STYLE,
   discord as defaultDiscord,
@@ -209,10 +210,18 @@ function statusZeile(request: VerificationRequest): string {
 }
 
 function buildComponents(request: VerificationRequest): DiscordMessagePayload['components'] {
-  // Ein entschiedener Vorgang bietet nichts mehr an. Ein Knopf, der beim
-  // Druecken nur noch «bereits entschieden» sagt, ist kein Angebot.
+  /*
+   * Ein entschiedener Vorgang bietet nichts mehr zu entscheiden an - aber der
+   * Weg ins System bleibt. Genau dort steht, was danach interessiert: die
+   * Akte der Person, ihre bisherigen Vorgaenge und wer entschieden hat.
+   */
   if (request.decidedAt) {
-    return [];
+    return [
+      {
+        type: 1 as const,
+        components: [imSystemOeffnen(systemRoutes.mitglied(request.discordId), 'Mitglied im System')],
+      },
+    ];
   }
   return [
     {
@@ -232,6 +241,10 @@ function buildComponents(request: VerificationRequest): DiscordMessagePayload['c
           emoji: { name: '🔴' },
           custom_id: buildButtonId('reject', request.id),
         },
+        // Wer vor der Entscheidung nachsehen will, kommt von hier direkt in
+        // die Warteschlange - mit Verlauf, Kontoalter und allem, was die
+        // Nachricht nicht traegt.
+        imSystemOeffnen(systemRoutes.verifikation(), 'In der Warteschlange'),
       ],
     },
   ];

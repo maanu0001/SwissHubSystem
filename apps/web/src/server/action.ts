@@ -79,6 +79,15 @@ export interface ActionDefinition<TSchema extends z.ZodTypeAny> {
    * Aktion kann daher nichts erreichen, was einer Berechtigung beduerfte.
    */
   applicant?: boolean;
+  /**
+   * Die Aktion läuft auch während einer laufenden Vorschau.
+   *
+   * **Genau zwei Aktionen dürfen das:** eine Vorschau starten und eine
+   * beenden. Alles andere ist während einer Vorschau gesperrt - sie ist eine
+   * Frage, keine Handlung. Wer dieses Kennzeichen setzt, sagt damit zu, dass
+   * die Aktion nichts ausser dem Vorschau-Zustand selbst verändert.
+   */
+  allowDuringPreview?: boolean;
 }
 
 export interface ActionHandlerContext<TInput> {
@@ -113,6 +122,36 @@ export function defineAction<TSchema extends z.ZodTypeAny, TResult>(
       // Antragsteller sind keine Mitglieder - siehe `applicant` oben.
       if (!definition.applicant) {
         assertMembership(context, { ...metadata, path: definition.name });
+      }
+
+      /*
+       * Vorschau ist nur zum Ansehen - und zwar serverseitig.
+       *
+       * Die Sperre steht hier, vor Eingabepruefung und Autorisierung, und sie
+       * gilt fuer **jede** Aktion. Eine Liste der schreibenden Aktionen zu
+       * pflegen hiesse, sie beim naechsten neuen Knopf zu vergessen; die
+       * vorsichtige Richtung ist, alles zu sperren und die zwei Ausnahmen
+       * ausdruecklich zu benennen.
+       *
+       * Dass ein Knopf in der Oberflaeche vielleicht noch sichtbar waere,
+       * spielt keine Rolle: gesperrt wird hier, und damit auch fuer einen
+       * Aufruf, der die Oberflaeche umgeht.
+       */
+      if (context.preview && !definition.allowDuringPreview) {
+        await recordSecurityEvent({
+          type: SECURITY_EVENTS.PERMISSION_DENIED,
+          severity: 'LOW',
+          discordId: context.user.discordId,
+          ipHash: metadata.ipHash,
+          userAgent: metadata.userAgent,
+          path: definition.name,
+          metadata: { grund: 'preview', previewKind: context.preview.kind },
+        });
+        throw new AppError('FORBIDDEN', {
+          userMessage:
+            'Die Vorschau ist nur zum Ansehen. Beende sie oben im Banner, um wieder handeln zu können.',
+          internalMessage: `Aktion ${definition.name} während einer Vorschau abgelehnt`,
+        });
       }
 
       if (definition.csrf !== false) {

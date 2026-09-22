@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { jail, getModuleSettings, isModuleEnabled } from '@swisshub/modules';
-import { formatDateTime, formatDayTime } from '@swisshub/shared';
+import { formatDateTime, formatDayTime, mitRueckkehr, systemRoutes } from '@swisshub/shared';
 import { can } from '@swisshub/auth';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import { JailRowActions } from '@/modules/jail/components/jail-row-actions';
 import { PurgeJailsButton } from '@/modules/jail/components/purge-jails-button';
 import { RemainingTime } from '@/modules/jail/components/remaining-time';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
+import { listenKontext } from '@/server/navigation-context';
 import { cn } from '@/lib/utils';
 import type { JailEntry } from '@swisshub/database';
 import { ModerationSectionNav } from '@/modules/moderation/components/section-nav';
@@ -32,6 +33,8 @@ interface JailPageProps {
 export default async function JailPage({ searchParams }: JailPageProps): Promise<React.JSX.Element> {
   const context = await requirePagePermission(jail.JAIL_PERMISSIONS.view);
   const params = await searchParams;
+  // Reiter, Suche und Seitenzahl reisen an jedem Vorgang mit.
+  const kontext = listenKontext(systemRoutes.jails(), params);
   const query = jail.jailListQuerySchema.parse({
     tab: params.tab ?? 'active',
     page: params.page ?? '1',
@@ -71,7 +74,10 @@ export default async function JailPage({ searchParams }: JailPageProps): Promise
       key: 'member',
       header: 'Mitglied',
       render: (entry: JailEntry) => (
-        <Link href={`/members/${entry.targetDiscordId}`} className="flex items-center gap-3 hover:underline">
+        <Link
+          href={mitRueckkehr(systemRoutes.mitglied(entry.targetDiscordId), kontext)}
+          className="flex items-center gap-3 hover:underline"
+        >
           <DiscordAvatar
             discordId={entry.targetDiscordId}
             avatarHash={entry.targetAvatarHash}
@@ -195,7 +201,7 @@ export default async function JailPage({ searchParams }: JailPageProps): Promise
           />
         ) : (
           <Link
-            href={`/moderation/jail/${entry.id}`}
+            href={mitRueckkehr(systemRoutes.jail(entry.id), kontext)}
             className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
           >
             Details

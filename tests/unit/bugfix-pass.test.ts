@@ -33,13 +33,14 @@ describe('Dashboard steht wieder auf dem Stand vor dem Umbau', () => {
     expect(seite).not.toContain('kontext.map');
   });
 
-  it('hat wieder genau die fünf Kennzahlkarten in ihrer alten Reihenfolge', () => {
+  it('hat die verbliebenen Kennzahlkarten in ihrer alten Reihenfolge', () => {
+    // «Aktionen heute» ist auf Wunsch entfallen - siehe die naechste
+    // Pruefung. Die uebrigen stehen unveraendert und in derselben Folge.
     const reihenfolge = [
       'label="Mitglieder"',
       'label="Aktive Jails"',
       'label="Verifikationen offen"',
       'label="Bot Status"',
-      'label="Aktionen heute"',
     ];
     let vorher = -1;
     for (const karte of reihenfolge) {
@@ -47,6 +48,34 @@ describe('Dashboard steht wieder auf dem Stand vor dem Umbau', () => {
       expect(stelle, karte).toBeGreaterThan(vorher);
       vorher = stelle;
     }
+  });
+
+  it('zeigt «Aktionen heute» nicht mehr - auch nicht für Moderation und Verwaltung', () => {
+    /*
+     * Die Kachel hing an `moderation.view` und war damit von vornherein nur
+     * fuer Moderation und Verwaltung sichtbar; ein gewoehnliches Mitglied sah
+     * sie nie. Sie zu entfernen heisst deshalb: sie ist fuer genau die beiden
+     * Gruppen weg, die sie hatten.
+     *
+     * Die Zahl selbst gibt es weiterhin - unter «Moderation», wo sie neben
+     * den uebrigen Moderationskennzahlen steht.
+     */
+    expect(seite).not.toContain('label="Aktionen heute"');
+    expect(seite).not.toContain('data.actionsToday');
+    expect(seite).not.toContain('data.actionsTrend');
+    expect(lies('apps/web/src/app/(app)/moderation/page.tsx')).toContain('label="Aktionen heute"');
+  });
+
+  it('laesst durch den Wegfall kein Loch im Raster', () => {
+    // `auto-fit` laesst die uebrigen Karten nachruecken. Genau dafuer steht
+    // es dort - und genau deshalb war am Raster nichts anzupassen.
+    expect(seite).toContain('repeat(auto-fit,minmax(min(100%,15rem),1fr))');
+  });
+
+  it('fragt die Moderationszahlen nicht mehr an', () => {
+    // Was nicht gezeigt wird, wird auch nicht geladen. `loadDashboardData`
+    // kann sie weiterhin liefern - das Dashboard braucht sie nicht mehr.
+    expect(seite).toContain('loadDashboardData({ canViewJails, canViewAudit })');
   });
 
   it('führt die Schnellaktionen wieder als Panel in der rechten Spalte', () => {
@@ -109,7 +138,6 @@ describe('Dashboard steht wieder auf dem Stand vor dem Umbau', () => {
       'Aktive Jails',
       'Verifikationen offen',
       'Bot Status',
-      'Aktionen heute',
       'Warteschlange',
       'Ticket erstellen',
       'Spielersuche starten',
@@ -134,7 +162,6 @@ describe('Dashboard steht wieder auf dem Stand vor dem Umbau', () => {
       'canViewMembers',
       'canManageModules',
       'canViewSettings',
-      'canViewModeration',
       'darfNutzen',
     ]) {
       expect(seite, pruefung).toContain(pruefung);

@@ -32,8 +32,16 @@ export interface DashboardData {
 export interface DashboardScope {
   canViewJails: boolean;
   canViewAudit: boolean;
-  /** Darf die Moderationskennzahlen des Servers sehen. */
-  canViewModeration: boolean;
+  /**
+   * Darf die Moderationskennzahlen des Servers sehen.
+   *
+   * Optional, und das ist seit dem Wegfall der Kachel «Aktionen heute» der
+   * Normalfall: das Dashboard fragt sie nicht mehr an. Weggelassen heisst
+   * «nicht laden» - dieselbe Wirkung wie `false`, nur ohne die Behauptung,
+   * der Betrachter duerfe sie nicht sehen. Die Zahlen selbst gibt es
+   * weiterhin; sie stehen unter «Moderation».
+   */
+  canViewModeration?: boolean;
 }
 
 /**

@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import { AlertTriangle, ArrowLeft, Download, ExternalLink } from 'lucide-react';
+import { AlertTriangle, Download, ExternalLink } from 'lucide-react';
 import { tickets } from '@swisshub/modules';
-import { formatDateTime } from '@swisshub/shared';
+import { formatDateTime, systemRoutes } from '@swisshub/shared';
 import { resolveGuildId } from '@swisshub/discord';
+import { channelLink } from '@swisshub/discord/cdn';
+import { ZurueckLink } from '@/components/shared/zurueck-link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/shared/page-header';
 import { PriorityBadge, StatusBadge } from '@/modules/tickets/components/ticket-badges';
@@ -31,10 +32,15 @@ export const dynamic = 'force-dynamic';
  */
 export default async function TicketDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ ticketId: string }>;
+  searchParams: Promise<{ von?: string }>;
 }): Promise<React.JSX.Element> {
   const { ticketId } = await params;
+  // Woher die Person kam - gefilterte Liste, Seite 3, Suchbegriff. Geprüft
+  // wird die Adresse erst im Rückweg selbst; hier reist sie nur mit.
+  const { von } = await searchParams;
   const context = await requireMember();
   const csrfToken = csrfTokenFor(context);
 
@@ -97,13 +103,7 @@ export default async function TicketDetailPage({
         }
       />
 
-      <Link
-        href="/tickets"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-3.5" aria-hidden="true" />
-        Zurück zur Übersicht
-      </Link>
+      <ZurueckLink von={von} fallback={systemRoutes.tickets()} fallbackLabel="Übersicht" />
 
       {ticket.channelMissing ? (
         <p className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-warning">
@@ -173,7 +173,7 @@ export default async function TicketDetailPage({
 
               {ticket.discordChannelId && !ticket.channelMissing && guildId ? (
                 <a
-                  href={`https://discord.com/channels/${guildId}/${ticket.discordChannelId}`}
+                  href={channelLink(guildId, ticket.discordChannelId)}
                   target="_blank"
                   rel="noreferrer noopener"
                   className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground hover:underline"

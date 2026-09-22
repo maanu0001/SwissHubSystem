@@ -1,6 +1,7 @@
 import { prisma } from '@swisshub/database';
 import { discord as defaultDiscord, type DiscordGateway } from '@swisshub/discord';
 import { createLogger } from '@swisshub/logger';
+import { imSystemOeffnen, systemRoutes } from '../links';
 import { getModuleSettings, isModuleEnabled } from '../module-state';
 import { AUTOMATION_MODULE_ID, type AutomationSettings } from './config';
 
@@ -97,6 +98,9 @@ async function meldeFehler(
             footer: { text: 'Automationen → Fehler' },
           },
         ],
+        // Der Lauf selbst, nicht die Liste: im Fehlerfall zaehlt der Schritt,
+        // an dem es hakte, und den zeigt nur der Lauf.
+        components: [{ type: 1, components: [imSystemOeffnen(systemRoutes.automationLauf(lauf.id))] }],
         allowedMentions: settings.meldeRolleId
           ? { parse: [], roles: [settings.meldeRolleId] }
           : { parse: [] },
@@ -161,10 +165,14 @@ async function meldeFreigaben(settings: AutomationSettings, gateway: DiscordGate
             footer: { text: 'Automationen → Fehler' },
           },
         ],
-        // Bewusst ohne Knöpfe: freigegeben wird im Dashboard, wo die
+        // Bewusst kein Freigabe-Knopf: freigegeben wird im Dashboard, wo die
         // Berechtigung geprüft und die Entscheidung protokolliert wird. Ein
         // Knopf auf Discord wäre ein zweiter Weg zur selben Wirkung - und der
         // zweite ist immer der, den niemand prüft.
+        //
+        // Ein Verweis dorthin ist etwas anderes: er entscheidet nichts, er
+        // verkürzt nur den Weg zu der Stelle, an der entschieden wird.
+        components: [{ type: 1, components: [imSystemOeffnen(systemRoutes.automationLauf(freigabe.runId))] }],
         allowedMentions: { parse: [] },
       });
       await prisma.automationApproval.updateMany({

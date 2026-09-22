@@ -5,6 +5,7 @@ import { TicketFilters } from '@/modules/tickets/components/ticket-filters';
 import { TicketList } from '@/modules/tickets/components/ticket-list';
 import { TicketSectionNav } from '@/modules/tickets/components/section-nav';
 import { requirePagePermission } from '@/server/auth';
+import { listenKontext } from '@/server/navigation-context';
 import { ladeTicketListe, ticketListenHref, ticketSections, type TicketListenSuche } from '@/server/tickets';
 
 export const metadata: Metadata = { title: 'Ticket-Archiv' };
@@ -23,6 +24,9 @@ export default async function TicketArchivPage({
 }): Promise<React.JSX.Element> {
   const context = await requirePagePermission(tickets.TICKET_PERMISSIONS.archiveView);
   const suche = await searchParams;
+  // Filter, Suche und Seitenzahl reisen an jedem Ticket mit - damit
+  // «Zurück» wieder hierher führt und nicht auf Seite 1 ohne Filter.
+  const kontext = listenKontext('/tickets/archiv', suche);
 
   const [{ rows, total, page, totalPages }, kategorien] = await Promise.all([
     ladeTicketListe(context, suche, { closed: true }),
@@ -41,7 +45,12 @@ export default async function TicketArchivPage({
         kategorien={kategorien}
         archiv
       />
-      <TicketList rows={rows} leerTitel="Nichts im Archiv" leerText="Geschlossene Tickets erscheinen hier." />
+      <TicketList
+        kontext={kontext}
+        rows={rows}
+        leerTitel="Nichts im Archiv"
+        leerText="Geschlossene Tickets erscheinen hier."
+      />
       {totalPages > 1 ? (
         <Pagination
           page={page}

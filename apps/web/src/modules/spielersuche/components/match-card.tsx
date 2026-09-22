@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ExternalLink, Users } from 'lucide-react';
 import { formatDateTime } from '@swisshub/shared';
+import { messageLink } from '@swisshub/discord/cdn';
 import { Badge } from '@/components/ui/badge';
 import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import type { SpielersucheMatch, SpielersucheParticipant } from '@swisshub/database';
@@ -28,7 +29,7 @@ export function discordMessageLink(match: SpielersucheMatch, guildId: string | n
   if (!guildId || !match.channelId || !match.messageId) {
     return null;
   }
-  return `https://discord.com/channels/${guildId}/${match.channelId}/${match.messageId}`;
+  return messageLink(guildId, match.channelId, match.messageId);
 }
 
 export function MatchCard({ match, guildId }: MatchCardProps): React.JSX.Element {

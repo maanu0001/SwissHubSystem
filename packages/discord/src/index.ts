@@ -55,6 +55,8 @@ export {
   avatarSizeFor,
   defaultAvatarUrl,
   guildIconUrl,
+  guildLink,
+  channelLink,
   messageLink,
   type AvatarSize,
 } from './cdn';

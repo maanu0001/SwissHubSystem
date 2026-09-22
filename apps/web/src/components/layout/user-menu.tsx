@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { ChevronDown, ExternalLink, UserRound } from 'lucide-react';
+import { ChevronDown, ExternalLink, Eye, UserRound } from 'lucide-react';
+import { guildLink } from '@swisshub/discord/cdn';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { LogoutButton } from './logout-button';
+import { PreviewMenu, type VorschauRolle } from '@/modules/preview/components/preview-menu';
 
 export interface UserMenuProps {
   discordId: string;
@@ -21,6 +24,19 @@ export interface UserMenuProps {
   primaryRole: string;
   csrfToken: string;
   guildId: string;
+  /**
+   * Was der Betrachter an Vorschau darf - und womit.
+   *
+   * `null`, wenn er `preview.use` nicht hat: dann gibt es den Eintrag gar
+   * nicht. Die Sicherheit hängt nicht daran - die Aktion prüft selbst -, aber
+   * ein Menüeintrag, der mit «keine Berechtigung» antwortet, ist ein
+   * schlechter Menüeintrag.
+   */
+  vorschau?: {
+    darfBenutzer: boolean;
+    darfRolle: boolean;
+    rollen: VorschauRolle[];
+  } | null;
 }
 
 /** Benutzerprofil oben rechts inklusive Abmeldung. */
@@ -32,7 +48,10 @@ export function UserMenu({
   primaryRole,
   csrfToken,
   guildId,
+  vorschau,
 }: UserMenuProps): React.JSX.Element {
+  const [vorschauOffen, setVorschauOffen] = useState(false);
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -87,16 +106,43 @@ export function UserMenu({
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <a href={`https://discord.com/channels/${guildId}`} target="_blank" rel="noreferrer noopener">
+          <a href={guildLink(guildId)} target="_blank" rel="noreferrer noopener">
             <ExternalLink aria-hidden="true" />
             Discord öffnen
           </a>
         </DropdownMenuItem>
+        {vorschau ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={(event) => {
+                // Ohne das schlösse Radix das Menü und der Dialog öffnete sich
+                // im selben Moment - der Fokus landete dann im Nirgendwo.
+                event.preventDefault();
+                setVorschauOffen(true);
+              }}
+            >
+              <Eye aria-hidden="true" />
+              Ansicht als …
+            </DropdownMenuItem>
+          </>
+        ) : null}
         <DropdownMenuSeparator />
         <div className="p-1">
           <LogoutButton csrfToken={csrfToken} />
         </div>
       </DropdownMenuContent>
+
+      {vorschau ? (
+        <PreviewMenu
+          csrfToken={csrfToken}
+          rollen={vorschau.rollen}
+          darfBenutzer={vorschau.darfBenutzer}
+          darfRolle={vorschau.darfRolle}
+          offen={vorschauOffen}
+          onOffenChange={setVorschauOffen}
+        />
+      ) : null}
     </DropdownMenu>
   );
 }

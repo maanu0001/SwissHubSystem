@@ -35,6 +35,21 @@ export const RATE_LIMITS = {
   spielersucheCreate: { limit: 10, windowMs: 10 * 60 * 1000 },
   spielersucheWrite: { limit: 40, windowMs: 5 * 60 * 1000 },
   levelWrite: { limit: 40, windowMs: 5 * 60 * 1000 },
+  /**
+   * Den eigenen Lesezustand aendern.
+   *
+   * Grosszuegig: wer zehn Meldungen durchgeht, drueckt zehnmal, und das
+   * ist gewoehnliche Benutzung. Die Grenze bremst nur Automatisierung.
+   */
+  notificationRead: { limit: 120, windowMs: 5 * 60 * 1000 },
+  /**
+   * Eine Vorschau starten oder beenden.
+   *
+   * Eng: wer die Oberflaeche aus vier Blickwinkeln ansehen will, braucht
+   * vier Umschaltungen, nicht vierzig. Die Grenze bremst das Durchprobieren
+   * von Kennungen.
+   */
+  previewSwitch: { limit: 20, windowMs: 10 * 60 * 1000 },
   // Faehrt in einem Zug ueber jeden XP-Stand auf dem Server. Zweimal
   // hintereinander gibt es dafuer keinen Grund; die zweite Ausfuehrung
   // waere ein Versehen.

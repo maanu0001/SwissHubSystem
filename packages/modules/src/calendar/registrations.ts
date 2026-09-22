@@ -213,6 +213,10 @@ export async function register(
       discordId: identity.discordId,
       titel: event.title,
       status: ergebnis.registration.status,
+      // Ergaenzt, damit eine Meldung auf den Termin zeigen kann und weiss,
+      // wer davon erfahren soll: die Person, die ihn angelegt hat.
+      slug: event.slug,
+      organizerDiscordId: event.createdByDiscordId,
     },
     {
       guildId: event.guildId,

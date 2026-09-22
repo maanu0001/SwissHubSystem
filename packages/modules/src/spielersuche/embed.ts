@@ -5,6 +5,7 @@ import {
   type DiscordMessagePayload,
 } from '@swisshub/discord';
 import { escapeDiscordMarkdown, truncate } from '@swisshub/shared';
+import { channelLink } from '@swisshub/discord';
 import type { SpielersucheMatch, SpielersucheParticipant } from '@swisshub/database';
 
 /**
@@ -219,7 +220,7 @@ function buildComponents(view: MatchView, closed: boolean): DiscordActionRow[] {
       style: BUTTON_STYLE.LINK,
       label: 'Zum Voice',
       emoji: { name: '🔊' },
-      url: `https://discord.com/channels/${view.guildId}/${view.match.voiceChannelId}`,
+      url: channelLink(view.guildId, view.match.voiceChannelId),
     });
   }
 

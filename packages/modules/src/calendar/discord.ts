@@ -1,6 +1,5 @@
 import { AUDIT_ACTIONS, prisma, safeRecordAudit } from '@swisshub/database';
 import type { CalendarEvent, CalendarNoticeKind } from '@swisshub/database';
-import { appUrl } from '@swisshub/config';
 import {
   BUTTON_STYLE,
   discord as defaultDiscord,
@@ -10,6 +9,7 @@ import {
   type SentMessage,
 } from '@swisshub/discord';
 import { createLogger } from '@swisshub/logger';
+import { systemLink, systemRoutes } from '../links';
 import { CALENDAR_ACCENT_COLOR, CALENDAR_MODULE_ID } from './config';
 import { anmeldungGesperrt, belegung } from './registrations';
 import { calendarSettings, erlaubteErwaehnung, requireEvent } from './service';
@@ -30,7 +30,8 @@ const logger = createLogger('calendar:discord');
  * Turnieren; ein eigener Discord-Zugang existiert nicht.
  */
 
-export const eventUrl = (event: Pick<CalendarEvent, 'slug'>): string => appUrl(`/kalender/${event.slug}`);
+export const eventUrl = (event: Pick<CalendarEvent, 'slug'>): string =>
+  systemLink(systemRoutes.event(event.slug));
 
 const STATUS_PRAEFIX: Partial<Record<CalendarEvent['status'], string>> = {
   CANCELLED: 'ABGESAGT — ',

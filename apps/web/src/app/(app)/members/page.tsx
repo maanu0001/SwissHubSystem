@@ -10,6 +10,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { MemberCard } from '@/components/shared/member-card';
 import { EmptyState, ErrorState } from '@/components/shared/states';
 import { requirePagePermission } from '@/server/auth';
+import { listenKontext } from '@/server/navigation-context';
 import { enforceRateLimit } from '@/server/rate-limit';
 import { cn } from '@/lib/utils';
 
@@ -40,7 +41,16 @@ export default async function MembersPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }): Promise<React.JSX.Element> {
   const context = await requirePagePermission('members.view');
-  const params = querySchema.parse(await searchParams);
+  const roheSuche = await searchParams;
+  const params = querySchema.parse(roheSuche);
+  /*
+   * Suche, Rollenfilter, Status und Seitenzahl reisen an jeder Karte mit.
+   *
+   * Bewusst die rohen Parameter und nicht die geprüften: was in der
+   * Adresszeile steht, ist das, wohin «Zurück» führen soll - auch ein
+   * Filter, den das Schema zu seinem Standardwert ergänzt hat.
+   */
+  const kontext = listenKontext('/members', roheSuche);
   const settings = await getCoreSettings();
 
   let seite: Awaited<ReturnType<typeof listMembersPage>> = {
@@ -182,6 +192,7 @@ export default async function MembersPage({
             {seite.members.map((member) => (
               <MemberCard
                 key={member.discordId}
+                kontext={kontext}
                 member={{
                   discordId: member.discordId,
                   username: member.username,

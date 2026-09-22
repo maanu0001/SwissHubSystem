@@ -85,10 +85,18 @@ export async function MitgliedsAkte({
    * «Mitglieder».
    */
   basisPfad,
+  von,
 }: {
   discordId: string;
   tab?: string;
   basisPfad: string;
+  /**
+   * Der Kontext, aus dem die Akte geöffnet wurde.
+   *
+   * Er hängt an jedem Reiter-Link: sonst verlöre ein Klick auf «Verlauf» den
+   * Weg zurück in die gefilterte Liste, aus der man kam.
+   */
+  von?: string;
 }): Promise<React.JSX.Element> {
   // Bewusst nicht `requirePagePermission('members.view')`: wer nur sein
   // eigenes Profil sehen darf, braucht die Mitgliedersuche nicht. Wer gar
@@ -323,7 +331,7 @@ export async function MitgliedsAkte({
             {reiter.map((eintrag) => (
               <Link
                 key={eintrag.id}
-                href={`${basisPfad}?tab=${eintrag.id}`}
+                href={`${basisPfad}?tab=${eintrag.id}${von ? `&von=${encodeURIComponent(von)}` : ''}`}
                 aria-current={eintrag.id === aktiv ? 'page' : undefined}
                 className={cn(
                   'shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',

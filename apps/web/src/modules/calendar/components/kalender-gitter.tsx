@@ -49,6 +49,13 @@ function tageZwischen(von: Date, bis: Date, zone: string): Date[] {
 }
 
 export interface GitterProps {
+  /**
+   * Die Adresse der Kalenderansicht samt Zeitraum, Ansicht und Filtern.
+   *
+   * Sie reist an jedem Event mit, damit «Zurück» wieder in denselben Monat
+   * und dieselbe Auswahl führt - nicht in den laufenden Monat ohne Filter.
+   */
+  kontext?: string | null;
   zeilen: Zeile[];
   von: Date;
   bis: Date;
@@ -58,7 +65,7 @@ export interface GitterProps {
   heute: Date;
 }
 
-export function Monatsansicht({ zeilen, anker, zone, heute }: GitterProps): React.JSX.Element {
+export function Monatsansicht({ zeilen, anker, zone, heute, kontext }: GitterProps): React.JSX.Element {
   const ankerTeile = teileIn(anker, zone);
   // Das Gitter beginnt am Montag vor dem Monatsersten und laeuft ueber
   // sechs Wochen - so bleibt die Hoehe ueber alle Monate gleich, und die
@@ -109,7 +116,7 @@ export function Monatsansicht({ zeilen, anker, zone, heute }: GitterProps): Reac
               </div>
               <div className="mt-0.5 space-y-0.5">
                 {events.slice(0, 3).map((zeile) => (
-                  <EventChip key={zeile.id} zeile={zeile} />
+                  <EventChip key={zeile.id} zeile={zeile} kontext={kontext} />
                 ))}
                 {events.length > 3 ? (
                   <p className="px-1.5 text-xs text-muted-foreground">+{events.length - 3} weitere</p>
@@ -123,7 +130,7 @@ export function Monatsansicht({ zeilen, anker, zone, heute }: GitterProps): Reac
   );
 }
 
-export function Wochenansicht({ zeilen, von, bis, zone, heute }: GitterProps): React.JSX.Element {
+export function Wochenansicht({ zeilen, von, bis, zone, heute, kontext }: GitterProps): React.JSX.Element {
   const tage = tageZwischen(von, bis, zone);
   const karte = nachTagen(zeilen, tage, zone);
   const heuteSchluessel = tagesBeginnIn(heute, zone).getTime();
@@ -155,7 +162,7 @@ export function Wochenansicht({ zeilen, von, bis, zone, heute }: GitterProps): R
                 ) : (
                   events.map((zeile) => (
                     <div key={zeile.id} className="rounded-lg border border-border/60 bg-card p-1.5">
-                      <EventChip zeile={zeile} />
+                      <EventChip zeile={zeile} kontext={kontext} />
                       {!zeile.allDay && zeile.endAt ? (
                         <p className="px-1.5 text-xs text-muted-foreground">
                           bis {uhrzeit(zeile.endAt, zeile.timezone)}
@@ -173,7 +180,7 @@ export function Wochenansicht({ zeilen, von, bis, zone, heute }: GitterProps): R
   );
 }
 
-export function Agendaansicht({ zeilen, zone }: GitterProps): React.JSX.Element {
+export function Agendaansicht({ zeilen, zone, kontext }: GitterProps): React.JSX.Element {
   // Nach Tagen gruppiert statt als flache Liste: sonst laesst sich nicht
   // erkennen, wo ein Tag endet und der naechste beginnt.
   const gruppen = new Map<string, { tag: Date; events: Zeile[] }>();
@@ -195,7 +202,7 @@ export function Agendaansicht({ zeilen, zone }: GitterProps): React.JSX.Element 
           <h3 className="text-sm font-medium text-muted-foreground">{datumKurz(gruppe.tag, zone)}</h3>
           <div className="space-y-2">
             {gruppe.events.map((zeile) => (
-              <EventKarte key={zeile.id} zeile={zeile} />
+              <EventKarte key={zeile.id} zeile={zeile} kontext={kontext} />
             ))}
           </div>
         </div>

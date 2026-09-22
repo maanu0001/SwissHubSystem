@@ -5,6 +5,7 @@ import { TicketFilters } from '@/modules/tickets/components/ticket-filters';
 import { TicketList } from '@/modules/tickets/components/ticket-list';
 import { TicketSectionNav } from '@/modules/tickets/components/section-nav';
 import { requirePagePermission } from '@/server/auth';
+import { listenKontext } from '@/server/navigation-context';
 import { ladeTicketListe, ticketListenHref, ticketSections, type TicketListenSuche } from '@/server/tickets';
 
 export const metadata: Metadata = { title: 'Offene Tickets' };
@@ -18,6 +19,9 @@ export default async function OffeneTicketsPage({
 }): Promise<React.JSX.Element> {
   const context = await requirePagePermission(tickets.TICKET_PERMISSIONS.supportView);
   const suche = await searchParams;
+  // Filter, Suche und Seitenzahl reisen an jedem Ticket mit - damit
+  // «Zurück» wieder hierher führt und nicht auf Seite 1 ohne Filter.
+  const kontext = listenKontext('/tickets/offen', suche);
 
   const [{ rows, total, page, totalPages }, kategorien] = await Promise.all([
     ladeTicketListe(context, suche, { closed: false }),
@@ -36,6 +40,7 @@ export default async function OffeneTicketsPage({
         kategorien={kategorien}
       />
       <TicketList
+        kontext={kontext}
         rows={rows}
         leerTitel="Keine Tickets gefunden"
         leerText="Mit diesen Filtern wartet nichts auf Bearbeitung."

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { channelLink } from '@swisshub/discord/cdn';
 import {
   Check,
   Crown,
@@ -154,7 +155,7 @@ export function TalkPanel({
             {talk.discordChannelId ? (
               <Button size="sm" variant="outline" asChild>
                 <a
-                  href={`https://discord.com/channels/${guildId}/${talk.discordChannelId}`}
+                  href={channelLink(guildId, talk.discordChannelId)}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

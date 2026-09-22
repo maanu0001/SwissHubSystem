@@ -36,17 +36,52 @@ export interface AuthUser {
   isOwner: boolean;
 }
 
+/**
+ * Eine laufende Vorschau.
+ *
+ * **Keine Identitätsübernahme.** `user` bleibt die angemeldete Person, die
+ * Sitzung bleibt ihre, und jede serverseitige Autorisierung folgt weiterhin
+ * ihr. Was sich ändert, ist ausschliesslich die Frage «was sähe diese Person
+ * oder diese Rolle?» - beantwortet von derselben Permission Engine, mit
+ * denselben Regeln.
+ */
+export interface PreviewContext {
+  kind: 'USER' | 'ROLE';
+  /** Discord-ID der Person bzw. ID der Rolle. */
+  subjectId: string;
+  /** Anzeigename für den Banner. */
+  label: string;
+  startedAt: Date;
+  expiresAt: Date;
+}
+
 export interface AuthContext {
   user: AuthUser;
   sessionId: string;
   identity: DiscordIdentity;
   isMember: boolean;
+  /**
+   * Die Permissions, nach denen die Oberfläche entscheidet, was zu sehen ist.
+   *
+   * Ohne Vorschau sind das die der angemeldeten Person. Läuft eine Vorschau,
+   * sind es die der Vorschau-Person - und `realPermissions` daneben bleiben
+   * die echten. Beides zusammen ist die ganze Sicherheit dieser Funktion:
+   * `can()` verlangt **beide**, eine Vorschau kann deshalb nie mehr zeigen,
+   * als die angemeldete Person ohnehin sehen dürfte.
+   */
   permissions: PermissionResolution;
+  /**
+   * Die Permissions der angemeldeten Person - gesetzt, solange eine Vorschau
+   * läuft. Serverseitige Autorisierung folgt ausschliesslich ihnen.
+   */
+  realPermissions?: PermissionResolution;
   /** Ausgerollte Permission-Liste für das UI (nur UX, keine Sicherheit). */
   permissionKeys: string[];
   /** Höchste Moderationsstufe der aktuellen Rollen. */
   moderationLevel: number;
   roleIds: string[];
+  /** Läuft gerade eine Vorschau? Dann ist alles Schreibende gesperrt. */
+  preview?: PreviewContext;
 }
 
 export type Freshness = 'cached' | 'critical';
@@ -158,7 +193,16 @@ export async function assertPermission(
   metadata: GuardMetadata = {},
 ): Promise<void> {
   assertMembership(context, metadata);
-  if (hasPermission(context.permissions, permission)) {
+  /*
+   * Serverseitig zählt die angemeldete Person, nie eine Vorschau.
+   *
+   * Eine Vorschau darf die Oberfläche einschränken; sie darf nicht darüber
+   * entscheiden, was der Server tut. Mutierende Aktionen sind während einer
+   * Vorschau ohnehin gesperrt - diese Zeile ist die zweite Verteidigungslinie
+   * und stellt sicher, dass eine Vorschau auch dann nichts verschiebt, wenn
+   * die erste einmal fehlen sollte.
+   */
+  if (hasPermission(context.realPermissions ?? context.permissions, permission)) {
     return;
   }
 
@@ -190,6 +234,22 @@ export async function assertPermission(
   });
 }
 
+/**
+ * Darf der Betrachter das sehen?
+ *
+ * Während einer Vorschau müssen **beide** Seiten zustimmen: die
+ * Vorschau-Person (sonst zeigte die Vorschau etwas, das sie nie sähe) und die
+ * angemeldete Person (sonst wäre die Vorschau eine Rechteausweitung - man
+ * wählte eine Rolle mit mehr Rechten als die eigenen und sähe deren
+ * Oberfläche). Eine gefälschte Vorschau-Kennung bringt dadurch nichts: sie
+ * kann nur wegnehmen, nie hinzufügen.
+ */
 export function can(context: AuthContext, permission: string): boolean {
-  return context.isMember && hasPermission(context.permissions, permission);
+  if (!context.isMember) {
+    return false;
+  }
+  if (!hasPermission(context.permissions, permission)) {
+    return false;
+  }
+  return context.realPermissions ? hasPermission(context.realPermissions, permission) : true;
 }

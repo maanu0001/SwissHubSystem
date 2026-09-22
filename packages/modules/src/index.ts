@@ -27,6 +27,8 @@ import { registerGuildResolver } from './guild/config';
 registerGuildResolver();
 
 export * from './registry';
+export * from './links';
+export * as notifications from './notifications';
 export * from './module-state';
 export * from './module-view';
 export * from './settings';

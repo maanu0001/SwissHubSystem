@@ -1,5 +1,5 @@
 import { branding } from '@swisshub/config/client';
-import { guildIconUrl } from '@swisshub/discord/cdn';
+import { guildIconUrl, guildLink } from '@swisshub/discord/cdn';
 import {
   branding as brandingModule,
   buildNavigation,
@@ -12,10 +12,13 @@ import {
   readBotStatus,
   tickets as ticketsModule,
 } from '@swisshub/modules';
-import { dashboardRoleLabel } from '@swisshub/permissions';
+import { dashboardRoleLabel, loadRoleConfiguration } from '@swisshub/permissions';
+import { can } from '@swisshub/auth';
 import { AppShell } from '@/components/layout/app-shell';
 import { currentGuild } from '@/server/guild';
 import { csrfTokenFor, hasSetupAccess, requireMember } from '@/server/auth';
+import { glockeFuer } from '@/server/notifications';
+import { PREVIEW_PERMISSIONS } from '@/server/preview';
 import { ticketViewer } from '@/server/tickets';
 
 const APP_ROLE_LABEL: Record<string, string> = {
@@ -115,6 +118,44 @@ export default async function AppLayout({
    * Schnellnavigation bekommen alle dieselbe fertige Liste. Ein Bereich, der
    * auf dem Telefon steht und am Rechner fehlt, kann so gar nicht entstehen.
    */
+  /*
+   * Die Glocke - immer die des **echten** Kontos.
+   *
+   * In einer Vorschau wird sie gar nicht erst geladen: persönliche
+   * Benachrichtigungen einer anderen Person sind ihr Posteingang, nicht ihre
+   * Oberfläche. Die eigenen zu zeigen wäre ebenso falsch - die Vorschau
+   * behauptete dann etwas, das die Person so nie sähe. Die Glocke bleibt
+   * deshalb stumm und sagt im Titel, warum.
+   */
+  const benachrichtigungen = context.preview
+    ? { eintraege: [], ungelesen: 0 }
+    : await glockeFuer(context).catch(() => ({ eintraege: [], ungelesen: 0 }));
+
+  /*
+   * Wer eine Vorschau starten darf - und mit welchen Rollen.
+   *
+   * `can()` fragt in einer laufenden Vorschau die Schnittmenge ab. Das ist
+   * hier genau richtig: der Eintrag «Ansicht als …» verschwindet, solange
+   * eine Vorschau läuft, und der Weg zurück führt über den Banner. Zwei
+   * ineinander verschachtelte Vorschauen wären ein Zustand, den niemand mehr
+   * überblickt.
+   */
+  const darfVorschau = can(context, PREVIEW_PERMISSIONS.use) && !context.preview;
+  const vorschauRollen =
+    darfVorschau && can(context, PREVIEW_PERMISSIONS.role)
+      ? await loadRoleConfiguration()
+          // Die verwalteten Rollen stehen bereits in der Rollenkonfiguration,
+          // die die Permission Engine ohnehin laedt - und sie ist zwischen-
+          // gespeichert. Eine eigene Abfrage waere eine zweite Quelle
+          // derselben Liste.
+          .then((konfiguration) =>
+            [...konfiguration.roleLabels.entries()]
+              .map(([id, name]) => ({ id, name }))
+              .sort((a, b) => a.name.localeCompare(b.name)),
+          )
+          .catch(() => [])
+      : [];
+
   const signals = await resolveNavigationSignals();
   const navigation = buildNavigation(navigationKeys, moduleIds, signals);
   const groups = groupNavigation(navigation).map((group) => ({
@@ -146,9 +187,19 @@ export default async function AppLayout({
     <AppShell
       groups={groups}
       titles={titles}
+      benachrichtigungen={{
+        eintraege: benachrichtigungen.eintraege.map((eintrag) => ({
+          ...eintrag,
+          createdAt: eintrag.createdAt.toISOString(),
+        })),
+        ungelesen: benachrichtigungen.ungelesen,
+        csrfToken: csrfTokenFor(context),
+        vorschauAktiv: context.preview !== undefined,
+      }}
+      vorschau={context.preview ? { kind: context.preview.kind, label: context.preview.label } : null}
       permissions={context.permissionKeys}
       bot={{ online: bot.online, wsPingMs: bot.wsPingMs }}
-      discordUrl={guildId ? `https://discord.com/channels/${guildId}` : 'https://discord.com/channels/@me'}
+      discordUrl={guildId ? guildLink(guildId) : guildLink('@me')}
       logoUrl={logoUrl}
       premium={premiumKarte}
       server={{
@@ -168,6 +219,13 @@ export default async function AppLayout({
         primaryRole: dashboardLabel ?? APP_ROLE_LABEL[context.user.appRole] ?? 'Mitglied',
         csrfToken: csrfTokenFor(context),
         guildId: guildId ?? '',
+        vorschau: darfVorschau
+          ? {
+              darfBenutzer: can(context, PREVIEW_PERMISSIONS.user),
+              darfRolle: can(context, PREVIEW_PERMISSIONS.role),
+              rollen: vorschauRollen,
+            }
+          : null,
       }}
     >
       {children}

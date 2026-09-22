@@ -5840,3 +5840,72 @@ model MigrationRun {
   @@index([sourceGuildId, createdAt])
   @@index([status, createdAt])
 }
+
+/// Eine persoenliche Benachrichtigung im Dashboard.
+///
+/// Sie entsteht aus einem Domain Event - nicht aus einem zweiten Satz
+/// Discord-Listener und nicht aus dem Audit Log. Das Audit Log haelt fest,
+/// *was geschehen ist*; eine Benachrichtigung sagt *jemandem*, dass etwas
+/// auf ihn wartet. Wer beides vermischt, bekommt eine Glocke mit
+/// dreihundert Eintraegen am Tag, die niemand mehr oeffnet.
+///
+/// **Je Empfaenger eine Zeile.** Nicht ein Ereignis mit einer Leseliste:
+/// zwei Moderatorinnen sollen denselben Vorgang unabhaengig voneinander als
+/// gelesen markieren koennen, und wer die Berechtigung spaeter verliert,
+/// soll seine alten Zeilen behalten, ohne an neue zu kommen.
+model Notification {
+  id String @id @default(cuid())
+
+  /// Wem sie gehoert.
+  ///
+  /// Die Discord-ID und nicht der Fremdschluessel auf `User`: die
+  /// Berechtigungen haengen an der Discord-Identitaet, und eine
+  /// Benachrichtigung soll eine Neuanmeldung ueberleben.
+  recipientDiscordId String
+
+  /// Die Art - entscheidet ueber Symbol und Beschriftung in der Oberflaeche.
+  kind String
+
+  title String
+  body  String?
+
+  /// Der interne Pfad zum betroffenen Objekt. Immer relativ, nie absolut:
+  /// eine gespeicherte Adresse mit Schema waere eine offene Weiterleitung
+  /// mit Ablagefach.
+  route String?
+
+  /// Wer es ausgeloest hat - zur Anzeige, nicht zur Autorisierung.
+  actorDiscordId String?
+  actorLabel     String?
+
+  /// Das betroffene Objekt, damit eine Zeile beim Loeschen des Objekts
+  /// gefunden werden kann.
+  entityId String?
+
+  /// Verhindert Doppel bei Wiederholungen und Ereignis-Wiedergaben.
+  ///
+  /// Enthaelt Ereigniskennung, Empfaenger und Art - dasselbe Ereignis
+  /// erzeugt fuer dieselbe Person genau eine Zeile, egal wie oft es
+  /// zugestellt wird.
+  dedupeKey String @unique
+
+  /// Gleichartige Ereignisse teilen sich eine Zeile.
+  ///
+  /// Fuenf gescheiterte Laeufe derselben Automation sind eine Meldung mit
+  /// einer Zahl, nicht fuenf Meldungen. Ist er gesetzt, zaehlt eine neue
+  /// Meldung `count` hoch und setzt die Zeile wieder auf ungelesen.
+  groupKey String?
+
+  count Int @default(1)
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  /// Die Abfrage der Glocke: meine, ungelesene zuerst, neueste zuerst.
+  @@index([recipientDiscordId, readAt, createdAt])
+  /// Die Zusammenfassung: gibt es fuer diese Person schon eine Gruppe?
+  @@index([recipientDiscordId, groupKey])
+  /// Die Aufbewahrung raeumt nach Alter.
+  @@index([createdAt])
+}

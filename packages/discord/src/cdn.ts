@@ -61,9 +61,33 @@ export function guildIconUrl(
 }
 
 /**
+ * Die Adressen von Discord - an einer Stelle.
+ *
+ * Sie standen bisher an zehn Stellen als Zeichenkette im Code, und jede war
+ * eine eigene Gelegenheit, `guildId` und `channelId` zu vertauschen. Jetzt
+ * gibt es drei Funktionen, eine je Ebene.
+ *
+ * Alle drei geben auch dann eine gueltige Adresse zurueck, wenn die Kennung
+ * leer ist - deshalb pruefen die Aufrufer **vorher**, ob es die Ressource
+ * ueberhaupt gibt, und zeigen den Verweis sonst gar nicht. Ein Knopf, der auf
+ * einen geloeschten Kanal fuehrt, ist schlechter als kein Knopf.
+ */
+const DISCORD_APP = 'https://discord.com/channels';
+
+/** Der Server selbst. */
+export function guildLink(guildId: string): string {
+  return `${DISCORD_APP}/${guildId}`;
+}
+
+/** Ein Kanal auf dem Server. */
+export function channelLink(guildId: string, channelId: string): string {
+  return `${DISCORD_APP}/${guildId}/${channelId}`;
+}
+
+/**
  * Link zu einer Discord-Nachricht.
  * Wird serverseitig gebaut - der Browser bekommt eine fertige URL.
  */
 export function messageLink(guildId: string, channelId: string, messageId: string): string {
-  return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
+  return `${DISCORD_APP}/${guildId}/${channelId}/${messageId}`;
 }

@@ -4,6 +4,7 @@ import type {
   ModerationActionType,
   ModerationSource,
 } from '@swisshub/database';
+import { messageLink } from '@swisshub/discord';
 import type { DiscordEmbed, DiscordEmbedField } from '@swisshub/discord';
 import { EVENT_TYPES } from '../analytics/event-types';
 import { ZUORDNUNG_TEXT, type ZuordnungsArt } from '../invites/service';
@@ -418,7 +419,7 @@ function nachrichtenLink(ereignis: DiscordEvent, guildId: string | null): string
   if (!guildId || !ereignis.channelId || !ereignis.messageId) {
     return null;
   }
-  return `[Zur Nachricht](https://discord.com/channels/${guildId}/${ereignis.channelId}/${ereignis.messageId})`;
+  return `[Zur Nachricht](${messageLink(guildId, ereignis.channelId, ereignis.messageId)})`;
 }
 
 // --- Testnachricht ----------------------------------------------------------

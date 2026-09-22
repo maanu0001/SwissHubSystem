@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Check, ExternalLink, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { messageLink } from '@swisshub/discord/cdn';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { EmptyState } from '@/components/shared/states';
@@ -287,7 +288,7 @@ export function Warteschlange({
                 {verifikationsKanalId && eintrag.latestMessageId ? (
                   <Button variant="outline" size="sm" asChild>
                     <a
-                      href={`https://discord.com/channels/${guildId}/${verifikationsKanalId}/${eintrag.latestMessageId}`}
+                      href={messageLink(guildId, verifikationsKanalId, eintrag.latestMessageId)}
                       target="_blank"
                       rel="noreferrer noopener"
                     >

@@ -3,6 +3,7 @@ import type { Ticket, TicketCategory } from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
 import { discord, BUTTON_STYLE } from '@swisshub/discord';
 import type { DiscordEmbedField, DiscordMessagePayload } from '@swisshub/discord';
+import { imSystemOeffnen, systemRoutes } from '../links';
 import { getModuleSettings } from '../module-state';
 import { TICKETS_MODULE_ID, type TicketSettings } from './config';
 
@@ -31,6 +32,14 @@ export const TICKET_BUTTON = {
  * wenn niemand das Dashboard oeffnet.
  */
 export function eroeffnungsNachricht(input: {
+  /**
+   * Die Kennung des Tickets im System - fuer den Knopf «Im System oeffnen».
+   *
+   * Nicht die Nummer: die Nummer steht in der Ueberschrift und ist fuer
+   * Menschen; die Adresse braucht die Kennung. Optional, damit der Knopf
+   * wegbleibt, wenn sie nicht zur Hand ist, statt auf eine 404 zu fuehren.
+   */
+  ticketId?: string | null;
   ticketNumber: number;
   subject: string;
   creatorDiscordId: string;
@@ -84,6 +93,11 @@ export function eroeffnungsNachricht(input: {
             custom_id: TICKET_BUTTON.close,
             emoji: { name: '🔒' },
           },
+          // Der Weg ins System - Verlauf, Notizen, Schlagwoerter und die
+          // Akte der Person stehen dort. Der Knopf fuehrt nur hin; wer das
+          // Ticket nicht sehen darf, sieht es auch ueber diese Adresse
+          // nicht.
+          ...(input.ticketId ? [imSystemOeffnen(systemRoutes.ticket(input.ticketId))] : []),
         ],
       },
     ],
@@ -119,6 +133,7 @@ export async function sendeEroeffnung(
     await discord.channels.send(
       ticket.discordChannelId,
       eroeffnungsNachricht({
+        ticketId: ticket.id,
         ticketNumber: ticket.ticketNumber,
         subject: ticket.subject,
         creatorDiscordId: ticket.creatorDiscordId,

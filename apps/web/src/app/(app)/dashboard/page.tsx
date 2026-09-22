@@ -12,7 +12,6 @@ import {
   Settings,
   ShieldCheck,
   Ticket,
-  TrendingUp,
   Users,
   Zap,
 } from 'lucide-react';
@@ -29,7 +28,7 @@ import {
   verification,
 } from '@swisshub/modules';
 import { formatDateTime, formatRemaining, plural } from '@swisshub/shared';
-import { StatCard, StatDelta } from '@/components/shared/stat-card';
+import { StatCard } from '@/components/shared/stat-card';
 import { Panel } from '@/components/shared/panel';
 import { ActivityItem } from '@/components/shared/activity-item';
 import { QuickAction } from '@/components/shared/quick-action';
@@ -60,7 +59,6 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
   const canViewMembers = can(context, 'members.view');
   const canManageModules = can(context, 'modules.manage');
   const canViewSettings = can(context, 'settings.view');
-  const canViewModeration = can(context, 'moderation.view');
   // Die drei Wege eines gewoehnlichen Mitglieds. Jeweils genau die
   // Berechtigung, die auch die Zielseite verlangt - und nur, solange das
   // Modul ueberhaupt eingeschaltet ist. Genau so filtert auch die
@@ -70,7 +68,14 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
     can(context, permission) && moduleIds.has(moduleId);
 
   const [data, moduleStatus, moduleIds, jailSettings, health, logoUrl, grundVorlagen] = await Promise.all([
-    loadDashboardData({ canViewJails, canViewAudit, canViewModeration }),
+    /*
+     * Ohne «Aktionen heute» fragt das Dashboard die Moderationszahlen nicht
+     * mehr an. `canViewModeration` entfaellt deshalb hier - nicht in
+     * `loadDashboardData`: die Funktion kann sie weiterhin liefern, sie wird
+     * hier nur nicht mehr gebraucht. Was nicht gezeigt wird, wird auch nicht
+     * geladen; das war schon die Regel, als die Kachel noch stand.
+     */
+    loadDashboardData({ canViewJails, canViewAudit }),
     listModuleStatus(),
     enabledModuleIds(),
     getModuleSettings<jail.JailSettings>(jail.JAIL_MODULE_ID),
@@ -224,30 +229,19 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
           icon={<Activity />}
         />
 
-        {data.actionsToday !== undefined ? (
-          <StatCard
-            label="Aktionen heute"
-            value={data.actionsToday}
-            hint={
-              data.actionsTrend !== null ? (
-                <>
-                  <StatDelta value={data.actionsTrend} suffix="%" /> zum Vortag
-                </>
-              ) : data.jailStats ? (
-                // Ohne Vergleichswert der Vortag - aber nur, wenn diese
-                // Person die Jail-Zahlen ohnehin sehen darf.
-                `${plural(data.jailStats.createdToday, 'Jail', 'Jails')} · ${plural(
-                  data.jailStats.releasedToday,
-                  'Freilassung',
-                  'Freilassungen',
-                )}`
-              ) : (
-                'Kein Vergleichswert'
-              )
-            }
-            icon={<TrendingUp />}
-          />
-        ) : null}
+        {/*
+          Hier stand «Aktionen heute».
+
+          Die Kachel gab es nur fuer Moderation und Verwaltung - ein
+          gewoehnliches Mitglied sah sie nie, weil sie an `moderation.view`
+          hing. Sie ist auf Wunsch entfallen; dieselbe Zahl steht weiterhin
+          unter «Moderation», wo sie neben den uebrigen Moderationskennzahlen
+          steht und etwas aussagt.
+
+          Ein Loch bleibt nicht: `auto-fit` oben laesst die uebrigen Karten
+          nachruecken - genau dafuer steht es dort, und genau deshalb ist hier
+          nichts weiter anzupassen.
+        */}
       </section>
 
       {kommendeEvents.length > 0 ? (

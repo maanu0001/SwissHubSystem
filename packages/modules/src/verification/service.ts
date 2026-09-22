@@ -137,6 +137,32 @@ export async function startVerification(eingabe: JoinEingabe): Promise<Verificat
     metadata: { requestId: eintrag.id },
   });
 
+  /*
+   * Der Vorgang wartet ab jetzt auf eine Entscheidung.
+   *
+   * Gemeldet ueber denselben Weg wie jedes andere Ereignis des Systems -
+   * `meldeEreignis`. Daran haengen die Automation Engine und die Glocke im
+   * Dashboard; einen zweiten Listener braucht keiner von beiden.
+   *
+   * `startVerification` ist idempotent: ein zweites `guildMemberAdd` gibt
+   * den bestehenden Vorgang zurueck und kommt hier gar nicht an. Eine
+   * doppelte Meldung kann so nicht entstehen.
+   */
+  const { meldeEreignis } = await import('../automation/emit');
+  await meldeEreignis(
+    'verification.requested',
+    {
+      requestId: eintrag.id,
+      discordId: eintrag.discordId,
+      username: eintrag.username,
+      displayName: eintrag.displayName,
+      kontoAlterTage: eintrag.accountCreatedAt
+        ? Math.floor((Date.now() - eintrag.accountCreatedAt.getTime()) / 86_400_000)
+        : null,
+    },
+    { guildId, subjectId: eintrag.discordId, entityId: eintrag.id },
+  );
+
   logger.info('Verifikation eröffnet', { requestId: eintrag.id, discordId: eingabe.discordId });
   return eintrag;
 }

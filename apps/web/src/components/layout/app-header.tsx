@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import { UserMenu, type UserMenuProps } from './user-menu';
 import { MobileNav } from './mobile-nav';
 import { CommandPalette } from './command-palette';
+import { NotificationBell, type NotificationBellProps } from './notification-bell';
 import { BrandMark } from '@/components/shared/brand-mark';
 import type { NavigationGroup } from './sidebar-nav';
 
@@ -19,6 +20,8 @@ interface AppHeaderProps {
   user: UserMenuProps;
   canSearchMembers: boolean;
   logoUrl: string;
+  /** Die persönlichen Benachrichtigungen der angemeldeten Person. */
+  benachrichtigungen: NotificationBellProps;
 }
 
 /**
@@ -41,6 +44,7 @@ export function AppHeader({
   user,
   canSearchMembers,
   logoUrl,
+  benachrichtigungen,
 }: AppHeaderProps): React.JSX.Element {
   const pathname = usePathname();
 
@@ -67,6 +71,8 @@ export function AppHeader({
       </div>
 
       <CommandPalette groups={groups} canSearchMembers={canSearchMembers} />
+
+      <NotificationBell {...benachrichtigungen} />
 
       <UserMenu {...user} />
     </header>

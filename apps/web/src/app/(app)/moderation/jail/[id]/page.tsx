@@ -5,7 +5,7 @@ import { ArrowLeft } from 'lucide-react';
 import { can } from '@swisshub/auth';
 import { discord } from '@swisshub/discord';
 import { jail } from '@swisshub/modules';
-import { formatDateTime } from '@swisshub/shared';
+import { formatDateTime, mitRueckkehr, sichereRueckkehr, systemRoutes } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,11 +30,14 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 
 export default async function JailDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ von?: string }>;
 }): Promise<React.JSX.Element> {
   const context = await requirePagePermission(jail.JAIL_PERMISSIONS.view);
   const { id } = await params;
+  const { von } = await searchParams;
   const entry = await jail.getJailDetail(id);
 
   if (!entry) {
@@ -53,6 +56,15 @@ export default async function JailDetailPage({
     return { name: live?.name ?? snapshot?.roleNameAtTime ?? roleId, color: live?.color ?? 0 };
   };
 
+  /*
+   * Der Kontext, den diese Seite selbst weitergibt.
+   *
+   * Wer von hier in die Akte des Mitglieds wechselt, soll auf diesen Vorgang
+   * zurückkommen - nicht auf die Liste, aus der er kam. Der eigene Rückweg
+   * bleibt davon unberührt; er steht oben.
+   */
+  const aktuellerKontext = systemRoutes.jail(entry.id);
+
   const active = entry.releasedAt === null && entry.status !== 'FAILED';
   const lifecycle = jail.jailLifecycleLabel(entry.lifecycle);
 
@@ -63,7 +75,10 @@ export default async function JailDetailPage({
         description={`Erstellt am ${formatDateTime(entry.startedAt)} durch ${entry.moderatorUsername}.`}
         actions={
           <div className="flex items-center gap-2">
-            <Link href="/moderation/jail" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
+            <Link
+              href={sichereRueckkehr(von, systemRoutes.jails())}
+              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+            >
               <ArrowLeft aria-hidden="true" />
               Zurück
             </Link>
@@ -90,7 +105,7 @@ export default async function JailDetailPage({
             <dl>
               <DetailRow label="Benutzer">
                 <Link
-                  href={`/members/${entry.targetDiscordId}`}
+                  href={mitRueckkehr(systemRoutes.mitglied(entry.targetDiscordId), aktuellerKontext)}
                   className="inline-flex min-h-6 items-center font-medium hover:underline"
                 >
                   {entry.targetDisplayName ?? entry.targetUsername}

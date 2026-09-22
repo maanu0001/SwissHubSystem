@@ -14,6 +14,7 @@ import {
   level,
   logs,
   moderation,
+  notifications,
   spielersuche,
   syncDiscord,
   writeHeartbeat,
@@ -469,13 +470,22 @@ export function createJobRunner(
       name: 'cleanup',
       intervalMs: 60 * 60 * 1000,
       async run() {
-        const [sessions, keys, cooldowns] = await Promise.all([
+        // Die Benachrichtigungen kommen hier dazu und bekommen keinen
+        // eigenen Takt: es gibt einen Job-Runner, und dieser Eintrag ist
+        // genau der, der Abgelaufenes wegraeumt (§34).
+        const [sessions, keys, cooldowns, meldungen] = await Promise.all([
           purgeExpiredSessions(),
           purgeExpiredIdempotencyKeys(),
           jail.purgeExpiredVoteCooldowns(),
+          notifications.raeumeBenachrichtigungen(),
         ]);
-        if (sessions > 0 || keys > 0 || cooldowns > 0) {
-          log.info('Aufräumen abgeschlossen', { sessions, idempotencyKeys: keys, voteCooldowns: cooldowns });
+        if (sessions > 0 || keys > 0 || cooldowns > 0 || meldungen > 0) {
+          log.info('Aufräumen abgeschlossen', {
+            sessions,
+            idempotencyKeys: keys,
+            voteCooldowns: cooldowns,
+            benachrichtigungen: meldungen,
+          });
         }
       },
     },

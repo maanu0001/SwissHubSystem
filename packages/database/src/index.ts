@@ -92,6 +92,7 @@ export type {
   CommunicationStatus,
   CommunicationType,
   JailEntry,
+  Notification,
   MemberNote,
   JailImport,
   JailImportRow,

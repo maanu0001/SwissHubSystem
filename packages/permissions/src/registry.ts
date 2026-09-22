@@ -170,6 +170,28 @@ export const CORE_PERMISSIONS: PermissionDefinition[] = [
     module: 'core',
   },
   {
+    key: 'preview.use',
+    label: 'Ansicht als … verwenden',
+    description:
+      'Die Oberfläche aus Sicht einer anderen Person oder Rolle ansehen. Reine Vorschau: es lässt sich dabei nichts ausführen und nichts ändern.',
+    module: 'core',
+    critical: true,
+  },
+  {
+    key: 'preview.user',
+    label: 'Ansicht als Benutzer',
+    description: 'Die Vorschau auf eine konkrete Person richten.',
+    module: 'core',
+    critical: true,
+  },
+  {
+    key: 'preview.role',
+    label: 'Ansicht als Rolle',
+    description: 'Die Vorschau auf eine Discord-Rolle richten.',
+    module: 'core',
+    critical: true,
+  },
+  {
     key: ADMIN_FULL,
     label: 'Vollzugriff',
     description: 'Schliesst sämtliche Berechtigungen ein. Nur für Administratoren.',
