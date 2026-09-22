@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
 interface StatCardProps {
@@ -7,6 +8,14 @@ interface StatCardProps {
   icon?: React.ReactNode;
   /** Färbt den Wert, z.B. grün für "Online". */
   tone?: 'default' | 'success' | 'warning' | 'destructive';
+  /**
+   * Wohin die Karte führt - optional.
+   *
+   * Ohne `href` bleibt sie, was sie war: eine Anzeige. Mit `href` wird
+   * derselbe Kasten zum Verweis, ohne eine Klasse zu ändern. Additiv, damit
+   * keine bestehende Karte durch diese Ergänzung anders aussieht.
+   */
+  href?: string;
 }
 
 const VALUE_TONE: Record<NonNullable<StatCardProps['tone']>, string> = {
@@ -17,9 +26,34 @@ const VALUE_TONE: Record<NonNullable<StatCardProps['tone']>, string> = {
 };
 
 /** Kennzahlkarte mit Icon-Chip im SwissHub-Design. */
-export function StatCard({ label, value, hint, icon, tone = 'default' }: StatCardProps): React.JSX.Element {
+export function StatCard({
+  label,
+  value,
+  hint,
+  icon,
+  tone = 'default',
+  href,
+}: StatCardProps): React.JSX.Element {
+  const klassen =
+    'group relative overflow-hidden rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40';
+  const Kasten = href
+    ? ({ children }: { children: React.ReactNode }): React.JSX.Element => (
+        <Link
+          href={href}
+          className={cn(
+            klassen,
+            'block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          )}
+        >
+          {children}
+        </Link>
+      )
+    : ({ children }: { children: React.ReactNode }): React.JSX.Element => (
+        <div className={klassen}>{children}</div>
+      );
+
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40">
+    <Kasten>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 space-y-2">
           <p className="text-sm font-medium text-muted-foreground">{label}</p>
@@ -28,7 +62,7 @@ export function StatCard({ label, value, hint, icon, tone = 'default' }: StatCar
         </div>
         {icon ? <span className="icon-chip size-11 shrink-0 [&_svg]:size-5">{icon}</span> : null}
       </div>
-    </div>
+    </Kasten>
   );
 }
 

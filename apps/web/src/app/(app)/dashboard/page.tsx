@@ -25,9 +25,10 @@ import {
   getSystemHealth,
   jail,
   listModuleStatus,
+  tickets,
   verification,
 } from '@swisshub/modules';
-import { formatDateTime, formatRemaining, plural } from '@swisshub/shared';
+import { formatDateTime, formatRemaining, plural, systemRoutes } from '@swisshub/shared';
 import { StatCard } from '@/components/shared/stat-card';
 import { Panel } from '@/components/shared/panel';
 import { ActivityItem } from '@/components/shared/activity-item';
@@ -43,6 +44,7 @@ import { SetupProgress } from '@/modules/configuration/components/setup-progress
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { loadDashboardData } from '@/server/dashboard';
 import { moderationReasonTemplates } from '@/server/moderation';
+import { ticketViewer } from '@/server/tickets';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 export const dynamic = 'force-dynamic';
@@ -75,7 +77,9 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
      * hier nur nicht mehr gebraucht. Was nicht gezeigt wird, wird auch nicht
      * geladen; das war schon die Regel, als die Kachel noch stand.
      */
-    loadDashboardData({ canViewJails, canViewAudit }),
+    // `withJailStats: false` - die Kennzahlen der Jails zeigt das Dashboard
+    // nicht mehr; die Liste der laufenden Jails darunter braucht sie nicht.
+    loadDashboardData({ canViewJails, canViewAudit, withJailStats: false }),
     listModuleStatus(),
     enabledModuleIds(),
     getModuleSettings<jail.JailSettings>(jail.JAIL_MODULE_ID),
@@ -111,6 +115,22 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
     : null;
 
   const csrfToken = csrfTokenFor(context);
+
+  /**
+   * Offene Tickets fuer die Kennzahlkarte.
+   *
+   * Dieselbe zentrale Zaehlung wie ueberall - `countOpenTickets` mit dem
+   * Sichtbarkeitsfilter des Betrachters. Kein zweites «offen», keine
+   * Zaehlung von Discord-Kanaelen.
+   *
+   * Nur fuer den Support: fuer ein gewoehnliches Mitglied zaehlte dieselbe
+   * Abfrage seine eigenen Tickets, und «Tickets offen: 1» hiesse auf dem
+   * Dashboard etwas anderes als im Rest der Oberflaeche. Faellt die Abfrage
+   * aus, bleibt die Karte weg statt eine Null zu behaupten.
+   */
+  const offeneTickets = darfNutzen(tickets.TICKET_PERMISSIONS.supportView, tickets.TICKETS_MODULE_ID)
+    ? await tickets.countOpenTickets(ticketViewer(context)).catch(() => null)
+    : null;
 
   const canCreateTicket = darfNutzen('tickets.create', 'tickets');
   const canCreateSpielersuche = darfNutzen('spielersuche.create', 'spielersuche');
@@ -189,17 +209,29 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
           icon={<Users />}
         />
 
-        {data.jailStats ? (
+        {/*
+          Hier stand «Aktive Jails».
+
+          Dieselbe Zahl steht als grosses Panel weiter unten, mit den
+          Betroffenen, der Restzeit und den Knoepfen daneben - die Kachel
+          wiederholte nur ihre Ueberschrift. An ihrer Stelle steht jetzt
+          eine Zahl, die es sonst nirgends auf dem Dashboard gibt.
+
+          Die Bedingung ist dieselbe Art wie zuvor: `data.jailStats` stand
+          fuer «darf Jails sehen», `offeneTickets` steht fuer «arbeitet im
+          Support». Wer das nicht tut, sieht an dieser Stelle keine Karte -
+          und das Raster schliesst wie vorher von selbst.
+        */}
+        {offeneTickets !== null ? (
           <StatCard
-            label="Aktive Jails"
-            value={data.jailStats.active}
-            hint={
-              data.jailStats.endingSoon > 0
-                ? `${data.jailStats.endingSoon} enden in der nächsten Stunde`
-                : 'Keine bevorstehenden Freilassungen'
-            }
-            icon={<Lock />}
-            tone={data.jailStats.active > 0 ? 'warning' : 'default'}
+            label="Tickets offen"
+            value={offeneTickets}
+            hint={offeneTickets > 0 ? 'Warten auf Bearbeitung' : 'Nichts offen'}
+            icon={<Ticket />}
+            tone={offeneTickets > 0 ? 'warning' : 'default'}
+            // Ueber die bestehende Routenliste - kein eigener Pfad fuer
+            // diese Kachel.
+            href={systemRoutes.offeneTickets()}
           />
         ) : null}
 

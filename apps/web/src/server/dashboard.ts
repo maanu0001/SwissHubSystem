@@ -42,6 +42,20 @@ export interface DashboardScope {
    * weiterhin; sie stehen unter «Moderation».
    */
   canViewModeration?: boolean;
+  /**
+   * Die Jail-Kennzahlen laden.
+   *
+   * Standard ja, solange `canViewJails` gilt - so war es immer. Das
+   * Dashboard setzt es inzwischen auf `false`: seit die Kachel «Aktive
+   * Jails» der Kachel «Tickets offen» gewichen ist, liest es die Zahlen
+   * nicht mehr. Die Liste der laufenden Jails darunter braucht sie nicht;
+   * sie kommt aus `activeJails`.
+   *
+   * Ein eigener Schalter und nicht `canViewJails`: der gilt weiterhin und
+   * entscheidet ueber die Liste. Hier geht es nicht darum, was jemand sehen
+   * darf, sondern darum, was gebraucht wird.
+   */
+  withJailStats?: boolean;
 }
 
 /**
@@ -62,7 +76,7 @@ export async function loadDashboardData(scope: DashboardScope): Promise<Dashboar
   const [bot, jailStats, actionsToday, actionsYesterday, activeJails, recentActivity, guild] =
     await Promise.all([
       readBotStatus(),
-      scope.canViewJails ? jail.getJailStats() : Promise.resolve(undefined),
+      scope.canViewJails && scope.withJailStats !== false ? jail.getJailStats() : Promise.resolve(undefined),
       scope.canViewModeration
         ? prisma.moderationAction.count({ where: { createdAt: { gte: startOfToday } } })
         : Promise.resolve(undefined),

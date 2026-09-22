@@ -34,11 +34,12 @@ describe('Dashboard steht wieder auf dem Stand vor dem Umbau', () => {
   });
 
   it('hat die verbliebenen Kennzahlkarten in ihrer alten Reihenfolge', () => {
-    // «Aktionen heute» ist auf Wunsch entfallen - siehe die naechste
-    // Pruefung. Die uebrigen stehen unveraendert und in derselben Folge.
+    // Zwei Karten sind auf Wunsch entfallen: «Aktionen heute» ganz, «Aktive
+    // Jails» zugunsten von «Tickets offen» an derselben Stelle. Die
+    // Reihenfolge der uebrigen ist unveraendert.
     const reihenfolge = [
       'label="Mitglieder"',
-      'label="Aktive Jails"',
+      'label="Tickets offen"',
       'label="Verifikationen offen"',
       'label="Bot Status"',
     ];
@@ -72,10 +73,10 @@ describe('Dashboard steht wieder auf dem Stand vor dem Umbau', () => {
     expect(seite).toContain('repeat(auto-fit,minmax(min(100%,15rem),1fr))');
   });
 
-  it('fragt die Moderationszahlen nicht mehr an', () => {
+  it('fragt weder Moderationszahlen noch Jail-Kennzahlen mehr an', () => {
     // Was nicht gezeigt wird, wird auch nicht geladen. `loadDashboardData`
-    // kann sie weiterhin liefern - das Dashboard braucht sie nicht mehr.
-    expect(seite).toContain('loadDashboardData({ canViewJails, canViewAudit })');
+    // kann beides weiterhin liefern - das Dashboard braucht es nicht mehr.
+    expect(seite).toContain('loadDashboardData({ canViewJails, canViewAudit, withJailStats: false })');
   });
 
   it('führt die Schnellaktionen wieder als Panel in der rechten Spalte', () => {
@@ -467,5 +468,79 @@ describe('Kalender: eine Regel für alle Geräte', () => {
     expect(filter).toContain("['month', 'Monat']");
     expect(filter).toContain("['week', 'Woche']");
     expect(filter).toContain("['agenda', 'Liste']");
+  });
+});
+
+/**
+ * «Aktive Jails» als kleine Kachel -> «Tickets offen».
+ *
+ * Dieselbe Zahl stand zweimal auf dem Dashboard: als Kachel mit einer Zahl
+ * und als Panel mit den Betroffenen, der Restzeit und den Knoepfen daneben.
+ * Die Kachel wiederholte nur die Ueberschrift des Panels. An ihrer Stelle
+ * steht jetzt eine Zahl, die es sonst nirgends auf dem Dashboard gibt.
+ */
+describe('Die kleine Jail-Kachel ist einer Ticket-Kachel gewichen', () => {
+  const seite = lies('apps/web/src/app/(app)/dashboard/page.tsx');
+
+  it('zeigt keine kleine Kennzahlkarte «Aktive Jails» mehr', () => {
+    expect(seite).not.toContain('label="Aktive Jails"');
+  });
+
+  it('behaelt das grosse Panel «Aktive Jails» vollstaendig', () => {
+    // Es ist der Teil mit dem Nutzen: Mitglied, Grund, Moderator, Ende,
+    // Restzeit und die Freilassung als Knopf.
+    expect(seite).toContain('title="Aktive Jails"');
+    expect(seite).toContain('<JailRowActions');
+    expect(seite).toContain('data.activeJails.map');
+    expect(seite).toContain("action={{ label: 'Alle anzeigen', href: '/moderation/jail' }}");
+  });
+
+  it('setzt «Tickets offen» an genau die frei gewordene Stelle', () => {
+    // Zweite Karte, wie zuvor - nicht ans Ende gehaengt.
+    const mitglieder = seite.indexOf('label="Mitglieder"');
+    const tickets = seite.indexOf('label="Tickets offen"');
+    const verifikationen = seite.indexOf('label="Verifikationen offen"');
+    expect(mitglieder).toBeLessThan(tickets);
+    expect(tickets).toBeLessThan(verifikationen);
+  });
+
+  it('benutzt dieselbe Karte in derselben Groesse', () => {
+    // `StatCard` im selben Raster - kein eigener Kasten, keine Sondergroesse.
+    const stelle = seite.indexOf('label="Tickets offen"');
+    expect(seite.slice(stelle - 200, stelle)).toContain('<StatCard');
+    expect(seite).toContain('repeat(auto-fit,minmax(min(100%,15rem),1fr))');
+  });
+
+  it('zaehlt ueber die zentrale Ticket-Statuslogik', () => {
+    // Nicht Discord-Kanaele, nicht eine zweite Vorstellung von «offen».
+    expect(seite).toContain('tickets.countOpenTickets(ticketViewer(context))');
+  });
+
+  it('zeigt sie nur, wer im Support arbeitet', () => {
+    // Fuer ein gewoehnliches Mitglied zaehlte dieselbe Abfrage seine eigenen
+    // Tickets - «Tickets offen: 1» hiesse dann etwas anderes als im Rest der
+    // Oberflaeche.
+    expect(seite).toContain('darfNutzen(tickets.TICKET_PERMISSIONS.supportView, tickets.TICKETS_MODULE_ID)');
+    expect(seite).toContain('offeneTickets !== null ? (');
+  });
+
+  it('fuehrt zu den offenen Tickets, ueber die bestehende Routenliste', () => {
+    expect(seite).toContain('href={systemRoutes.offeneTickets()}');
+  });
+
+  it('laesst die uebrigen Kacheln unveraendert', () => {
+    for (const karte of ['label="Mitglieder"', 'label="Verifikationen offen"', 'label="Bot Status"']) {
+      expect(seite, karte).toContain(karte);
+    }
+    expect(seite).toContain('<div className="grid gap-6 xl:grid-cols-3">');
+    expect(seite).toContain('<div className="min-w-0 space-y-6 xl:col-span-2">');
+  });
+
+  it('macht keine andere Kachel klickbar', () => {
+    // `href` ist an `StatCard` neu und optional - genau eine Karte benutzt es.
+    expect(seite.match(/href=\{systemRoutes\.offeneTickets\(\)\}/gu)).toHaveLength(1);
+    const karte = lies('apps/web/src/components/shared/stat-card.tsx');
+    expect(karte).toContain('href?: string;');
+    expect(karte).toContain('const klassen =');
   });
 });

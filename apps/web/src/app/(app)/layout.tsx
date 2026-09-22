@@ -52,14 +52,20 @@ export default async function AppLayout({
   ]);
 
   /**
-   * Offene Tickets fuer die Zahl neben dem Eintrag.
+   * Die Zahl neben dem Ticket-Eintrag.
+   *
+   * Was sie bedeutet, entscheidet das Modul - fuer den Support «wie viel
+   * Arbeit wartet», fuer alle anderen «bei wie vielen meiner Tickets wartet
+   * das Team auf mich». Hier wird sie einmal geholt und an Seitenleiste,
+   * mobile Navigation und Schnellnavigation gereicht; zwei verschiedene
+   * Zahlen auf zwei Geraeten koennen so gar nicht entstehen.
    *
    * Nur, wenn das Modul laeuft, und faellt die Abfrage aus, bleibt die Zahl
    * weg: eine Seitenleiste, die an einer Zaehlung scheitert, waere ein teurer
    * Preis fuer eine Nebensaechlichkeit.
    */
   const offeneTickets = moduleIds.has(ticketsModule.TICKETS_MODULE_ID)
-    ? await ticketsModule.countOpenTickets(ticketViewer(context)).catch(() => null)
+    ? await ticketsModule.ticketNavigationCounter(ticketViewer(context)).catch(() => null)
     : null;
 
   /**
