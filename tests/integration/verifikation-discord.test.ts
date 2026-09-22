@@ -40,6 +40,17 @@ function attrappe() {
   const kicks: string[] = [];
   let zaehler = 0;
 
+  /*
+   * Der Kanalverlauf der Attrappe.
+   *
+   * Nach der Entscheidung räumt das Modul den Verifikationskanal auf, und
+   * dafür liest es den Verlauf und löscht einzeln. Ohne diese drei Methoden
+   * liefe der Ablauf zwar durch - das Aufräumen fängt seine Fehler ab -,
+   * aber er liefe an der Stelle vorbei, um die es geht.
+   */
+  const verlauf: Array<{ id: string; authorId: string; authorIsBot: boolean; createdAt: Date }> = [];
+  const geloescht: Array<{ channelId: string; messageId: string }> = [];
+
   const gateway = {
     members: {
       get: vi.fn(async (discordId: string) => ({
@@ -96,10 +107,27 @@ function attrappe() {
       edit: vi.fn(async (channelId: string, messageId: string) => {
         bearbeitet.push({ channelId, messageId });
       }),
+      delete: vi.fn(async (channelId: string, messageId: string) => {
+        geloescht.push({ channelId, messageId });
+        const stelle = verlauf.findIndex((zeile) => zeile.id === messageId);
+        if (stelle >= 0) {
+          verlauf.splice(stelle, 1);
+        }
+      }),
+      history: vi.fn(async (_channelId: string, options: { before?: string } = {}) => {
+        if (!options.before) {
+          return verlauf.map((zeile) => ({ ...zeile }));
+        }
+        const stelle = verlauf.findIndex((zeile) => zeile.id === options.before);
+        return stelle < 0 ? [] : verlauf.slice(stelle + 1).map((zeile) => ({ ...zeile }));
+      }),
+      // Alles, was das Aufräumen braucht: Kanal ansehen, Verlauf lesen,
+      // Nachrichten verwalten.
+      botPermissions: vi.fn(async () => (1n << 10n) | (1n << 13n) | (1n << 16n)),
     },
   };
 
-  return { gateway, gesendet, bearbeitet, gesetzteRollen, banns, kicks };
+  return { gateway, gesendet, bearbeitet, gesetzteRollen, banns, kicks, verlauf, geloescht };
 }
 
 type Attrappe = ReturnType<typeof attrappe>;
@@ -487,6 +515,12 @@ describeWithDatabase('Verifikation über Discord', () => {
     expect(rollen?.discordId).toBe(discordId);
     expect(rollen?.roleIds).toContain(MITGLIED);
     expect(rollen?.roleIds).not.toContain(UNVERIFIZIERT);
+
+    // Und der Verifikationskanal ist danach aufgeräumt: die Nachricht der
+    // Person und die an sie gerichteten Nachrichten des Bots sind weg.
+    await bisWahr(() => discord.geloescht.length > 0);
+    expect(discord.geloescht.map((zeile) => zeile.messageId)).toContain('m-3');
+    expect(discord.geloescht.every((zeile) => zeile.channelId === VERIFIKATIONSKANAL)).toBe(true);
   });
 
   it('lässt einen Fremden den Knopf nicht drücken', async () => {

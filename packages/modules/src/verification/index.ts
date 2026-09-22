@@ -6,3 +6,4 @@ export * from './queries';
 export * from './discord';
 export * from './worker';
 export * from './setup';
+export * from './abschluss';

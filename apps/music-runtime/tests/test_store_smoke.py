@@ -80,6 +80,14 @@ async def test_jede_abfrage_ist_ausfuehrbar(store: Store) -> None:
     titel = await store.naechster_titel(session_id)
     assert titel is not None
 
+    # Mit Ausschlussliste - der Zweig, der beim Abkuehlen eines Titels laeuft.
+    assert await store.naechster_titel(session_id, [str(item_id)]) is None
+    assert await store.naechster_titel(session_id, []) is not None
+
+    # Ein Fehlversuch darf den Titel NICHT aus der Warteschlange nehmen.
+    await store.vermerke_fehlversuch(item_id, "Zeitgrenze")
+    assert await store.naechster_titel(session_id) is not None
+
     # Der Fall, an dem es im Betrieb scheiterte: einmal mit Wert, einmal ohne.
     await store.setze_aktuellen_titel(session_id, item_id)
     await store.setze_aktuellen_titel(session_id, None)

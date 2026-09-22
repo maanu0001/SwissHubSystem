@@ -46,3 +46,4 @@ packages/database/prisma/*.db-journal
 # das Repository - eine Aenderung daran ist keine Aenderung am Programm.
 __pycache__/
 *.pyc
+.pytest_cache/

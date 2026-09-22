@@ -195,9 +195,15 @@ it('führt den Befehl in der Laufzeit unter demselben Namen aus', () => {
 it('setzt beim Sprung denselben Titel neu auf, statt zum nächsten zu gehen', () => {
   // Ohne die innere Schleife im Player fiele der Ablauf nach dem Stoppen zum
   // nächsten Titel durch - und ein Sprung wäre ein Überspringen.
+  //
+  // Der Player unterscheidet die Endgründe inzwischen ausdrücklich: ein
+  // Sprung ist etwas anderes als ein Überspringen, und nur er setzt denselben
+  // Titel mit Versatz neu auf. Dass das auch wirklich geschieht, spielt
+  // `apps/music-runtime/tests/test_player.py` durch; hier steht die
+  // Absprache zwischen beiden Seiten.
   const player = quelltext('player.py');
 
-  expect(player).toContain('if self._sprungziel is None:');
+  expect(player).toContain('if wiedergabe.grund is Ende.SPRUNG and self._sprungziel is not None:');
   expect(player).toContain('versatz = self._sprungziel');
   expect(player).toContain('provider.ffmpeg_opts(versatz)');
 });

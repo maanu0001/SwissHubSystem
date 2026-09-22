@@ -22,6 +22,7 @@ import {
   type BotIdentity,
   CHANNEL_TYPES,
   channelOverwritesSchema,
+  channelHistorySchema,
   discordMessageSchema,
   type RawDiscordMember,
   type AuditLogEntry,
@@ -311,6 +312,29 @@ export function createRestGateway(): DiscordGateway {
         method: 'DELETE',
         auditLogReason: reason,
       });
+    },
+
+    async history(channelId, options = {}) {
+      const suche = new URLSearchParams({
+        limit: String(Math.max(1, Math.min(options.limit ?? 100, 100))),
+      });
+      if (options.before) {
+        suche.set('before', options.before);
+      }
+      const roh = await discordRequest<unknown>(`/channels/${channelId}/messages?${suche.toString()}`);
+      const zeilen = channelHistorySchema.safeParse(roh);
+      if (!zeilen.success) {
+        return [];
+      }
+      return zeilen.data.map((zeile) => ({
+        id: zeile.id,
+        authorId: zeile.author?.id ?? '',
+        authorIsBot: zeile.author?.bot === true,
+        // Discord liefert ISO-8601. Faellt es aus, ist «jetzt» die
+        // vorsichtige Antwort: die Nachricht gilt dann als zu jung fuer eine
+        // zeitliche Abgrenzung und wird nicht versehentlich mitgenommen.
+        createdAt: zeile.timestamp ? new Date(zeile.timestamp) : new Date(),
+      }));
     },
 
     /**

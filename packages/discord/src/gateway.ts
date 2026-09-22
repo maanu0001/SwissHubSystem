@@ -88,6 +88,18 @@ export interface DiscordGateway {
     edit(channelId: string, messageId: string, payload: DiscordMessagePayload): Promise<void>;
     /** Löscht eine Nachricht des Bots. */
     delete(channelId: string, messageId: string, reason?: string): Promise<void>;
+    /**
+     * Der Nachrichtenverlauf eines Kanals - eine Seite davon.
+     *
+     * Discord liefert hoechstens hundert Nachrichten je Anfrage, neueste
+     * zuerst. `before` ist die Kennung, ab der weiter zurueck gelesen wird;
+     * damit laesst sich blaettern, ohne einen Zeitraum raten zu muessen.
+     *
+     * Bewusst eine Seite und keine Schleife im Gateway: wie weit zurueck
+     * gelesen wird, ist eine fachliche Frage, und sie gehoert dorthin, wo
+     * jemand sie beantworten kann.
+     */
+    history(channelId: string, options?: { limit?: number; before?: string }): Promise<ChannelMessage[]>;
     /** Fügt eine Reaktion hinzu (Unicode-Emoji). */
     react(channelId: string, messageId: string, emoji: string): Promise<void>;
     /**
@@ -312,6 +324,20 @@ export interface DiscordLinkButton {
 }
 
 export type DiscordButton = DiscordActionButton | DiscordLinkButton;
+
+/**
+ * Eine Nachricht im Kanalverlauf - nur, was zum Wiederfinden noetig ist.
+ *
+ * Kein Inhalt: wer aufraeumt, entscheidet anhand des Absenders, nicht anhand
+ * des Textes. Was nicht gelesen wird, kann auch nicht versehentlich in einem
+ * Protokoll landen.
+ */
+export interface ChannelMessage {
+  id: string;
+  authorId: string;
+  authorIsBot: boolean;
+  createdAt: Date;
+}
 
 export interface DiscordActionRow {
   type: 1;

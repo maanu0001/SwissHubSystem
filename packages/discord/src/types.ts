@@ -232,6 +232,26 @@ export const discordMessageSchema = z.object({
 });
 
 /**
+ * Der Nachrichtenverlauf eines Kanals.
+ *
+ * Gelesen wird Kennung, Absender und Zeitpunkt - nicht der Inhalt. Wer
+ * aufraeumt, entscheidet anhand des Absenders; der Text geht ihn nichts an
+ * und hat in keinem Protokoll etwas zu suchen.
+ *
+ * `passthrough` ist hier richtig: Discord ergaenzt Felder, und ein strenges
+ * Schema wuerde dann eine Antwort verwerfen, die vollstaendig brauchbar ist.
+ */
+export const channelHistorySchema = z.array(
+  z
+    .object({
+      id: z.string(),
+      timestamp: z.string().optional(),
+      author: z.object({ id: z.string(), bot: z.boolean().optional() }).optional(),
+    })
+    .passthrough(),
+);
+
+/**
  * Channel-Overwrites für die Berechtigungsberechnung.
  * `type` 0 = Rolle, 1 = Mitglied.
  */

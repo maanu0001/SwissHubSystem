@@ -280,10 +280,36 @@ export async function sendGreeting(
   }
   const text = settings.greetingMessage.replaceAll('{user}', `<@${request.discordId}>`);
   try {
-    return await gateway.channels.send(settings.verificationChannelId, {
+    const gesendet = await gateway.channels.send(settings.verificationChannelId, {
       content: text.slice(0, 1900),
       allowedMentions: { parse: [] as never[], users: [request.discordId] },
     });
+
+    /*
+     * Die Kennung wird festgehalten.
+     *
+     * Ohne sie liesse sich diese eine Begruessung spaeter nicht wiederfinden -
+     * ausser ueber eine Textsuche, und die faende die Begruessung einer
+     * anderen Person, sobald jemand seinen Namen aendert oder zwei Namen
+     * sich aehneln. Geloescht wuerde dann die falsche.
+     *
+     * Scheitert das Schreiben, bleibt die Begruessung stehen: sie ist
+     * gesendet, und das ist die Hauptsache. Aufgeraeumt wird sie dann nicht -
+     * besser als eine Kennung, die auf nichts zeigt.
+     */
+    await prisma.verificationRequest
+      .update({
+        where: { id: request.id },
+        data: {
+          greetingChannelId: settings.verificationChannelId,
+          greetingMessageId: gesendet.id,
+        },
+      })
+      .catch((error: unknown) =>
+        logger.warn('Begrüssung konnte nicht vermerkt werden', { requestId: request.id, error }),
+      );
+
+    return gesendet;
   } catch (error) {
     logger.warn('Begrüssung konnte nicht gesendet werden', { requestId: request.id, error });
     return null;
@@ -336,7 +362,15 @@ export async function pushModNotice(
   }
 }
 
-/** Die frisch freigeschaltete Person im Verifikationskanal informieren. */
+/**
+ * Die frisch freigeschaltete Person im Verifikationskanal informieren.
+ *
+ * Die Kennung wird festgehalten, denn diese Nachricht gehoert zu genau
+ * diesem Vorgang: raeumt das Modul den Kanal anschliessend auf, muss sie
+ * mit verschwinden. Ohne die Kennung bliebe sie stehen - eine Zeile, die
+ * jemanden anspricht, der den Kanal von da an nicht mehr sieht - und der
+ * einzige Weg, sie wiederzufinden, waere eine Textsuche.
+ */
 export async function sendWelcome(
   request: VerificationRequest,
   settings: VerificationSettings,
@@ -347,10 +381,23 @@ export async function sendWelcome(
     return;
   }
   try {
-    await gateway.channels.send(settings.verificationChannelId, {
+    const gesendet = await gateway.channels.send(settings.verificationChannelId, {
       content: `<@${request.discordId}> ${text}`.slice(0, 1900),
       allowedMentions: { parse: [] as never[], users: [request.discordId] },
     });
+    // Scheitert nur das Festhalten, bleibt die Nachricht trotzdem gesendet -
+    // deshalb wird der Fehler protokolliert und nicht weitergereicht.
+    await prisma.verificationRequest
+      .update({
+        where: { id: request.id },
+        data: {
+          welcomeChannelId: settings.verificationChannelId,
+          welcomeMessageId: gesendet.id,
+        },
+      })
+      .catch((error: unknown) => {
+        logger.warn('Willkommensnachricht nicht festgehalten', { requestId: request.id, error });
+      });
   } catch (error) {
     logger.warn('Willkommensnachricht fehlgeschlagen', { requestId: request.id, error });
   }

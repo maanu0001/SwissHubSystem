@@ -4869,6 +4869,46 @@ model VerificationRequest {
   modChannelId String?
   modMessageId String?
 
+  /// Die Begruessung des Bots im Verifikationskanal.
+  ///
+  /// Kennung und Kanal werden beim Senden festgehalten, damit sich genau
+  /// diese eine Nachricht spaeter wieder entfernen laesst. Eine Suche nach
+  /// dem Text waere unzuverlaessig: Namen aendern sich, Texte kollidieren,
+  /// und geloescht wuerde am Ende die Begruessung einer anderen Person.
+  ///
+  /// Der Kanal steht daneben, weil die Einstellung sich aendern kann - die
+  /// Nachricht liegt dann immer noch dort, wo sie gesendet wurde.
+  greetingChannelId String?
+  greetingMessageId String?
+
+  /// Die Nachricht des Bots an die frisch freigeschaltete Person.
+  ///
+  /// Die zweite Bot-Nachricht, die zu diesem Vorgang gehoert - und damit die
+  /// zweite, die beim Aufraeumen wieder verschwinden muss. Ohne sie bliebe
+  /// im Verifikationskanal eine Zeile stehen, die an jemanden gerichtet ist,
+  /// der den Kanal gar nicht mehr sieht.
+  welcomeChannelId String?
+  welcomeMessageId String?
+
+  /// Die Meldung nach erfolgreicher Verifikation.
+  ///
+  /// Zugleich der Riegel gegen Doppel: ist sie gesetzt, wurde bereits
+  /// gemeldet. Ein zweiter Klick auf denselben Knopf - oder eine wiederholt
+  /// zugestellte Interaktion - sendet dadurch nicht ein zweites Mal.
+  successChannelId String?
+  successMessageId String?
+  successMessageAt DateTime?
+
+  /// Das Aufraeumen des Verifikationskanals.
+  ///
+  /// `cleanupStatus` haelt fest, wie weit es kam: COMPLETED, PARTIAL oder
+  /// FAILED. Ohne diesen Vermerk waere nach einem halben Durchlauf nicht
+  /// erkennbar, ob noch etwas offensteht - und ein zweiter Versuch koennte
+  /// nicht dort ansetzen, wo der erste stehen blieb.
+  cleanupAt     DateTime?
+  cleanupStatus String?
+  cleanupError  String?
+
   /// Interner Vermerk der Moderation. Der Verweis auf die Akte im Member
   /// Center, damit es keine zweite Notizenwelt gibt.
   noteId String?

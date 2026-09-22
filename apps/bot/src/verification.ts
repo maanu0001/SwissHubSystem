@@ -193,6 +193,10 @@ export function registerVerification(client: Client): void {
         if (ai.freigeschaltet) {
           await verification.sendWelcome(ai.request, settings);
           await verification.writeLog(ai.request, settings);
+          // Derselbe Abschluss wie bei einer menschlichen Entscheidung: die
+          // Meldung im Ergebniskanal und das Aufraeumen des
+          // Verifikationskanals. Wer freischaltet, aendert daran nichts.
+          await verification.nachEntscheidung(ai.request, settings);
         }
         // Ob freigeschaltet oder nicht: die Meldung wird nachgezogen, damit
         // die Moderation den Stand sieht.
@@ -264,14 +268,17 @@ async function behandleKnopf(
       await interaction.deferReply({ ephemeral: true });
       const ergebnis = await verification.humanVerify(actor, requestId);
       await verification.pushModNotice(requestId, settings);
+      let nachricht = ergebnis.rollenFehler ?? null;
       if (ergebnis.gewonnen) {
         await verification.sendWelcome(ergebnis.request, settings);
         await verification.writeLog(ergebnis.request, settings);
+        const abschluss = await verification.nachEntscheidung(ergebnis.request, settings);
+        nachricht = verification.abschlussHinweis(abschluss) ?? nachricht;
       }
       await interaction.editReply({
         content: ergebnis.gewonnen
-          ? ergebnis.rollenFehler
-            ? `Freigeschaltet - aber: ${ergebnis.rollenFehler}`
+          ? nachricht
+            ? `Freigeschaltet - aber: ${nachricht}`
             : 'Mitglied freigeschaltet.'
           : 'Dieser Vorgang war bereits entschieden.',
       });
@@ -443,13 +450,29 @@ async function fuehreAblehnungAus(
     const settings = await verification.verificationSettings();
     const ergebnis = await verification.humanReject(actor, requestId, grund);
     await verification.pushModNotice(requestId, settings);
-    if (ergebnis.gewonnen && settings.notifyOnReject) {
-      await verification.writeLog(ergebnis.request, settings);
+    let nachricht = ergebnis.rollenFehler ?? null;
+    if (ergebnis.gewonnen) {
+      if (settings.notifyOnReject) {
+        await verification.writeLog(ergebnis.request, settings);
+      }
+      /*
+       * Aufgeraeumt wird auch nach einem Bann.
+       *
+       * Und zwar **danach**: der Bann ist bereits gesetzt, die Kennungen der
+       * Nachrichten stehen in der Datenbank, und geloescht wird ueber den
+       * Kanal - nicht ueber das Mitglied. Dass es die Person auf dem Server
+       * nicht mehr gibt, spielt dafuer keine Rolle.
+       *
+       * Eine Erfolgsmeldung entsteht hier nicht: `nachEntscheidung` prueft
+       * den Status und meldet nur bei einer Freischaltung.
+       */
+      const abschluss = await verification.nachEntscheidung(ergebnis.request, settings);
+      nachricht = verification.abschlussHinweis(abschluss) ?? nachricht;
     }
     await interaction.editReply({
       content: ergebnis.gewonnen
-        ? ergebnis.rollenFehler
-          ? `Abgelehnt - aber: ${ergebnis.rollenFehler}`
+        ? nachricht
+          ? `Abgelehnt - aber: ${nachricht}`
           : `Abgelehnt und gebannt (${grund}).`
         : 'Dieser Fall wurde bereits bearbeitet.',
       components: [],

@@ -178,6 +178,21 @@ export function createMockGateway(): DiscordGateway {
   /** Banns im Mock. Wie bei Discord unabhaengig von der Mitgliedschaft. */
   const banns = new Map<string, { discordId: string; username: string; reason: string | null }>();
   const sentMessages = new Map<string, { channelId: string }>();
+  /**
+   * Der Kanalverlauf des Mocks.
+   *
+   * Gesendetes landet hier, Geloeschtes verschwindet - damit `history()`
+   * dasselbe erzaehlt wie `send()` und `delete()`. Wer im Test Nachrichten
+   * *anderer* Absender braucht, ersetzt `channels.history` schlicht durch
+   * eine eigene Funktion; der Mock ist ein gewoehnliches Objekt.
+   */
+  const verlauf: Array<{
+    id: string;
+    channelId: string;
+    authorId: string;
+    authorIsBot: boolean;
+    createdAt: Date;
+  }> = [];
   let messageCounter = 0;
   // Vom Mock erstellte Sprachkanäle - damit `voice.get` nach dem Anlegen
   // dasselbe liefert wie Discord.
@@ -412,6 +427,13 @@ export function createMockGateway(): DiscordGateway {
         messageCounter += 1;
         const id = `${800000000000000000n + BigInt(messageCounter)}`;
         sentMessages.set(id, { channelId });
+        verlauf.push({
+          id,
+          channelId,
+          authorId: BOT_ID,
+          authorIsBot: true,
+          createdAt: new Date(),
+        });
         log.info('Mock: Discord-Nachricht', { channelId, title: payload.embeds?.[0]?.title });
         return { id, channelId };
       },
@@ -424,7 +446,22 @@ export function createMockGateway(): DiscordGateway {
       },
       async delete(channelId, messageId) {
         sentMessages.delete(messageId);
+        const stelle = verlauf.findIndex((zeile) => zeile.id === messageId);
+        if (stelle >= 0) {
+          verlauf.splice(stelle, 1);
+        }
         log.info('Mock: Nachricht gelöscht', { channelId, messageId });
+      },
+
+      async history(channelId, options = {}) {
+        // Neueste zuerst - wie bei Discord. `before` blaettert zurueck.
+        const sortiert = verlauf
+          .filter((zeile) => zeile.channelId === channelId)
+          .sort((a, b) => (a.id < b.id ? 1 : -1));
+        const ab = options.before ? sortiert.findIndex((zeile) => zeile.id === options.before) + 1 : 0;
+        return sortiert
+          .slice(ab, ab + Math.max(1, Math.min(options.limit ?? 100, 100)))
+          .map(({ channelId: _kanal, ...zeile }) => zeile);
       },
       async react(channelId, messageId, emoji) {
         log.info('Mock: Reaktion hinzugefügt', { channelId, messageId, emoji });

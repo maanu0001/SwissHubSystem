@@ -69,12 +69,18 @@ export const approveAction = defineAction(
     const settings = await verification.verificationSettings();
     // Discord nachziehen - die Meldung dort soll den Stand zeigen.
     await verification.pushModNotice(input.requestId, settings).catch(() => undefined);
+    let hinweis = ergebnis.rollenFehler ?? null;
     if (ergebnis.gewonnen) {
       await verification.sendWelcome(ergebnis.request, settings).catch(() => undefined);
       await verification.writeLog(ergebnis.request, settings).catch(() => undefined);
+      // Meldung im Ergebniskanal und Aufräumen des Verifikationskanals -
+      // derselbe Weg wie beim Knopf auf Discord. Beides wirft nie; was
+      // schiefgeht, kommt als Hinweis zurück.
+      const abschluss = await verification.nachEntscheidung(ergebnis.request, settings);
+      hinweis = verification.abschlussHinweis(abschluss) ?? hinweis;
     }
     revalidateVerification();
-    return { gewonnen: ergebnis.gewonnen, hinweis: ergebnis.rollenFehler ?? null };
+    return { gewonnen: ergebnis.gewonnen, hinweis };
   },
 );
 
@@ -95,11 +101,20 @@ export const rejectAction = defineAction(
     const ergebnis = await verification.humanReject(actorOf(ctx), input.requestId, input.reason);
     const settings = await verification.verificationSettings();
     await verification.pushModNotice(input.requestId, settings).catch(() => undefined);
-    if (ergebnis.gewonnen && settings.notifyOnReject) {
-      await verification.writeLog(ergebnis.request, settings).catch(() => undefined);
+    let hinweis = ergebnis.rollenFehler ?? null;
+    if (ergebnis.gewonnen) {
+      if (settings.notifyOnReject) {
+        await verification.writeLog(ergebnis.request, settings).catch(() => undefined);
+      }
+      // Auch nach einem Bann wird aufgeräumt - die Spuren im
+      // Verifikationskanal gehören zu einem Vorgang, der abgeschlossen ist.
+      // Eine Erfolgsmeldung entsteht dabei nicht: `nachEntscheidung` prüft
+      // den Status und meldet nur bei VERIFIED.
+      const abschluss = await verification.nachEntscheidung(ergebnis.request, settings);
+      hinweis = verification.abschlussHinweis(abschluss) ?? hinweis;
     }
     revalidateVerification();
-    return { gewonnen: ergebnis.gewonnen, hinweis: ergebnis.rollenFehler ?? null };
+    return { gewonnen: ergebnis.gewonnen, hinweis };
   },
 );
 

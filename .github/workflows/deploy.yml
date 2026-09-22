@@ -69,6 +69,12 @@ jobs:
       - name: Generate Prisma client
         run: npm run db:generate
 
+      # Die Migrationen einmal vollstaendig auf eine leere Datenbank anwenden.
+      # Ein Schema-Entwurf, der nur in der Datei stimmt, faellt sonst erst beim
+      # Deployment auf - also genau dann, wenn niemand mehr eingreifen kann.
+      - name: Apply migrations
+        run: npm run db:deploy
+
       - name: Lint
         run: npm run lint
 
@@ -77,6 +83,21 @@ jobs:
 
       - name: Tests
         run: npm test
+
+      # Die Voice-Laufzeit ist Python und lief bisher ausserhalb jeder
+      # Pruefung. Ihre Tests decken genau die Fehler ab, an denen die
+      # Wiedergabe im Betrieb gescheitert ist - ungeprueft waeren sie wertlos.
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install music runtime dependencies
+        run: pip install -r apps/music-runtime/requirements.txt pytest pytest-asyncio
+
+      - name: Music runtime tests
+        working-directory: apps/music-runtime
+        run: pytest -q
 
       - name: Production build
         run: npm run build

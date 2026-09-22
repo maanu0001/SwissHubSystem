@@ -81,8 +81,69 @@ export const verificationSettingsSchema = z.object({
   moderatorPingRoleId: z.string().nullable().default(null),
   /** Zusaetzlicher Protokollkanal. */
   logChannelId: z.string().nullable().default(null),
+  /**
+   * Kanal fuer die Meldung nach erfolgreicher Verifikation.
+   *
+   * Der dritte Kanal des Moduls, und er hat einen anderen Zweck als die
+   * beiden anderen - deshalb ein eigenes Feld und keine Doppelnutzung:
+   *
+   * - `verificationChannelId` ist der Ort, an dem noch **nicht** verifizierte
+   *   Mitglieder schreiben. Nach der Entscheidung sehen sie ihn nicht mehr.
+   * - `moderatorChannelId` gehoert dem Team; dort wird entschieden.
+   * - Dieser Kanal gehoert der **Gemeinschaft**: hier steht, wer neu dazu
+   *   gehoert, und hier koennen andere es lesen.
+   *
+   * Leer = keine Meldung. Das ist die Vorgabe, denn ein Kanal, den niemand
+   * ausgesucht hat, ist kein guter Ort fuer eine oeffentliche Ankuendigung.
+   */
+  postVerificationChannelId: z.string().nullable().default(null),
 
   greetingMessage: z.string().max(2000).default(DEFAULT_GREETING),
+
+  // --- Meldung nach erfolgreicher Verifikation -----------------------------
+  /**
+   * Ueberschrift der Meldung im Ergebniskanal.
+   *
+   * Sie und der Text darunter sind das, was die Gemeinschaft liest - deshalb
+   * gehoeren beide ins Dashboard und nicht in den Code.
+   */
+  postVerificationTitle: z.string().max(200).default('Neu dabei'),
+  /**
+   * Der Text der Meldung.
+   *
+   * Platzhalter werden serverseitig ersetzt, und zwar nur diese drei:
+   * `{user}` wird zur Erwaehnung, `{username}` und `{displayName}` zu den
+   * jeweiligen Namen. Mehr gibt es bewusst nicht - eine Vorlage, die
+   * beliebige Ausdruecke auswertet, waere eine Ausfuehrungsumgebung in einem
+   * Textfeld.
+   */
+  postVerificationMessage: z
+    .string()
+    .max(2000)
+    .default('{user} ist jetzt verifiziert. Willkommen bei SwissHub!'),
+  /** Farbe des Embeds. */
+  postVerificationColor: z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/u, 'Bitte eine Hex-Farbe wie #83060A angeben.')
+    .default('#3BA55D'),
+  /**
+   * Die Person in der Meldung erwaehnen.
+   *
+   * Aus als Vorgabe. Eine Erwaehnung benachrichtigt - und wer gerade
+   * freigeschaltet wurde, hat die Nachricht des Bots ohnehin schon gelesen.
+   * Wer den Ping will, schaltet ihn ein.
+   */
+  postVerificationMention: z.boolean().default(false),
+
+  // --- Aufraeumen ----------------------------------------------------------
+  /**
+   * Den Verifikationskanal nach der Entscheidung aufraeumen.
+   *
+   * Entfernt werden ausschliesslich die Nachrichten der betroffenen Person
+   * und die an sie gerichtete Begruessung des Bots. Nachrichten anderer
+   * bleiben unberuehrt - der Kanal wird nicht geleert.
+   */
+  cleanupEnabled: z.boolean().default(true),
   /** Nachricht an die frisch freigeschaltete Person. Leer = keine. */
   welcomeMessage: z
     .string()
@@ -213,6 +274,15 @@ const verificationSettingsFields: SettingsField[] = [
     group: 'Rollen & Kanäle',
   },
   {
+    key: 'postVerificationChannelId',
+    label: 'Kanal nach erfolgreicher Verifikation',
+    description:
+      'Wohin die Meldung über ein frisch verifiziertes Mitglied geht. Nicht der Verifikationskanal - den sieht die Person danach nicht mehr. Leer lassen, um nichts zu melden.',
+    type: 'discord-channel',
+    channelKinds: ['text'],
+    group: 'Rollen & Kanäle',
+  },
+  {
     key: 'greetingMessage',
     label: 'Begrüssungstext',
     description: '{user} wird durch die Erwähnung ersetzt.',
@@ -223,10 +293,53 @@ const verificationSettingsFields: SettingsField[] = [
   {
     key: 'welcomeMessage',
     label: 'Nachricht nach Freischaltung',
-    description: 'Leer lassen, um nichts zu senden.',
+    description:
+      'Wird im Verifikationskanal gesendet. Leer lassen, um nichts zu senden - etwa, wenn stattdessen der Ergebniskanal genutzt wird.',
     type: 'text',
     maxLength: 500,
     group: 'Texte',
+  },
+  {
+    key: 'postVerificationTitle',
+    label: 'Meldung: Überschrift',
+    description: 'Steht über der Meldung im Ergebniskanal.',
+    type: 'text',
+    maxLength: 200,
+    group: 'Meldung nach Verifikation',
+  },
+  {
+    key: 'postVerificationMessage',
+    label: 'Meldung: Text',
+    description:
+      '{user} wird zur Erwähnung, {username} und {displayName} zu den Namen. Andere Platzhalter bleiben stehen.',
+    type: 'textarea',
+    maxLength: 2000,
+    group: 'Meldung nach Verifikation',
+  },
+  {
+    key: 'postVerificationColor',
+    label: 'Meldung: Farbe',
+    description: 'Hex-Farbe des Embeds.',
+    type: 'text',
+    maxLength: 7,
+    placeholder: '#3BA55D',
+    group: 'Meldung nach Verifikation',
+  },
+  {
+    key: 'postVerificationMention',
+    label: 'Person in der Meldung erwähnen',
+    description:
+      'Aus als Vorgabe: eine Erwähnung benachrichtigt, und wer freigeschaltet wurde, weiss es bereits.',
+    type: 'boolean',
+    group: 'Meldung nach Verifikation',
+  },
+  {
+    key: 'cleanupEnabled',
+    label: 'Verifikationskanal aufräumen',
+    description:
+      'Entfernt nach Freischaltung oder Bann die Nachrichten der betroffenen Person und die an sie gerichtete Begrüssung. Nachrichten anderer bleiben stehen.',
+    type: 'boolean',
+    group: 'Ablauf',
   },
   {
     key: 'aiEnabled',
@@ -408,6 +521,24 @@ async function verificationHealthChecks(context: ModuleHealthContext): Promise<M
   kanal(settings.verificationChannelId, 'Verifikationskanal', true);
   kanal(settings.moderatorChannelId, 'Moderations-Kanal', true);
   kanal(settings.logChannelId, 'Protokoll-Kanal', false);
+  kanal(settings.postVerificationChannelId, 'Kanal nach Verifikation', false);
+
+  // Der haeufigste Konfigurationsfehler an dieser Stelle: der Ergebniskanal
+  // ist derselbe wie der Verifikationskanal. Dort sieht die frisch
+  // verifizierte Person nichts mehr - sie verliert den Zugang genau in dem
+  // Moment, in dem die Meldung erscheint.
+  if (
+    settings.postVerificationChannelId &&
+    settings.postVerificationChannelId === settings.verificationChannelId
+  ) {
+    checks.push({
+      label: 'Kanal nach Verifikation',
+      status: 'warning',
+      detail:
+        'Zeigt auf den Verifikationskanal. Den sieht niemand mehr, sobald er verifiziert ist - die Meldung liest also keiner.',
+      fixHref: fix,
+    });
+  }
 
   // Ohne Message Content sieht der Bot den Text nicht - und ohne Text gibt es
   // nichts zu pruefen. Das Modul waere dann eine Attrappe.

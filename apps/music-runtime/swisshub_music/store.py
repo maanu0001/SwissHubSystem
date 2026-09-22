@@ -282,8 +282,33 @@ class Store:
             session_id,
         )
 
-    async def naechster_titel(self, session_id: str) -> asyncpg.Record | None:
-        """Das erste Element der Warteschlange, das noch spielbar ist."""
+    async def naechster_titel(
+        self, session_id: str, ueberspringen: list[str] | None = None
+    ) -> asyncpg.Record | None:
+        """Das erste Element der Warteschlange, das jetzt spielbar ist.
+
+        `ueberspringen` sind Titel, die gerade abkuehlen: sie haben eben
+        nicht geladen, sind aber nicht kaputt. Sie bleiben in der
+        Warteschlange stehen und sind nach der Abkuehlzeit wieder dabei -
+        anders als ein dauerhaft als unspielbar markierter Titel, den dieser
+        Filter fuer immer aussortiert.
+
+        Die Liste liegt bewusst im Speicher des Players und nicht in der
+        Datenbank: sie beschreibt diesen Lauf, nicht den Titel.
+        """
+        if ueberspringen:
+            return await self.pool.fetchrow(
+                """
+                SELECT "id", "title", "webpageUrl", "durationSeconds"
+                  FROM "MusicQueueItem"
+                 WHERE "sessionId" = $1 AND "unavailable" = false
+                   AND NOT ("id" = ANY($2::text[]))
+                 ORDER BY "position" ASC
+                 LIMIT 1
+                """,
+                session_id,
+                ueberspringen,
+            )
         return await self.pool.fetchrow(
             """
             SELECT "id", "title", "webpageUrl", "durationSeconds"
@@ -320,6 +345,24 @@ class Store:
             """
             UPDATE "MusicQueueItem"
                SET "unavailable" = true, "unavailableError" = $2
+             WHERE "id" = $1
+            """,
+            item_id,
+            grund[:300],
+        )
+
+    async def vermerke_fehlversuch(self, item_id: str, grund: str) -> None:
+        """Einen erfolglosen Versuch festhalten - OHNE den Titel abzuschreiben.
+
+        Der Unterschied zu `markiere_unspielbar` ist das fehlende
+        `unavailable = true`, und genau daran haengt, ob der Titel wieder
+        auftaucht. Hinterlegt wird nur der Grund, damit spaeter erklaerbar
+        ist, warum ein Titel einmal ausgesetzt hat.
+        """
+        await self.pool.execute(
+            """
+            UPDATE "MusicQueueItem"
+               SET "unavailableError" = $2
              WHERE "id" = $1
             """,
             item_id,
