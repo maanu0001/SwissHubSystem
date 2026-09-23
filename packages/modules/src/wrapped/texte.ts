@@ -99,7 +99,8 @@ export function primeTimeText(stundeWert: number): SzenenText {
   if (stundeWert < 18) {
     return { setup: 'Nachmittags warst du am häufigsten da.', pointe: 'Zwischen Alltag und Abend.' };
   }
-  return { setup: 'Abends lief es bei dir zur Hochform auf.', pointe: 'Prime Time.' };
+  // Nicht «Prime Time.» - das steht schon als Beschriftung unter der Uhr.
+  return { setup: 'Abends lief es bei dir zur Hochform auf.', pointe: 'Der Feierabend gehörte dem Server.' };
 }
 
 export function voiceText(sekunden: number): SzenenText {

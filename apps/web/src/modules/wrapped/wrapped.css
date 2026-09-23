@@ -1,0 +1,357 @@
+/**
+ * Die visuelle Sprache von SwissHub Wrapped.
+ *
+ * ## Warum eine eigene Datei
+ *
+ * Wrapped ist keine Seite der Anwendung, sondern eine Vollbild-Geschichte.
+ * Es bringt eigene Tokens mit - Zeiten, Kurven, Flaechen - und die haben in
+ * `globals.css` nichts zu suchen: dort stehen die Tokens des Dashboards, und
+ * sie sollen nicht davon abhaengen, wie sich ein Rueckblick bewegt.
+ *
+ * ## Warum CSS und kein Animationspaket
+ *
+ * Alles hier laeuft auf `transform`, `opacity`, `clip-path` und
+ * `stroke-dashoffset`. Das sind die vier Dinge, die ein Browser im
+ * Compositor erledigt, ohne Layout oder Neuzeichnen - auf einem Telefon der
+ * Unterschied zwischen fluessig und ruckelig.
+ *
+ * Ein Paket wie Framer Motion waere bequemer und haette etwa 50 kB gekostet,
+ * dazu Rechenzeit fuer Dinge, die der Browser selbst besser kann. Die
+ * Uebergaenge hier sind aufwendig genug, dass sie einen Namen verdienen -
+ * aber keiner davon braucht eine Physik-Engine.
+ *
+ * ## Die Formensprache
+ *
+ * Das SwissHub-Logo ist ein durchgehendes Band aus dicken, diagonalen
+ * Strichen mit runden Enden, das in sich zurueckläuft. Genau das ist die
+ * Grundlage: Diagonalen im selben Winkel, runde Enden, Linien, die sich
+ * selbst zeichnen und wieder zuruecklaufen. Kein Logo im Hintergrund -
+ * seine Geometrie.
+ */
+
+.wrapped-buehne {
+  /* Zeiten. Wer eine neue Animation baut, nimmt eine davon. */
+  --w-schnell: 180ms;
+  --w-normal: 320ms;
+  --w-langsam: 620ms;
+  --w-reveal: 900ms;
+  --w-szene: 1100ms;
+
+  /*
+   * Kurven.
+   *
+   * `--w-aus` bremst weich aus - fuer alles, was ankommt.
+   * `--w-rein` beschleunigt - fuer alles, was geht.
+   * `--w-schwung` schiesst leicht ueber - nur fuer Zahlen, die einrasten.
+   */
+  --w-aus: cubic-bezier(0.16, 1, 0.3, 1);
+  --w-rein: cubic-bezier(0.7, 0, 0.84, 0);
+  --w-schwung: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --w-schwarz: 8 8% 4%;
+  --w-rot: 358 91% 27%;
+  --w-rot-hell: 358 79% 52%;
+  --w-weiss: 0 0% 100%;
+
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: hsl(var(--w-schwarz));
+  color: hsl(var(--w-weiss));
+  /* Auf dem Telefon ist `100vh` die Hoehe *ohne* Adressleiste - und damit zu
+     viel. `100dvh` folgt dem, was tatsaechlich sichtbar ist. */
+  height: 100dvh;
+}
+
+/* --- Der Faden ------------------------------------------------------------
+ *
+ * Die Linie aus dem Logo, abstrahiert: ein Strich, der sich selbst zeichnet.
+ * Er traegt den Fortschritt, trennt Szenen und laeuft durch Uebergaenge.
+ */
+.wrapped-faden {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  stroke-dasharray: var(--faden-laenge, 1000);
+  stroke-dashoffset: var(--faden-laenge, 1000);
+  animation: wrapped-faden-zeichnen var(--w-reveal) var(--w-aus) forwards;
+  animation-delay: var(--faden-verzug, 0ms);
+}
+
+@keyframes wrapped-faden-zeichnen {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* --- Eintritte ------------------------------------------------------------
+ *
+ * Jede Szene bekommt ihre Bewegung ueber eine dieser Klassen. Sie sind
+ * bewusst klein und kombinierbar: eine Szene setzt zwei bis drei davon mit
+ * gestaffelter Verzoegerung, statt eine eigene Keyframe-Folge zu erfinden.
+ */
+.w-auf {
+  opacity: 0;
+  animation: wrapped-auf var(--w-langsam) var(--w-aus) forwards;
+  animation-delay: var(--verzug, 0ms);
+}
+
+@keyframes wrapped-auf {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 1.25rem, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Die grosse Zahl: kommt von zu gross und rastet ein. */
+.w-einrasten {
+  opacity: 0;
+  animation: wrapped-einrasten var(--w-reveal) var(--w-schwung) forwards;
+  animation-delay: var(--verzug, 0ms);
+}
+
+@keyframes wrapped-einrasten {
+  from {
+    opacity: 0;
+    transform: scale3d(1.35, 1.35, 1);
+    filter: blur(8px);
+  }
+  60% {
+    filter: blur(0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+/*
+ * Der Vorhang.
+ *
+ * Eine Diagonale im Winkel des Logos, die den Inhalt freigibt. Das ist der
+ * Grundbaustein von `mask_reveal` - und der Grund, warum Wrapped nicht wie
+ * ein Stapel Karten aussieht: Inhalte erscheinen nicht, sie werden
+ * freigelegt.
+ */
+.w-vorhang {
+  clip-path: polygon(-30% 0, -30% 0, -10% 100%, -10% 100%);
+  animation: wrapped-vorhang var(--w-szene) var(--w-aus) forwards;
+  animation-delay: var(--verzug, 0ms);
+}
+
+@keyframes wrapped-vorhang {
+  to {
+    clip-path: polygon(-30% 0, 140% 0, 160% 100%, -10% 100%);
+  }
+}
+
+/* Tiefe: kommt aus dem Bild heraus auf den Betrachter zu. */
+.w-tiefe {
+  opacity: 0;
+  animation: wrapped-tiefe var(--w-szene) var(--w-aus) forwards;
+  animation-delay: var(--verzug, 0ms);
+}
+
+@keyframes wrapped-tiefe {
+  from {
+    opacity: 0;
+    transform: perspective(60rem) translate3d(0, 0, -18rem) rotateX(12deg);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(60rem) translate3d(0, 0, 0) rotateX(0);
+  }
+}
+
+/*
+ * Die Punkte, aus denen sich etwas bildet.
+ *
+ * Grundlage von `particle_reform`: eine Zahl zerfaellt, die Punkte fliegen
+ * auseinander und setzen sich zu etwas Neuem zusammen. Jeder Punkt bekommt
+ * seinen Startversatz als eigene Variable - eine Schleife in CSS gibt es
+ * nicht, aber eine Variable je Element schon.
+ */
+.w-punkt {
+  opacity: 0;
+  animation: wrapped-punkt var(--w-szene) var(--w-aus) forwards;
+  animation-delay: var(--verzug, 0ms);
+}
+
+@keyframes wrapped-punkt {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--von-x, 0), var(--von-y, 0), 0) scale(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Der Zeiger der Uhr - laeuft einmal durch den Tag und bleibt stehen. */
+.w-zeiger {
+  transform-origin: 50% 50%;
+  animation: wrapped-zeiger 2200ms var(--w-aus) forwards;
+  animation-delay: var(--verzug, 0ms);
+}
+
+@keyframes wrapped-zeiger {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(var(--ziel-winkel, 0deg));
+  }
+}
+
+/* Ein Balken, der von unten waechst. */
+.w-balken {
+  transform: scaleY(0);
+  transform-origin: bottom;
+  animation: wrapped-balken var(--w-langsam) var(--w-aus) forwards;
+  animation-delay: var(--verzug, 0ms);
+}
+
+@keyframes wrapped-balken {
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* Ein sehr langsam atmendes Licht - Ruhe im Hintergrund, kein Blinken. */
+.w-licht {
+  animation: wrapped-atmen 14s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+@keyframes wrapped-atmen {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.12);
+  }
+}
+
+/* Der Fortschritt einer Szene - laeuft von links nach rechts. */
+.w-fortschritt > span {
+  transform-origin: left;
+  transform: scaleX(0);
+  animation: wrapped-fortschritt var(--dauer, 6000ms) linear forwards;
+}
+
+@keyframes wrapped-fortschritt {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* --- Reduzierte Bewegung --------------------------------------------------
+ *
+ * Nichts verschwindet, nichts wird uebersprungen. Was sich bewegt hat, ist
+ * danach einfach schon da - und zwar sofort in seinem Endzustand. Eine
+ * Geschichte, die bei reduzierter Bewegung Informationen verliert, waere
+ * keine Alternative, sondern eine schlechtere Fassung.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .wrapped-buehne * {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+
+  .wrapped-buehne .w-vorhang {
+    clip-path: none !important;
+  }
+
+  .wrapped-buehne .w-licht {
+    animation: none !important;
+    opacity: 0.45 !important;
+  }
+
+  /*
+   * Der Fortschrittsbalken laeuft nicht mit.
+   *
+   * Er ist das einzige Element, das bei reduzierter Bewegung nicht in seinen
+   * Endzustand springen darf: sonst sieht jede Szene sofort abgeschlossen
+   * aus. Er bleibt stehen - weitergeblaettert wird dann von Hand, und genau
+   * das ist bei reduzierter Bewegung auch richtig.
+   */
+  .wrapped-buehne .w-fortschritt > span {
+    animation: none !important;
+    transform: scaleX(0) !important;
+  }
+}
+
+/* Die Klasse setzt dieselbe Regel ohne Medienabfrage - fuer den Schalter im
+   Studio, mit dem sich reduzierte Bewegung testen laesst. */
+.wrapped-ruhig * {
+  animation-duration: 1ms !important;
+  animation-delay: 0ms !important;
+  transition-duration: 1ms !important;
+}
+
+.wrapped-ruhig .w-vorhang {
+  clip-path: none !important;
+}
+
+.wrapped-ruhig .w-licht {
+  animation: none !important;
+  opacity: 0.45 !important;
+}
+
+.wrapped-ruhig .w-fortschritt > span {
+  animation: none !important;
+  transform: scaleX(0) !important;
+}
+
+/* --- Typografie -----------------------------------------------------------
+ *
+ * Die grosse Zahl ist das wichtigste Gestaltungsmittel. Sie sitzt eng, laeuft
+ * ueber die volle Breite und bricht nie um.
+ */
+.w-zahl {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.045em;
+  line-height: 0.85;
+  font-weight: 800;
+  /* Waechst mit dem Schirm, bleibt aber auf 320 px lesbar.
+     `--w-zahl-enge` setzt lange Zahlen herunter - siehe `enge()`. */
+  font-size: calc(clamp(4.5rem, 26vw, 16rem) * var(--w-zahl-enge, 1));
+}
+
+.w-zahl-klein {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 0.9;
+  font-weight: 800;
+  font-size: calc(clamp(3rem, 15vw, 8rem) * var(--w-zahl-enge, 1));
+}
+
+.w-label {
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-weight: 600;
+  font-size: clamp(0.75rem, 3.2vw, 1rem);
+}
+
+.w-satz {
+  text-wrap: balance;
+  line-height: 1.25;
+  font-weight: 500;
+  font-size: clamp(1.35rem, 6.5vw, 2.75rem);
+}
+
+.w-fliess {
+  text-wrap: pretty;
+  line-height: 1.5;
+  font-size: clamp(0.95rem, 3.6vw, 1.15rem);
+}

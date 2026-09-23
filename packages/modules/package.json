@@ -12,7 +12,14 @@
     "./appeals": "./src/appeals/index.ts",
     "./clips": "./src/clips/index.ts",
     "./clips/provider": "./src/clips/provider.ts",
-    "./clips/woche": "./src/clips/woche.ts"
+    "./clips/woche": "./src/clips/woche.ts",
+    "./wrapped/daten": "./src/wrapped/daten.ts",
+    "./wrapped/texte": "./src/wrapped/texte.ts",
+    "./wrapped/archetyp": "./src/wrapped/archetyp.ts",
+    "./wrapped/highlight": "./src/wrapped/highlight.ts",
+    "./wrapped/vorlage": "./src/wrapped/vorlage.ts",
+    "./wrapped/szenen": "./src/wrapped/szenen.ts",
+    "./wrapped/fixtures": "./src/wrapped/fixtures.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

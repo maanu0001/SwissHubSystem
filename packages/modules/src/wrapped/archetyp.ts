@@ -81,15 +81,35 @@ export type ArchetypKey = (typeof ARCHETYPEN)[number]['key'];
 export const ARCHETYP_NACH_KEY = new Map(ARCHETYPEN.map((eintrag) => [eintrag.key, eintrag]));
 
 /**
- * Ein Wert zwischen 0 und 1, gedaempft.
+ * Die Staerke eines Bereichs, gedaempft - **ohne Deckel**.
  *
  * Die Wurzel statt der geraden Linie: der Unterschied zwischen 10 und 50
- * Stunden soll mehr wiegen als der zwischen 500 und 540. Sonst gewinnt in
- * jeder Kategorie, wer die groessten Zahlen hat, und alle anderen bekommen
- * denselben Typ.
+ * Stunden soll mehr wiegen als der zwischen 500 und 540.
+ *
+ * Kein Deckel bei 1, und das ist der Kern der Sache. Die erste Fassung
+ * klemmte hier auf 1 - mit der Folge, dass eine aktive Person in vier
+ * Bereichen gleichzeitig die Hoechstpunktzahl erreichte. Bei vier exakt
+ * gleichen Werten entschied dann allein die Reihenfolge der Liste, und der
+ * Allrounder-Testfall bekam «The Clip Machine». Ohne Deckel bleibt auch
+ * oberhalb der Schwelle unterscheidbar, wer wo staerker ist.
  */
-const anteil = (wert: number, bezug: number): number =>
-  bezug <= 0 ? 0 : Math.min(1, Math.sqrt(Math.max(0, wert) / bezug));
+const staerke = (wert: number, bezug: number): number =>
+  bezug <= 0 ? 0 : Math.sqrt(Math.max(0, wert) / bezug);
+
+/**
+ * Eine Schranke zwischen 0 und 1.
+ *
+ * Fuer Bedingungen, die erfuellt sein muessen, aber nichts zur Hoehe
+ * beitragen sollen: «genug Sprachzeit, damit die Verteilung ueberhaupt
+ * etwas aussagt». Ab dem Bezugswert ist sie 1 und waechst nicht weiter.
+ */
+const schranke = (wert: number, bezug: number): number => Math.min(1, staerke(wert, bezug));
+
+/**
+ * Ab wie vielen Stunden Sprachzeit die Tagesverteilung ueberhaupt etwas
+ * aussagt. Darunter gibt es keinen Nachttyp - siehe unten.
+ */
+const MINDEST_VOICE_STUNDEN_NACHT = 20;
 
 type Teildaten = Omit<WrappedDaten, 'highlight' | 'archetyp'>;
 
@@ -109,24 +129,34 @@ export function bestimmeArchetyp(daten: Teildaten): WrappedArchetyp {
 
   const scores: Record<string, number> = {
     // 250 Stunden im Jahr sind knapp fünf pro Woche - das ist «wohnt hier».
-    voice_resident: anteil(voiceStunden, 250),
+    voice_resident: staerke(voiceStunden, 250),
     /*
      * Die Nachtschicht.
      *
-     * Der Anteil allein genuegt nicht: wer zweimal im Jahr um drei Uhr eine
-     * halbe Stunde dasitzt, hat einen Nachtanteil von 1. Deshalb muss auch
-     * genug Sprachzeit zusammenkommen - der Anteil wird mit ihr gewichtet.
+     * Zwei Bedingungen, und beide muessen stimmen.
+     *
+     * Erstens genug Sprachzeit - und zwar als **harte Schwelle**, nicht als
+     * weicher Anstieg. Ein weicher war die erste Fassung, und sie liess
+     * genau den Fall durch, den sie verhindern sollte: eine Stunde im Jahr,
+     * davon alles um drei Uhr nachts, ergab einen Nachtanteil von 1 und
+     * damit trotz winziger Rampe genug Punkte, um alles andere zu schlagen.
+     * Unterhalb der Schwelle sagt die Verteilung schlicht nichts aus, und
+     * dann soll sie auch nichts beitragen.
+     *
+     * Zweitens ein Anteil **deutlich** ueber der Haelfte: unterhalb von 45 %
+     * ist ein Abendmensch noch kein Nachtmensch, und der Wert faellt auf
+     * null.
      */
-    night_owl: nacht * anteil(voiceStunden, 60),
+    night_owl: MINDEST_VOICE_STUNDEN_NACHT <= voiceStunden ? Math.max(0, (nacht - 0.45) / 0.35) * 1.5 : 0,
     // Ein Sieg wiegt schwerer als eine Einreichung, aber beides zaehlt.
-    clip_machine: anteil(daten.clips.wins * 3 + daten.clips.approved, 8),
-    competitor: anteil(
+    clip_machine: staerke(daten.clips.wins * 3 + daten.clips.approved, 8),
+    competitor: staerke(
       daten.wettkampf.tournamentWins * 3 +
         daten.wettkampf.tournamentsPlayed * 2 +
         daten.wettkampf.eventsAttended,
       10,
     ),
-    chatter: anteil(daten.messages.total, 3000),
+    chatter: staerke(daten.messages.total, 3000),
     // Der Allrounder entsteht nicht aus einer Zahl, sondern daraus, dass
     // mehrere Bereiche gleichzeitig besetzt sind - siehe unten.
     allrounder: 0,
@@ -135,10 +165,10 @@ export function bestimmeArchetyp(daten: Teildaten): WrappedArchetyp {
      *
      * Ein Grundwert, der allein aus Bestaendigkeit entsteht: 200 aktive Tage
      * sind bemerkenswert, auch ohne Rekord in irgendeiner Einzelkategorie.
-     * Absichtlich gedeckelt - er soll auffangen, nicht gewinnen, wo eine
+     * Gedeckelt und gedaempft - er soll auffangen, nicht gewinnen, wo eine
      * deutliche Neigung vorliegt.
      */
-    regular: anteil(daten.aktivitaet.activeDays, 200) * 0.72,
+    regular: schranke(daten.aktivitaet.activeDays, 200) * 0.72,
   };
 
   /*
@@ -156,7 +186,17 @@ export function bestimmeArchetyp(daten: Teildaten): WrappedArchetyp {
     scores.clip_machine ?? 0,
   ].sort((a, b) => b - a);
   const dreiBeste = bereiche.slice(0, 3);
-  scores.allrounder = Math.cbrt(dreiBeste.reduce((produkt, wert) => produkt * wert, 1));
+  /*
+   * Das geometrische Mittel der drei staerksten Bereiche, mal einem
+   * Zuschlag.
+   *
+   * Das Mittel allein wuerde nie gewinnen: es liegt zwangslaeufig unter dem
+   * hoechsten Einzelwert. Der Zuschlag von 12 % sagt genau das aus, was der
+   * Typ bedeuten soll - **Breite schlaegt eine einzelne Spitze**. Wer in
+   * drei Bereichen fast so stark ist wie ein Spezialist in seinem, ist der
+   * interessantere Fall.
+   */
+  scores.allrounder = Math.cbrt(dreiBeste.reduce((produkt, wert) => produkt * wert, 1)) * 1.12;
 
   let gewaehlt: ArchetypKey = 'regular';
   let beste = -1;

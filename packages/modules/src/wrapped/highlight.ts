@@ -120,15 +120,24 @@ export function waehleHighlight(daten: Teildaten): WrappedHighlight | null {
   }
 
   /*
-   * Ein Turniersieg schlaegt fast alles.
+   * Ein Turniersieg ist stark - aber er wurde vielleicht schon erzaehlt.
    *
-   * Feste, hohe Punktzahl statt einer Rechnung: einen Sieg gibt es oder
-   * nicht, und wenn es ihn gibt, ist er das Highlight des Jahres.
+   * Die Szene «Events & Turniere» zeigt den Sieg samt Turniernamen, sobald
+   * ueberhaupt eine Teilnahme vorliegt - und eine Teilnahme gibt es immer,
+   * wenn es einen Sieg gibt. Stand der Sieg dann auch noch als «Dein
+   * Moment» da, las man zweimal dieselbe Zeile, und die karge Szene verlor
+   * genau das, wofuer es sie gibt.
+   *
+   * Deshalb ein Abschlag statt eines Verbots: gibt es sonst nichts
+   * Bemerkenswertes, gewinnt der Sieg immer noch. Schaltet jemand die
+   * Turnierszene ab, ist der Abschlag zu streng - das ist der Preis dafuer,
+   * dass die Auswahl nur die Daten kennt und nicht die Kampagne.
    */
   if (daten.wettkampf.tournamentWins > 0) {
+    const doppelt = daten.wettkampf.tournamentsPlayed + daten.wettkampf.eventsAttended > 0;
     kandidaten.push({
       key: 'tournament_win',
-      punkte: 0.95,
+      punkte: doppelt ? 0.45 : 0.95,
       bauen: () => ({
         key: 'tournament_win',
         value: daten.wettkampf.tournamentWins === 1 ? '1×' : `${daten.wettkampf.tournamentWins}×`,
@@ -139,9 +148,11 @@ export function waehleHighlight(daten: Teildaten): WrappedHighlight | null {
   }
 
   if (daten.clips.wins > 0) {
+    // Gleicher Grund wie oben: die Clip-Szene nennt die Siege bereits.
+    const doppelt = daten.clips.best !== null;
     kandidaten.push({
       key: 'clip_win',
-      punkte: 0.9,
+      punkte: doppelt ? 0.42 : 0.9,
       bauen: () => ({
         key: 'clip_win',
         value: `${daten.clips.wins}×`,
