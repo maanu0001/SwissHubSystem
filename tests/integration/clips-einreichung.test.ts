@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, expect, it } from 'vitest';
+import { beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { describeWithDatabase, pushSchema, useTestSchema } from '../helpers/database';
 
 useTestSchema('test_clips_einreichung');
@@ -293,6 +293,34 @@ describeWithDatabase('Clips moderieren', () => {
     );
     // Der Clip selbst bleibt - er ist eine Sache fuer sich.
     expect(await prisma.clip.findUnique({ where: { id: clipId } })).not.toBeNull();
+  });
+
+  it('stellt einen freigegebenen Clip nur vor, wenn das eingeschaltet ist', async () => {
+    /*
+     * Die Einstellung heisst «jeden freigegebenen Clip einzeln posten» und
+     * steht standardmaessig aus. Eine Einstellung, die nichts tut, ist
+     * schlimmer als keine - deshalb steht hier beides: aus schweigt, ein
+     * sendet.
+     */
+    const send = vi.fn(async () => ({ id: 'msg-1', channelId: '700000000000000010' }));
+    const modul = { channels: { send } } as unknown as Parameters<typeof clips.gibFrei>[2];
+
+    const aus = await eingereicht();
+    await clips.gibFrei(aus.entryId, actor(MOD), modul);
+    expect(send).not.toHaveBeenCalled();
+
+    await einstellungen({ announcementChannelId: '700000000000000010', announceApprovedClips: true });
+    const an = await clips.reicheEin(GUILD, actor(BEN), { url: CLIP_B, titel: 'Zweiter Clip' }, JETZT);
+    await clips.gibFrei(an.entryId, actor(MOD), modul);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const inhalt = send.mock.calls[0]?.[1] as { allowedMentions?: unknown };
+    // Dreissig Clips duerfen nicht dreissig Erwaehnungen bedeuten.
+    expect(inhalt.allowedMentions).toEqual({ parse: [] });
+
+    // Ein zweiter Klick auf «Freigeben» postet nicht noch einmal.
+    await clips.gibFrei(an.entryId, actor(MOD), modul);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('zaehlt jede Person nur einmal als Meldung', async () => {

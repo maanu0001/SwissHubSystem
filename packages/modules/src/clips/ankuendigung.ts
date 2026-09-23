@@ -304,3 +304,68 @@ export async function kuendigeGewinnerAn(
     gateway,
   );
 }
+
+/**
+ * Einen einzelnen freigegebenen Clip vorstellen.
+ *
+ * Standardmaessig aus: bei dreissig Einreichungen sind das dreissig
+ * Nachrichten in einem Kanal, in dem sonst drei am Tag stehen. Wer es
+ * einschaltet, will genau das - jeden Clip einzeln, sobald er durch ist.
+ *
+ * Ohne Gedaechtnis in der Runde: der Riegel gegen doppelte Posts ist die
+ * Freigabe selbst. `gibFrei()` kehrt bei einem bereits freigegebenen Clip
+ * sofort zurueck und ruft diese Funktion gar nicht erst auf.
+ *
+ * Und ohne Erwaehnung: ein Kanal, in dem dreissigmal jemand angepingt wird,
+ * ist nach der ersten Woche stummgeschaltet.
+ */
+export async function kuendigeClipAn(
+  clip: {
+    title: string;
+    canonicalUrl: string;
+    thumbnailUrl: string | null;
+    gameName: string | null;
+    submittedByDiscordId: string;
+  },
+  gateway: DiscordGateway = defaultDiscord,
+): Promise<boolean> {
+  const settings = await getModuleSettings<ClipsSettings>(CLIPS_MODULE_ID);
+  if (!settings.announceApprovedClips || !settings.announcementChannelId) {
+    return false;
+  }
+
+  const embed: DiscordEmbed = {
+    title: clip.title.slice(0, 256),
+    url: clip.canonicalUrl,
+    description: `Eingereicht von <@${clip.submittedByDiscordId}>`,
+    color: CLIPS_ACCENT_COLOR,
+    ...(clip.gameName ? { fields: [{ name: 'Spiel', value: clip.gameName, inline: true }] } : {}),
+    ...(clip.thumbnailUrl ? { image: { url: clip.thumbnailUrl } } : {}),
+    footer: { text: 'Clip of the Week · neu im Rennen' },
+  };
+
+  try {
+    await gateway.channels.send(settings.announcementChannelId, {
+      embeds: [embed],
+      allowedMentions: { parse: [] },
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: BUTTON_STYLE.LINK,
+              label: 'Alle Clips',
+              url: appUrl(systemRoutes.clips()),
+            },
+          ],
+        },
+      ],
+    });
+    return true;
+  } catch (error) {
+    // Eine Vorstellung ist die Nebensache; die Freigabe steht bereits.
+    log.warn('Clip konnte nicht vorgestellt werden', { error });
+    return false;
+  }
+}

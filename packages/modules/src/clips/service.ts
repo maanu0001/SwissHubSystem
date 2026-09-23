@@ -1,8 +1,10 @@
 import { Prisma, prisma, recordAudit, AUDIT_ACTIONS } from '@swisshub/database';
+import { discord as defaultDiscord, type DiscordGateway } from '@swisshub/discord';
 import { createLogger } from '@swisshub/logger';
 import { AppError, sanitizeText } from '@swisshub/shared';
 import { getModuleSettings } from '../module-state';
 import { meldeEreignis } from '../automation/emit';
+import { kuendigeClipAn } from './ankuendigung';
 import { CLIPS_MODULE_ID, type ClipsSettings } from './config';
 import { erkenneClip } from './provider';
 import { aktuelleRunde, verlangeModul } from './wettbewerb';
@@ -286,8 +288,18 @@ async function loeseSpielAuf(
 
 // --- Moderation -------------------------------------------------------------
 
-/** Einen Clip freigeben. */
-export async function gibFrei(entryId: string, actor: Handelnder): Promise<void> {
+/**
+ * Einen Clip freigeben.
+ *
+ * `gateway` ist ausschliesslich fuer Tests da - im Betrieb ist es der
+ * gemeinsame Zugang. Ohne diese Naht muesste ein Test entweder gegen Discord
+ * senden oder die Vorstellung des Clips ungeprueft lassen.
+ */
+export async function gibFrei(
+  entryId: string,
+  actor: Handelnder,
+  gateway: DiscordGateway = defaultDiscord,
+): Promise<void> {
   const eintrag = await prisma.clipCompetitionEntry.findUnique({
     where: { id: entryId },
     include: { clip: true, competition: true },
@@ -343,6 +355,8 @@ export async function gibFrei(entryId: string, actor: Handelnder): Promise<void>
       entityId: entryId,
     },
   );
+  // Optional: den Clip einzeln vorstellen. Standardmaessig aus.
+  await kuendigeClipAn(eintrag.clip, gateway);
   log.info('Clip freigegeben', { entryId, clipId: eintrag.clipId });
 }
 
