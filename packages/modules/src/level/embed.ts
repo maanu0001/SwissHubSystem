@@ -358,6 +358,20 @@ export function buildLevelEmbed(input: LevelEmbedInput, accentColor: number): Di
   };
 }
 
+/**
+ * Die Rangliste als Embed.
+ *
+ * ## Warum Erwaehnungen statt Namen
+ *
+ * Hier stand der gespeicherte Anzeigename. Der ist eine Momentaufnahme vom
+ * letzten Mal, als jemand XP bekam - wer sich seither umbenannt hat, stand
+ * unter dem alten Namen da. `<@id>` loest Discord beim Anzeigen selbst auf:
+ * immer aktuell, anklickbar, und mit der Farbe der hoechsten Rolle.
+ *
+ * Benachrichtigt wird dabei niemand. Das entscheidet nicht dieses Embed,
+ * sondern `allowedMentions` beim Senden - eine Rangliste, die fuenf Leute
+ * anpingt, sobald sie jemand abruft, waere eine Zumutung.
+ */
 export function buildLeaderboardEmbed(
   entries: ReadonlyArray<{
     rank: number;
@@ -372,15 +386,39 @@ export function buildLeaderboardEmbed(
   const medals = ['🥇', '🥈', '🥉'];
   const lines = entries.map((entry) => {
     const badge = medals[entry.rank - 1] ?? `**${entry.rank}.**`;
-    const name = entry.displayName ?? entry.username ?? mention(entry.discordId);
-    return `${badge} ${name} — Level ${entry.level} · ${formatXp(entry.xp)} XP`;
+    return `${badge} ${mention(entry.discordId)} — Level ${entry.level} · ${formatXp(entry.xp)} XP`;
   });
 
   return {
     title: '🏆 SwissHub Rangliste',
     description: lines.length > 0 ? lines.join('\n') : 'No niemert het XP gsammlet.',
     color: accentColor,
+    footer: { text: 'Vollständigi Rangliste im SwissHub System' },
   };
+}
+
+/**
+ * Der Knopf zur vollstaendigen Rangliste.
+ *
+ * Ein Link-Knopf, kein `custom_id`: er fuehrt aus Discord hinaus und braucht
+ * keine Antwort des Bots. Die Adresse kommt von aussen herein - sie steht
+ * zentral in der Konfiguration, und eine zweite Stelle mit derselben Domain
+ * waere eine zweite Stelle, die beim naechsten Umzug falsch wird.
+ */
+export function buildLeaderboardButtons(url: string): DiscordActionRow[] {
+  return [
+    {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: BUTTON_STYLE.LINK,
+          label: 'Vollständigi Rangliste',
+          url,
+        },
+      ],
+    },
+  ];
 }
 
 export function buildGameLeaderboardEmbed(

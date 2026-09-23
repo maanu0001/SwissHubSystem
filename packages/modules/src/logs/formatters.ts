@@ -185,17 +185,22 @@ const EREIGNIS: Record<string, EreignisDarstellung> = {
   [EVENT_TYPES.MEMBER_ROLE_ADD]: {
     titel: '➕ Rolle vergeben',
     farbe: FARBE.info,
-    bereich: 'Mitglieder',
+    bereich: 'Rollen',
   },
   [EVENT_TYPES.MEMBER_ROLE_REMOVE]: {
     titel: '➖ Rolle entzogen',
     farbe: FARBE.neutral,
-    bereich: 'Mitglieder',
+    bereich: 'Rollen',
   },
   [EVENT_TYPES.MEMBER_NICKNAME]: {
     titel: '👤 Spitzname geändert',
     farbe: FARBE.info,
     bereich: 'Mitglieder',
+  },
+  [EVENT_TYPES.MEMBER_ACCOUNT_UPDATE]: {
+    titel: '👤 Accountänderung',
+    farbe: FARBE.info,
+    bereich: 'Accountänderungen',
   },
   [EVENT_TYPES.ROLE_CREATE]: {
     titel: '⚙️ Rolle erstellt',
@@ -279,6 +284,14 @@ export function formatiereEreignis(
   ];
 
   const link = nachrichtenLink(ereignis, optionen.guildId ?? ereignis.guildId);
+  /*
+   * Das neue Profilbild gehoert ins Bild, nicht in eine Adresse.
+   *
+   * Eine Zeile `https://cdn.discordapp.com/avatars/…` beantwortet die Frage
+   * «wie sieht es aus» nicht - man muesste sie anklicken. `image` zeigt es
+   * gross im Eintrag, und genau darum geht es bei einer Bildaenderung.
+   */
+  const bild = neuesProfilbild(ereignis);
 
   return begrenze({
     title: darstellung.titel,
@@ -287,6 +300,7 @@ export function formatiereEreignis(
     footer: fuss(darstellung.bereich),
     timestamp: ereignis.occurredAt.toISOString(),
     ...(link ? { description: link } : {}),
+    ...(bild ? { image: { url: bild } } : {}),
   });
 }
 
@@ -347,6 +361,24 @@ function zusatzFelder(ereignis: DiscordEvent): DiscordEmbedField[] {
       return verweis ? [verweis] : [];
     });
     return feld('Rollen', verweise.length > 0 ? verweise.join(', ') : null, false);
+  }
+
+  if (ereignis.type === EVENT_TYPES.MEMBER_ACCOUNT_UPDATE) {
+    /*
+     * Was sich am Konto geaendert hat.
+     *
+     * Ein Ereignis, nicht zwei: wer Name und Bild zugleich wechselt, hat eine
+     * Sache getan. Jedes Feld erscheint nur, wenn es die Aenderung auch
+     * betrifft - ein «Benutzername: unverändert» waere Fuellwerk.
+     */
+    const name = kontoAenderung(daten.username);
+    const bild = kontoAenderung(daten.avatar);
+    return [
+      ...(name
+        ? feld('Benutzername', `\`${name.von ?? 'unbekannt'}\` → \`${name.nach ?? 'unbekannt'}\``, false)
+        : []),
+      ...(bild ? feld('Profilbild', 'Neues Bild unten', false) : []),
+    ];
   }
 
   if (ereignis.type === EVENT_TYPES.MEMBER_NICKNAME) {
@@ -448,3 +480,41 @@ export function formatiereTest(kategorieLabel: string): DiscordEmbed {
 }
 
 export { EMBED_LIMITS, kuerze };
+
+/**
+ * Eine Vorher/Nachher-Angabe aus den Metadaten einer Kontoaenderung.
+ *
+ * Mit Typpruefung wie alles in dieser Datei: was aus der Datenbank kommt, ist
+ * `unknown`, und ein Log, das an kaputten Metadaten scheitert, ist schlimmer
+ * als eines, das eine Zeile weglaesst.
+ */
+function kontoAenderung(wert: unknown): { von: string | null; nach: string | null } | null {
+  if (typeof wert !== 'object' || wert === null) {
+    return null;
+  }
+  const datensatz = wert as { von?: unknown; nach?: unknown };
+  const von = typeof datensatz.von === 'string' ? datensatz.von : null;
+  const nach = typeof datensatz.nach === 'string' ? datensatz.nach : null;
+  return von === null && nach === null ? null : { von, nach };
+}
+
+/**
+ * Die Adresse des neuen Profilbilds - oder `null`.
+ *
+ * Der Bot legt sie beim Ereignis ab, statt sie hier zusammenzusetzen: nur er
+ * weiss, ob es ein eigenes Bild ist oder Discords Standardbild, und die
+ * Standardbilder folgen einer anderen Regel als die eigenen. Eine hier
+ * geratene Adresse waere ein kaputtes Bild im Log.
+ */
+function neuesProfilbild(ereignis: DiscordEvent): string | null {
+  if (ereignis.type !== EVENT_TYPES.MEMBER_ACCOUNT_UPDATE) {
+    return null;
+  }
+  const daten = (ereignis.metadata ?? {}) as Record<string, unknown>;
+  const bild = kontoAenderung(daten.avatar);
+  if (!bild) {
+    return null;
+  }
+  const adresse = typeof daten.avatarUrl === 'string' ? daten.avatarUrl : null;
+  return adresse && adresse.startsWith('https://') ? adresse : null;
+}

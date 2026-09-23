@@ -88,28 +88,46 @@ describe('Kategorien', () => {
   });
 
   /**
-   * Beitritt und Austritt nennen zwei Kategorien.
+   * Beitritt und Austritt gehen nur noch in ihren eigenen Kanal.
    *
-   * Die eigene zuerst, die alte als Rückfall. Ohne den Rückfall würden
-   * Beitritte beim Update aus dem Kanal verschwinden, in dem sie bisher
-   * standen - für jeden, der «Mitglieder» eingerichtet hat und von der neuen
-   * Kategorie noch nichts weiss.
+   * Hier stand vorher ein Rückfall auf MEMBERS - damit Beitritte beim Update
+   * nicht aus dem Kanal verschwinden, in dem sie bisher standen. Diese Sorge
+   * war berechtigt, die Lösung war es nicht mehr: seit MEMBERS «Rollen»
+   * heisst und ausschliesslich Rollenänderungen trägt, wäre ein Beitritt
+   * dort schlicht falsch einsortiert.
+   *
+   * Verloren geht deswegen trotzdem nichts: die Migration übernimmt den
+   * bisherigen Mitglieder-Kanal für JOIN_LEAVE, wo dort noch keiner
+   * eingerichtet war.
    */
   it.each([analytics.EVENT_TYPES.MEMBER_JOIN, analytics.EVENT_TYPES.MEMBER_LEAVE])(
-    'nennt für %s zuerst JOIN_LEAVE und dann MEMBERS',
+    'nennt für %s ausschliesslich JOIN_LEAVE',
     (type) => {
-      expect(logs.kategorienFuerEreignis({ category: 'MEMBER', type })).toEqual(['JOIN_LEAVE', 'MEMBERS']);
+      expect(logs.kategorienFuerEreignis({ category: 'MEMBER', type })).toEqual(['JOIN_LEAVE']);
     },
   );
 
-  it('lässt Rollen und Spitznamen bei MEMBERS', () => {
-    for (const type of [
-      analytics.EVENT_TYPES.MEMBER_ROLE_ADD,
-      analytics.EVENT_TYPES.MEMBER_ROLE_REMOVE,
-      analytics.EVENT_TYPES.MEMBER_NICKNAME,
-    ]) {
+  it('lässt ausschliesslich Rollenänderungen bei MEMBERS', () => {
+    for (const type of [analytics.EVENT_TYPES.MEMBER_ROLE_ADD, analytics.EVENT_TYPES.MEMBER_ROLE_REMOVE]) {
       expect(logs.kategorienFuerEreignis({ category: 'MEMBER', type })).toEqual(['MEMBERS']);
     }
+  });
+
+  it('meldet einen Spitznamen gar nicht mehr', () => {
+    // Nicht im Text versteckt - es entsteht kein Log. Im Verlauf bleibt das
+    // Ereignis stehen; dort ist es eine Tatsache, keine Meldung an ein Team.
+    expect(
+      logs.kategorienFuerEreignis({ category: 'MEMBER', type: analytics.EVENT_TYPES.MEMBER_NICKNAME }),
+    ).toEqual([]);
+  });
+
+  it('schickt eine Kontoänderung in die eigene Kategorie', () => {
+    expect(
+      logs.kategorienFuerEreignis({
+        category: 'MEMBER',
+        type: analytics.EVENT_TYPES.MEMBER_ACCOUNT_UPDATE,
+      }),
+    ).toEqual(['ACCOUNT_CHANGES']);
   });
 
   /**

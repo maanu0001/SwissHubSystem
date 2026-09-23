@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Bot, Lock, ShieldAlert, UserX } from 'lucide-react';
+import { ArrowLeft, Bot, ExternalLink, Lock, ShieldAlert, UserX } from 'lucide-react';
 import { can } from '@swisshub/auth';
 import { getModuleSettings, isModuleEnabled, jail, level, members, verification } from '@swisshub/modules';
 import { formatDate, formatDateTime, snowflakeSchema } from '@swisshub/shared';
@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/shared/page-header';
-import { DiscordAvatar } from '@/components/shared/discord-avatar';
+import { ProfilAvatar } from '@/modules/members/components/profil-avatar';
+import { KopierKnopf } from '@/modules/members/components/kopier-knopf';
 import { RoleBadge } from '@/components/shared/role-badge';
 import { EmptyState } from '@/components/shared/states';
 import { CreateJailDialog } from '@/modules/jail/components/create-jail-dialog';
@@ -259,16 +260,40 @@ export async function MitgliedsAkte({
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4">
-              <DiscordAvatar
+              <ProfilAvatar
                 discordId={basic.discordId}
                 avatarHash={basic.avatarHash}
                 name={basic.displayName}
-                size={64}
               />
               <div className="min-w-0">
                 <p className="truncate font-medium">{basic.displayName}</p>
                 <p className="truncate text-sm text-muted-foreground">@{basic.username}</p>
               </div>
+            </div>
+
+            {/*
+              Der Weg zu Discord.
+
+              `discord.com/users/<id>` ist der von Discord unterstuetzte Weg
+              zu einem Profil: im Browser oeffnet er die Web-App, mit
+              installierter Anwendung uebernimmt diese. Die Kennung ist der
+              stabile Bezeichner - ein Benutzername aendert sich, und eine
+              Adresse darauf waere morgen falsch.
+
+              Daneben die Kennung zum Kopieren: wer die Anwendung ohne
+              Weiterleitung nutzt, sucht damit direkt.
+            */}
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href={`https://discord.com/users/${basic.discordId}`}
+                target="_blank"
+                rel="noreferrer noopener"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+              >
+                <ExternalLink className="size-4" aria-hidden="true" />
+                Discord-Profil öffnen
+              </a>
+              <KopierKnopf wert={basic.discordId} label="Discord-ID kopieren" />
             </div>
 
             <div className="flex flex-wrap gap-2">

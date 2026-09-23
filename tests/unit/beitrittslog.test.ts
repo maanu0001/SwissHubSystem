@@ -47,36 +47,54 @@ function ereignis(teile: Partial<DiscordEvent> = {}): DiscordEvent {
 
 const alsText = (embed: unknown): string => JSON.stringify(embed);
 
-describe('Rückfall auf die bisherige Kategorie', () => {
-  it('nennt für einen Beitritt beide Kategorien in der richtigen Reihenfolge', () => {
+/**
+ * Beitritte gehen in ihren eigenen Kanal - und nur dorthin.
+ *
+ * Hier stand ein Rückfall auf MEMBERS, damit Beitritte beim Update nicht aus
+ * dem Kanal verschwinden, in dem sie bisher standen. Die Sorge war berechtigt,
+ * die Lösung ist es nicht mehr: seit MEMBERS «Rollen» heisst und
+ * ausschliesslich Rollenänderungen trägt, wäre ein Beitritt dort falsch
+ * einsortiert.
+ *
+ * Verloren geht trotzdem nichts - die Migration übernimmt den bisherigen
+ * Mitglieder-Kanal für JOIN_LEAVE, wo dort noch keiner eingerichtet war.
+ */
+describe('Der eigene Kanal für Beitritte', () => {
+  it('nennt für einen Beitritt ausschliesslich JOIN_LEAVE', () => {
     expect(
       logs.kategorienFuerEreignis({
         category: 'MEMBER',
         type: analytics.EVENT_TYPES.MEMBER_JOIN,
       }),
-    ).toEqual(['JOIN_LEAVE', 'MEMBERS']);
+    ).toEqual(['JOIN_LEAVE']);
   });
 
-  it('nennt für einen freiwilligen Austritt ebenfalls beide', () => {
+  it('nennt für einen freiwilligen Austritt ebenfalls nur JOIN_LEAVE', () => {
     expect(
       logs.kategorienFuerEreignis({
         category: 'MEMBER',
         type: analytics.EVENT_TYPES.MEMBER_LEAVE,
         entfernt: null,
       }),
-    ).toEqual(['JOIN_LEAVE', 'MEMBERS']);
+    ).toEqual(['JOIN_LEAVE']);
   });
 
   it('hält einen Kick aus dem Beitrittskanal heraus', () => {
-    // Er steht mit Grund und Handelndem im Moderationskanal. «Hat den Server
-    // verlassen» wäre daneben eine zweite, falsche Aussage.
+    /*
+     * Er steht mit Grund und Handelndem im Moderationskanal. «Hat den Server
+     * verlassen» wäre daneben eine zweite, falsche Aussage.
+     *
+     * Früher blieb er unter «Mitglieder» stehen - dort war er eine
+     * Mitgliederbewegung. Unter «Rollen» ist er das nicht mehr, also gar
+     * nicht: einmal gemeldet genügt.
+     */
     expect(
       logs.kategorienFuerEreignis({
         category: 'MEMBER',
         type: analytics.EVENT_TYPES.MEMBER_LEAVE,
         entfernt: 'KICK',
       }),
-    ).toEqual(['MEMBERS']);
+    ).toEqual([]);
   });
 
   it('hält einen Bann ebenso heraus', () => {
@@ -86,26 +104,31 @@ describe('Rückfall auf die bisherige Kategorie', () => {
         type: analytics.EVENT_TYPES.MEMBER_LEAVE,
         entfernt: 'BAN',
       }),
-    ).toEqual(['MEMBERS']);
+    ).toEqual([]);
   });
 
-  it('lässt einen Rauswurf trotzdem in der Mitgliederkategorie stehen', () => {
-    // Die bisherige Entscheidung bleibt: ein Austritt ist auch dann eine
-    // Mitgliederbewegung, wenn er ein Kick war.
+  it('meldet einen Rauswurf genau einmal', () => {
+    /*
+     * Früher stand er zusätzlich unter «Mitglieder» - dort war ein Austritt
+     * auch dann eine Mitgliederbewegung, wenn er ein Kick war. Seit die
+     * Kategorie «Rollen» heisst, trägt sie das nicht mehr, und der
+     * Moderationskanal hat ihn ohnehin: mit Grund und Handelndem.
+     */
     const kategorien = logs.kategorienFuerEreignis({
       category: 'MEMBER',
       type: analytics.EVENT_TYPES.MEMBER_LEAVE,
       entfernt: 'KICK',
     });
 
-    expect(kategorien).toContain('MEMBERS');
+    expect(kategorien).not.toContain('MEMBERS');
+    expect(kategorien).toEqual([]);
   });
 
-  it('kennt die neue Kategorie mit Beschreibung und Beispiel', () => {
+  it('kennt die Kategorie mit Beschreibung und Beispiel', () => {
     const definition = logs.kategorie('JOIN_LEAVE');
 
     expect(definition.label).toBeTruthy();
-    expect(definition.beschreibung).toContain('Mitglieder');
+    expect(definition.beschreibung).toBeTruthy();
     expect(definition.beispiel).toBeTruthy();
   });
 });

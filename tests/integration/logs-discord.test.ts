@@ -209,7 +209,11 @@ describeWithDatabase('Discord-Log-Kanäle', () => {
   it.each([
     ['MESSAGES', 'MESSAGE', analytics.EVENT_TYPES.MESSAGE_DELETE],
     ['VOICE', 'VOICE', analytics.EVENT_TYPES.VOICE_JOIN],
-    ['MEMBERS', 'MEMBER', analytics.EVENT_TYPES.MEMBER_JOIN],
+    // Rollenänderung, nicht Beitritt: MEMBERS trägt seit der Umbenennung auf
+    // «Rollen» ausschliesslich Rollenänderungen.
+    ['MEMBERS', 'MEMBER', analytics.EVENT_TYPES.MEMBER_ROLE_ADD],
+    ['JOIN_LEAVE', 'MEMBER', analytics.EVENT_TYPES.MEMBER_JOIN],
+    ['ACCOUNT_CHANGES', 'MEMBER', analytics.EVENT_TYPES.MEMBER_ACCOUNT_UPDATE],
     ['ADMIN', 'CHANNEL', analytics.EVENT_TYPES.CHANNEL_DELETE],
   ])('reiht ein Ereignis der Kategorie %s ein', async (kategorie, eventKategorie, type) => {
     await richteEin(kategorie);

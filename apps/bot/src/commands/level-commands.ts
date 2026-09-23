@@ -7,6 +7,7 @@ import {
 } from 'discord.js';
 import { createLogger } from '@swisshub/logger';
 import { AppError } from '@swisshub/shared';
+import { appUrl } from '@swisshub/config';
 import { level } from '@swisshub/modules';
 import { renderLevelCard } from '../level-card';
 import { listMutedWithoutXp } from '../level-events';
@@ -60,12 +61,12 @@ export const LEVEL_COMMAND_DEFINITIONS = [
   },
   {
     name: 'leaderboard',
-    description: 'Zeigt d Rangliste vom Server.',
+    description: 'Zeigt d Top 5 vom Server.',
     dmPermission: false,
     options: [
       {
         name: 'azahl',
-        description: 'Wie viel Plätz agezeigt werde (Standard 10).',
+        description: 'Wie viel Plätz agezeigt werde (Standard 5).',
         type: ApplicationCommandOptionType.Integer,
         required: false,
         min_value: 1,
@@ -539,7 +540,14 @@ async function handleLevel(interaction: ChatInputCommandInteraction, context: Ct
 }
 
 async function handleLeaderboard(interaction: ChatInputCommandInteraction, context: Ctx): Promise<void> {
-  const limit = interaction.options.getInteger('azahl') ?? 10;
+  /*
+   * Fuenf, nicht zehn.
+   *
+   * Auf Discord soll die Spitze stehen, nicht die halbe Rangliste - wer mehr
+   * sehen will, folgt dem Knopf ins System. Die Option bleibt, wer eine
+   * andere Zahl will, bekommt sie.
+   */
+  const limit = interaction.options.getInteger('azahl') ?? 5;
   await interaction.deferReply();
 
   // Wie beim Vorgänger: für die angezeigten Plätze den fälligen
@@ -567,6 +575,14 @@ async function handleLeaderboard(interaction: ChatInputCommandInteraction, conte
   });
   await interaction.editReply({
     embeds: [level.buildLeaderboardEmbed(board.entries, context.accentColor)],
+    components: level.buildLeaderboardButtons(appUrl('/leaderboard')),
+    /*
+     * Erwaehnungen anzeigen, aber niemanden benachrichtigen.
+     *
+     * `<@id>` loest Discord beim Anzeigen auf - anklickbar und immer mit dem
+     * aktuellen Namen. Ohne diese Zeile bekaemen die Top Fuenf jedes Mal eine
+     * Benachrichtigung, wenn irgendwer die Rangliste abruft.
+     */
     allowedMentions: { parse: [] },
   });
 }

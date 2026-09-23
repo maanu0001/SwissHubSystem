@@ -22,6 +22,14 @@ export const EVENT_TYPES = {
   MEMBER_ROLE_ADD: 'MEMBER_ROLE_ADD',
   MEMBER_ROLE_REMOVE: 'MEMBER_ROLE_REMOVE',
   MEMBER_NICKNAME: 'MEMBER_NICKNAME',
+  /**
+   * Eine Aenderung am Discord-Konto selbst: Benutzername, Profilbild.
+   *
+   * Ein Typ fuer beides, nicht zwei. Discord meldet beides im selben
+   * `userUpdate`, und wer Namen und Bild zugleich wechselt, hat **eine**
+   * Sache getan - zwei Meldungen darueber waeren zwei halbe.
+   */
+  MEMBER_ACCOUNT_UPDATE: 'MEMBER_ACCOUNT_UPDATE',
   MEMBER_TIMEOUT: 'MEMBER_TIMEOUT',
   MEMBER_TIMEOUT_END: 'MEMBER_TIMEOUT_END',
   MEMBER_BAN: 'MEMBER_BAN',

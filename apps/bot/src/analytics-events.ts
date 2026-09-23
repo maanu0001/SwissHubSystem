@@ -560,6 +560,67 @@ export function registerAnalyticsEvents(
     });
   });
 
+  /*
+   * --- Das Discord-Konto selbst -------------------------------------------
+   *
+   * `userUpdate` und nicht `guildMemberUpdate`, und das ist der ganze
+   * Unterschied: ein Spitzname gilt auf einem Server, ein Benutzername gilt
+   * ueberall. Aus einer Rollen- oder Spitznamenaenderung laesst sich eine
+   * Kontoaenderung nicht ableiten - Discord meldet sie schlicht woanders.
+   *
+   * Das Ereignis kommt **einmal** je Client, nicht je Server. Eine
+   * Entdoppelung braucht es deshalb nicht; es wird dem verbundenen Server
+   * zugeordnet, damit es dort im Log landet.
+   */
+  client.on(Events.UserUpdate, (alt, neu) => {
+    const guildId = client.guilds.cache.find((guild) => guildIdAktiv(guild.id))?.id;
+    if (!guildId) {
+      return;
+    }
+
+    sicher('Accountänderung', async () => {
+      // `alt` ist unvollstaendig, wenn der Nutzer vorher nicht im
+      // Zwischenspeicher stand. Dann laesst sich nicht sagen, was sich
+      // geaendert hat - und etwas zu behaupten waere schlimmer als zu
+      // schweigen.
+      if (alt.partial) {
+        return;
+      }
+
+      const nameGeaendert = alt.username !== neu.username;
+      const bildGeaendert = alt.avatar !== neu.avatar;
+      if (!nameGeaendert && !bildGeaendert) {
+        return;
+      }
+
+      await analytics.recordEvent({
+        guildId,
+        category: 'MEMBER',
+        type: analytics.EVENT_TYPES.MEMBER_ACCOUNT_UPDATE,
+        subjectDiscordId: neu.id,
+        subjectUsername: neu.username,
+        occurredAt: new Date(),
+        metadata: {
+          ...(nameGeaendert ? { username: { von: alt.username, nach: neu.username } } : {}),
+          ...(bildGeaendert
+            ? {
+                avatar: { von: alt.avatar ?? null, nach: neu.avatar ?? null },
+                /*
+                 * Die Adresse entsteht hier, nicht im Formatter.
+                 *
+                 * `displayAvatarURL` von discord.js kennt den Unterschied
+                 * zwischen einem eigenen Bild und Discords Standardbild -
+                 * und deren Adressen folgen verschiedenen Regeln. Sie im Log
+                 * zu raten hiesse, dort ein kaputtes Bild zu zeigen.
+                 */
+                avatarUrl: neu.displayAvatarURL({ size: 512, extension: 'png' }),
+              }
+            : {}),
+        },
+      });
+    });
+  });
+
   // --- Banns ---------------------------------------------------------------
 
   client.on(Events.GuildBanAdd, (bann) => {

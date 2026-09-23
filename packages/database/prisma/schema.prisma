@@ -5766,18 +5766,30 @@ enum DiscordLogCategory {
   MESSAGES
   /// Aus `DiscordEvent` der Kategorie VOICE.
   VOICE
-  /// Aus `DiscordEvent` der Kategorie MEMBER - Rollen, Spitzname und, solange
-  /// kein eigener Kanal fuer JOIN_LEAVE eingerichtet ist, auch Beitritt und
-  /// Austritt.
+  /// Rollenaenderungen eines Mitglieds - im Dashboard «Rollen».
+  ///
+  /// Der Schluessel heisst weiterhin MEMBERS, weil er die eingerichteten
+  /// Kanaele traegt (`DiscordLogChannel.category` ist der Primaerschluessel).
+  /// Ihn umzubenennen hiesse, jede bestehende Zuordnung zu verlieren - fuer
+  /// einen Namen, den ohnehin niemand sieht.
+  ///
+  /// Frueher standen hier auch Spitznamen sowie, ohne eigenen JOIN_LEAVE-
+  /// Kanal, Beitritte und Austritte. Beides ist raus: Spitznamen werden gar
+  /// nicht mehr gemeldet, Beitritte und Austritte haben ihre eigene
+  /// Kategorie.
   MEMBERS
   /// Beitritt und Austritt allein - inklusive der genutzten Einladung.
   ///
   /// Eigene Kategorie, weil sie einen anderen Leserkreis hat als eine
   /// Rollenaenderung: wer kommt und geht, interessiert das ganze Team, eine
-  /// vergebene Rolle nur die Verwaltung. Ohne eingerichteten Kanal faellt sie
-  /// auf MEMBERS zurueck - sonst verschwaenden Beitritte beim Update aus dem
-  /// Kanal, in dem sie bisher standen.
+  /// vergebene Rolle nur die Verwaltung.
   JOIN_LEAVE
+  /// Aenderungen am Discord-Konto selbst: Benutzername und Profilbild.
+  ///
+  /// Bewusst getrennt von MEMBERS. Eine Rolle ist serverbezogen und wird hier
+  /// vergeben; ein Benutzername gehoert der Person und aendert sich ueberall
+  /// zugleich. Das sind verschiedene Vorgaenge mit verschiedenen Lesern.
+  ACCOUNT_CHANGES
   /// Aus `DiscordEvent` der Kategorien ROLE, CHANNEL und SERVER.
   ADMIN
 }

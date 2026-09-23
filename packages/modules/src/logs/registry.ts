@@ -64,15 +64,22 @@ export const LOG_KATEGORIEN: readonly LogKategorieDefinition[] = [
     id: 'JOIN_LEAVE',
     label: 'Beitritte & Austritte',
     beschreibung:
-      'Nur wer kommt und wer geht - mit der genutzten Einladung, sofern der Bot sie belegen kann. Ohne eigenen Kanal erscheinen Beitritte und Austritte weiterhin unter «Mitglieder».',
+      'Nur wer kommt und wer geht - mit der genutzten Einladung, sofern der Bot sie belegen kann.',
     beispiel: 'Mitglied beigetreten · Mitglied hat den Server verlassen',
   },
   {
     id: 'MEMBERS',
-    label: 'Mitglieder',
+    label: 'Rollen',
     beschreibung:
-      'Rollenänderungen und Spitznamen - und Beitritte/Austritte, solange dafür kein eigener Kanal eingerichtet ist.',
-    beispiel: 'Rolle vergeben · Spitzname geändert',
+      'Ausschliesslich Rollenänderungen eines Mitglieds. Spitznamen stehen hier nicht mehr, Beitritte und Austritte haben ihren eigenen Kanal.',
+    beispiel: 'Rolle vergeben · Rolle entzogen',
+  },
+  {
+    id: 'ACCOUNT_CHANGES',
+    label: 'Accountänderungen',
+    beschreibung:
+      'Änderungen am Discord-Konto selbst: Benutzername und Profilbild. Das neue Profilbild steht direkt im Eintrag.',
+    beispiel: 'Benutzername geändert · Profilbild geändert',
   },
   {
     id: 'ADMIN',
@@ -189,6 +196,34 @@ export function kategorienFuerEreignis(input: {
   if (AUS_DER_AKTE.has(input.type)) {
     return [];
   }
+  /*
+   * Der Spitzname wird nicht mehr gemeldet.
+   *
+   * Er stand unter «Mitglieder», und genau das machte die Kategorie unscharf:
+   * eine Rollenvergabe und eine Namensaenderung haben weder denselben Anlass
+   * noch denselben Leser. Seit die Kategorie «Rollen» heisst, waere er dort
+   * schlicht falsch einsortiert - und ihn nur im Text zu verstecken, hiesse,
+   * ihn weiterhin zu senden.
+   *
+   * Im Verlauf und in der Statistik bleibt das Ereignis stehen. Dort ist es
+   * eine Tatsache ueber den Server, keine Meldung an ein Team.
+   */
+  if (input.type === EVENT_TYPES.MEMBER_NICKNAME) {
+    return [];
+  }
+
+  /*
+   * Kontoaenderungen haben ihre eigene Kategorie.
+   *
+   * Sie kommen aus `userUpdate` und nicht aus `guildMemberUpdate`: ein
+   * Benutzername gehoert der Person und aendert sich auf jedem Server
+   * zugleich. Das ist etwas anderes als eine Rolle, die auf genau einem
+   * Server vergeben wurde.
+   */
+  if (input.type === EVENT_TYPES.MEMBER_ACCOUNT_UPDATE) {
+    return ['ACCOUNT_CHANGES'];
+  }
+
   const gewoehnlich = AUS_EREIGNIS[input.category];
   if (!gewoehnlich) {
     return [];
@@ -202,15 +237,16 @@ export function kategorienFuerEreignis(input: {
      * wurde, ist dort schlicht falsch - und die Massnahme selbst steht
      * ohnehin schon im Moderationskanal, mit Grund und Handelndem.
      *
-     * Unter «Mitglieder» bleibt er stehen: dort ist es eine
-     * Mitgliederbewegung, und das ist er auch dann, wenn er ein Kick war.
-     * Beides sind verschiedene Aussagen ueber denselben Moment, und diese
-     * Unterscheidung gab es hier schon vor der neuen Kategorie.
+     * Frueher fiel beides ohne eigenen Kanal auf «Mitglieder» zurueck. Seit
+     * diese Kategorie «Rollen» heisst, traegt sie das nicht mehr: ein
+     * Beitritt ist keine Rollenaenderung. Damit dabei niemandem sein Log
+     * abhandenkommt, uebernimmt die Migration den bisherigen
+     * Mitglieder-Kanal fuer JOIN_LEAVE, wo dort noch keiner eingerichtet war.
      */
     if (input.type === EVENT_TYPES.MEMBER_LEAVE && input.entfernt) {
-      return [gewoehnlich];
+      return [];
     }
-    return ['JOIN_LEAVE', gewoehnlich];
+    return ['JOIN_LEAVE'];
   }
   return [gewoehnlich];
 }

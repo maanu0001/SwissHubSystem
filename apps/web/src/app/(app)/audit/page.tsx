@@ -1,16 +1,18 @@
 import type { Metadata } from 'next';
 import { ShieldCheck, ShieldX } from 'lucide-react';
-import { listModuleDefinitions, loadAvatarHashes } from '@swisshub/modules';
+import { getGuildConfig, listModuleDefinitions, loadPersonen } from '@swisshub/modules';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { buttonVariants } from '@/components/ui/button';
 import { PageToolbar } from '@/components/shared/page-header';
 import { Pagination } from '@/components/shared/pagination';
-import { AuditEntry, auditActionLabel } from '@/components/shared/audit-entry';
+import { AuditZeile } from '@/modules/audit/audit-zeile';
+import { auditActionLabel, auditKategorie, resolveAuditContext } from '@/modules/audit/kontext';
 import { EmptyState } from '@/components/shared/states';
+import { can } from '@swisshub/auth';
 import { requirePagePermission } from '@/server/auth';
-import { AUDIT_ACTION_OPTIONS, auditFilterSchema, checkAuditIntegrity, loadAuditLog } from '@/server/audit';
+import { AUDIT_ACTION_OPTIONS, checkAuditIntegrity, leseAuditFilter, loadAuditLog } from '@/server/audit';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Audit Log' };
@@ -21,14 +23,52 @@ export default async function AuditPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }): Promise<React.JSX.Element> {
-  await requirePagePermission('audit.view');
+  const context = await requirePagePermission('audit.view');
   const params = await searchParams;
-  const filter = auditFilterSchema.parse(params);
+  /*
+   * Lesen, nicht erzwingen.
+   *
+   * Hier stand `auditFilterSchema.parse(params)`. Das Formular schickt beim
+   * Absenden aber alle Felder mit, auch die leeren - `from=` und `to=` liefen
+   * damit in eine Datumsregel, die den Leerstring ablehnt, und die Server
+   * Component brach ab. Sichtbar war «Diese Seite konnte nicht geladen
+   * werden», und zwar bei **jeder** Anwendung des Filters.
+   */
+  const { filter, verworfen } = leseAuditFilter(params);
 
-  const [result, integrity] = await Promise.all([loadAuditLog(filter), checkAuditIntegrity()]);
-  // Avatare der Ausführenden gesammelt nachschlagen.
-  const avatarHashes = await loadAvatarHashes(result.items.map((entry) => entry.actorDiscordId));
+  const [result, integrity, guild] = await Promise.all([
+    loadAuditLog(filter),
+    checkAuditIntegrity(),
+    getGuildConfig().catch(() => null),
+  ]);
+
+  /*
+   * Personen in einem Zug nachschlagen.
+   *
+   * Handelnde und Ziele zusammen, nicht je Zeile: fünfundzwanzig Einträge
+   * wären sonst bis zu fünfzig Abfragen. `loadPersonen` macht daraus zwei.
+   */
+  const personen = Object.fromEntries(
+    await loadPersonen(result.items.flatMap((entry) => [entry.actorDiscordId, entry.targetDiscordId])),
+  );
   const modules = listModuleDefinitions();
+  // Rohdaten können Namen und Gründe enthalten - sie sind nicht Teil dessen,
+  // was «Audit Log ansehen» zusagt.
+  const darfRohdatenSehen = can(context, 'settings.edit');
+
+  const aktionsGruppen = [
+    ...AUDIT_ACTION_OPTIONS.reduce((gruppen, action) => {
+      const bereich = auditKategorie(action);
+      const vorhanden = gruppen.get(bereich.label) ?? [];
+      gruppen.set(bereich.label, [...vorhanden, action]);
+      return gruppen;
+    }, new Map<string, string[]>()),
+  ]
+    .map(([label, aktionen]) => ({
+      label,
+      aktionen: [...aktionen].sort((a, b) => auditActionLabel(a).localeCompare(auditActionLabel(b), 'de')),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'de'));
 
   const buildHref = (page: number): string => {
     const search = new URLSearchParams();
@@ -72,6 +112,14 @@ export default async function AuditPage({
         </p>
       </PageToolbar>
 
+      {verworfen.length > 0 ? (
+        <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          {verworfen.length === 1
+            ? `Der Filter «${verworfen[0]}» war unbrauchbar und wurde übergangen.`
+            : `Diese Filter waren unbrauchbar und wurden übergangen: ${verworfen.join(', ')}.`}
+        </p>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Filter</CardTitle>
@@ -106,10 +154,23 @@ export default async function AuditPage({
                 className="flex h-9 w-full rounded-md border border-input bg-background/60 px-3 text-sm"
               >
                 <option value="">Alle</option>
-                {AUDIT_ACTION_OPTIONS.map((action) => (
-                  <option key={action} value={action}>
-                    {auditActionLabel(action)}
-                  </option>
+                {/*
+                  Nach Bereich gruppiert und alphabetisch sortiert.
+
+                  Zweihundertsechsundzwanzig Einträge in einer flachen Liste
+                  sind keine Auswahl, sondern eine Suche ohne Suchfeld. Die
+                  Gruppen entstehen aus derselben Ableitung wie die Abzeichen
+                  in der Liste - keine zweite Einteilung, die davon abweichen
+                  könnte.
+                */}
+                {aktionsGruppen.map((gruppe) => (
+                  <optgroup key={gruppe.label} label={gruppe.label}>
+                    {gruppe.aktionen.map((action) => (
+                      <option key={action} value={action}>
+                        {auditActionLabel(action)}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
@@ -172,22 +233,24 @@ export default async function AuditPage({
           ) : (
             <ul>
               {result.items.map((entry) => (
-                <AuditEntry
+                <AuditZeile
                   key={entry.id}
-                  entry={{
+                  eintrag={{
                     id: entry.id,
                     createdAt: entry.createdAt,
                     action: entry.action,
                     module: entry.module,
                     actorUsername: entry.actorUsername,
                     actorDiscordId: entry.actorDiscordId,
-                    actorAvatarHash: avatarHashes.get(entry.actorDiscordId ?? '') ?? null,
                     targetLabel: entry.targetLabel,
                     targetDiscordId: entry.targetDiscordId,
                     success: entry.success,
                     errorCode: entry.errorCode,
                     metadata: entry.metadata,
                   }}
+                  kontext={resolveAuditContext(entry, { guildId: guild?.guildId ?? null })}
+                  personen={personen}
+                  darfRohdatenSehen={darfRohdatenSehen}
                 />
               ))}
             </ul>
