@@ -4,6 +4,7 @@ import { useState } from 'react';
 import {
   Bot,
   CalendarDays,
+  Clapperboard,
   ChevronDown,
   ExternalLink,
   FileCog,
@@ -66,6 +67,7 @@ const SYMBOL: Record<AuditKategorieId, typeof Users> = {
   migration: FileCog,
   einstellungen: Sliders,
   mitglieder: Users,
+  clips: Clapperboard,
   system: Server,
 };
 

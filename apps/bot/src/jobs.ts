@@ -10,6 +10,7 @@ import {
   appeals,
   automation,
   calendar,
+  clips,
   jail,
   level,
   logs,
@@ -486,6 +487,35 @@ export function createJobRunner(
       intervalMs: 60 * 1000,
       async run() {
         await tournaments.runTournamentTick();
+      },
+    },
+    {
+      name: 'clips-tick',
+      /*
+       * Clip of the Week fortschreiben.
+       *
+       * Im Minutentakt, weil die Phasen auf die Minute genau enden: «bis
+       * Freitag 20:00» heisst 20:00, nicht irgendwann zwischen 20:00 und
+       * 20:05. In dieser Minute wuerde sonst noch eine Einreichung
+       * angenommen, die zu spaet kam.
+       *
+       * Der Durchgang findet im Normalfall nichts zu tun: eine indizierte
+       * Abfrage auf faellige Zeitpunkte und ein Blick auf die letzten drei
+       * Runden. Er ist zugleich die Wiederherstellung - was waehrend eines
+       * Ausfalls faellig wurde, wird beim naechsten Lauf nachgeholt, und
+       * zwar ohne dass eine Ankuendigung ein zweites Mal herausgeht.
+       */
+      intervalMs: 60 * 1000,
+      async run() {
+        const { isModuleEnabled } = await import('@swisshub/modules');
+        if (!(await isModuleEnabled(clips.CLIPS_MODULE_ID))) {
+          return;
+        }
+        const guildId = await tryResolveGuildId();
+        if (!guildId) {
+          return;
+        }
+        await clips.runClipsTick(guildId);
       },
     },
     {

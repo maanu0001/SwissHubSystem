@@ -213,6 +213,45 @@ export const RATE_LIMITS = {
 
   /** Anhaenge herunterladen. */
   appealDownload: { limit: 60, windowMs: 5 * 60 * 1000 },
+
+  /**
+   * Einen Clip einreichen.
+   *
+   * Eng, weil die Regel ohnehin einen Clip je Woche erlaubt. Was darueber
+   * hinaus ankommt, ist entweder ein Versehen oder ein Versuch, die
+   * Erkennung mit Adressen zu fuettern, bis eine durchrutscht.
+   */
+  clipSubmit: { limit: 10, windowMs: 10 * 60 * 1000 },
+
+  /**
+   * Abstimmen.
+   *
+   * Grosszuegiger als die Zahl der Stimmen: Stimmen lassen sich
+   * zuruecknehmen und umsetzen, und wer sich beim Durchsehen zweimal
+   * umentscheidet, soll dabei nicht ausgebremst werden.
+   */
+  clipVote: { limit: 60, windowMs: 5 * 60 * 1000 },
+
+  /** Zufaelligen Clip ziehen - ein Knopf, den man gerne mehrfach drueckt. */
+  clipRandom: { limit: 60, windowMs: 5 * 60 * 1000 },
+
+  /** Einen Clip melden. */
+  clipReport: { limit: 10, windowMs: 10 * 60 * 1000 },
+
+  /**
+   * Die Vorschau im Einreich-Assistenten.
+   *
+   * Sie prueft nur die Adresse - kein Abruf, kein fremder Server. Trotzdem
+   * begrenzt: sie ist die Stelle, an der jemand hundert Adressen
+   * durchprobieren wuerde, um zu sehen, welche Form durchkommt.
+   */
+  clipMetadata: { limit: 60, windowMs: 5 * 60 * 1000 },
+
+  /** Die Gewinnerkarte zeichnen - je Aufruf ein gerendertes Bild. */
+  clipShare: { limit: 20, windowMs: 10 * 60 * 1000 },
+
+  /** Moderation und Verwaltung der Runden. */
+  clipModerate: { limit: 120, windowMs: 10 * 60 * 1000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

@@ -364,6 +364,101 @@ registerEvent({
   ],
 });
 
+// --- Clip of the Week -------------------------------------------------------
+
+registerEvent({
+  type: 'clips.submitted',
+  label: 'Clip eingereicht',
+  description: 'Jemand hat einen Clip für die laufende Runde eingereicht - er wartet auf Freigabe.',
+  module: 'clips',
+  payloadSchema: z.object({
+    clipId: z.string(),
+    entryId: z.string(),
+    competitionId: z.string(),
+    titel: z.string(),
+    discordId,
+    provider: z.string(),
+  }),
+  variables: [
+    { path: 'payload.titel', label: 'Titel', type: 'string' },
+    { path: 'payload.provider', label: 'Anbieter', type: 'string' },
+  ],
+});
+
+registerEvent({
+  type: 'clips.approved',
+  label: 'Clip freigegeben',
+  description: 'Die Moderation hat einen Clip für das Voting freigegeben.',
+  module: 'clips',
+  payloadSchema: z.object({
+    clipId: z.string(),
+    entryId: z.string(),
+    competitionId: z.string(),
+    titel: z.string(),
+    discordId,
+  }),
+  variables: [{ path: 'payload.titel', label: 'Titel', type: 'string' }],
+});
+
+registerEvent({
+  type: 'clips.rejected',
+  label: 'Clip abgelehnt',
+  description: 'Die Moderation hat einen Clip abgelehnt.',
+  module: 'clips',
+  payloadSchema: z.object({
+    clipId: z.string(),
+    entryId: z.string(),
+    competitionId: z.string(),
+    titel: z.string(),
+    discordId,
+    grund: z.string(),
+    notiz: z.string().nullable().optional(),
+  }),
+  variables: [
+    { path: 'payload.titel', label: 'Titel', type: 'string' },
+    { path: 'payload.grund', label: 'Grund', type: 'string' },
+  ],
+});
+
+registerEvent({
+  type: 'clips.voting_started',
+  label: 'Clip-Voting gestartet',
+  description: 'Die Einreichungen sind geschlossen, die Abstimmung läuft.',
+  module: 'clips',
+  payloadSchema: z.object({
+    competitionId: z.string(),
+    key: z.string(),
+    nummer: z.number(),
+    clips: z.number(),
+    endetAm: z.string(),
+  }),
+  variables: [
+    { path: 'payload.nummer', label: 'Rundennummer', type: 'number' },
+    { path: 'payload.clips', label: 'Clips im Rennen', type: 'number' },
+  ],
+});
+
+registerEvent({
+  type: 'clips.winner',
+  label: 'Clip of the Week steht fest',
+  description: 'Eine Runde ist abgeschlossen und hat einen Gewinner.',
+  module: 'clips',
+  payloadSchema: z.object({
+    competitionId: z.string(),
+    key: z.string(),
+    nummer: z.number(),
+    entryId: z.string(),
+    clipId: z.string(),
+    titel: z.string(),
+    discordId,
+    stimmen: z.number(),
+  }),
+  variables: [
+    { path: 'payload.titel', label: 'Titel', type: 'string' },
+    { path: 'payload.stimmen', label: 'Stimmen', type: 'number' },
+  ],
+});
+
 // --- Automation selbst ------------------------------------------------------
 
 registerEvent({

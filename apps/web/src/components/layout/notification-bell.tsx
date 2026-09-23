@@ -8,9 +8,11 @@ import {
   Bell,
   CalendarDays,
   Check,
+  Clapperboard,
   Gavel,
   ShieldCheck,
   Ticket,
+  Trophy,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -57,6 +59,9 @@ const SYMBOLE: Record<string, LucideIcon> = {
   'automation.fehler': AlertTriangle,
   'appeal.eskaliert': Gavel,
   'kalender.anmeldung': CalendarDays,
+  'clip.offen': Clapperboard,
+  'clip.entschieden': Clapperboard,
+  'clip.gewonnen': Trophy,
 };
 
 /** «vor 5 Min.» - kurz genug für eine Zeile. */

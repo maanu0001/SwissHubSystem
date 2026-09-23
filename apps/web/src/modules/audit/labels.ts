@@ -276,6 +276,18 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   MIGRATION_FAILED: 'Migration fehlgeschlagen',
   MIGRATION_EXPORTED: 'Migration exportiert',
 
+  // --- Clips -----------------------------------------------------------------
+  CLIP_COMPETITION_CREATED: 'Clip-Runde eröffnet',
+  CLIP_COMPETITION_FINALIZED: 'Clip-Runde abgeschlossen',
+  CLIP_COMPETITION_CANCELLED: 'Clip-Runde abgebrochen',
+  CLIP_COMPETITION_UPDATED: 'Clip-Runde geändert',
+  CLIP_SUBMITTED: 'Clip eingereicht',
+  CLIP_APPROVED: 'Clip freigegeben',
+  CLIP_REJECTED: 'Clip abgelehnt',
+  CLIP_REMOVED: 'Clip entfernt',
+  CLIP_REPORTED: 'Clip gemeldet',
+  CLIP_REPORT_RESOLVED: 'Clip-Meldung bearbeitet',
+
   // --- Statistik -------------------------------------------------------------
   ANALYTICS_EXPORT: 'Statistik exportiert',
   ANALYTICS_MEDIA_DOWNLOAD: 'Datei aus dem Archiv geladen',

@@ -42,6 +42,15 @@ export const systemRoutes = {
 
   /** Die Akte eines Mitglieds. */
   mitglied: (discordId: string): SystemRoute => `/members/${id(discordId)}`,
+
+  /** Clip of the Week - der Wettbewerb der Community. */
+  clips: (): SystemRoute => '/clips',
+  clipEinreichen: (): SystemRoute => '/clips/einreichen',
+  clipsZufall: (): SystemRoute => '/clips/zufall',
+  clipModeration: (): SystemRoute => '/clips/moderation',
+  clipVerwalten: (): SystemRoute => '/clips/verwalten',
+  hallOfFame: (): SystemRoute => '/clips/hall-of-fame',
+  clipRunde: (key: string): SystemRoute => `/clips/runde/${id(key)}`,
   mitglieder: (): SystemRoute => '/members',
 
   /** Die Warteschlange der Verifikation. */

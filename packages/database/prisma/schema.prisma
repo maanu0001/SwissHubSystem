@@ -485,6 +485,284 @@ model DiscordMemberCache {
   @@index([roleIds], type: Gin)
 }
 
+// ---------------------------------------------------------------------------
+// Clips
+//
+// Vier getrennte Entitaeten statt einer grossen: ein **Clip** ist eine Sache
+// fuer sich, ein **Wettbewerb** ist eine Sache fuer sich, und eine
+// **Teilnahme** verbindet beide.
+//
+// Das ist keine Formsache. «Clip of the Week» ist der erste Wettbewerb auf
+// dem, was einmal das Clip Center wird - «Neu», «Trending», «Meine Clips»,
+// Spielfilter, Suche. Steckte der Clip in der Runde, in der er eingereicht
+// wurde, gaebe es ihn ausserhalb dieser Runde nicht, und jede spaetere
+// Ansicht muesste ueber Wettbewerbe gehen, die sie nicht interessieren.
+//
+// Umgekehrt kann derselbe Clip spaeter an einem zweiten Wettbewerb teilnehmen,
+// ohne kopiert zu werden.
+// ---------------------------------------------------------------------------
+
+/// Woher ein Clip kommt.
+enum ClipSourceType {
+  TWITCH_CLIP
+  YOUTUBE
+  /// Direkt hochgeladen. Vorgesehen, aber noch nicht umgesetzt - es gibt in
+  /// dieser Anwendung keine Infrastruktur fuer Videodateien, und eine
+  /// improvisierte waere schlechter als keine.
+  UPLOAD
+}
+
+enum ClipStatus {
+  /// Eingereicht, wartet auf die Moderation.
+  PENDING
+  APPROVED
+  REJECTED
+  /// Nach der Freigabe zurueckgezogen - vom Team oder von der Person selbst.
+  REMOVED
+}
+
+enum ClipCompetitionStatus {
+  /// Angelegt, aber noch nicht eroeffnet.
+  DRAFT
+  SUBMISSION
+  VOTING
+  /// Das Voting ist vorbei, das Ergebnis wird ermittelt. Ein eigener Zustand,
+  /// damit zwei gleichzeitige Laeufe nicht beide finalisieren.
+  FINALIZING
+  COMPLETED
+  CANCELLED
+}
+
+enum ClipEntryStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  /// Aus dem laufenden Wettbewerb genommen - der Clip selbst bleibt.
+  REMOVED
+}
+
+enum ClipReportReason {
+  INAPPROPRIATE
+  RIGHTS
+  HARASSMENT
+  OTHER
+}
+
+/// Ein Clip - unabhaengig von jedem Wettbewerb.
+model Clip {
+  id      String @id @default(cuid())
+  guildId String
+
+  submittedByDiscordId   String
+  submittedByUsername    String?
+  submittedByDisplayName String?
+  submittedByAvatarHash  String?
+
+  sourceType ClipSourceType
+  /// Kleingeschriebener Anbieter - `twitch`, `youtube`.
+  provider   String
+  /// Die Kennung des Clips beim Anbieter. Zusammen mit `provider` das, woran
+  /// ein Duplikat erkannt wird: zwei Adressen koennen denselben Clip meinen.
+  externalId String
+  /// Die auf eine Form gebrachte Adresse - ohne Tracking-Parameter.
+  canonicalUrl String
+  /// Die Adresse zum Einbetten. Entsteht ausschliesslich aus `provider` und
+  /// `externalId`, nie aus der Eingabe - eine eingegebene Adresse in einem
+  /// iframe waere ein offenes Tor.
+  embedUrl     String
+  thumbnailUrl String?
+  /// Laenge in Sekunden, soweit der Anbieter sie nennt.
+  durationSeconds Int?
+  /// Wer den Clip erstellt hat, laut Anbieter - nicht zwingend die Person,
+  /// die ihn eingereicht hat.
+  creatorName     String?
+
+  title       String
+  description String?
+
+  /// Das Spiel aus der zentralen Registry. Frei eingetragene Spiele waeren
+  /// dreissig Schreibweisen fuer dasselbe Spiel.
+  gameId String?
+  game   SpielersucheGame? @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  /// Nur, wenn die Registry das Spiel nicht kennt.
+  gameName String?
+
+  status ClipStatus @default(PENDING)
+
+  approvedAt           DateTime?
+  approvedByDiscordId  String?
+  rejectedAt           DateTime?
+  rejectedByDiscordId  String?
+  rejectionReason      String?
+  rejectionNote        String?
+  removedAt            DateTime?
+  removedByDiscordId   String?
+
+  /// Was der Anbieter sonst noch lieferte. Angezeigt wird daraus nichts
+  /// ungeprueft.
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries ClipCompetitionEntry[]
+  reports ClipReport[]
+
+  /// Derselbe Clip existiert je Server genau einmal.
+  @@unique([guildId, provider, externalId])
+  @@index([guildId, status, createdAt])
+  @@index([guildId, submittedByDiscordId, createdAt])
+  @@index([guildId, gameId, status])
+}
+
+/// Eine Wettbewerbsrunde.
+model ClipCompetition {
+  id      String @id @default(cuid())
+  guildId String
+
+  /// Die Kalenderwoche nach ISO, mit Jahr: `2026-W39`.
+  ///
+  /// Mit Jahr, weil eine Woche 39 jedes Jahr wiederkommt. Zugleich der
+  /// Riegel gegen eine zweite Runde: ein wiederholter Lauf des Jobs trifft
+  /// auf denselben Schluessel und legt nichts Neues an.
+  key    String
+  number Int
+  title  String?
+
+  status ClipCompetitionStatus @default(DRAFT)
+
+  /// Alle Zeitpunkte in UTC. Angezeigt wird in Zuercher Zeit; gespeichert
+  /// wird, was ueberall dasselbe bedeutet.
+  submissionStartsAt DateTime
+  submissionEndsAt   DateTime
+  votingStartsAt     DateTime
+  votingEndsAt       DateTime
+
+  finalizedAt DateTime?
+  cancelledAt DateTime?
+  cancelledByDiscordId String?
+
+  winnerEntryId String?               @unique
+  winnerEntry   ClipCompetitionEntry? @relation("Gewinner", fields: [winnerEntryId], references: [id], onDelete: SetNull)
+
+  /// Die Regeln, wie sie beim Start galten.
+  ///
+  /// Als Abschrift und nicht als Verweis auf die Einstellungen: wer im
+  /// Nachhinein die Stimmenzahl aendert, soll damit keine abgeschlossene
+  /// Runde umschreiben.
+  votesPerMember       Int     @default(3)
+  submissionsPerMember Int     @default(1)
+  allowSelfVote        Boolean @default(false)
+  showVoteCounts       Boolean @default(false)
+
+  /// Wohin die Ankuendigungen gingen - und dass sie gingen.
+  ///
+  /// Der Riegel gegen doppelte Posts: ein erneuter Lauf sieht die Kennung
+  /// und schweigt. Ohne sie haette jeder Neuversuch einen zweiten
+  /// Gewinner-Post erzeugt.
+  startMessageId    String?
+  startChannelId    String?
+  startPostedAt     DateTime?
+  votingMessageId   String?
+  votingChannelId   String?
+  votingPostedAt    DateTime?
+  winnerMessageId   String?
+  winnerChannelId   String?
+  winnerPostedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries ClipCompetitionEntry[] @relation("Teilnahmen")
+  votes   ClipVote[]
+
+  @@unique([guildId, key])
+  @@index([guildId, status, votingEndsAt])
+  @@index([guildId, number])
+}
+
+/// Die Teilnahme eines Clips an einer Runde.
+model ClipCompetitionEntry {
+  id String @id @default(cuid())
+
+  competitionId String
+  competition   ClipCompetition @relation("Teilnahmen", fields: [competitionId], references: [id], onDelete: Cascade)
+
+  clipId String
+  clip   Clip   @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  submittedByDiscordId String
+  status               ClipEntryStatus @default(PENDING)
+
+  submittedAt DateTime  @default(now())
+  approvedAt  DateTime?
+  removedAt   DateTime?
+  removedByDiscordId String?
+  removalReason      String?
+
+  /// Das Ergebnis, festgeschrieben beim Abschluss.
+  ///
+  /// Nicht bei jedem Aufruf neu gerechnet: eine abgeschlossene Runde ist
+  /// Geschichte und darf sich nicht mehr aendern, auch wenn spaeter eine
+  /// Stimme geloescht wird.
+  finalRank      Int?
+  finalVoteCount Int?
+
+  votes       ClipVote[]
+  gewonnenVon ClipCompetition? @relation("Gewinner")
+
+  /// Ein Clip nimmt je Runde einmal teil.
+  @@unique([competitionId, clipId])
+  @@index([competitionId, status])
+  @@index([competitionId, finalRank])
+  @@index([submittedByDiscordId])
+}
+
+/// Eine Stimme.
+model ClipVote {
+  id String @id @default(cuid())
+
+  competitionId String
+  competition   ClipCompetition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  entryId String
+  entry   ClipCompetitionEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  voterDiscordId String
+  createdAt      DateTime @default(now())
+
+  /// Eine Stimme je Person und Clip - in der Datenbank, nicht nur im Code.
+  ///
+  /// Zwei gleichzeitige Klicks laufen beide durch die Pruefung; genau einer
+  /// kommt an dieser Bedingung vorbei. Ohne sie waere jede Pruefung ein
+  /// Wettlauf.
+  @@unique([competitionId, entryId, voterDiscordId])
+  /// Das Stimmenkonto einer Person je Runde.
+  @@index([competitionId, voterDiscordId])
+  @@index([entryId])
+}
+
+/// Eine Meldung zu einem Clip.
+model ClipReport {
+  id String @id @default(cuid())
+
+  clipId String
+  clip   Clip   @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  reporterDiscordId String
+  reason            ClipReportReason
+  note              String?
+
+  createdAt          DateTime  @default(now())
+  resolvedAt         DateTime?
+  resolvedByDiscordId String?
+
+  /// Eine Meldung je Person und Clip - sonst zaehlt eine Person allein eine
+  /// Meldelawine.
+  @@unique([clipId, reporterDiscordId])
+  @@index([resolvedAt, createdAt])
+}
+
 /// Zaehler, der bei jeder Konfigurationsaenderung erhoeht wird.
 /// Bot und WebApp erkennen daran, dass ihre Caches veraltet sind - dadurch
 /// wirken Aenderungen ohne Neustart.
@@ -1061,6 +1339,9 @@ model SpielersucheGame {
 
   /// Turniere, die dieses Spiel verwenden.
   tournaments Tournament[]
+
+  /// Clips, die diesem Spiel zugeordnet sind.
+  clips Clip[]
 
   @@index([enabled, name])
 }

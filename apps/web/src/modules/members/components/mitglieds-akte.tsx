@@ -2,7 +2,16 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Bot, ExternalLink, Lock, ShieldAlert, UserX } from 'lucide-react';
 import { can } from '@swisshub/auth';
-import { getModuleSettings, isModuleEnabled, jail, level, members, verification } from '@swisshub/modules';
+import {
+  clips,
+  getModuleSettings,
+  isModuleEnabled,
+  jail,
+  level,
+  members,
+  verification,
+} from '@swisshub/modules';
+import { resolveGuildId } from '@swisshub/discord';
 import { formatDate, formatDateTime, snowflakeSchema } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -21,6 +30,7 @@ import { ReleaseJailButton } from '@/modules/jail/components/release-jail-button
 import { NotesPanel } from '@/modules/members/components/notes-panel';
 import { RoleManager } from '@/modules/members/components/role-manager';
 import { XpPanel } from '@/modules/members/components/xp-panel';
+import { ClipBilanzBlock } from '@/modules/clips/components/clip-bilanz';
 import { CustomCardPanel } from '@/modules/level/components/custom-card-panel';
 import { RemoveCustomCardButton } from '@/modules/level/components/remove-custom-card-button';
 import { csrfTokenFor, requireMember } from '@/server/auth';
@@ -133,6 +143,19 @@ export async function MitgliedsAkte({
     can(context, verification.VERIFICATION_PERMISSIONS.historyView) &&
     (await isModuleEnabled(verification.VERIFICATION_MODULE_ID))
       ? await verification.verificationFuerMitglied(parsed.data).catch(() => null)
+      : null;
+
+  /*
+   * Clip of the Week im Profil.
+   *
+   * Sichtbar fuer jeden, der die Akte sieht - die Ergebnisse stehen ohnehin
+   * oeffentlich in der Hall of Fame. Ist das Modul aus, steht hier nichts;
+   * ein leerer Block «0 Siege» waere eine Auskunft ueber ein Feature, das es
+   * auf diesem Server nicht gibt.
+   */
+  const clipBilanz =
+    can(context, clips.CLIPS_PERMISSIONS.view) && (await isModuleEnabled(clips.CLIPS_MODULE_ID))
+      ? await clips.bilanz(await resolveGuildId(), parsed.data).catch(() => null)
       : null;
 
   const selbst = basic.discordId === context.user.discordId;
@@ -375,6 +398,7 @@ export async function MitgliedsAkte({
               {aktiv === 'uebersicht' ? (
                 <>
                   <Uebersicht profil={profil} />
+                  {clipBilanz ? <ClipBilanzBlock bilanz={clipBilanz} /> : null}
                   {/* Verifikation: nur der Ausgang und die Methode, nie die
                       Nachricht selbst - die faellt unter die Aufbewahrung des
                       Verifikationsmoduls und geht das Member Center nichts an. */}

@@ -2,6 +2,7 @@ import { systemRoutes } from '@swisshub/shared';
 import { APPEALS_PERMISSIONS } from '../appeals/config';
 import { AUTOMATION_PERMISSIONS, AUTOMATION_MODULE_ID } from '../automation/config';
 import { CALENDAR_MODULE_ID } from '../calendar/config';
+import { CLIPS_MODULE_ID, CLIPS_PERMISSIONS } from '../clips/config';
 import { TICKETS_MODULE_ID, TICKET_PERMISSIONS } from '../tickets/config';
 import { VERIFICATION_MODULE_ID, VERIFICATION_PERMISSIONS } from '../verification/config';
 import type { Benachrichtigungsart, Benachrichtigungsregel } from './types';
@@ -36,6 +37,9 @@ export const BENACHRICHTIGUNGSARTEN: Benachrichtigungsart[] = [
   { kind: 'automation.fehler', label: 'Automation gescheitert', icon: 'AlertTriangle' },
   { kind: 'appeal.eskaliert', label: 'Antrag eskaliert', icon: 'Gavel' },
   { kind: 'kalender.anmeldung', label: 'Neue Anmeldung', icon: 'CalendarDays' },
+  { kind: 'clip.offen', label: 'Clip wartet auf Freigabe', icon: 'Clapperboard' },
+  { kind: 'clip.entschieden', label: 'Dein Clip wurde geprüft', icon: 'Clapperboard' },
+  { kind: 'clip.gewonnen', label: 'Clip of the Week gewonnen', icon: 'Trophy' },
 ];
 
 export const BENACHRICHTIGUNGSREGELN: Benachrichtigungsregel[] = [
@@ -139,6 +143,83 @@ export const BENACHRICHTIGUNGSREGELN: Benachrichtigungsregel[] = [
         route: slug ? systemRoutes.event(slug) : systemRoutes.kalender(),
         // Zwanzig Anmeldungen sind eine Meldung mit einer Zahl.
         gruppe: slug ? `kalender.anmeldung:${slug}` : null,
+      };
+    },
+  },
+  {
+    /*
+     * Ein eingereichter Clip wartet auf eine Entscheidung.
+     *
+     * Wie ein neues Ticket: er liegt da, bis jemand ihn ansieht, und bis
+     * dahin fehlt er im Voting. Alle Einreichungen einer Runde teilen sich
+     * eine Zeile - dreissig Meldungen am Montag waeren dreissig Gruende, die
+     * Glocke nicht mehr zu oeffnen.
+     */
+    eventType: 'clips.submitted',
+    kind: 'clip.offen',
+    empfaenger: {
+      art: 'berechtigung',
+      permission: CLIPS_PERMISSIONS.moderate,
+      moduleId: CLIPS_MODULE_ID,
+    },
+    bauen({ payload }) {
+      const competitionId = text(payload, 'competitionId');
+      return {
+        titel: 'Clip wartet auf Freigabe',
+        text: text(payload, 'titel'),
+        route: systemRoutes.clipModeration(),
+        gruppe: competitionId ? `clip.offen:${competitionId}` : null,
+      };
+    },
+  },
+  {
+    // Die Freigabe geht ausschliesslich an die Person, die eingereicht hat.
+    eventType: 'clips.approved',
+    kind: 'clip.entschieden',
+    empfaenger: { art: 'person', discordId: (payload) => text(payload, 'discordId') },
+    bauen({ payload }) {
+      return {
+        titel: 'Dein Clip ist im Rennen',
+        text: text(payload, 'titel'),
+        route: systemRoutes.clips(),
+      };
+    },
+  },
+  {
+    /*
+     * Die Ablehnung - mit der Begruendung im Text.
+     *
+     * Sie ist der Grund, weshalb diese Meldung ueberhaupt noetig ist: wer
+     * nichts hoert, sucht seinen Clip am Samstag vergeblich im Voting.
+     */
+    eventType: 'clips.rejected',
+    kind: 'clip.entschieden',
+    empfaenger: { art: 'person', discordId: (payload) => text(payload, 'discordId') },
+    bauen({ payload }) {
+      const notiz = text(payload, 'notiz');
+      const titel = text(payload, 'titel');
+      return {
+        titel: 'Dein Clip wurde abgelehnt',
+        text: notiz ?? titel,
+        route: systemRoutes.clips(),
+      };
+    },
+  },
+  {
+    // Der Sieg. Eine Meldung im Jahr, die niemand ueberliest.
+    eventType: 'clips.winner',
+    kind: 'clip.gewonnen',
+    empfaenger: { art: 'person', discordId: (payload) => text(payload, 'discordId') },
+    bauen({ payload }) {
+      const key = text(payload, 'key');
+      const stimmen = zahl(payload, 'stimmen');
+      return {
+        titel: 'Du hast Clip of the Week gewonnen',
+        text:
+          stimmen === null
+            ? text(payload, 'titel')
+            : `${text(payload, 'titel') ?? 'Dein Clip'} · ${stimmen} ${stimmen === 1 ? 'Stimme' : 'Stimmen'}`,
+        route: key ? systemRoutes.clipRunde(key) : systemRoutes.hallOfFame(),
       };
     },
   },
