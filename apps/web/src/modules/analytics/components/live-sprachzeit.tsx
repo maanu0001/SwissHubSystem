@@ -28,9 +28,21 @@ import { stunden, zahl } from '@/modules/analytics/format';
  * Ein Abonnement für alle Kacheln, nicht eines je Kachel - sonst holten vier
  * Karten viermal dasselbe. Deshalb der Speicher auf Modulebene.
  *
- * Solange nichts läuft, geschieht gar nichts: kein Abruf, kein Zeitgeber.
- * Eine Statistik über einen vergangenen Zeitraum ist fertig, und dort gibt es
- * nichts mehr abzugleichen.
+ * ## Wann geruht wird - und wann nicht
+ *
+ * Eine Statistik über einen **abgeschlossenen** Zeitraum ist fertig; dort
+ * gibt es nichts abzugleichen, und dafür wird auch nichts abgefragt.
+ *
+ * Nicht aber: «gerade läuft keine Sitzung». Das stand hier vorher, und es
+ * war der zweite Grund für «Gerade im Sprachkanal: 0». War beim Aufbau der
+ * Seite niemand im Kanal, wurde nie wieder nachgefragt - traten zwei Minuten
+ * später zwanzig Leute bei, blieb die Kachel auf 0, bis jemand neu lud. Eine
+ * Zahl, die «gerade» heisst, muss auch dann nachsehen, wenn die letzte
+ * Antwort «niemand» war.
+ *
+ * Der Abruf und der Takt sind deshalb getrennt: abgefragt wird, solange der
+ * Zeitraum in die Gegenwart reicht; hochgezählt wird nur, solange wirklich
+ * etwas wächst.
  */
 
 /** Wie oft der echte Stand geholt wird. */
@@ -95,9 +107,32 @@ async function hole(): Promise<void> {
     }
     const nutzlast = (await antwort.json()) as Omit<LiveStand, 'asOf'> & { asOf: string };
     melde({ ...nutzlast, asOf: Date.parse(nutzlast.asOf) });
+    // Der Stand entscheidet, ob weiter hochgezählt werden muss.
+    taktAnpassen();
   } catch {
     // Ein verpasster Abgleich ist kein Problem - der nächste kommt, und bis
     // dahin rechnet die Anzeige weiter.
+  }
+}
+
+/**
+ * Den Takt an das anpassen, was tatsächlich wächst.
+ *
+ * Läuft keine Sitzung, ändert sich zwischen zwei Abgleichen nichts - dann
+ * gibt es auch nichts neu zu zeichnen. Vor der ersten Antwort wird gezählt,
+ * denn bis dahin gilt, was der Server mitgegeben hat.
+ */
+function taktAnpassen(): void {
+  const stand = aktuell.stand;
+  const waechst = stand ? stand.zeitraum.wachsend > 0 || stand.heute.wachsend > 0 : true;
+
+  if (waechst && taktTimer === null && zuhoerer.size > 0) {
+    taktTimer = window.setInterval(() => melde(), TAKT_MS);
+    return;
+  }
+  if ((!waechst || zuhoerer.size === 0) && taktTimer !== null) {
+    window.clearInterval(taktTimer);
+    taktTimer = null;
   }
 }
 
@@ -106,7 +141,7 @@ function abonniere(ruf: () => void): () => void {
   if (zuhoerer.size === 1) {
     void hole();
     abgleichTimer = window.setInterval(() => void hole(), ABGLEICH_MS);
-    taktTimer = window.setInterval(() => melde(), TAKT_MS);
+    taktAnpassen();
   }
   return () => {
     zuhoerer.delete(ruf);
@@ -150,13 +185,16 @@ export function LiveSprachzeit({
   basisSekunden,
   wachsend,
   asOf,
+  aktiv,
 }: {
   feld: 'zeitraum' | 'heute';
   basisSekunden: number;
   wachsend: number;
   asOf: string;
+  /** Reicht der gezeigte Zeitraum in die Gegenwart? Nur dann wird gefragt. */
+  aktiv: boolean;
 }): React.JSX.Element {
-  const stand = useStand(wachsend > 0);
+  const stand = useStand(aktiv);
 
   const quelle = stand?.[feld] ?? { sekunden: basisSekunden, wachsend };
   const bezug = stand?.asOf ?? Date.parse(asOf);
@@ -173,6 +211,7 @@ export function LiveZahl({
 }: {
   feld: 'imSprachkanal' | 'aktive' | 'sitzungen';
   basis: number;
+  /** Reicht der gezeigte Zeitraum in die Gegenwart? Nur dann wird gefragt. */
   aktiv: boolean;
 }): React.JSX.Element {
   const stand = useStand(aktiv);

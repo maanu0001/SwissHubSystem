@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { registerModule, type ModuleDefinition } from '../registry';
 import type { SettingsField } from '../settings/fields';
-import type { ModuleHealthCheck } from '../health/types';
+import type { ModuleHealthCheck, ModuleHealthContext } from '../health/types';
 import { ANALYTICS_PERMISSIONS, ANALYTICS_PERMISSION_DEFINITIONS } from './permissions';
 
 export const ANALYTICS_MODULE_ID = 'analytics';
@@ -173,7 +173,7 @@ const analyticsSettingsFields: SettingsField[] = [
  * fast jedem Ereignis der Verursacher unbekannt. Auch das ist kein Defekt,
  * sondern eine Einschränkung, die man kennen muss.
  */
-async function analyticsHealthChecks(): Promise<ModuleHealthCheck[]> {
+async function analyticsHealthChecks(kontext?: ModuleHealthContext): Promise<ModuleHealthCheck[]> {
   const [{ getModuleSettings }, { discord }] = await Promise.all([
     import('../module-state'),
     import('@swisshub/discord'),
@@ -243,6 +243,66 @@ async function analyticsHealthChecks(): Promise<ModuleHealthCheck[]> {
           : `${mb(belegt)} von ${settings.mediaQuotaMb} MB belegt.`,
       fixHref: settingsHref,
     });
+  }
+
+  /*
+   * Warum die Sprachzeit so aussieht, wie sie aussieht.
+   *
+   * Eine Statistik, die 0.0 h zeigt, sagt nicht, ob gerade niemand redet
+   * oder ob die Aufzeichnung abgeschaltet ist. Genau diese Unterscheidung
+   * hat hier lange gefehlt - und wer sie nicht hat, sucht den Fehler im
+   * Falschen.
+   */
+  if (!settings.logVoice) {
+    checks.push({
+      label: 'Sprachzeit',
+      status: 'warning',
+      detail:
+        'Sprachkanäle werden nicht aufgezeichnet - «Sprachkanäle aufzeichnen» ist aus. Die Sprachzeit in der Statistik bleibt deshalb bei 0, egal wie viele Leute im Voice sitzen.',
+      fixHref: settingsHref,
+    });
+  } else {
+    const { tryResolveGuildId: serverKennung } = await import('@swisshub/discord');
+    const guildId = await serverKennung().catch(() => null);
+    const { prisma } = await import('@swisshub/database');
+    const laufend = guildId
+      ? await prisma.analyticsVoiceSegment
+          .count({ where: { guildId, leftAt: null, isBot: false } })
+          .catch(() => null)
+      : null;
+    /*
+     * Ein ausgenommener Sprachkanal ist die zweite stille Null: dort wird
+     * nichts aufgezeichnet, und in der Statistik sieht das genauso aus, als
+     * sei niemand da gewesen.
+     */
+    const ausgenommeneSprachkanaele = (kontext?.channels ?? []).filter(
+      (kanal) => kanal.kind === 'voice' && settings.ignoredChannelIds.includes(kanal.id),
+    );
+
+    const stand =
+      laufend === null
+        ? 'Sprachkanäle werden aufgezeichnet.'
+        : `Sprachkanäle werden aufgezeichnet, gerade ${laufend} laufende ${laufend === 1 ? 'Sitzung' : 'Sitzungen'}.`;
+    const abgleich =
+      ' Der Bot gleicht die Anwesenheit jede Minute mit Discord ab, damit ein verpasstes Ereignis die Zeit nicht verschluckt.';
+
+    checks.push(
+      ausgenommeneSprachkanaele.length > 0
+        ? {
+            label: 'Sprachzeit',
+            status: 'warning',
+            detail: `${stand} Ausgenommen ${ausgenommeneSprachkanaele.length === 1 ? 'ist aber ein Sprachkanal' : `sind aber ${ausgenommeneSprachkanaele.length} Sprachkanäle`} (${ausgenommeneSprachkanaele
+              .map((kanal) => kanal.name)
+              .join(', ')}) - diese Zeit zählt nicht mit.${abgleich}`,
+            fixHref: settingsHref,
+          }
+        : {
+            label: 'Sprachzeit',
+            status: 'ok',
+            detail: `${stand}${abgleich}`,
+            fixHref: settingsHref,
+          },
+    );
   }
 
   checks.push({

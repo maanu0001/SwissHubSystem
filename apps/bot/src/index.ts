@@ -161,6 +161,14 @@ async function main(): Promise<void> {
   const jobs = createJobRunner(
     () => ({ ...status }),
     () => runVoiceXpSweep(client, guildId),
+    /*
+     * Wer gerade wirklich im Sprachkanal sitzt.
+     *
+     * Die Antwort steht im Discord-Client, deshalb wird sie hier gereicht
+     * und nicht im Job geholt. `null`, solange kein Server verbunden ist -
+     * dann gibt es nichts abzugleichen.
+     */
+    () => (guildId ? { guildId, anwesend: anwesendeImVoice(client, guildId) } : null),
   );
 
   // Button-Klicks der Vote-Jail-Abstimmungen entgegennehmen.
@@ -229,7 +237,18 @@ async function main(): Promise<void> {
     status.botUsername = readyClient.user.username;
     status.wsPingMs = Math.max(0, Math.round(readyClient.ws.ping));
 
-    await refreshGuildId();
+    /*
+     * Auch der Server-Abgleich mit Auffangnetz.
+     *
+     * Dieser Block ist der einzige Lauf, den es je Start gibt: er holt nach,
+     * was der Bot waehrend seiner Abwesenheit nicht gesehen hat. Faellt er
+     * an einer Stelle aus, faellt alles danach mit aus - und der Ausfall
+     * saehe von aussen so aus, als waere schlicht nichts passiert. Deshalb
+     * traegt jeder Schritt sein eigenes Netz, und dieser hier auch.
+     */
+    await refreshGuildId().catch((error: unknown) =>
+      log.error('Der verbundene Server konnte beim Start nicht ermittelt werden', { error }),
+    );
 
     if (!guildId) {
       log.warn(
@@ -247,8 +266,18 @@ async function main(): Promise<void> {
         log.info('Mit Discord verbunden', { guild: guild.name, members: guild.memberCount });
       }
 
-      // Slash Commands für den verbundenen Server registrieren.
-      await registerCommands(readyClient, guildId);
+      /*
+       * Slash Commands für den verbundenen Server registrieren.
+       *
+       * Mit eigenem Auffangnetz. Ohne es nahm ein einziger Fehlschlag hier -
+       * eine Ratenbegrenzung, ein fehlender Scope - den gesamten Rest dieses
+       * Blocks mit: die Wiederaufnahme der Sprachabschnitte, den
+       * Einladungsabgleich, den Start-Sync. Alles danach lief dann nie, und
+       * zu sehen war nur eine unbehandelte Ablehnung im Protokoll.
+       */
+      await registerCommands(readyClient, guildId).catch((error: unknown) =>
+        log.error('Slash Commands konnten nicht registriert werden', { error }),
+      );
 
       // Wer schon im Voice sitzt, soll nach einem Neustart weiter XP bekommen,
       // ohne den Kanal erst verlassen zu müssen.
@@ -276,8 +305,10 @@ async function main(): Promise<void> {
        * reicht unser Wissen nicht - und fuer jeden, der tatsaechlich in
        * einem Sprachkanal sitzt, ab jetzt neu begonnen.
        */
+      const anwesend = anwesendeImVoice(readyClient, guildId);
+      log.info('analytics.voice.presence.snapshot', { anwesend: anwesend.length });
       await analytics
-        .gleicheSprachabschnitteAb(guildId, anwesendeImVoice(readyClient, guildId))
+        .gleicheSprachabschnitteAb(guildId, anwesend)
         .catch((error: unknown) =>
           log.warn('Sprachabschnitte konnten beim Start nicht abgeglichen werden', { error }),
         );
@@ -320,7 +351,7 @@ async function main(): Promise<void> {
       botUserId: status.botUserId,
       botUsername: status.botUsername,
       connected: true,
-    });
+    }).catch((error: unknown) => log.warn('Herzschlag beim Start fehlgeschlagen', { error }));
   });
 
   // Rollenänderungen sofort im Identity-Cache entwerten, damit

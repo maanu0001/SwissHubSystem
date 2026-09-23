@@ -784,44 +784,82 @@ export function anwesendeImVoice(client: Client, guildId: string): analytics.Anw
     return [];
   }
 
-  const anwesend: analytics.AnwesendImVoice[] = [];
-  /*
-   * Gelesen ueber die Sprachzustaende des Servers, nicht ueber die
-   * Mitgliederlisten der Kanaele.
-   *
-   * `channel.members` entsteht aus dem Mitglieder-Cache von discord.js: es
-   * sind die Mitglieder, die der Prozess schon einmal gesehen hat. Frisch
-   * nach dem Start ist der oft leer, und dann saehe der Abgleich einen
-   * Sprachkanal voller Leute als leer an. `guild.voiceStates.cache` kommt
-   * dagegen mit `GUILD_CREATE` mit und sagt unabhaengig davon, wer wo sitzt -
-   * genau die Frage, um die es hier geht.
-   */
-  for (const zustand of guild.voiceStates.cache.values()) {
-    const kanal = zustand.channel;
-    if (!kanal || (kanal.type !== ChannelType.GuildVoice && kanal.type !== ChannelType.GuildStageVoice)) {
-      continue;
-    }
-    // Dieselbe Regel wie im laufenden Betrieb: Bots zaehlen nicht. Sonst
-    // entstuende ausgerechnet beim Neustart ein Abschnitt fuer einen
-    // Musik-Worker, der stundenlang im Kanal sitzt.
-    if (zustand.member?.user.bot) {
-      continue;
-    }
+  const gefunden = new Map<string, analytics.AnwesendImVoice>();
+  const istSprachkanal = (kanal: { type: ChannelType }): boolean =>
+    kanal.type === ChannelType.GuildVoice || kanal.type === ChannelType.GuildStageVoice;
 
-    anwesend.push({
-      discordId: zustand.id,
-      // Steht das Mitglied nicht im Cache, gilt es als Mensch: ein fehlender
-      // Eintrag waere verlorene Zeit, und die Bot-Erkennung beim naechsten
-      // Ereignis holt es ein.
-      isBot: false,
-      username: zustand.member?.user.username ?? null,
-      displayName: zustand.member?.displayName ?? null,
-      avatarHash: zustand.member?.user.avatar ?? null,
+  const aufnehmen = (
+    discordId: string,
+    kanal: { id: string; name: string; parentId: string | null },
+    mitglied?: { displayName?: string; user: { username: string; bot: boolean; avatar: string | null } },
+  ): void => {
+    if (gefunden.has(discordId)) {
+      return;
+    }
+    /*
+     * Bots kommen mit, als Bots gekennzeichnet.
+     *
+     * Ob sie zaehlen, entscheidet die Einstellung «Bots mit aufzeichnen» -
+     * dieselbe Stelle wie im laufenden Betrieb, nicht diese Liste. Wuerden
+     * sie hier weggelassen, saehe der Abgleich einen aufgezeichneten Bot
+     * als abwesend an und schloesse seinen Abschnitt jede Minute neu.
+     */
+    gefunden.set(discordId, {
+      discordId,
+      // Steht das Mitglied nicht im Zwischenspeicher, gilt es als Mensch: ein
+      // fehlender Eintrag waere verlorene Zeit, und die Bot-Erkennung beim
+      // naechsten Ereignis holt es ein.
+      isBot: mitglied?.user.bot ?? false,
+      username: mitglied?.user.username ?? null,
+      displayName: mitglied?.displayName ?? null,
+      avatarHash: mitglied?.user.avatar ?? null,
       channelId: kanal.id,
       channelName: kanal.name,
       parentId: kanal.parentId,
       isAfk: guild.afkChannelId === kanal.id,
     });
+  };
+
+  /*
+   * Zwei Quellen, und das ist Absicht.
+   *
+   * `guild.voiceStates.cache` ist die richtige: sie kommt mit dem
+   * Server-Ereignis mit und haengt nicht davon ab, wen der Prozess schon
+   * gesehen hat. `channel.members` entsteht dagegen aus dem
+   * Mitglieder-Zwischenspeicher und ist frisch nach dem Start oft leer.
+   *
+   * Nur: wenn die erste Quelle einmal leer ist - ein Server, der erst
+   * nachtraeglich verfuegbar wird, eine wiederaufgenommene Verbindung -,
+   * dann saehe der Abgleich einen vollen Sprachkanal als leer an und
+   * schloesse jeden Abschnitt. Eine Statistik, die bei «niemand da» landet,
+   * weil ein Zwischenspeicher noch nicht gefuellt war, ist schlimmer als
+   * eine, die zwei Mal nachsieht. Beide Quellen zusammen, Doppelte fallen
+   * ueber die Kennung weg.
+   */
+  for (const zustand of guild.voiceStates.cache.values()) {
+    const kanal = zustand.channel;
+    if (kanal && istSprachkanal(kanal)) {
+      aufnehmen(zustand.id, kanal, zustand.member ?? undefined);
+    }
   }
-  return anwesend;
+
+  for (const kanal of guild.channels.cache.values()) {
+    if (!istSprachkanal(kanal) || !('members' in kanal)) {
+      continue;
+    }
+    const mitglieder = kanal.members;
+    if (!mitglieder || typeof mitglieder !== 'object' || !('values' in mitglieder)) {
+      continue;
+    }
+    for (const mitglied of (
+      mitglieder as Map<
+        string,
+        { id: string; displayName: string; user: { username: string; bot: boolean; avatar: string | null } }
+      >
+    ).values()) {
+      aufnehmen(mitglied.id, kanal, mitglied);
+    }
+  }
+
+  return [...gefunden.values()];
 }

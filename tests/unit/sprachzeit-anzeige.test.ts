@@ -113,18 +113,36 @@ describe('Die geöffnete Seite rechnet weiter', () => {
     expect(Number(abgleich?.[1]?.replaceAll('_', ''))).toBeGreaterThanOrEqual(10_000);
   });
 
-  it('ruht, solange nichts läuft', () => {
-    // Ein abgeschlossener Zeitraum wird nicht alle dreissig Sekunden neu
-    // abgefragt.
+  it('ruht bei einem abgeschlossenen Zeitraum', () => {
+    // Daran ändert sich nichts mehr - das wird nicht alle dreissig Sekunden
+    // neu abgefragt.
     expect(live).toContain('function ruhend()');
     expect(live).toContain('useSyncExternalStore(aktiv ? abonniere : ruhend');
-    expect(seiteHatLaeuft()).toBe(true);
   });
 
-  function seiteHatLaeuft(): boolean {
+  it('ruht NICHT bloss, weil gerade niemand im Sprachkanal ist', () => {
+    /*
+     * Der zweite Grund für «Gerade im Sprachkanal: 0».
+     *
+     * Vorher hing der Abgleich an «läuft gerade eine Sitzung?» - war beim
+     * Aufbau der Seite niemand im Kanal, wurde nie wieder nachgefragt. Eine
+     * Zahl, die «gerade» heisst, muss auch dann nachsehen, wenn die letzte
+     * Antwort «niemand» war.
+     */
     const seite = lies('apps/web/src/app/(app)/analytics/statistik/page.tsx');
-    return seite.includes('const laeuft =') && seite.includes('zahlen.wachsend > 0');
-  }
+    expect(seite).toContain('const reichtBisJetzt = zeitraum.bis.getTime()');
+    // Die Heute-Kacheln fragen immer - sie zeigen die Gegenwart.
+    expect(seite).toContain('feld="imSprachkanal" basis={heuteWerte.imSprachkanal} aktiv />');
+    // Und die alte, zu enge Bedingung ist weg.
+    expect(seite).not.toContain('const laeuft =');
+  });
+
+  it('zählt nur hoch, solange wirklich etwas wächst', () => {
+    // Getrennt vom Abruf: nachgefragt wird immer, neu gezeichnet nur, wenn
+    // sich zwischen zwei Antworten überhaupt etwas ändern kann.
+    expect(live).toContain('function taktAnpassen()');
+    expect(live).toContain('stand.zeitraum.wachsend > 0 || stand.heute.wachsend > 0');
+  });
 });
 
 describe('Die Statistik rechnet an einer Stelle', () => {

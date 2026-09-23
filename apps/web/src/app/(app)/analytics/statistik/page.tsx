@@ -138,13 +138,19 @@ export default async function StatistikPage({
   };
 
   /**
-   * Läuft gerade eine Sprachsitzung?
+   * Reicht der gewählte Zeitraum in die Gegenwart?
    *
-   * Nur dann lohnt sich ein Abgleich: an einem abgeschlossenen Zeitraum
-   * ändert sich nichts mehr, und die Seite soll dafür nicht alle dreissig
-   * Sekunden nachfragen.
+   * Nur dann kann sich noch etwas ändern - an einem abgeschlossenen Zeitraum
+   * gibt es nichts abzugleichen, und dafür soll die Seite nicht alle
+   * dreissig Sekunden nachfragen.
+   *
+   * Hier stand vorher «läuft gerade eine Sitzung?». Das war zu eng: war beim
+   * Aufbau der Seite niemand im Sprachkanal, fragte sie nie wieder nach, und
+   * «Gerade im Sprachkanal» blieb auf 0, auch wenn zwei Minuten später
+   * zwanzig Leute drin sassen. Eine Zahl, die «gerade» heisst, muss auch
+   * dann nachsehen, wenn die letzte Antwort «niemand» war.
    */
-  const laeuft = zahlen.wachsend > 0 || heuteWerte.wachsend > 0 || heuteWerte.imSprachkanal > 0;
+  const reichtBisJetzt = zeitraum.bis.getTime() >= Date.now() - 5 * 60_000;
 
   const labels = punkte.map((punkt) => punkt.label);
   const aktivitaetsReihen: Reihe[] = [
@@ -228,13 +234,15 @@ export default async function StatistikPage({
                 basisSekunden={zahlen.sprachSekunden.wert}
                 wachsend={zahlen.wachsend}
                 asOf={zahlen.asOf.toISOString()}
+                aktiv={reichtBisJetzt}
               />
             }
             veraenderung={zahlen.sprachSekunden}
             live={zahlen.wachsend > 0}
             hinweis={
               <>
-                <LiveZahl feld="sitzungen" basis={zahlen.sprachSitzungen.wert} aktiv={laeuft} /> Sitzungen
+                <LiveZahl feld="sitzungen" basis={zahlen.sprachSitzungen.wert} aktiv={reichtBisJetzt} />{' '}
+                Sitzungen
               </>
             }
           />
@@ -280,17 +288,15 @@ export default async function StatistikPage({
                 basisSekunden={heuteWerte.sprachSekunden}
                 wachsend={heuteWerte.wachsend}
                 asOf={heuteWerte.asOf.toISOString()}
+                aktiv
               />
             }
             live={heuteWerte.wachsend > 0}
           />
-          <KpiCard
-            label="Aktiv heute"
-            wert={<LiveZahl feld="aktive" basis={heuteWerte.aktive} aktiv={laeuft} />}
-          />
+          <KpiCard label="Aktiv heute" wert={<LiveZahl feld="aktive" basis={heuteWerte.aktive} aktiv />} />
           <KpiCard
             label="Gerade im Sprachkanal"
-            wert={<LiveZahl feld="imSprachkanal" basis={heuteWerte.imSprachkanal} aktiv={laeuft} />}
+            wert={<LiveZahl feld="imSprachkanal" basis={heuteWerte.imSprachkanal} aktiv />}
             hinweis="Laufende Anwesenheit"
           />
         </div>

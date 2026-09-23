@@ -469,9 +469,9 @@ export interface AnwesendImVoice extends Omit<Grunddaten, 'guildId'> {
 export async function gleicheSprachabschnitteAb(
   guildId: string,
   anwesend: readonly AnwesendImVoice[],
+  jetzt = new Date(),
 ): Promise<{ geschlossen: number; begonnen: number }> {
-  const ende = await letzterBelegterZeitpunkt();
-  const jetzt = new Date();
+  const ende = await letzterBelegterZeitpunkt(jetzt);
 
   const offene = await prisma.analyticsVoiceSegment.findMany({
     where: { guildId, leftAt: null },
@@ -509,16 +509,120 @@ export async function gleicheSprachabschnitteAb(
 }
 
 /**
+ * Den Stand im laufenden Betrieb nachfuehren.
+ *
+ * ## Warum es das braucht
+ *
+ * Die Sprachzeit entstand bis hierher ausschliesslich aus Gateway-
+ * Ereignissen: wer betritt, bekommt einen Abschnitt, wer geht, schliesst
+ * ihn. Das setzt voraus, dass **kein einziges Ereignis verlorengeht** - und
+ * genau das ist eine Annahme, die im Betrieb nicht traegt.
+ *
+ * Wer waehrend eines Neustarts im Kanal sitzt, loest kein Betreten aus. Eine
+ * Verbindung, die abreisst und wieder aufgenommen wird, laesst die Ereignisse
+ * der Zwischenzeit aus. Und die Momentaufnahme beim Start fuellt die Luecke
+ * nur, wenn sie zum richtigen Zeitpunkt greift und der Zwischenspeicher
+ * gefuellt ist - ist er es einmal nicht, bleibt die Datenbank fuer immer bei
+ * «niemand im Sprachkanal», obwohl der Server voll ist. Nichts holt das
+ * spaeter nach.
+ *
+ * Dieser Abgleich holt es nach, und zwar immer wieder. Er vergleicht, was in
+ * der Datenbank offensteht, mit dem, was Discord gerade meldet:
+ *
+ * - **Anwesend, aber kein Abschnitt** - einer wird eroeffnet. Ab jetzt
+ *   zaehlt die Zeit. Frueher, ohne Beleg, wird nichts behauptet.
+ * - **Anwesend, aber im falschen Kanal** - der alte Abschnitt wird
+ *   geschlossen und unter derselben Sitzung im neuen fortgesetzt, genau wie
+ *   bei einem beobachteten Wechsel.
+ * - **Abschnitt, aber nicht anwesend** - er wird geschlossen. Eine
+ *   Karteileiche zaehlt sonst weiter, solange der Bot laeuft.
+ * - **Anwesend und alles stimmt** - nichts geschieht. Das ist der Normalfall
+ *   und kostet nichts.
+ *
+ * Der Unterschied zu `gleicheSprachabschnitteAb` ist der Zeitpunkt: der dort
+ * folgt auf eine Unterbrechung, deren Dauer niemand belegen kann, und
+ * schliesst deshalb **alles** zum letzten Herzschlag. Hier gab es keine
+ * Unterbrechung, und ein passender Abschnitt laeuft einfach weiter. Wuerde er
+ * jede Minute geschlossen und neu eroeffnet, ginge bei jedem Durchgang die
+ * bisherige Dauer verloren.
+ */
+export async function gleicheAnwesenheitAb(
+  guildId: string,
+  anwesend: readonly AnwesendImVoice[],
+  jetzt = new Date(),
+): Promise<{ eroeffnet: number; geschlossen: number; fortgesetzt: number }> {
+  const offene = await prisma.analyticsVoiceSegment.findMany({
+    where: { guildId, leftAt: null },
+    select: { discordId: true, channelId: true, sessionId: true },
+  });
+
+  const offenNach = new Map(offene.map((eintrag) => [eintrag.discordId, eintrag]));
+  const anwesendNach = new Map(
+    anwesend.filter((person) => person.discordId).map((person) => [person.discordId, person]),
+  );
+
+  let eroeffnet = 0;
+  let geschlossen = 0;
+  let fortgesetzt = 0;
+
+  for (const [discordId, person] of anwesendNach) {
+    const offenerAbschnitt = offenNach.get(discordId);
+    if (offenerAbschnitt && offenerAbschnitt.channelId === person.channelId) {
+      continue;
+    }
+
+    // Im falschen Kanal: schliessen und unter derselben Sitzung fortsetzen -
+    // ein unbeobachteter Wechsel ist immer noch ein Wechsel und keine neue
+    // Sitzung.
+    const sessionId = offenerAbschnitt ? await schliesseOffene(guildId, discordId, jetzt) : null;
+    const neu = await starteSprachAbschnitt({
+      ...person,
+      guildId,
+      at: jetzt,
+      sessionId: sessionId ?? undefined,
+    });
+    if (!neu) {
+      continue;
+    }
+    if (sessionId) {
+      fortgesetzt += 1;
+    } else {
+      eroeffnet += 1;
+    }
+  }
+
+  for (const eintrag of offene) {
+    if (anwesendNach.has(eintrag.discordId)) {
+      continue;
+    }
+    await schliesseOffene(guildId, eintrag.discordId, jetzt);
+    geschlossen += 1;
+  }
+
+  if (eroeffnet > 0 || geschlossen > 0 || fortgesetzt > 0) {
+    // Sichtbar machen, dass der Abgleich etwas zu tun hatte: im Normalfall
+    // sollten die Ereignisse genuegen, und wenn hier dauerhaft etwas
+    // korrigiert wird, fehlen sie.
+    log.info('analytics.voice.presence.reconciled', {
+      eroeffnet,
+      geschlossen,
+      fortgesetzt,
+      anwesend: anwesendNach.size,
+    });
+  }
+  return { eroeffnet, geschlossen, fortgesetzt };
+}
+
+/**
  * Bis wann der Bot nachweislich zugesehen hat.
  *
  * Der letzte Herzschlag, hoechstens aber jetzt. Eine Uhr, die in der Zukunft
  * steht - etwa nach einem Zeitsprung auf dem Server -, darf keine Sprachzeit
  * erzeugen, die es nie gab.
  */
-async function letzterBelegterZeitpunkt(): Promise<Date> {
+async function letzterBelegterZeitpunkt(jetzt = new Date()): Promise<Date> {
   const status = await prisma.botStatus.findUnique({ where: { id: 'singleton' } }).catch(() => null);
-  const grenze = status?.lastHeartbeatAt ?? new Date();
-  const jetzt = new Date();
+  const grenze = status?.lastHeartbeatAt ?? jetzt;
   return grenze < jetzt ? grenze : jetzt;
 }
 

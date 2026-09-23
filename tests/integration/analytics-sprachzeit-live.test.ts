@@ -410,14 +410,30 @@ describeWithDatabase('Analytics: Sprachzeit ist live', () => {
     });
 
     // A sitzt weiterhin im Kanal - der Abgleich schliesst bis zum letzten
-    // Herzschlag und beginnt ab jetzt neu.
-    await analytics.gleicheSprachabschnitteAb(GUILD, [{ discordId: A, isBot: false, channelId: KANAL }]);
+    // Herzschlag und beginnt ab jetzt neu. «Jetzt» wird gesetzt und nicht der
+    // Wanduhr überlassen: sonst hinge der Test davon ab, welches Datum der
+    // Rechner gerade hat, und wäre ab dem 23.09.2026 rot.
+    await analytics.gleicheSprachabschnitteAb(
+      GUILD,
+      [{ discordId: A, isBot: false, channelId: KANAL }],
+      T(0),
+    );
 
-    // Eine Stunde belegt, danach läuft es weiter - die Ausfallzeit gehört
-    // niemandem.
-    const zahlen = await analytics.statistik.kennzahlen(scope(T(0)));
-    expect(zahlen.sprachSekunden.wert).toBeGreaterThanOrEqual(3600);
+    /*
+     * Die Rechnung eine halbe Stunde später:
+     *
+     *   T(-120) bis T(-60)  = 3600 s belegt, bis zum letzten Herzschlag
+     *   T(-60)  bis T(0)    = Ausfallzeit, gehört niemandem
+     *   T(0)    bis T(30)   = 1800 s laufend
+     *
+     * Macht 5400 - nicht 7200, also ohne die Ausfallzeit, und nicht 9000,
+     * also ohne die belegte Stunde ein zweites Mal.
+     */
+    const zahlen = await analytics.statistik.kennzahlen(scope(T(30)));
+    expect(zahlen.sprachSekunden.wert).toBe(5400);
     expect(zahlen.wachsend).toBe(1);
+    // Eine Sitzung, kein zweiter offener Abschnitt.
     expect(await prisma.analyticsVoiceSegment.count({ where: { leftAt: null } })).toBe(1);
+    expect(zahlen.sprachSitzungen.wert).toBe(1);
   });
 });

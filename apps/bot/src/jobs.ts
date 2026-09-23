@@ -88,6 +88,14 @@ export function createJobRunner(
    * dafür der Discord-Client gebraucht wird - die übrigen Jobs kommen ohne aus.
    */
   runVoiceXp?: () => Promise<{ checked: number; granted: number; xp: number }>,
+  /**
+   * Wer gerade wirklich in einem Sprachkanal sitzt - und in welchem Server.
+   *
+   * Ebenfalls von aussen, aus demselben Grund: die Antwort steht im
+   * Discord-Client, und den kennen die uebrigen Jobs nicht. `null`, solange
+   * noch kein Server verbunden ist.
+   */
+  anwesenheitImVoice?: () => { guildId: string; anwesend: analytics.AnwesendImVoice[] } | null,
 ): JobRunner {
   const timers: NodeJS.Timeout[] = [];
   const running = new Set<string>();
@@ -327,6 +335,41 @@ export function createJobRunner(
           return;
         }
         await calendar.runReminderTick();
+      },
+    },
+    {
+      name: 'analytics-voice-presence',
+      /*
+       * Die Sprachanwesenheit gegen Discord abgleichen.
+       *
+       * Die Abschnitte entstehen aus Gateway-Ereignissen, und das setzt
+       * voraus, dass keines verlorengeht. Diese Annahme traegt nicht: wer
+       * waehrend eines Neustarts im Kanal sitzt, loest kein Betreten aus,
+       * und eine wiederaufgenommene Verbindung laesst die Ereignisse der
+       * Zwischenzeit aus. Der Abgleich beim Start fuellt die Luecke nur
+       * einmal - greift er daneben, bleibt die Datenbank fuer immer bei
+       * «niemand im Sprachkanal», obwohl der Server voll ist.
+       *
+       * Jede Minute, weil die Statistik in Minuten sichtbar wird. Der
+       * Durchgang ist billig: eine indizierte Abfrage ueber die offenen
+       * Abschnitte - ein paar Dutzend Zeilen - gegen eine Liste, die
+       * ohnehin im Speicher steht. Im Normalfall aendert er nichts.
+       */
+      intervalMs: 60 * 1000,
+      runOnStart: false,
+      async run() {
+        if (!anwesenheitImVoice) {
+          return;
+        }
+        const { isModuleEnabled } = await import('@swisshub/modules');
+        if (!(await isModuleEnabled(analytics.ANALYTICS_MODULE_ID))) {
+          return;
+        }
+        const stand = anwesenheitImVoice();
+        if (!stand) {
+          return;
+        }
+        await analytics.gleicheAnwesenheitAb(stand.guildId, stand.anwesend);
       },
     },
     {
