@@ -49,6 +49,18 @@ export const systemRoutes = {
   clipsZufall: (): SystemRoute => '/clips/zufall',
   clipModeration: (): SystemRoute => '/clips/moderation',
   clipVerwalten: (): SystemRoute => '/clips/verwalten',
+
+  /*
+   * SwissHub Wrapped.
+   *
+   * Der Rueckblick selbst liegt **ausserhalb** der Anwendungsgruppe: er ist
+   * eine Vollbild-Geschichte und keine Seite mit Seitenleiste. Das Studio
+   * liegt im System-Bereich, wo es hingehoert.
+   */
+  wrapped: (key: string): SystemRoute => `/wrapped/${id(key)}`,
+  wrappedStudio: (): SystemRoute => '/system/wrapped',
+  wrappedKampagne: (campaignId: string): SystemRoute => `/system/wrapped/${id(campaignId)}`,
+  wrappedVorschau: (campaignId: string): SystemRoute => `/system/wrapped/${id(campaignId)}/vorschau`,
   hallOfFame: (): SystemRoute => '/clips/hall-of-fame',
   clipRunde: (key: string): SystemRoute => `/clips/runde/${id(key)}`,
   mitglieder: (): SystemRoute => '/members',

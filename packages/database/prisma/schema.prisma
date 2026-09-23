@@ -468,7 +468,7 @@ model DiscordMemberCache {
   /// nachgezogen werden muss.
   searchText String @default("")
 
-  syncedAt DateTime @default(now())
+  syncedAt DateTime  @default(now())
   /// Gesetzt, sobald das Mitglied den Server verlassen hat.
   ///
   /// Markiert statt geloescht, genau wie bei Rollen und Kanaelen: ein
@@ -558,19 +558,19 @@ model Clip {
   submittedByDisplayName String?
   submittedByAvatarHash  String?
 
-  sourceType ClipSourceType
+  sourceType      ClipSourceType
   /// Kleingeschriebener Anbieter - `twitch`, `youtube`.
-  provider   String
+  provider        String
   /// Die Kennung des Clips beim Anbieter. Zusammen mit `provider` das, woran
   /// ein Duplikat erkannt wird: zwei Adressen koennen denselben Clip meinen.
-  externalId String
+  externalId      String
   /// Die auf eine Form gebrachte Adresse - ohne Tracking-Parameter.
-  canonicalUrl String
+  canonicalUrl    String
   /// Die Adresse zum Einbetten. Entsteht ausschliesslich aus `provider` und
   /// `externalId`, nie aus der Eingabe - eine eingegebene Adresse in einem
   /// iframe waere ein offenes Tor.
-  embedUrl     String
-  thumbnailUrl String?
+  embedUrl        String
+  thumbnailUrl    String?
   /// Laenge in Sekunden, soweit der Anbieter sie nennt.
   durationSeconds Int?
   /// Wer den Clip erstellt hat, laut Anbieter - nicht zwingend die Person,
@@ -582,21 +582,21 @@ model Clip {
 
   /// Das Spiel aus der zentralen Registry. Frei eingetragene Spiele waeren
   /// dreissig Schreibweisen fuer dasselbe Spiel.
-  gameId String?
-  game   SpielersucheGame? @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  gameId   String?
+  game     SpielersucheGame? @relation(fields: [gameId], references: [id], onDelete: SetNull)
   /// Nur, wenn die Registry das Spiel nicht kennt.
   gameName String?
 
   status ClipStatus @default(PENDING)
 
-  approvedAt           DateTime?
-  approvedByDiscordId  String?
-  rejectedAt           DateTime?
-  rejectedByDiscordId  String?
-  rejectionReason      String?
-  rejectionNote        String?
-  removedAt            DateTime?
-  removedByDiscordId   String?
+  approvedAt          DateTime?
+  approvedByDiscordId String?
+  rejectedAt          DateTime?
+  rejectedByDiscordId String?
+  rejectionReason     String?
+  rejectionNote       String?
+  removedAt           DateTime?
+  removedByDiscordId  String?
 
   /// Was der Anbieter sonst noch lieferte. Angezeigt wird daraus nichts
   /// ungeprueft.
@@ -638,8 +638,8 @@ model ClipCompetition {
   votingStartsAt     DateTime
   votingEndsAt       DateTime
 
-  finalizedAt DateTime?
-  cancelledAt DateTime?
+  finalizedAt          DateTime?
+  cancelledAt          DateTime?
   cancelledByDiscordId String?
 
   winnerEntryId String?               @unique
@@ -660,15 +660,15 @@ model ClipCompetition {
   /// Der Riegel gegen doppelte Posts: ein erneuter Lauf sieht die Kennung
   /// und schweigt. Ohne sie haette jeder Neuversuch einen zweiten
   /// Gewinner-Post erzeugt.
-  startMessageId    String?
-  startChannelId    String?
-  startPostedAt     DateTime?
-  votingMessageId   String?
-  votingChannelId   String?
-  votingPostedAt    DateTime?
-  winnerMessageId   String?
-  winnerChannelId   String?
-  winnerPostedAt    DateTime?
+  startMessageId  String?
+  startChannelId  String?
+  startPostedAt   DateTime?
+  votingMessageId String?
+  votingChannelId String?
+  votingPostedAt  DateTime?
+  winnerMessageId String?
+  winnerChannelId String?
+  winnerPostedAt  DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -694,9 +694,9 @@ model ClipCompetitionEntry {
   submittedByDiscordId String
   status               ClipEntryStatus @default(PENDING)
 
-  submittedAt DateTime  @default(now())
-  approvedAt  DateTime?
-  removedAt   DateTime?
+  submittedAt        DateTime  @default(now())
+  approvedAt         DateTime?
+  removedAt          DateTime?
   removedByDiscordId String?
   removalReason      String?
 
@@ -753,8 +753,8 @@ model ClipReport {
   reason            ClipReportReason
   note              String?
 
-  createdAt          DateTime  @default(now())
-  resolvedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  resolvedAt          DateTime?
   resolvedByDiscordId String?
 
   /// Eine Meldung je Person und Clip - sonst zaehlt eine Person allein eine
@@ -6344,4 +6344,227 @@ model Notification {
   @@index([recipientDiscordId, groupKey])
   /// Die Aufbewahrung raeumt nach Alter.
   @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// SwissHub Wrapped
+//
+// Der Jahresrueckblick eines Mitglieds - als erzaehlte Geschichte, nicht als
+// Statistikseite.
+//
+// Vier Gegenstaende, und die Trennung ist der ganze Entwurf:
+//
+//   Kampagne   - ein Zeitraum und seine Veroeffentlichung
+//   Szene      - welche Kapitel es gibt, in welcher Reihenfolge
+//   Momentaufnahme - was fuer **eine** Person feststeht
+//   Ansicht    - wie weit sie gekommen ist
+//
+// ## Warum eine Momentaufnahme und keine Live-Abfrage
+//
+// Ein veroeffentlichter Rueckblick darf sich nicht aendern. Er aendert sich
+// aber staendig, wenn er live rechnet: die Aufbewahrung raeumt alte
+// Analysedaten weg, ein Level steigt, jemand benennt sich um, ein Mitglied
+// verlaesst den Server. Wer im Maerz seinen Rueckblick nochmals oeffnet,
+// saehe dann andere Zahlen als im Januar - und haette recht, sich zu wundern.
+//
+// Deshalb: vor der Veroeffentlichung wird je Person einmal gerechnet und das
+// Ergebnis festgeschrieben. Die Vorschau im Studio rechnet live; sie ist eine
+// Frage, keine Aussage.
+// ---------------------------------------------------------------------------
+
+enum WrappedCampaignStatus {
+  /// Frei bearbeitbar und frei testbar. Fuer Mitglieder unsichtbar.
+  DRAFT
+  /// Die Momentaufnahmen entstehen gerade.
+  PREPARING
+  /// Momentaufnahmen liegen vor, Veroeffentlichung moeglich.
+  READY
+  /// Fuer berechtigte Mitglieder sichtbar.
+  PUBLISHED
+  /// Abgeschlossen. Weiterhin abrufbar, nicht mehr beworben.
+  ARCHIVED
+}
+
+enum WrappedRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model WrappedCampaign {
+  id      String @id @default(cuid())
+  guildId String
+
+  /// Kurzschluessel in der Adresse - meist das Jahr: `2026`.
+  key         String
+  title       String
+  /// Die Jahreszahl, wie sie in der Geschichte erscheint.
+  displayYear Int
+
+  /// Zeitraum in UTC. Angezeigt wird Zuercher Zeit; gespeichert wird, was
+  /// ueberall dasselbe bedeutet.
+  periodStart DateTime
+  periodEnd   DateTime
+
+  status WrappedCampaignStatus @default(DRAFT)
+
+  /// Der Text der Eroeffnung und des Abschlusses. Nur Platzhalter aus einer
+  /// Erlaubnisliste, kein HTML - siehe `wrapped/vorlage.ts`.
+  introText String?
+  outroText String?
+
+  shareCardsEnabled     Boolean @default(true)
+  announceEnabled       Boolean @default(false)
+  announcementChannelId String?
+
+  /// Ab wann jemand einen Rueckblick bekommt. Wer im Dezember beigetreten
+  /// ist und zweimal etwas geschrieben hat, bekommt keine Jahresgeschichte -
+  /// er bekaeme eine Ansammlung von Nullen.
+  minActiveDays   Int @default(5)
+  minMessages     Int @default(20)
+  minVoiceMinutes Int @default(60)
+
+  publishedAt DateTime?
+  archivedAt  DateTime?
+
+  /// Wohin die Ankuendigung ging - und dass sie ging. Der Riegel gegen einen
+  /// zweiten Post.
+  announcementMessageId       String?
+  announcementChannelPostedId String?
+  announcementPostedAt        DateTime?
+
+  createdByDiscordId String?
+  updatedByDiscordId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scenes    WrappedScene[]
+  snapshots WrappedSnapshot[]
+  runs      WrappedGenerationRun[]
+  views     WrappedView[]
+
+  @@unique([guildId, key])
+  @@index([guildId, status])
+}
+
+/// Ein Kapitel der Geschichte - genauer: seine Einstellung.
+///
+/// Was eine Szene *ist*, steht im Code (Registry). Hier steht nur, ob dieser
+/// Server sie zeigt, an welcher Stelle und mit welchem Text. Eine Szene, die
+/// es im Code nicht mehr gibt, wird beim Lesen uebersprungen.
+model WrappedScene {
+  id         String          @id @default(cuid())
+  campaignId String
+  campaign   WrappedCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// Der Schluessel aus der Szenen-Registry: `voice_total`, `archetype`, …
+  sceneKey String
+  enabled  Boolean @default(true)
+  position Int
+
+  /// Von der Vorgabe abweichende Texte. Nur Platzhalter, kein HTML.
+  textOverrides Json?
+  /// Szenenspezifische Einstellungen, gegen das Schema der Registry geprueft.
+  config        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([campaignId, sceneKey])
+  @@index([campaignId, position])
+}
+
+/// Was fuer eine Person feststeht.
+///
+/// `data` ist das Ergebnis des Resolvers, eingefroren. Name und Bild liegen
+/// daneben in eigenen Spalten: sie werden gesucht und sortiert, und ein
+/// Rueckblick soll die Person zeigen, die sie im Rueckblickjahr war.
+model WrappedSnapshot {
+  id         String          @id @default(cuid())
+  campaignId String
+  campaign   WrappedCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  discordId   String
+  username    String?
+  displayName String?
+  avatarHash  String?
+
+  /// Die festgeschriebenen Kennzahlen. Aufbau siehe `WrappedDaten`.
+  data Json
+
+  /// Die Szenen, die diese Person bekommt - in dieser Reihenfolge.
+  ///
+  /// Mitgeschrieben statt jedes Mal neu entschieden: sonst haette dieselbe
+  /// Momentaufnahme nach einer Aenderung an der Eignungsregel eine andere
+  /// Geschichte.
+  sceneKeys String[]
+
+  /// Der ermittelte Typ - fuer Auswertung und Share Card.
+  archetype String?
+
+  generatedAt DateTime @default(now())
+
+  @@unique([campaignId, discordId])
+  @@index([campaignId, archetype])
+}
+
+/// Ein Durchgang der Momentaufnahmen.
+///
+/// Wiederaufnehmbar: `cursor` haelt fest, bis wohin gezaehlt wurde. Ein
+/// Neustart des Bots setzt den Lauf fort, statt von vorne zu beginnen - bei
+/// sechstausend Mitgliedern ist das der Unterschied zwischen zwei Minuten
+/// und noch einmal zwanzig.
+model WrappedGenerationRun {
+  id         String          @id @default(cuid())
+  campaignId String
+  campaign   WrappedCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  status WrappedRunStatus @default(QUEUED)
+
+  total     Int @default(0)
+  processed Int @default(0)
+  created   Int @default(0)
+  skipped   Int @default(0)
+  failed    Int @default(0)
+
+  /// Die zuletzt bearbeitete Kennung. Der naechste Stapel beginnt dahinter.
+  cursor String?
+
+  /// Je Fehler eine Zeile: `{ discordId, message }`. Begrenzt - ein Lauf,
+  /// der ueberall scheitert, soll keine Datenbank fuellen.
+  errors Json?
+
+  startedByDiscordId String?
+  startedAt          DateTime?
+  finishedAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([campaignId, createdAt])
+  @@index([status])
+}
+
+/// Wie weit jemand gekommen ist.
+///
+/// Bewusst duenn: drei Zeitpunkte und ein Szenenschluessel. Wer bei Kapitel
+/// sieben aufhoert, soll fortsetzen koennen - mehr muss ein Rueckblick ueber
+/// sein Publikum nicht wissen.
+model WrappedView {
+  id         String          @id @default(cuid())
+  campaignId String
+  campaign   WrappedCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  discordId String
+
+  firstOpenedAt DateTime  @default(now())
+  lastOpenedAt  DateTime  @default(now())
+  completedAt   DateTime?
+  lastSceneKey  String?
+
+  @@unique([campaignId, discordId])
+  @@index([campaignId, completedAt])
 }

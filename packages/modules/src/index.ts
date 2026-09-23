@@ -22,6 +22,8 @@ import './appeals/config';
 import './appeals/events';
 // Clip of the Week - Grundlage des spaeteren Clip Centers.
 import './clips/config';
+// SwissHub Wrapped - der Jahresrueckblick.
+import './wrapped/config';
 import { registerGuildResolver } from './guild/config';
 
 // Ab hier löst jeder Discord-Aufruf die Guild aus der Datenbank auf.
@@ -71,3 +73,4 @@ export * as automation from './automation';
 export * as migration from './migration';
 export * as appeals from './appeals';
 export * as clips from './clips';
+export * as wrapped from './wrapped';

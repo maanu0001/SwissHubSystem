@@ -25,6 +25,7 @@ import {
   voice,
   verification,
   voiceHub,
+  wrapped,
   getModuleSettings,
 } from '@swisshub/modules';
 
@@ -516,6 +517,35 @@ export function createJobRunner(
           return;
         }
         await clips.runClipsTick(guildId);
+      },
+    },
+    {
+      name: 'wrapped-snapshots',
+      /*
+       * Die Momentaufnahmen des Jahresrueckblicks.
+       *
+       * Laeuft nur, wenn im Studio ein Durchgang gestartet wurde - sonst
+       * findet die erste Abfrage nichts und der Job ist sofort wieder
+       * fertig. Er gehoert hierher und nicht in eine HTTP-Anfrage:
+       * sechstausend Momentaufnahmen dauern Minuten, und eine Anfrage, die
+       * so lange offen bleibt, laeuft in jedes Zeitlimit zwischen Browser,
+       * Proxy und Server.
+       *
+       * Jede Minute, weil ein angestossener Durchgang zuegig fertig werden
+       * soll. Der Aufruf selbst arbeitet hoechstens eine halbe Minute und
+       * gibt dann ab - der naechste macht weiter.
+       */
+      intervalMs: 60 * 1000,
+      runOnStart: false,
+      async run() {
+        const { isModuleEnabled } = await import('@swisshub/modules');
+        if (!(await isModuleEnabled(wrapped.WRAPPED_MODULE_ID))) {
+          return;
+        }
+        const ergebnis = await wrapped.runWrappedTick();
+        if (ergebnis.stapel > 0) {
+          log.info('Wrapped-Momentaufnahmen verarbeitet', { ...ergebnis });
+        }
       },
     },
     {
