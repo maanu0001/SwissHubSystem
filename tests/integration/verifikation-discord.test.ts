@@ -404,6 +404,30 @@ describeWithDatabase('Verifikation über Discord', () => {
     expect(request?.status).toBe('WAITING_FOR_MESSAGE');
   });
 
+  it('begrüsst ein zweites Mal nicht, wenn Discord den Beitritt doppelt meldet', async () => {
+    /*
+     * Discord stellt `guildMemberAdd` gelegentlich doppelt zu, und
+     * `startVerification` gibt bei einem offenen Vorgang denselben zurück.
+     * Ohne die Prüfung stünden zwei Begrüssungen im Kanal - und das alte
+     * Einzelfeld behielt nur die letzte, sodass die erste dauerhaft
+     * liegenblieb.
+     */
+    const neu = mitglied('900000000000009302');
+    await bot.feuere('guildMemberAdd', neu);
+    await bot.feuere('guildMemberAdd', neu);
+
+    const imKanal = discord.gesendet.filter((eintrag) => eintrag.channelId === VERIFIKATIONSKANAL);
+    expect(imKanal).toHaveLength(1);
+
+    const request = await prisma.verificationRequest.findFirstOrThrow({
+      where: { discordId: '900000000000009302' },
+    });
+    const vermerkt = await prisma.verificationBotMessage.findMany({ where: { requestId: request.id } });
+    expect(vermerkt).toHaveLength(1);
+    expect(vermerkt[0]?.kind).toBe('GREETING');
+    expect(vermerkt[0]?.channelId).toBe(VERIFIKATIONSKANAL);
+  });
+
   it('meldet der Moderation, wenn die Rolle nicht vergeben werden kann', async () => {
     // Der praktische Fall: die Bot-Rolle steht unter der Rolle, die sie
     // vergeben soll. Ohne Meldung stünde die Person unbemerkt mit vollem

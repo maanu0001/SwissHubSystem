@@ -115,6 +115,8 @@ export const AUDIT_ACTIONS = {
   VERIFICATION_SUCCESS_POSTED: 'VERIFICATION_SUCCESS_POSTED',
   VERIFICATION_SUCCESS_POST_FAILED: 'VERIFICATION_SUCCESS_POST_FAILED',
   VERIFICATION_CLEANUP: 'VERIFICATION_CLEANUP',
+  /** Frist ohne Nachricht verstrichen - die Automation hat gekickt. */
+  VERIFICATION_TIMEOUT_KICK: 'VERIFICATION_TIMEOUT_KICK',
 
   // Integrationen. Ein Audit-Eintrag traegt Integration, Feld, Handelnden,
   // Zeitpunkt und Aktion - niemals einen Wert, weder den alten noch den

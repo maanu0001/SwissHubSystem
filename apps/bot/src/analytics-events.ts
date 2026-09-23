@@ -249,7 +249,17 @@ export function registerAnalyticsEvents(
     if (!guildId || !guildIdAktiv(guildId)) {
       return;
     }
-    if (neu.member?.user.bot) {
+    /*
+     * Bots zaehlen nicht als Mitgliederaktivitaet.
+     *
+     * Die Musik-Workerbots sitzen stundenlang in Sprachkanaelen; wuerden sie
+     * mitgezaehlt, fuehrten sie jede Sprach-Rangliste an und die
+     * Servergesamtzeit waere im Wesentlichen ihre.
+     *
+     * Beide Zustaende werden gefragt: beim Verlassen kann `neu.member` leer
+     * sein, und dann saehe der Bot wie ein Mensch aus.
+     */
+    if (neu.member?.user.bot ?? alt.member?.user.bot ?? false) {
       return;
     }
 
@@ -257,19 +267,28 @@ export function registerAnalyticsEvents(
     const nachher = neu.channelId;
     if (vorher === nachher) {
       // Stumm-, Taub- und Streamzustaende aendern denselben Zustand, ohne dass
-      // jemand den Kanal wechselt. Sie gehoeren nicht in diese Zeitleiste.
+      // jemand den Kanal wechselt. Sie gehoeren nicht in diese Zeitleiste -
+      // und sie duerfen erst recht keinen neuen Abschnitt beginnen.
       return;
     }
 
     const person = neu.member ?? alt.member;
+    // Ohne Person gibt es nichts zuzuordnen. Frueher lief der Ablauf mit
+    // einer leeren Kennung weiter und legte Abschnitte an, die zu niemandem
+    // gehoerten - in der Rangliste tauchten sie als namenlose Zeile auf.
+    const personId = person?.id ?? neu.id ?? alt.id;
+    if (!personId) {
+      return;
+    }
+
     const gemeinsam = {
       guildId,
       category: 'VOICE' as const,
       // Das Gateway nennt die Person selbst - hier gibt es nichts zu raten.
-      actorDiscordId: person?.id ?? null,
+      actorDiscordId: personId,
       actorUsername: person?.user.username ?? null,
       actorSource: 'GATEWAY' as const,
-      subjectDiscordId: person?.id ?? null,
+      subjectDiscordId: personId,
       subjectUsername: person?.user.username ?? null,
       occurredAt: new Date(),
     };
@@ -291,10 +310,10 @@ export function registerAnalyticsEvents(
         // ist weiterhin im Gespraech. Der Abschnitt endet, die Sitzung laeuft
         // unter derselben Kennung weiter - so bekommt die Kanalstatistik ihre
         // Zeit richtig aufgeteilt und die Sitzungszahl bleibt eine Sitzung.
-        const { sessionId } = await analytics.beendeSprachAbschnitt(guildId, person?.id ?? '', jetzt);
+        const { sessionId } = await analytics.beendeSprachAbschnitt(guildId, personId, jetzt);
         await analytics.starteSprachAbschnitt({
           guildId,
-          discordId: person?.id ?? '',
+          discordId: personId,
           isBot: person?.user.bot ?? false,
           username: person?.user.username ?? null,
           displayName: person?.displayName ?? null,
@@ -317,7 +336,7 @@ export function registerAnalyticsEvents(
         });
         await analytics.starteSprachAbschnitt({
           guildId,
-          discordId: person?.id ?? '',
+          discordId: personId,
           isBot: person?.user.bot ?? false,
           username: person?.user.username ?? null,
           displayName: person?.displayName ?? null,
@@ -336,7 +355,7 @@ export function registerAnalyticsEvents(
         channelId: vorher,
         channelName: alt.channel?.name ?? null,
       });
-      await analytics.beendeSprachAbschnitt(guildId, person?.id ?? '', jetzt);
+      await analytics.beendeSprachAbschnitt(guildId, personId, jetzt);
     });
   });
 
@@ -759,22 +778,50 @@ async function archiviereAnhaenge(
  * steht, ist kein verwaister Abschnitt, sondern eine laufende Anwesenheit -
  * die Person hat den Kanal nie verlassen, nur der Bot war weg.
  */
-export function anwesendeImVoice(client: Client, guildId: string): Set<string> {
-  const anwesend = new Set<string>();
+export function anwesendeImVoice(client: Client, guildId: string): analytics.AnwesendImVoice[] {
   const guild = client.guilds.cache.get(guildId);
   if (!guild) {
-    return anwesend;
+    return [];
   }
-  for (const kanal of guild.channels.cache.values()) {
-    if (!('members' in kanal) || kanal.type === ChannelType.GuildText) {
+
+  const anwesend: analytics.AnwesendImVoice[] = [];
+  /*
+   * Gelesen ueber die Sprachzustaende des Servers, nicht ueber die
+   * Mitgliederlisten der Kanaele.
+   *
+   * `channel.members` entsteht aus dem Mitglieder-Cache von discord.js: es
+   * sind die Mitglieder, die der Prozess schon einmal gesehen hat. Frisch
+   * nach dem Start ist der oft leer, und dann saehe der Abgleich einen
+   * Sprachkanal voller Leute als leer an. `guild.voiceStates.cache` kommt
+   * dagegen mit `GUILD_CREATE` mit und sagt unabhaengig davon, wer wo sitzt -
+   * genau die Frage, um die es hier geht.
+   */
+  for (const zustand of guild.voiceStates.cache.values()) {
+    const kanal = zustand.channel;
+    if (!kanal || (kanal.type !== ChannelType.GuildVoice && kanal.type !== ChannelType.GuildStageVoice)) {
       continue;
     }
-    const mitglieder = kanal.members;
-    if (mitglieder && typeof mitglieder === 'object' && 'values' in mitglieder) {
-      for (const mitglied of (mitglieder as Map<string, { id: string }>).values()) {
-        anwesend.add(mitglied.id);
-      }
+    // Dieselbe Regel wie im laufenden Betrieb: Bots zaehlen nicht. Sonst
+    // entstuende ausgerechnet beim Neustart ein Abschnitt fuer einen
+    // Musik-Worker, der stundenlang im Kanal sitzt.
+    if (zustand.member?.user.bot) {
+      continue;
     }
+
+    anwesend.push({
+      discordId: zustand.id,
+      // Steht das Mitglied nicht im Cache, gilt es als Mensch: ein fehlender
+      // Eintrag waere verlorene Zeit, und die Bot-Erkennung beim naechsten
+      // Ereignis holt es ein.
+      isBot: false,
+      username: zustand.member?.user.username ?? null,
+      displayName: zustand.member?.displayName ?? null,
+      avatarHash: zustand.member?.user.avatar ?? null,
+      channelId: kanal.id,
+      channelName: kanal.name,
+      parentId: kanal.parentId,
+      isAfk: guild.afkChannelId === kanal.id,
+    });
   }
   return anwesend;
 }

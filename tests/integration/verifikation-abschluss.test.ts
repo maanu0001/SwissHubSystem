@@ -476,6 +476,66 @@ describeWithDatabase('Verifikation: Abschluss', () => {
     expect(mock.geloescht).toHaveLength(0);
   });
 
+  it('entfernt jede Begrüssung, auch wenn mehrere gesendet wurden', async () => {
+    /*
+     * Die Ursache, aus der heraus die Bot-Nachricht stehenblieb.
+     *
+     * `startVerification` gibt bei einem offenen Vorgang denselben zurück,
+     * und ein wiederholtes `guildMemberAdd` liess den Bot ein zweites Mal
+     * begrüssen. Ein einzelnes Feld behielt die jüngste Kennung - die
+     * frühere Begrüssung blieb im Kanal, und nichts zeigte mehr auf sie.
+     * Über den Text wiederfinden lässt sie sich nicht: Bot-Nachrichten
+     * werden beim Blick in den Kanal ausdrücklich übersprungen.
+     */
+    const request = await vorgang(NEULING);
+    for (const messageId of ['600000000000000011', '600000000000000012', '600000000000000013']) {
+      await prisma.verificationBotMessage.create({
+        data: {
+          requestId: request.id,
+          kind: 'GREETING',
+          channelId: VERIFIKATIONSKANAL,
+          discordMessageId: messageId,
+        },
+      });
+    }
+    // Das alte Einzelfeld kennt nur die letzte.
+    await prisma.verificationRequest.update({
+      where: { id: request.id },
+      data: { greetingChannelId: VERIFIKATIONSKANAL, greetingMessageId: '600000000000000013' },
+    });
+    const mock = attrappe();
+
+    const ergebnis = await verification.raeumeVerifikationskanal(
+      await prisma.verificationRequest.findUniqueOrThrow({ where: { id: request.id } }),
+      await einstellungen(),
+      { gateway: mock.gateway },
+    );
+
+    expect(ergebnis.status).toBe('COMPLETED');
+    expect(mock.geloescht.map((zeile) => zeile.messageId).sort()).toEqual([
+      '600000000000000011',
+      '600000000000000012',
+      '600000000000000013',
+    ]);
+  });
+
+  it('räumt eine Bot-Nachricht aus einem anderen Kanal nicht weg', async () => {
+    const request = await vorgang(NEULING);
+    await prisma.verificationBotMessage.create({
+      data: {
+        requestId: request.id,
+        kind: 'GREETING',
+        channelId: '900000000000000699',
+        discordMessageId: '600000000000000021',
+      },
+    });
+    const mock = attrappe();
+
+    await verification.raeumeVerifikationskanal(request, await einstellungen(), { gateway: mock.gateway });
+
+    expect(mock.geloescht).toHaveLength(0);
+  });
+
   it('entfernt auch die Nachricht an die frisch freigeschaltete Person', async () => {
     // Die zweite Bot-Nachricht dieses Vorgangs. Bliebe sie stehen, spräche
     // der Kanal dauerhaft jemanden an, der ihn nicht mehr sieht.

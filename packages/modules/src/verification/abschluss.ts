@@ -54,7 +54,7 @@ export interface AufraeumErgebnis {
  * Den Verifikationskanal von den Spuren einer Person befreien.
  *
  * **Nur ihre.** Gelöscht wird, was dieser Person gehört: ihre eigenen
- * Nachrichten und die an sie gerichtete Begrüssung des Bots. Der Kanal wird
+ * Nachrichten und die an sie gerichteten Nachrichten des Bots. Der Kanal wird
  * nicht geleert, und keine fremde Nachricht wird angefasst - weder die eines
  * anderen wartenden Mitglieds noch eine beliebige andere des Bots.
  *
@@ -63,9 +63,9 @@ export interface AufraeumErgebnis {
  * Zwei Quellen, und die Reihenfolge ist Absicht:
  *
  * 1. **Die festgehaltenen Kennungen.** Jede Nachricht im Verifikationskanal
- *    wird beim Eingang als `VerificationMessage` erfasst; die Begrüssung des
- *    Bots steht seit ihrem Senden am Vorgang. Das ist der genaue Weg: er
- *    braucht keine Suche und kann nichts verwechseln.
+ *    wird beim Eingang als `VerificationMessage` erfasst; jede Nachricht des
+ *    Bots seit ihrem Senden als `VerificationBotMessage`. Das ist der genaue
+ *    Weg: er braucht keine Suche und kann nichts verwechseln.
  * 2. **Ein begrenzter Blick in den Kanal.** Er schliesst die Lücke, die
  *    Quelle 1 offenlässt: Nachrichten aus einer Zeit, in der der Bot nicht
  *    lief, wurden nie erfasst. Gelesen wird seitenweise zurück bis zum
@@ -213,12 +213,39 @@ async function sammleKennungen(
   }
 
   /*
-   * Die Kennungen der Bot-Nachrichten werden frisch gelesen.
+   * 2. Die Nachrichten des Bots zu diesem Vorgang - **alle**.
    *
-   * Der übergebene Vorgang stammt aus der Entscheidung; die Nachricht an die
-   * frisch freigeschaltete Person entsteht erst danach. Im Objekt in der Hand
-   * des Aufrufers steht sie deshalb noch nicht - und genau sie bliebe sonst
-   * im Kanal stehen.
+   * Frisch aus der Datenbank gelesen und nicht aus dem übergebenen Objekt:
+   * der stammt aus der Entscheidung, und die Nachricht an die frisch
+   * freigeschaltete Person entsteht erst danach. Genau sie bliebe sonst
+   * stehen.
+   *
+   * Eine Liste, kein Feld. Ein Vorgang kann mehrere Bot-Nachrichten haben -
+   * ein wiederholtes `guildMemberAdd`, ein zweiter Beitritt bei noch
+   * offenem Vorgang. Früher behielt ein Skalarfeld nur die jüngste; jede
+   * frühere Begrüssung blieb im Kanal stehen, und nichts zeigte mehr auf
+   * sie. Über den Text wiederfinden lässt sie sich nicht - Bot-Nachrichten
+   * werden beim Blick in den Kanal ausdrücklich übersprungen, damit keine
+   * fremde erwischt wird.
+   *
+   * Nur, was in *diesem* Kanal steht: die Einstellung kann seit dem Senden
+   * umgestellt worden sein, und dann läge die Nachricht weiterhin im alten
+   * Kanal. Dort aufzuräumen hiesse, in einem Kanal zu löschen, über den
+   * gerade niemand entschieden hat.
+   */
+  const botNachrichten = await prisma.verificationBotMessage
+    .findMany({ where: { requestId: request.id, channelId: kanal }, select: { discordMessageId: true } })
+    .catch(() => []);
+  for (const zeile of botNachrichten) {
+    ids.add(zeile.discordMessageId);
+  }
+
+  /*
+   * Die Rückfallebene für Vorgänge aus der Zeit vor der Liste.
+   *
+   * Sie tragen ihre Kennung noch im Einzelfeld. Ein fehlender Kanal heisst
+   * «nicht festgehalten», nicht «anderer Kanal» - deshalb zählt er dann als
+   * dieser.
    */
   const marken =
     (await prisma.verificationRequest
@@ -233,24 +260,9 @@ async function sammleKennungen(
       })
       .catch(() => null)) ?? request;
 
-  /*
-   * Die Begrüssung - aber nur, wenn sie in diesem Kanal steht.
-   *
-   * Der Kanal kann seit dem Senden umgestellt worden sein. Die alte
-   * Begrüssung liegt dann weiterhin im alten Kanal, und dort aufzuräumen
-   * hiesse, in einem Kanal zu löschen, über den gerade niemand entschieden
-   * hat.
-   */
   if (marken.greetingMessageId && (marken.greetingChannelId ?? kanal) === kanal) {
     ids.add(marken.greetingMessageId);
   }
-
-  /*
-   * Und die Nachricht an die frisch freigeschaltete Person - aus demselben
-   * Grund. Sie ist die zweite Bot-Nachricht dieses Vorgangs; beliebige
-   * andere Bot-Nachrichten im Kanal bleiben unberuehrt, weil nur diese
-   * beiden Kennungen am Vorgang stehen.
-   */
   if (marken.welcomeMessageId && (marken.welcomeChannelId ?? kanal) === kanal) {
     ids.add(marken.welcomeMessageId);
   }

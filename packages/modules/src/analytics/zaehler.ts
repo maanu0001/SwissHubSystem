@@ -226,9 +226,14 @@ export async function starteSprachAbschnitt(input: SprachBeitrittInput): Promise
 
     await merkeTrackingBeginn(input.guildId, 'voice', input.at);
     await beruehreAktivitaet(input.guildId, input.discordId, input.at, input.isBot ?? false, input);
+    log.debug('analytics.voice.session.started', {
+      discordId: input.discordId,
+      channelId: input.channelId,
+      fortsetzung: Boolean(input.sessionId),
+    });
     return sessionId;
   } catch (error) {
-    log.warn('Sprachabschnitt konnte nicht begonnen werden', { error });
+    log.warn('analytics.voice.session.failed', { error });
     return null;
   }
 }
@@ -240,9 +245,11 @@ export async function beendeSprachAbschnitt(
   at: Date,
 ): Promise<{ sessionId: string | null }> {
   try {
-    return { sessionId: await schliesseOffene(guildId, discordId, at) };
+    const sessionId = await schliesseOffene(guildId, discordId, at);
+    log.debug('analytics.voice.session.ended', { discordId, sessionId });
+    return { sessionId };
   } catch (error) {
-    log.warn('Sprachabschnitt konnte nicht beendet werden', { error });
+    log.warn('analytics.voice.session.failed', { error });
     return { sessionId: null };
   }
 }
@@ -386,22 +393,19 @@ async function zaehleSitzung(guildId: string, discordId: string, at: Date, istAf
 }
 
 /**
- * Schliesst Abschnitte, die ein Absturz offen gelassen hat.
+ * Schliesst alle offenen Abschnitte - beim Herunterfahren.
  *
  * Der heikle Teil ist das Ende: wir wissen nicht, wann die Leute den Kanal
  * verlassen haben. Was wir wissen, ist der letzte Herzschlag des Bots -
  * danach hat er nichts mehr gesehen. Bis dorthin zu zaehlen ist belegbar;
  * bis jetzt zu zaehlen hiesse, aus drei Tagen Ausfall drei Tage Sprachzeit
  * zu machen.
+ *
+ * Fuer den Start gibt es `gleicheSprachabschnitteAb` - dort ist Schliessen
+ * nur die halbe Arbeit.
  */
-export async function schliesseVerwaisteAbschnitte(
-  guildId: string,
-  nochAnwesend: ReadonlySet<string> = new Set(),
-): Promise<number> {
-  const status = await prisma.botStatus.findUnique({ where: { id: 'singleton' } }).catch(() => null);
-  const grenze = status?.lastHeartbeatAt ?? new Date();
-  const jetzt = new Date();
-  const ende = grenze < jetzt ? grenze : jetzt;
+export async function schliesseVerwaisteAbschnitte(guildId: string): Promise<number> {
+  const ende = await letzterBelegterZeitpunkt();
 
   const offene = await prisma.analyticsVoiceSegment.findMany({
     where: { guildId, leftAt: null },
@@ -409,21 +413,113 @@ export async function schliesseVerwaisteAbschnitte(
     distinct: ['discordId'],
   });
 
-  let geschlossen = 0;
   for (const { discordId } of offene) {
-    // Wer noch im selben Kanal sitzt, hat seinen Abschnitt nicht beendet -
-    // er laeuft weiter.
-    if (nochAnwesend.has(discordId)) {
-      continue;
-    }
     await schliesseOffene(guildId, discordId, ende);
-    geschlossen += 1;
   }
 
-  if (geschlossen > 0) {
-    log.info('Verwaiste Sprachabschnitte geschlossen', { geschlossen, bis: ende.toISOString() });
+  if (offene.length > 0) {
+    log.info('analytics.voice.session.closed_orphans', {
+      geschlossen: offene.length,
+      bis: ende.toISOString(),
+    });
   }
-  return geschlossen;
+  return offene.length;
+}
+
+/**
+ * Wer gerade wirklich in einem Sprachkanal sitzt.
+ *
+ * Ohne `guildId`: der Abgleich laeuft je Server, und der Aufrufer wuerde sie
+ * sonst an jeder Zeile wiederholen.
+ */
+export interface AnwesendImVoice extends Omit<Grunddaten, 'guildId'> {
+  channelId: string;
+  channelName?: string | null;
+  parentId?: string | null;
+  isAfk?: boolean;
+}
+
+/**
+ * Nach dem Start: die Datenbank mit dem tatsaechlichen Zustand abgleichen.
+ *
+ * **Schliessen allein genuegt nicht** - und genau daran ging die Sprachzeit
+ * verloren. Der Bot schloss beim Start die offenen Abschnitte und war
+ * fertig. Wer waehrend des Neustarts im Kanal sass, hatte danach keinen
+ * offenen Abschnitt mehr, und der Bot hatte seinen Beitritt nie gesehen:
+ * seine Zeit lief weiter, gezaehlt wurde nichts. Erst wenn er den Kanal
+ * verliess und neu betrat, ging es wieder los. Nach jedem Deployment war
+ * damit die gesamte laufende Sprachzeit weg.
+ *
+ * Der Abgleich geht deshalb in beide Richtungen:
+ *
+ * 1. **Alles Offene schliessen**, und zwar zum letzten Herzschlag. Weiter
+ *    reicht das Wissen nicht - die Ausfallzeit wird niemandem gutgeschrieben.
+ * 2. **Fuer jeden Anwesenden neu beginnen**, ab jetzt. Ab hier sieht der Bot
+ *    wieder zu, und ab hier zaehlt es.
+ *
+ * Die Sitzungskennung wird dabei fortgefuehrt: wer vor dem Neustart schon im
+ * Kanal sass, war die ganze Zeit in derselben Sitzung. Nur wer waehrend des
+ * Ausfalls dazukam, beginnt eine neue - sonst waere jedes Deployment eine
+ * Welle neuer Sprachsitzungen in der Statistik.
+ *
+ * Wer gezaehlt wird, entscheidet wie ueberall `starteSprachAbschnitt`: das
+ * Modul, die Einstellungen, der Bot-Filter, die ausgenommenen Kanaele. Hier
+ * steht keine zweite Regel.
+ */
+export async function gleicheSprachabschnitteAb(
+  guildId: string,
+  anwesend: readonly AnwesendImVoice[],
+): Promise<{ geschlossen: number; begonnen: number }> {
+  const ende = await letzterBelegterZeitpunkt();
+  const jetzt = new Date();
+
+  const offene = await prisma.analyticsVoiceSegment.findMany({
+    where: { guildId, leftAt: null },
+    select: { discordId: true },
+    distinct: ['discordId'],
+  });
+
+  // Die Sitzungskennung der eben geschlossenen Abschnitte - sie wird gleich
+  // fortgesetzt, damit ein Neustart keine neue Sitzung erfindet.
+  const fortsetzung = new Map<string, string | null>();
+  for (const { discordId } of offene) {
+    fortsetzung.set(discordId, await schliesseOffene(guildId, discordId, ende));
+  }
+
+  let begonnen = 0;
+  for (const person of anwesend) {
+    if (!person.discordId) {
+      continue;
+    }
+    const sessionId = fortsetzung.get(person.discordId) ?? undefined;
+    const neu = await starteSprachAbschnitt({ ...person, guildId, at: jetzt, sessionId });
+    if (neu) {
+      begonnen += 1;
+    }
+  }
+
+  if (offene.length > 0 || begonnen > 0) {
+    log.info('analytics.voice.session.recovered', {
+      geschlossen: offene.length,
+      begonnen,
+      bis: ende.toISOString(),
+    });
+  }
+  return { geschlossen: offene.length, begonnen };
+}
+
+/**
+ * Bis wann der Bot nachweislich zugesehen hat.
+ *
+ * Der letzte Herzschlag, hoechstens aber jetzt. Eine Uhr, die in der Zukunft
+ * steht - etwa nach einem Zeitsprung auf dem Server -, darf keine Sprachzeit
+ * erzeugen, die es nie gab.
+ */
+async function letzterBelegterZeitpunkt(): Promise<Date> {
+  const status = await prisma.botStatus.findUnique({ where: { id: 'singleton' } }).catch(() => null);
+  const grenze = status?.lastHeartbeatAt ?? new Date();
+  const jetzt = new Date();
+  return grenze < jetzt ? grenze : jetzt;
 }
 
 // --- Mitglieder -------------------------------------------------------------

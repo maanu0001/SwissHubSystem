@@ -197,7 +197,16 @@ export async function analyseLegacyImport(
   fileName: string,
   actor: LegacyImportActor,
 ): Promise<AnalyseResult> {
+  // Strukturierte Ereignisnamen, damit sich ein gescheiterter Import im
+  // Protokoll bis zur Stelle verfolgen laesst, an der er scheiterte. Ohne
+  // Dateiinhalt, ohne Dateinamen aus dem Browser als Pfad.
+  log.info('jail.import.started', { bytes: data.byteLength, actor: actor.discordId });
   const contents = await readLegacyDatabase(data);
+  log.info('jail.import.validated', {
+    bytes: contents.bytes,
+    tabellen: contents.schema.map((eintrag) => eintrag.table),
+    zeilen: contents.jails.length,
+  });
   const mapped = contents.jails.map(mapRow);
 
   // Wiederholter Import: bereits übernommene Zeilen erkennen.
@@ -244,6 +253,27 @@ export async function analyseLegacyImport(
   });
 
   const counts = countActions(decided);
+
+  /*
+   * Eine neue Analyse ersetzt die vorige.
+   *
+   * Eine liegengebliebene Analyse ist kein Zustand, den jemand pflegen
+   * muesste: sie hat nichts angelegt, sie ist eine Momentaufnahme einer
+   * Datei. Blieb sie stehen, versperrte sie im Assistenten die
+   * Dateiauswahl - wer eine andere Datei hochladen wollte, fand kein
+   * Eingabefeld mehr, sondern die alte Vorschau.
+   *
+   * Bereits uebernommene Durchgaenge (`COMPLETED`) bleiben unberuehrt: sie
+   * sind der Beleg dafuer, was einmal eingespielt wurde, und die
+   * Wiederholungserkennung haengt an ihnen.
+   */
+  const ersetzt = await prisma.jailImport.updateMany({
+    where: { status: 'ANALYSED' },
+    data: { status: 'CANCELLED' },
+  });
+  if (ersetzt.count > 0) {
+    log.info('jail.import.superseded', { ersetzt: ersetzt.count });
+  }
 
   const importRecord = await prisma.jailImport.create({
     data: {
@@ -301,7 +331,7 @@ export async function analyseLegacyImport(
     },
   });
 
-  log.info('Legacy-Import analysiert', {
+  log.info('jail.import.analysed', {
     importId: importRecord.id,
     total: importRecord.totalRows,
     importable: importRecord.importableRows,
@@ -509,7 +539,7 @@ export async function executeLegacyImport(
       errorMessage: message.slice(0, 500),
       metadata: { importId },
     });
-    log.error('Legacy-Import fehlgeschlagen', { error, importId });
+    log.error('jail.import.failed', { error, importId });
     throw new AppError('INTERNAL', {
       userMessage:
         'Der Import wurde abgebrochen. Es wurde nichts übernommen - die bestehenden Daten sind unverändert.',
@@ -561,7 +591,7 @@ export async function executeLegacyImport(
     metadata: { importId, imported, cooldowns, reconciliation },
   });
 
-  log.info('Legacy-Import abgeschlossen', { importId, imported, cooldowns });
+  log.info('jail.import.completed', { importId, imported, failed, cooldowns });
   return { importRecord: finished, imported, failed, cooldowns, reconciliation };
 }
 

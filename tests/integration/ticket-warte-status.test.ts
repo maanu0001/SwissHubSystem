@@ -381,11 +381,19 @@ describeWithDatabase('Ticket: wer ist am Zug?', () => {
     expect(einzeln).toBe(2);
   });
 
-  // --- Die Bedeutung fuer den Support bleibt unveraendert -------------------
+  // --- Die Zahl fuer das Team ----------------------------------------------
 
-  it('zaehlt fuer den Support weiterhin die offenen Tickets', async () => {
-    // Fuer ihn ist «ein offenes Ticket» Arbeit - auch eines, bei dem gerade
-    // das Mitglied am Zug ist. Diese Bedeutung wird nicht angetastet.
+  it('zaehlt fuer das Team nur, was auf das Team wartet', async () => {
+    /*
+     * Die Zahl neben «Tickets» hiess fuer den Support bisher «alle offenen
+     * Tickets» - ausdruecklich auch die, bei denen gerade das Mitglied am
+     * Zug ist. Das ist die falsche Auskunft: sie zeigt Arbeit an, die der
+     * Support nicht tun kann, und sie sinkt nicht, solange jemand nicht
+     * antwortet.
+     *
+     * Der Bestand ist damit nicht verschwunden - `countOpenTickets` zaehlt
+     * ihn weiterhin, und die Kachel auf dem Dashboard meint genau ihn.
+     */
     const a = await neuesTicket(MITGLIED, 1);
     const b = await neuesTicket(ZWEITES_MITGLIED, 2);
     const c = await neuesTicket(MITGLIED, 3);
@@ -393,12 +401,57 @@ describeWithDatabase('Ticket: wer ist am Zug?', () => {
     await tickets.sendMessage(b, 'Antwort', ZWEITES_MITGLIED); // wartet auf Team
     await prisma.ticket.update({ where: { id: c }, data: { status: 'CLOSED' } });
 
-    const supportZahl = await tickets.ticketNavigationCounter(alsSupport(SUPPORTER.discordId));
-    expect(supportZahl).toBe(2);
-    expect(supportZahl).toBe(await tickets.countOpenTickets(alsSupport(SUPPORTER.discordId)));
+    const support = alsSupport(SUPPORTER.discordId);
+    expect(await tickets.ticketNavigationCounter(support)).toBe(1);
+    expect(await tickets.countTicketsAwaitingStaff(support)).toBe(1);
+
+    // Der Bestand bleibt, was er war - er heisst nur nicht mehr «Badge».
+    expect(await tickets.countOpenTickets(support)).toBe(2);
   });
 
-  it('gibt einem Supporter, der selbst ein Ticket eroeffnet hat, weiterhin die Support-Zahl', async () => {
+  it('zaehlt genau die Tickets, die einzeln betrachtet auf das Team warten', async () => {
+    // Dieselbe Gegenprobe wie fuer die Mitgliederzahl: die Abfragebedingung
+    // gegen die Einzelfall-Funktion, an denselben Tickets.
+    const faelle = [
+      async (id: string): Promise<void> => {
+        await tickets.sendMessage(id, 'Team', SUPPORTER);
+      },
+      async (id: string): Promise<void> => {
+        await tickets.sendMessage(id, 'Team', SUPPORTER);
+        await tickets.sendMessage(id, 'Mitglied', MITGLIED);
+      },
+      async (id: string): Promise<void> => {
+        await tickets.addInternalNote(id, 'Notiz', SUPPORTER);
+      },
+      async (id: string): Promise<void> => {
+        await prisma.ticket.update({ where: { id }, data: { status: 'WAITING_FOR_USER' } });
+      },
+      async (id: string): Promise<void> => {
+        await tickets.sendMessage(id, 'Team', SUPPORTER);
+        await prisma.ticket.update({ where: { id }, data: { status: 'CLOSED' } });
+      },
+      async (): Promise<void> => undefined,
+    ];
+
+    const ids: string[] = [];
+    for (const [index, fall] of faelle.entries()) {
+      const id = await neuesTicket(MITGLIED, index + 1);
+      await fall(id);
+      ids.push(id);
+    }
+
+    let einzeln = 0;
+    for (const id of ids) {
+      if ((await wartetAuf(id)) === 'TEAM') {
+        einzeln += 1;
+      }
+    }
+
+    expect(await tickets.countTicketsAwaitingStaff(alsSupport(SUPPORTER.discordId))).toBe(einzeln);
+    expect(einzeln).toBe(3);
+  });
+
+  it('gibt einem Supporter, der selbst ein Ticket eroeffnet hat, die Team-Zahl', async () => {
     // Zwei Bedeutungen, eine Person - die Zustaendigkeit entscheidet, nicht
     // die Urheberschaft. Sonst saehe ein Supporter je nach eigenem Ticket
     // eine andere Kennzahl.
@@ -409,8 +462,67 @@ describeWithDatabase('Ticket: wer ist am Zug?', () => {
       isStaff: true,
     });
 
-    expect(await tickets.ticketNavigationCounter(alsSupport(SUPPORTER.discordId))).toBe(1);
+    // Zuletzt hat das Team geschrieben - es wartet also auf den Ersteller,
+    // und der ist hier zufaellig selbst ein Supporter.
+    expect(await tickets.ticketNavigationCounter(alsSupport(SUPPORTER.discordId))).toBe(0);
     expect(await tickets.countOpenTickets(alsSupport(SUPPORTER.discordId))).toBe(1);
+  });
+
+  // --- Die beiden Richtungen schliessen einander aus ------------------------
+
+  it('gibt den beiden Seiten in jedem Zustand genau die Gegenzahl', async () => {
+    /*
+     *                      Zahl beim Mitglied   Zahl beim Team
+     *   wartet auf Support         0                  1
+     *   wartet auf Mitglied        1                  0
+     *   geschlossen                0                  0
+     *
+     * Ein offenes Ticket wartet entweder auf das eine oder auf das andere,
+     * nie auf beide und nie auf keinen - sonst waeren die Zahlen vertauscht
+     * oder eine von beiden verschluckte Arbeit.
+     */
+    const support = alsSupport(SUPPORTER.discordId);
+    const zahlen = async (): Promise<[number, number]> => [
+      await zahlFuer(MITGLIED.discordId),
+      await tickets.ticketNavigationCounter(support),
+    ];
+
+    const ticketId = await neuesTicket();
+    expect(await zahlen()).toEqual([0, 1]); // frisch: das Team ist am Zug
+
+    await tickets.sendMessage(ticketId, 'Wir schauen es uns an.', SUPPORTER);
+    expect(await zahlen()).toEqual([1, 0]); // Team hat geantwortet
+
+    await tickets.sendMessage(ticketId, 'Danke, hier die Angaben.', MITGLIED);
+    expect(await zahlen()).toEqual([0, 1]); // Mitglied hat geantwortet
+
+    await prisma.ticket.update({ where: { id: ticketId }, data: { status: 'CLOSED' } });
+    expect(await zahlen()).toEqual([0, 0]); // geschlossen zaehlt fuer niemanden
+  });
+
+  it('haelt die Gegenzahl auch, wenn die Antwort aus Discord kommt', async () => {
+    // Derselbe Weg, dieselbe Wirkung: der Warte-Zustand darf nicht davon
+    // abhaengen, wo jemand geschrieben hat.
+    const support = alsSupport(SUPPORTER.discordId);
+    const ticketId = await neuesTicket();
+
+    await tickets.syncDiscordMessage({
+      ticketId,
+      discordMessageId: '700000000000000101',
+      content: 'Antwort aus dem Kanal',
+      author: SUPPORTER,
+    });
+    expect(await zahlFuer(MITGLIED.discordId)).toBe(1);
+    expect(await tickets.ticketNavigationCounter(support)).toBe(0);
+
+    await tickets.syncDiscordMessage({
+      ticketId,
+      discordMessageId: '700000000000000102',
+      content: 'Hier die Angaben',
+      author: MITGLIED,
+    });
+    expect(await zahlFuer(MITGLIED.discordId)).toBe(0);
+    expect(await tickets.ticketNavigationCounter(support)).toBe(1);
   });
 
   it('zaehlt ohne jede Ticket-Berechtigung nichts', async () => {

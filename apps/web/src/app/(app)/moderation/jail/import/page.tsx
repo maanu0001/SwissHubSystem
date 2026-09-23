@@ -66,10 +66,26 @@ export default async function JailImportPage({
 
   const history = await jail.listImports(10);
 
+  /*
+   * Die Dateiauswahl steht immer da.
+   *
+   * Frueher erschien sie nur, wenn es ueberhaupt keine Analyse gab. Eine
+   * einzige liegengebliebene Analyse - oder ein Klick auf einen Eintrag der
+   * Verlaufsliste - liess sie verschwinden, und der Assistent zeigte
+   * stattdessen die alte Vorschau. Wer eine Datei hochladen wollte, fand
+   * dann schlicht kein Eingabefeld mehr. Genau so sah es aus, als liesse
+   * sich keine `.db` mehr auswaehlen.
+   *
+   * Jetzt steht sie immer: oben, wenn nichts zu entscheiden ist, sonst
+   * unter der Vorschau als «andere Datei». Eine neue Analyse ersetzt die
+   * vorige - sie hat nichts angelegt, sie ist eine Momentaufnahme.
+   */
+  const nichtsZuEntscheiden = current === null || current.status === 'CANCELLED';
+
   return (
     <>
       <ModerationSectionNav sections={moderationSections(context)} />
-      {current === null || current.status === 'CANCELLED' ? (
+      {nichtsZuEntscheiden ? (
         <ImportUploadStep csrfToken={csrfToken} maxBytes={jail.MAX_LEGACY_DB_BYTES} />
       ) : (
         <>
@@ -223,6 +239,15 @@ export default async function JailImportPage({
             </CardContent>
           </Card>
         </>
+      )}
+
+      {nichtsZuEntscheiden ? null : (
+        <ImportUploadStep
+          csrfToken={csrfToken}
+          maxBytes={jail.MAX_LEGACY_DB_BYTES}
+          ueberschrift="Andere Datei hochladen"
+          hinweis="Eine neue Analyse ersetzt die obige. Übernommene Durchgänge bleiben bestehen."
+        />
       )}
 
       {history.length > 0 ? (

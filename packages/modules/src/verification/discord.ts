@@ -265,50 +265,88 @@ function payload(
 }
 
 /**
+ * Jede Nachricht festhalten, die der Bot zu einem Vorgang geschrieben hat.
+ *
+ * **Eine Liste, kein Feld.** Genau daran ist das Aufraeumen gescheitert: ein
+ * Vorgang kann mehr als eine Bot-Nachricht haben - ein wiederholtes
+ * `guildMemberAdd`, ein zweiter Beitritt bei noch offenem Vorgang, ein
+ * Neustart. Ein einzelnes Feld behielt die juengste und verlor jede
+ * vorherige; die blieb im Kanal stehen, und nichts zeigte mehr auf sie. Ueber
+ * den Text wiederfinden laesst sie sich nicht: das Aufraeumen ueberspringt
+ * Bot-Nachrichten ausdruecklich, damit es keine fremde erwischt.
+ *
+ * Die alten Skalarfelder werden weiter mitgeschrieben - sie sind die
+ * Rueckfallebene fuer Vorgaenge aus der Zeit davor und die Anzeige im
+ * Dashboard.
+ *
+ * Scheitert das Festhalten, bleibt die Nachricht trotzdem gesendet. Der
+ * Fehler wird protokolliert und nicht weitergereicht: eine Zustellung laesst
+ * sich nicht zuruecknehmen.
+ */
+async function merkeBotNachricht(
+  requestId: string,
+  kind: 'GREETING' | 'WELCOME',
+  channelId: string,
+  messageId: string,
+): Promise<void> {
+  const feld =
+    kind === 'GREETING'
+      ? { greetingChannelId: channelId, greetingMessageId: messageId }
+      : { welcomeChannelId: channelId, welcomeMessageId: messageId };
+
+  await prisma
+    .$transaction([
+      prisma.verificationBotMessage.upsert({
+        where: { requestId_discordMessageId: { requestId, discordMessageId: messageId } },
+        create: { requestId, kind, channelId, discordMessageId: messageId },
+        update: {},
+      }),
+      prisma.verificationRequest.update({ where: { id: requestId }, data: feld }),
+    ])
+    .then(() => {
+      logger.info('verification.bot_message.recorded', { requestId, kind });
+    })
+    .catch((error: unknown) => {
+      logger.warn('verification.bot_message.record_failed', { requestId, kind, error });
+    });
+}
+
+/**
  * Die Begruessung im Verifikationskanal.
  *
  * Erwaehnt ausschliesslich die begruesste Person - `parse: []` sorgt dafuer,
  * dass ein Begruessungstext mit `@everyone` darin niemanden anpingt.
+ *
+ * **Nur einmal je Vorgang und Kanal.** Discord stellt `guildMemberAdd`
+ * gelegentlich doppelt zu, und `startVerification` gibt bei einem offenen
+ * Vorgang denselben zurueck - ohne diese Pruefung stuenden zwei Begruessungen
+ * im Kanal, an dieselbe Person gerichtet.
  */
 export async function sendGreeting(
   request: VerificationRequest,
   settings: VerificationSettings,
   gateway: DiscordGateway = defaultDiscord,
 ): Promise<SentMessage | null> {
-  if (!settings.verificationChannelId) {
+  const kanal = settings.verificationChannelId;
+  if (!kanal) {
     return null;
   }
+
+  const bereitsBegruesst = await prisma.verificationBotMessage
+    .findFirst({ where: { requestId: request.id, kind: 'GREETING', channelId: kanal } })
+    .catch(() => null);
+  if (bereitsBegruesst) {
+    logger.info('verification.greeting.skipped', { requestId: request.id });
+    return { id: bereitsBegruesst.discordMessageId, channelId: kanal };
+  }
+
   const text = settings.greetingMessage.replaceAll('{user}', `<@${request.discordId}>`);
   try {
-    const gesendet = await gateway.channels.send(settings.verificationChannelId, {
+    const gesendet = await gateway.channels.send(kanal, {
       content: text.slice(0, 1900),
       allowedMentions: { parse: [] as never[], users: [request.discordId] },
     });
-
-    /*
-     * Die Kennung wird festgehalten.
-     *
-     * Ohne sie liesse sich diese eine Begruessung spaeter nicht wiederfinden -
-     * ausser ueber eine Textsuche, und die faende die Begruessung einer
-     * anderen Person, sobald jemand seinen Namen aendert oder zwei Namen
-     * sich aehneln. Geloescht wuerde dann die falsche.
-     *
-     * Scheitert das Schreiben, bleibt die Begruessung stehen: sie ist
-     * gesendet, und das ist die Hauptsache. Aufgeraeumt wird sie dann nicht -
-     * besser als eine Kennung, die auf nichts zeigt.
-     */
-    await prisma.verificationRequest
-      .update({
-        where: { id: request.id },
-        data: {
-          greetingChannelId: settings.verificationChannelId,
-          greetingMessageId: gesendet.id,
-        },
-      })
-      .catch((error: unknown) =>
-        logger.warn('Begrüssung konnte nicht vermerkt werden', { requestId: request.id, error }),
-      );
-
+    await merkeBotNachricht(request.id, 'GREETING', kanal, gesendet.id);
     return gesendet;
   } catch (error) {
     logger.warn('Begrüssung konnte nicht gesendet werden', { requestId: request.id, error });
@@ -385,19 +423,7 @@ export async function sendWelcome(
       content: `<@${request.discordId}> ${text}`.slice(0, 1900),
       allowedMentions: { parse: [] as never[], users: [request.discordId] },
     });
-    // Scheitert nur das Festhalten, bleibt die Nachricht trotzdem gesendet -
-    // deshalb wird der Fehler protokolliert und nicht weitergereicht.
-    await prisma.verificationRequest
-      .update({
-        where: { id: request.id },
-        data: {
-          welcomeChannelId: settings.verificationChannelId,
-          welcomeMessageId: gesendet.id,
-        },
-      })
-      .catch((error: unknown) => {
-        logger.warn('Willkommensnachricht nicht festgehalten', { requestId: request.id, error });
-      });
+    await merkeBotNachricht(request.id, 'WELCOME', settings.verificationChannelId, gesendet.id);
   } catch (error) {
     logger.warn('Willkommensnachricht fehlgeschlagen', { requestId: request.id, error });
   }

@@ -54,9 +54,10 @@ export default async function AppLayout({
   /**
    * Die Zahl neben dem Ticket-Eintrag.
    *
-   * Was sie bedeutet, entscheidet das Modul - fuer den Support «wie viel
-   * Arbeit wartet», fuer alle anderen «bei wie vielen meiner Tickets wartet
-   * das Team auf mich». Hier wird sie einmal geholt und an Seitenleiste,
+   * Was sie bedeutet, entscheidet das Modul - fuer den Support «bei wie
+   * vielen Tickets ist das Team am Zug», fuer alle anderen «bei wie vielen
+   * meiner Tickets wartet das Team auf mich». Zweimal dieselbe Frage aus
+   * zwei Richtungen. Hier wird sie einmal geholt und an Seitenleiste,
    * mobile Navigation und Schnellnavigation gereicht; zwei verschiedene
    * Zahlen auf zwei Geraeten koennen so gar nicht entstehen.
    *

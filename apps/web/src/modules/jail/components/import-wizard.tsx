@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Database, ShieldAlert, Upload } from 'lucide-react';
 import { toast } from 'sonner';
@@ -13,7 +13,26 @@ import { confirmJailImportAction, discardJailImportAction } from '@/modules/jail
 interface UploadStepProps {
   csrfToken: string;
   maxBytes: number;
+  /** Abweichende Überschrift, wenn bereits eine Analyse darübersteht. */
+  ueberschrift?: string;
+  hinweis?: string;
 }
+
+/*
+ * Was der Dateidialog anbietet.
+ *
+ * Die Endungen sind der verlässliche Teil: für SQLite gibt es keinen
+ * registrierten MIME-Typ, und was das Betriebssystem einer `.db` zuordnet,
+ * ist von Rechner zu Rechner verschieden. Ein Dialog, der nur nach MIME-Typ
+ * filtert, zeigte die Datei deshalb grau - sie war da und liess sich nicht
+ * anklicken. `application/octet-stream` deckt genau diesen Fall ab.
+ *
+ * Das macht die Auswahl grosszügig, nicht die Annahme: der Server prüft die
+ * SQLite-Signatur der Datei und weist alles andere ab. Ein Dateidialog ist
+ * keine Sicherheitsprüfung, und er soll auch nicht so tun.
+ */
+const DATEI_FILTER =
+  '.db,.sqlite,.sqlite3,application/vnd.sqlite3,application/x-sqlite3,application/octet-stream';
 
 /**
  * Schritt 1: Datei hochladen und analysieren.
@@ -22,9 +41,18 @@ interface UploadStepProps {
  * Dateien entgegennehmen. Es entsteht dabei noch kein einziger Jail - das
  * Ergebnis ist reine Analyse.
  */
-export function ImportUploadStep({ csrfToken, maxBytes }: UploadStepProps): React.JSX.Element {
+export function ImportUploadStep({
+  csrfToken,
+  maxBytes,
+  ueberschrift,
+  hinweis,
+}: UploadStepProps): React.JSX.Element {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  // Der Schritt kann zweimal auf einer Seite stehen - einmal oben, einmal
+  // unter einer bestehenden Analyse. Zwei gleiche `id` machten die
+  // Beschriftung mehrdeutig und den zweiten Klick wirkungslos.
+  const feldId = useId();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,21 +110,24 @@ export function ImportUploadStep({ csrfToken, maxBytes }: UploadStepProps): Reac
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Database className="size-4" aria-hidden="true" />
-          Alte Datenbank hochladen
+          {ueberschrift ?? 'Alte Datenbank hochladen'}
         </CardTitle>
         <CardDescription>
-          Wähle die Datei <code>jail_data.db</code> des früheren Jail-Bots. Sie wird ausschliesslich gelesen,
-          analysiert und danach wieder gelöscht. In diesem Schritt wird nichts übernommen.
+          Wähle die SQLite-Datei <code>jail_data.db</code> des früheren Jail-Bots. Sie wird ausschliesslich
+          gelesen, analysiert und danach wieder gelöscht. In diesem Schritt wird nichts übernommen.
+          {hinweis ? ` ${hinweis}` : ''}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="legacy-db">Datei</Label>
+          <Label htmlFor={feldId}>
+            Datei (SQLite, <code>.db</code>)
+          </Label>
           <input
             ref={inputRef}
-            id="legacy-db"
+            id={feldId}
             type="file"
-            accept=".db,.sqlite,.sqlite3,application/vnd.sqlite3,application/x-sqlite3"
+            accept={DATEI_FILTER}
             disabled={pending}
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -107,7 +138,8 @@ export function ImportUploadStep({ csrfToken, maxBytes }: UploadStepProps): Reac
             className="block w-full cursor-pointer rounded-md border border-border bg-secondary/30 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:text-primary-foreground hover:file:bg-primary-bright"
           />
           <p className="text-xs text-muted-foreground">
-            Maximal {Math.round(maxBytes / 1024 / 1024)} MB. Die Originaldatei wird nicht verändert.
+            Maximal {Math.round(maxBytes / 1024 / 1024)} MB. Die Originaldatei wird nicht verändert. Zeigt der
+            Dateidialog die Datei nicht an, hilft dort die Einstellung «Alle Dateien».
           </p>
         </div>
 

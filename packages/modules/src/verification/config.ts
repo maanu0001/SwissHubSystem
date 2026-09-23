@@ -180,16 +180,67 @@ export const verificationSettingsSchema = z.object({
   aiMaxAttempts: z.number().int().min(1).max(10).default(2),
 
   // --- Ablauf ------------------------------------------------------------
-  /** Nach dieser Zeit ohne Nachricht gilt der Vorgang als abgelaufen. */
-  expireAfterHours: z.number().int().min(1).max(720).default(48),
+  /**
+   * Nach dieser Zeit **ohne Nachricht** gilt der Vorgang als abgelaufen.
+   *
+   * In Minuten, weil Stunden die kuerzeste sinnvolle Frist nicht ausdruecken
+   * konnten: eine Viertelstunde ist genug, um eine Zeile zu schreiben, und
+   * kurz genug, dass ein Bot-Konto nicht tagelang im Server steht.
+   *
+   * **Die Frist gilt der Person, nicht der Moderation.** Gezaehlt wird nur,
+   * solange der Vorgang auf eine Nachricht wartet. Sobald eine vorliegt,
+   * wartet er auf eine Entscheidung - und ein Moderator, der sich Zeit
+   * laesst, darf niemanden den Platz kosten. Das ist keine zusaetzliche
+   * Pruefung, sondern der Zustand selbst: die faellige Abfrage kennt
+   * ausschliesslich `WAITING_FOR_MESSAGE`.
+   *
+   * Eine eigene Deadline-Spalte braucht es dafuer nicht: `joinedAt` steht
+   * bereits in der Datenbank, und die Frist ist eine Einstellung. Beides
+   * uebersteht jeden Neustart, und wer die Frist aendert, aendert sie fuer
+   * alle - nicht nur fuer die, die danach beitreten.
+   */
+  expireAfterMinutes: z.number().int().min(1).max(43_200).default(15),
   expireEnabled: z.boolean().default(true),
   /**
    * Nach Ablauf vom Server werfen.
    *
-   * Aus als Vorgabe, und niemals ein Bann: wer nichts geschrieben hat, hat
-   * nichts getan - vielleicht war er nur im Urlaub.
+   * Ein Kick, **niemals ein Bann**: wer nichts geschrieben hat, hat nichts
+   * getan. Er soll jederzeit wiederkommen koennen - deshalb geht vorher eine
+   * Nachricht mit der Einladung raus.
    */
-  kickOnExpire: z.boolean().default(false),
+  kickOnExpire: z.boolean().default(true),
+
+  /**
+   * Was der Person vor dem Kick geschrieben wird.
+   *
+   * Dieselben drei Platzhalter wie ueberall im Modul, dazu `{invite}` fuer
+   * den Einladungslink. Steht keiner zur Verfuegung, faellt der Platzhalter
+   * ersatzlos weg - eine Nachricht mit einem leeren Link waere schlimmer als
+   * eine ohne.
+   */
+  timeoutDmMessage: z
+    .string()
+    .max(1500)
+    .default(
+      'Hoi {displayName}\n\nDu wurdest von SwissHub entfernt, weil die Verifikation nicht innerhalb der Frist abgeschlossen wurde.\n\nDas ist keine Sperre: du kannst jederzeit wieder beitreten und die Verifikation neu starten.\n\n{invite}',
+    ),
+  /**
+   * Der Einladungslink fuer die Rueckkehr.
+   *
+   * Leer heisst nicht «kein Link»: dann wird eine bestehende, unbefristete
+   * Einladung des Servers verwendet. Erzeugt wird keine - eine neue
+   * Einladung je Zeitueberschreitung waere eine Flut von Links, die niemand
+   * mehr zuordnen kann, und sie braucht ein Recht, das der Bot nicht haben
+   * muss.
+   */
+  rejoinInviteUrl: z
+    .string()
+    .trim()
+    .max(200)
+    .refine((wert) => wert === '' || /^https:\/\/(discord\.gg|discord\.com\/invite)\/[\w-]+$/u.test(wert), {
+      message: 'Bitte einen Discord-Einladungslink angeben (https://discord.gg/…).',
+    })
+    .default(''),
 
   /**
    * Bereits verifizierte Personen bei erneutem Beitritt durchwinken.
@@ -210,6 +261,56 @@ export const verificationSettingsSchema = z.object({
 });
 
 export type VerificationSettings = z.infer<typeof verificationSettingsSchema>;
+
+/** Obergrenze der Frist in Minuten - dreissig Tage. */
+const FRIST_HOECHSTENS = 43_200;
+
+/** Die Frist stand einmal in Stunden - und diese Zahl war ihre Vorgabe. */
+const FRIST_ALTE_VORGABE_STUNDEN = 48;
+
+/**
+ * Was gespeichert steht, ehe es geprueft wird.
+ *
+ * Die Frist stand einmal in Stunden, und die Vorgabe waren achtundvierzig.
+ * Beim Umstieg auf Minuten sind das zwei verschiedene Faelle, und sie
+ * verdienen zwei verschiedene Antworten:
+ *
+ * - **Ein abweichender Wert wurde gewaehlt.** Wer die Frist damals auf zwoelf
+ *   oder auf hundertsechzig Stunden gestellt hat, hat eine Entscheidung
+ *   getroffen. Sie wird umgerechnet und bleibt bestehen.
+ * - **Achtundvierzig stand einfach da.** Das ist keine Entscheidung, sondern
+ *   die Vorgabe von damals - gespeichert, weil das Formular beim ersten
+ *   Speichern alle Felder mitschickt. Sie wird durch die heutige Vorgabe
+ *   ersetzt.
+ *
+ * Ein Umweg fuer eine Uebergangszeit, und er steht an genau einer Stelle:
+ * dem Schema, mit dem das Modul seine Einstellungen liest. Das
+ * ausgeschriebene `verificationSettingsSchema` bleibt daneben unveraendert -
+ * es ist die Form, die das Dashboard speichert und die Tests pruefen.
+ *
+ * Sobald jemand die Einstellungen einmal speichert, ist der Umweg fuer diese
+ * Installation erledigt: danach steht `expireAfterMinutes` in der Datenbank
+ * und `expireAfterHours` gar nicht mehr.
+ */
+const verificationSettingsGelesen = z.preprocess((roh) => {
+  if (!roh || typeof roh !== 'object' || Array.isArray(roh)) {
+    return roh;
+  }
+  const werte = roh as Record<string, unknown>;
+  if (werte.expireAfterMinutes !== undefined || typeof werte.expireAfterHours !== 'number') {
+    return roh;
+  }
+  if (werte.expireAfterHours === FRIST_ALTE_VORGABE_STUNDEN) {
+    // Die alte Vorgabe traegt keine Aussage - die heutige tritt an ihre Stelle.
+    const { expireAfterHours: _alt, ...rest } = werte;
+    return rest;
+  }
+  const minuten = Math.round(werte.expireAfterHours * 60);
+  return {
+    ...werte,
+    expireAfterMinutes: Math.min(FRIST_HOECHSTENS, Math.max(1, minuten)),
+  };
+}, verificationSettingsSchema);
 
 const verificationSettingsFields: SettingsField[] = [
   {
@@ -385,19 +486,41 @@ const verificationSettingsFields: SettingsField[] = [
     group: 'Ablauf',
   },
   {
-    key: 'expireAfterHours',
-    label: 'Frist',
+    key: 'expireAfterMinutes',
+    label: 'Frist ohne Nachricht',
+    description:
+      'Gezählt wird nur, solange der Vorgang auf eine Nachricht wartet. Wer geschrieben hat, wartet auf die Moderation - und läuft nicht ab.',
     type: 'number',
     min: 1,
-    max: 720,
-    unit: 'Stunden',
+    max: 43200,
+    unit: 'Minuten',
     group: 'Ablauf',
   },
   {
     key: 'kickOnExpire',
     label: 'Nach Ablauf vom Server entfernen',
-    description: 'Aus als Vorgabe. Ein Kick ist kein Bann - die Person kann jederzeit wiederkommen.',
+    description:
+      'Ein Kick ist kein Bann - die Person kann jederzeit wiederkommen. Vorher erhält sie eine Nachricht mit dem Grund und der Einladung.',
     type: 'boolean',
+    group: 'Ablauf',
+  },
+  {
+    key: 'timeoutDmMessage',
+    label: 'Nachricht vor dem Entfernen',
+    description:
+      '{user}, {username} und {displayName} werden ersetzt, {invite} durch den Einladungslink. Leer lassen, um nichts zu senden.',
+    type: 'textarea',
+    maxLength: 1500,
+    group: 'Ablauf',
+  },
+  {
+    key: 'rejoinInviteUrl',
+    label: 'Einladungslink für die Rückkehr',
+    description:
+      'Leer lassen, um eine bestehende unbefristete Einladung des Servers zu verwenden. Es wird keine neue erzeugt.',
+    type: 'text',
+    maxLength: 200,
+    placeholder: 'https://discord.gg/…',
     group: 'Ablauf',
   },
   {
@@ -540,6 +663,38 @@ async function verificationHealthChecks(context: ModuleHealthContext): Promise<M
     });
   }
 
+  /*
+   * Der Ablauf ist still, wenn er nicht tut, was jemand erwartet.
+   *
+   * «Vorgaenge laufen ab» und «niemand wird entfernt» ergeben zusammen einen
+   * Zustand, in dem abgelaufene Vorgaenge zwar als abgelaufen gefuehrt
+   * werden, die Person aber mit der Rolle «Noch nicht verifiziert» im Server
+   * sitzen bleibt - unsichtbar fuer alle und auf Dauer.
+   */
+  if (settings.expireEnabled) {
+    const frist =
+      settings.expireAfterMinutes < 60
+        ? `${settings.expireAfterMinutes} Minuten`
+        : `${Math.round(settings.expireAfterMinutes / 60)} Stunden`;
+    checks.push(
+      settings.kickOnExpire
+        ? { label: 'Frist ohne Nachricht', status: 'ok', detail: `${frist}, danach Kick.` }
+        : {
+            label: 'Frist ohne Nachricht',
+            status: 'warning',
+            detail: `${frist}. Es wird niemand entfernt - abgelaufene Vorgänge bleiben mit der Rolle «Noch nicht verifiziert» im Server stehen.`,
+            fixHref: fix,
+          },
+    );
+  } else {
+    checks.push({
+      label: 'Frist ohne Nachricht',
+      status: 'warning',
+      detail: 'Abgeschaltet. Wer nie schreibt, bleibt unbegrenzt im Server stehen.',
+      fixHref: fix,
+    });
+  }
+
   // Ohne Message Content sieht der Bot den Text nicht - und ohne Text gibt es
   // nichts zu pruefen. Das Modul waere dann eine Attrappe.
   const { discord } = await import('@swisshub/discord');
@@ -587,7 +742,7 @@ export const verificationModule: ModuleDefinition = registerModule({
   icon: 'ShieldCheck',
   permissionPrefix: 'verification',
   defaultEnabled: false,
-  settingsSchema: verificationSettingsSchema,
+  settingsSchema: verificationSettingsGelesen,
   settingsFields: verificationSettingsFields,
   healthChecks: verificationHealthChecks,
   permissions: [

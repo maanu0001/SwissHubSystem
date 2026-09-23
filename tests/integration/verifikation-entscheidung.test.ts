@@ -40,6 +40,7 @@ const VOLL = moderator([P.approve, P.reject, 'moderation.ban']);
 function attrappe() {
   const gesetzteRollen: Array<{ discordId: string; roleIds: string[] }> = [];
   const banns: string[] = [];
+  const kicks: Array<{ discordId: string; grund?: string }> = [];
   const gateway = {
     members: {
       get: vi.fn(async (discordId: string) => ({
@@ -59,7 +60,9 @@ function attrappe() {
       setRoles: vi.fn(async (discordId: string, roleIds: string[]) => {
         gesetzteRollen.push({ discordId, roleIds });
       }),
-      kick: vi.fn(async () => undefined),
+      kick: vi.fn(async (discordId: string, grund?: string) => {
+        kicks.push({ discordId, grund });
+      }),
     },
     bans: {
       add: vi.fn(async (discordId: string) => {
@@ -92,7 +95,7 @@ function attrappe() {
       edit: vi.fn(async () => undefined),
     },
   } as unknown as NonNullable<Parameters<typeof verification.verify>[2]>['gateway'];
-  return { gateway, gesetzteRollen, banns };
+  return { gateway, gesetzteRollen, banns, kicks };
 }
 
 async function neuerFall(discordId = '900000000000009001') {
@@ -371,18 +374,58 @@ describeWithDatabase('Verifikation: Entscheidungen', () => {
     expect((await verification.requireRequest(mit.id)).status).toBe('WAITING_FOR_REVIEW');
   });
 
-  it('kickt beim Ablauf nur, wenn es ausdrücklich eingestellt ist', async () => {
+  it('kickt beim Ablauf - und bannt dabei niemanden', async () => {
+    /*
+     * Die Vorgabe war einmal «nicht kicken». Das hiess in der Praxis: der
+     * Vorgang wurde als abgelaufen geführt, und die Person sass weiter mit
+     * der Rolle «Noch nicht verifiziert» im Server - unsichtbar für alle
+     * und auf Dauer.
+     *
+     * Ein Kick ist kein Bann. Wer nichts geschrieben hat, hat nichts getan;
+     * er bekommt vorher eine Nachricht mit dem Grund und dem Weg zurück.
+     */
     const fall = await verification.startVerification({ discordId: '900000000000009603' });
     await prisma.verificationRequest.update({
       where: { id: fall.id },
       data: { joinedAt: new Date(Date.now() - 100 * 3600_000) },
     });
 
-    const aus = attrappe();
-    const ergebnis = await verification.runVerificationTick(new Date(), aus.gateway);
+    const { gateway, banns, kicks } = attrappe();
+    const ergebnis = await verification.runVerificationTick(new Date(), gateway);
+
     expect(ergebnis.abgelaufen).toBe(1);
-    // Vorgabe ist «nicht kicken» - und ein Bann ist es ohnehin nie.
+    expect(ergebnis.gekickt).toBe(1);
+    expect(kicks.map((eintrag) => eintrag.discordId)).toEqual(['900000000000009603']);
+    expect(kicks[0]?.grund).toContain('Verifikation');
+    expect(banns).toEqual([]);
+  });
+
+  it('lässt den Vorgang ablaufen, ohne zu kicken, wenn der Kick abgeschaltet ist', async () => {
+    await setModuleSettings(
+      verification.VERIFICATION_MODULE_ID,
+      {
+        unverifiedRoleId: UNVERIFIZIERT,
+        memberRoleId: MITGLIED,
+        verificationChannelId: VERIFIKATIONSKANAL,
+        moderatorChannelId: MOD_KANAL,
+        aiEnabled: false,
+        aiAutoVerify: false,
+        kickOnExpire: false,
+      },
+      'test',
+    );
+    const fall = await verification.startVerification({ discordId: '900000000000009604' });
+    await prisma.verificationRequest.update({
+      where: { id: fall.id },
+      data: { joinedAt: new Date(Date.now() - 100 * 3600_000) },
+    });
+
+    const { gateway, kicks } = attrappe();
+    const ergebnis = await verification.runVerificationTick(new Date(), gateway);
+
+    expect(ergebnis.abgelaufen).toBe(1);
     expect(ergebnis.gekickt).toBe(0);
+    expect(kicks).toEqual([]);
   });
 
   it('erkennt eine frühere Verifikation für den erneuten Beitritt', async () => {

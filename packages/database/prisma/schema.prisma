@@ -4869,26 +4869,19 @@ model VerificationRequest {
   modChannelId String?
   modMessageId String?
 
-  /// Die Begruessung des Bots im Verifikationskanal.
+  /// Die zuletzt gesendete Begruessung bzw. Freischaltungsnachricht.
   ///
-  /// Kennung und Kanal werden beim Senden festgehalten, damit sich genau
-  /// diese eine Nachricht spaeter wieder entfernen laesst. Eine Suche nach
-  /// dem Text waere unzuverlaessig: Namen aendern sich, Texte kollidieren,
-  /// und geloescht wuerde am Ende die Begruessung einer anderen Person.
+  /// Nur noch Anzeige und Rueckfallebene. Die vollstaendige Liste steht in
+  /// `botMessages` - ein Vorgang kann mehr als eine Bot-Nachricht haben, und
+  /// genau daran ist das Aufraeumen frueher gescheitert: ein Skalarfeld
+  /// behielt die juengste und verlor jede vorherige.
   ///
-  /// Der Kanal steht daneben, weil die Einstellung sich aendern kann - die
-  /// Nachricht liegt dann immer noch dort, wo sie gesendet wurde.
+  /// Sie bleiben stehen, damit Vorgaenge aus der Zeit vor der Liste weiter
+  /// aufgeraeumt werden koennen.
   greetingChannelId String?
   greetingMessageId String?
-
-  /// Die Nachricht des Bots an die frisch freigeschaltete Person.
-  ///
-  /// Die zweite Bot-Nachricht, die zu diesem Vorgang gehoert - und damit die
-  /// zweite, die beim Aufraeumen wieder verschwinden muss. Ohne sie bliebe
-  /// im Verifikationskanal eine Zeile stehen, die an jemanden gerichtet ist,
-  /// der den Kanal gar nicht mehr sieht.
-  welcomeChannelId String?
-  welcomeMessageId String?
+  welcomeChannelId  String?
+  welcomeMessageId  String?
 
   /// Die Meldung nach erfolgreicher Verifikation.
   ///
@@ -4916,7 +4909,8 @@ model VerificationRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  messages VerificationMessage[]
+  messages    VerificationMessage[]
+  botMessages VerificationBotMessage[]
 
   /// Ein offener Vorgang je Person und Server. Ein frueherer, abgeschlossener
   /// Vorgang bleibt daneben stehen - deshalb kein `@@unique` auf
@@ -4925,6 +4919,42 @@ model VerificationRequest {
   @@index([guildId, discordId, createdAt])
   @@index([guildId, decidedAt])
   @@index([status, joinedAt])
+}
+
+/// Wofuer der Bot eine Nachricht geschrieben hat.
+enum VerificationBotMessageKind {
+  /// «Schreib bitte einen Satz» - beim Beitritt.
+  GREETING
+  /// «Du bist verifiziert» - nach der Freischaltung.
+  WELCOME
+}
+
+/// Jede Nachricht, die der Bot zu einem Vorgang geschrieben hat.
+///
+/// Eine Liste und kein Feld, weil es genau darum geht: derselbe Vorgang kann
+/// mehr als eine Bot-Nachricht haben. Ein wiederholtes `guildMemberAdd`,
+/// ein Neustart, ein zweiter Beitritt, waehrend der Vorgang noch offen ist -
+/// jedes Mal entstand eine weitere Begruessung, und ein einzelnes Feld
+/// behielt nur die letzte. Die frueheren blieben im Kanal stehen, und nichts
+/// zeigte mehr auf sie: das Aufraeumen ueberspringt Bot-Nachrichten
+/// ausdruecklich, damit es nicht fremde erwischt.
+///
+/// Der Kanal steht mit dabei, weil die Einstellung sich aendern kann - die
+/// Nachricht liegt dann immer noch dort, wo sie gesendet wurde.
+model VerificationBotMessage {
+  id        String              @id @default(cuid())
+  requestId String
+  request   VerificationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  kind             VerificationBotMessageKind
+  channelId        String
+  discordMessageId String
+
+  createdAt DateTime @default(now())
+
+  /// Dieselbe Discord-Nachricht wird nicht zweimal vermerkt.
+  @@unique([requestId, discordMessageId])
+  @@index([requestId, createdAt])
 }
 
 /// Die einzelnen Nachrichten eines Vorgangs.
@@ -5741,23 +5771,23 @@ model DiscordLogChannel {
 /// ueberlebt das - und wenn zwischen Abmeldung und Neustart doch etwas
 /// passiert ist, faellt genau das in der Differenz auf.
 model DiscordInvite {
-  id        String @id @default(cuid())
-  guildId   String
+  id               String    @id @default(cuid())
+  guildId          String
   /// Der Einladungscode, also der Teil hinter `discord.gg/`.
-  code      String
-  channelId String?
+  code             String
+  channelId        String?
   /// Name zum Zeitpunkt des letzten Abgleichs - fuer die Anzeige, wenn der
   /// Kanal inzwischen weg ist.
-  channelName String?
+  channelName      String?
   /// Wer die Einladung erstellt hat. Discord nennt das nicht immer.
   inviterDiscordId String?
   inviterUsername  String?
   /// Zaehlerstand beim letzten Abgleich. Die Grundlage der Differenz.
-  uses      Int      @default(0)
+  uses             Int       @default(0)
   /// `0` heisst bei Discord: unbegrenzt.
-  maxUses   Int      @default(0)
+  maxUses          Int       @default(0)
   /// Wann Discord sie verfallen laesst - `null` heisst nie.
-  expiresAt DateTime?
+  expiresAt        DateTime?
   /// Wann sie auf Discord entstanden ist.
   discordCreatedAt DateTime?
   /// Wie viele Beitritte dieser Einladung eindeutig zugeordnet wurden.
@@ -5765,16 +5795,16 @@ model DiscordInvite {
   /// Getrennt von `uses`: `uses` ist Discords Zaehler und steigt auch dann,
   /// wenn der Bot gerade nicht lief. Diese Zahl zaehlt nur, was tatsaechlich
   /// belegt zugeordnet wurde.
-  attributedJoins Int @default(0)
+  attributedJoins  Int       @default(0)
   /// Gesetzt, sobald die Einladung auf Discord nicht mehr existiert.
   ///
   /// Die Zeile bleibt stehen: ein Beitritt, der auf eine inzwischen
   /// geloeschte Einladung zurueckgeht, soll weiterhin sagen koennen, wer sie
   /// erstellt hatte.
-  revokedAt DateTime?
-  lastSeenAt DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  revokedAt        DateTime?
+  lastSeenAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([guildId, code])
   @@index([guildId, revokedAt])
@@ -5857,15 +5887,15 @@ model MigrationRun {
   phase  String?
 
   /// Das Paket: Module, Einstellungen, Berechtigungen, Automationen.
-  package Json
+  package  Json
   /// Zuordnung von Quell- zu Ziel-Rollen und -Kanälen.
-  mappings Json @default("{}")
+  mappings Json  @default("{}")
   /// Was ein Probelauf ergeben hat - die geplanten Änderungen.
-  plan Json?
+  plan     Json?
   /// Der Zustand des Ziels vor dem Anwenden. Grundlage für die Rücknahme.
   snapshot Json?
   /// Was tatsächlich geschehen ist, Phase für Phase.
-  report Json?
+  report   Json?
 
   error String?
 

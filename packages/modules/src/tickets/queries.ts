@@ -103,6 +103,20 @@ const WARTET_AUF_ERSTELLER: PrismaTypes.TicketWhereInput = {
   OR: [{ lastMessageByStaff: true }, { lastMessageByStaff: null, status: 'WAITING_FOR_USER' }],
 };
 
+/**
+ * Und die Gegenseite - genau das Komplement innerhalb der offenen Tickets.
+ *
+ * Bewusst als eigene Bedingung ausgeschrieben und nicht als `NOT` ueber der
+ * oberen: ein `NOT` haette die Statusbedingung mit umgedreht und alles
+ * Geschlossene wieder eingesammelt. Ein Test vergleicht beide Bedingungen an
+ * denselben Tickets gegen `ticketWartetAuf`, damit sie sich nicht
+ * auseinanderentwickeln.
+ */
+const WARTET_AUF_TEAM: PrismaTypes.TicketWhereInput = {
+  status: { in: [...OFFENE_TICKET_STATUS] },
+  OR: [{ lastMessageByStaff: false }, { lastMessageByStaff: null, status: { not: 'WAITING_FOR_USER' } }],
+};
+
 /** Ersteller oder aktiver Teilnehmer - die Menge hinter «Meine Tickets». */
 const meineTickets = (discordId: string): PrismaTypes.TicketWhereInput => ({
   OR: [{ creatorDiscordId: discordId }, { participants: { some: { discordId, removedAt: null } } }],
@@ -131,15 +145,44 @@ export async function countTicketsAwaitingCreator(discordId: string): Promise<nu
 }
 
 /**
+ * Bei wie vielen sichtbaren Tickets ist das Team am Zug?
+ *
+ * Die Zahl neben «Tickets» fuer den Support. Sie zaehlt ausdruecklich
+ * **nicht** alle offenen Tickets: ein Ticket, bei dem zuletzt das Team
+ * geschrieben hat, ist offen, aber es liegt beim Mitglied. Es in dieser Zahl
+ * zu fuehren hiesse, dem Support Arbeit anzuzeigen, die er gerade nicht tun
+ * kann - und die Zahl saenke nie, solange jemand nicht antwortet.
+ *
+ * Dieselbe Sichtbarkeit wie ueberall: auch eine Zahl verraet etwas.
+ *
+ * Die Gesamtzahl offener Tickets gibt es weiterhin - `countOpenTickets`, und
+ * sie bleibt unveraendert. Die Kachel auf dem Dashboard und die Kennzahlen
+ * der Uebersicht meinen genau das: den Bestand, nicht die Warteschlange.
+ */
+export async function countTicketsAwaitingStaff(viewer: TicketViewer): Promise<number> {
+  const sichtbar = await ticketSichtbarkeitsFilter(viewer);
+  return prisma.ticket.count({ where: { AND: [sichtbar, WARTET_AUF_TEAM] } });
+}
+
+/**
  * Die Zahl neben «Tickets» in der Navigation.
  *
  * Ein Eintrag, zwei Bedeutungen - und das ist kein Versehen, sondern die
  * Sache selbst:
  *
- * - Wer im **Support** arbeitet, will wissen, wie viel Arbeit wartet. Fuer
- *   ihn zaehlt die Zahl offene Tickets, unveraendert wie bisher.
- * - Wer ein Ticket **eroeffnet** hat, will wissen, ob jemand auf ihn wartet.
- *   Fuer ihn zaehlt sie Tickets, bei denen er am Zug ist.
+ * - Wer im **Support** arbeitet, will wissen, wie viel *auf ihn* wartet.
+ * - Wer ein Ticket **eroeffnet** hat, will wissen, ob jemand auf *ihn* wartet.
+ *
+ * Es ist also zweimal dieselbe Frage aus zwei Richtungen, und die Antworten
+ * schliessen einander aus: ein offenes Ticket wartet entweder auf das Team
+ * oder auf das Mitglied, nie auf beide und nie auf keinen. Genau deshalb
+ * stehen beide Zahlen hier nebeneinander und leiten sich aus derselben Regel
+ * ab.
+ *
+ *                      Zahl beim Mitglied   Zahl beim Team
+ *   wartet auf Support         0                  1
+ *   wartet auf Mitglied        1                  0
+ *   geschlossen                0                  0
  *
  * Beide Zahlen entstehen hier, an einer Stelle. Seitenleiste, mobile
  * Navigation und Schnellnavigation bekommen dieselbe fertige Zahl aus dem
@@ -148,7 +191,7 @@ export async function countTicketsAwaitingCreator(discordId: string): Promise<nu
  */
 export async function ticketNavigationCounter(viewer: TicketViewer): Promise<number> {
   if (viewer.can(TICKET_PERMISSIONS.supportView)) {
-    return countOpenTickets(viewer);
+    return countTicketsAwaitingStaff(viewer);
   }
   return countTicketsAwaitingCreator(viewer.discordId);
 }

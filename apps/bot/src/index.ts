@@ -262,14 +262,24 @@ async function main(): Promise<void> {
         log.warn('Voice-Sessions konnten nicht bereinigt werden', { error }),
       );
 
-      // Dasselbe fuer die Sprachabschnitte der Statistik. Wer noch im Kanal
-      // sitzt, behaelt seinen offenen Abschnitt; alle anderen werden bis zum
-      // letzten Herzschlag des Bots geschlossen - weiter reicht unser Wissen
-      // nicht.
+      /*
+       * Dasselbe fuer die Sprachabschnitte der Statistik - in beide
+       * Richtungen.
+       *
+       * Frueher wurde hier nur geschlossen. Wer waehrend des Neustarts im
+       * Kanal sass, hatte danach keinen offenen Abschnitt mehr, und sein
+       * Beitritt war nie gesehen worden: die Zeit lief weiter, gezaehlt
+       * wurde nichts, bis er den Kanal verliess und neu betrat. Nach jedem
+       * Deployment war damit die laufende Sprachzeit weg.
+       *
+       * Jetzt wird alles Offene zum letzten Herzschlag geschlossen - weiter
+       * reicht unser Wissen nicht - und fuer jeden, der tatsaechlich in
+       * einem Sprachkanal sitzt, ab jetzt neu begonnen.
+       */
       await analytics
-        .schliesseVerwaisteAbschnitte(guildId, anwesendeImVoice(readyClient, guildId))
+        .gleicheSprachabschnitteAb(guildId, anwesendeImVoice(readyClient, guildId))
         .catch((error: unknown) =>
-          log.warn('Verwaiste Sprachabschnitte konnten nicht geschlossen werden', { error }),
+          log.warn('Sprachabschnitte konnten beim Start nicht abgeglichen werden', { error }),
         );
 
       // Mitgliederzahl des Tages festhalten - der Mitgliederverlauf entsteht

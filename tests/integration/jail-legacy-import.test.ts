@@ -206,6 +206,36 @@ describe('Analyse', () => {
     expect(state.jails).toHaveLength(0);
   });
 
+  it('ersetzt eine liegengebliebene Analyse durch die neue', async () => {
+    /*
+     * Die Ursache, aus der heraus im Assistenten keine Datei mehr
+     * auswaehlbar war: eine Analyse, die niemand bestaetigt oder verworfen
+     * hat, blieb als «offener Vorgang» stehen. Die Seite zeigte dann
+     * dauerhaft ihre Vorschau statt des Eingabefelds.
+     *
+     * Eine Analyse hat nichts angelegt - sie ist eine Momentaufnahme einer
+     * Datei. Die neue tritt an ihre Stelle.
+     */
+    const erste = await jail.analyseLegacyImport(
+      await legacyDatabase([{ user_id: TARGET, roles: MEMBER_ROLE }]),
+      'alt.db',
+      ACTOR,
+    );
+    expect((await jail.getPendingImport())?.id).toBe(erste.importRecord.id);
+
+    const zweite = await jail.analyseLegacyImport(
+      await legacyDatabase([{ user_id: OTHER, roles: MEMBER_ROLE }]),
+      'neu.db',
+      ACTOR,
+    );
+
+    const offen = await jail.getPendingImport();
+    expect(offen?.id).toBe(zweite.importRecord.id);
+    expect((await jail.getImport(erste.importRecord.id))?.status).toBe('CANCELLED');
+    // Und es entstand dabei weiterhin kein einziger Jail.
+    expect(state.jails).toHaveLength(0);
+  });
+
   it('erkennt einen laufenden Jail als Konflikt', async () => {
     await jail.createJail(
       { targetDiscordId: TARGET, durationSeconds: 600, reason: 'Spam', idempotencyKey: crypto.randomUUID() },

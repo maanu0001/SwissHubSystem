@@ -331,12 +331,19 @@ export function createJobRunner(
     },
     {
       name: 'verification-sweep',
-      // Verifikationen ablaufen lassen und alte Nachrichtentexte entfernen.
-      //
-      // Selten genug: es geht um Stunden-Fristen und um eine
-      // Aufbewahrungsgrenze in Tagen. Ein Lauf alle fünf Minuten reicht
-      // dafür bei weitem.
-      intervalMs: 5 * 60 * 1000,
+      /*
+       * Verifikationen ablaufen lassen und alte Nachrichtentexte entfernen.
+       *
+       * Im Minutentakt, weil die Frist in Minuten gilt. Ein Lauf alle fünf
+       * Minuten hiesse bei einer Viertelstunde Frist: der Kick kommt
+       * irgendwann zwischen 15 und 20 Minuten. Das Raster darf nicht
+       * gröber sein als das, was es messen soll.
+       *
+       * Der Durchgang ist billig - eine indizierte Abfrage, die meistens
+       * nichts findet. Die Aufbewahrung rechnet in Tagen und prüft sich
+       * deshalb nur stündlich selbst.
+       */
+      intervalMs: 60 * 1000,
       async run() {
         const { isModuleEnabled } = await import('@swisshub/modules');
         if (!(await isModuleEnabled(verification.VERIFICATION_MODULE_ID))) {

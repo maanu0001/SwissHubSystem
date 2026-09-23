@@ -56,11 +56,29 @@ describe('Die Zahl entsteht an einer Stelle', () => {
     expect(abfragen).toContain('where: { AND: [meineTickets(discordId), WARTET_AUF_ERSTELLER] }');
   });
 
-  it('lässt die Bedeutung für den Support unverändert', () => {
-    // `countOpenTickets` zählt weiterhin, was Arbeit bedeutet - inklusive
-    // «wartet auf Mitglied».
+  it('zählt für den Support ausschliesslich, was auf das Team wartet', () => {
+    // Die Zahl neben «Tickets» hiess für den Support einmal «alle offenen
+    // Tickets», inklusive derer, bei denen das Mitglied am Zug ist. Das
+    // zeigte Arbeit an, die er nicht tun kann.
+    expect(abfragen).toContain('export async function countTicketsAwaitingStaff');
+    expect(abfragen).toContain('return countTicketsAwaitingStaff(viewer);');
+    expect(abfragen).not.toContain('return countOpenTickets(viewer);');
+  });
+
+  it('formuliert die Gegenseite als eigene Bedingung statt als NOT', () => {
+    // Ein `NOT` über der Mitglieder-Bedingung hätte die Statusbedingung mit
+    // umgedreht und alles Geschlossene wieder eingesammelt.
+    expect(abfragen).toContain('const WARTET_AUF_TEAM');
+    expect(abfragen).toContain(
+      'OR: [{ lastMessageByStaff: false }, { lastMessageByStaff: null, status: { not:',
+    );
+  });
+
+  it('behält die Gesamtzahl offener Tickets als eigene Kennzahl', () => {
+    // Der Bestand verschwindet nicht - er heisst nur nicht mehr «Badge».
+    // Die Kachel auf dem Dashboard meint weiterhin genau ihn.
     expect(abfragen).toContain('export async function countOpenTickets');
-    expect(abfragen).toContain('status: { in: [...OFFENE_TICKET_STATUS] }');
+    expect(lies('apps/web/src/app/(app)/dashboard/page.tsx')).toContain('tickets.countOpenTickets(');
   });
 });
 
