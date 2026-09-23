@@ -4,11 +4,12 @@ import { useState } from 'react';
 import {
   Bot,
   CalendarDays,
-  Clapperboard,
   ChevronDown,
+  Clapperboard,
   ExternalLink,
   FileCog,
   Gamepad2,
+  Gift,
   KeyRound,
   LifeBuoy,
   Megaphone,
@@ -68,6 +69,7 @@ const SYMBOL: Record<AuditKategorieId, typeof Users> = {
   einstellungen: Sliders,
   mitglieder: Users,
   clips: Clapperboard,
+  wrapped: Gift,
   system: Server,
 };
 

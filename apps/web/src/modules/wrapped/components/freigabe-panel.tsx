@@ -121,7 +121,12 @@ export function FreigabePanel({
             </Button>
           ) : null}
 
-          {!archiviert ? (
+          {/*
+            Waehrend ein Durchgang laeuft, geht es nicht - er schriebe in
+            eine Kampagne, die man gerade wegraeumen will. Der Knopf
+            verschwindet dann, statt eine Absage zu ernten.
+          */}
+          {!archiviert && status !== 'PREPARING' ? (
             <Button variant="ghost" onClick={() => setFrage('archive')} disabled={laeuft}>
               <Archive className="size-4" aria-hidden="true" />
               Archivieren

@@ -534,6 +534,11 @@ export function createJobRunner(
        * Jede Minute, weil ein angestossener Durchgang zuegig fertig werden
        * soll. Der Aufruf selbst arbeitet hoechstens eine halbe Minute und
        * gibt dann ab - der naechste macht weiter.
+       *
+       * Derselbe Takt holt eine ausstehende Ankuendigung nach. Ohne
+       * Durchgang ist das eine Abfrage je Minute, die meistens nichts
+       * findet - und der Preis dafuer, dass eine Ankuendigung nicht an
+       * einem einzelnen Augenblick haengt.
        */
       intervalMs: 60 * 1000,
       runOnStart: false,
@@ -542,9 +547,19 @@ export function createJobRunner(
         if (!(await isModuleEnabled(wrapped.WRAPPED_MODULE_ID))) {
           return;
         }
+        /*
+         * Derselbe Aufruf holt auch die Ankuendigung nach.
+         *
+         * Sie haengt bewusst nicht am Knopf «Veroeffentlichen»: dort
+         * entschiede ein Netzwerkfehler in genau dieser Sekunde darueber,
+         * ob sechstausend Leute je erfahren, dass es ihren Rueckblick gibt.
+         * Hier ist sie ein Zustand, der so lange nachgeholt wird, bis er
+         * erledigt ist - und `kuendigeWrappedAn` sorgt dafuer, dass genau
+         * eine Nachricht daraus wird.
+         */
         const ergebnis = await wrapped.runWrappedTick();
-        if (ergebnis.stapel > 0) {
-          log.info('Wrapped-Momentaufnahmen verarbeitet', { ...ergebnis });
+        if (ergebnis.stapel > 0 || ergebnis.angekuendigt) {
+          log.info('Wrapped verarbeitet', { ...ergebnis });
         }
       },
     },

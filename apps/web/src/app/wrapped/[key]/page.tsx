@@ -96,11 +96,13 @@ export default async function WrappedSeite({
   return (
     <WrappedAnsicht
       campaignId={campaign.id}
+      schluessel={campaign.key}
       csrfToken={csrfToken}
       daten={momentaufnahme.data as unknown as WrappedDaten}
       sceneKeys={sceneKeys}
       jahr={campaign.displayYear}
       startIndex={fortsetzen > 0 ? fortsetzen : 0}
+      teilenErlaubt={campaign.shareCardsEnabled}
       zurueckHref="/dashboard"
     />
   );

@@ -4,6 +4,16 @@ import { defineConfig } from 'vitest/config';
 const pfad = (relativ: string): string => fileURLToPath(new URL(relativ, import.meta.url));
 
 export default defineConfig({
+  /*
+   * Die neue JSX-Uebersetzung, auch fuer Tests.
+   *
+   * `apps/web/tsconfig.json` steht auf `preserve`, weil Next die
+   * Uebersetzung selbst uebernimmt. Vitest uebersetzt aber selber und
+   * nahm ohne diese Zeile die alte Form an - ein `.tsx` aus der WebApp
+   * scheiterte im Test mit «React is not defined», obwohl es in der
+   * Anwendung einwandfrei laeuft.
+   */
+  esbuild: { jsx: 'automatic' },
   resolve: {
     alias: {
       // Damit Tests die Server-Helfer der WebApp aufrufen koennen statt ihren

@@ -45,6 +45,7 @@ export type AuditKategorieId =
   | 'einstellungen'
   | 'mitglieder'
   | 'clips'
+  | 'wrapped'
   | 'system';
 
 export interface AuditKategorie {
@@ -62,6 +63,7 @@ const BEREICH: ReadonlyArray<readonly [RegExp, AuditKategorie]> = [
   [/^(LOGIN|LOGOUT|SESSION|PERMISSION|RATE_LIMITED|PREVIEW)/u, { id: 'auth', label: 'Zugang' }],
   [/^(MODERATION|JAIL|VOTE_JAIL|APPEAL)/u, { id: 'moderation', label: 'Moderation' }],
   [/^CLIP/u, { id: 'clips', label: 'Clips' }],
+  [/^WRAPPED/u, { id: 'wrapped', label: 'Wrapped' }],
   [/^TICKET/u, { id: 'tickets', label: 'Tickets' }],
   [/^VERIFICATION/u, { id: 'verifikation', label: 'Verifikation' }],
   [/^(LEVEL|XP_RAFFLE)/u, { id: 'level', label: 'Level' }],
@@ -143,6 +145,7 @@ const ZIELE: ReadonlyArray<{
 /** Wohin eine Aktion fuehrt, auch ohne eigene Kennung in den Metadaten. */
 const BEREICHS_ZIEL: ReadonlyArray<readonly [RegExp, AuditLink]> = [
   [/^CLIP/u, { label: 'Clip of the Week', href: systemRoutes.clips() }],
+  [/^WRAPPED/u, { label: 'Wrapped Studio', href: systemRoutes.wrappedStudio() }],
   [/^VERIFICATION/u, { label: 'Verifikation öffnen', href: systemRoutes.verifikation() }],
   [/^(INTEGRATION|PREMIUM)/u, { label: 'Integrationen öffnen', href: systemRoutes.integrationen() }],
   [/^MIGRATION/u, { label: 'Migration öffnen', href: systemRoutes.migration() }],

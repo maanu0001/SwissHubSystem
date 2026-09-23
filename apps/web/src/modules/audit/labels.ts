@@ -288,6 +288,17 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   CLIP_REPORTED: 'Clip gemeldet',
   CLIP_REPORT_RESOLVED: 'Clip-Meldung bearbeitet',
 
+  // --- SwissHub Wrapped ------------------------------------------------------
+  WRAPPED_CAMPAIGN_CREATED: 'Rückblick angelegt',
+  WRAPPED_CAMPAIGN_UPDATED: 'Rückblick geändert',
+  WRAPPED_SCENES_UPDATED: 'Szenen des Rückblicks geändert',
+  WRAPPED_GENERATION_STARTED: 'Momentaufnahmen gestartet',
+  WRAPPED_GENERATION_FINISHED: 'Momentaufnahmen abgeschlossen',
+  WRAPPED_PUBLISHED: 'Rückblick veröffentlicht',
+  WRAPPED_UNPUBLISHED: 'Rückblick zurückgezogen',
+  WRAPPED_ARCHIVED: 'Rückblick archiviert',
+  WRAPPED_SNAPSHOT_REBUILT: 'Momentaufnahme neu erzeugt',
+
   // --- Statistik -------------------------------------------------------------
   ANALYTICS_EXPORT: 'Statistik exportiert',
   ANALYTICS_MEDIA_DOWNLOAD: 'Datei aus dem Archiv geladen',

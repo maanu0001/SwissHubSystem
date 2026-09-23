@@ -2,6 +2,11 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
+    // Tests pruefen auch Bauteile der WebApp, und einige davon sind `.tsx` -
+    // etwa die Karten zum Teilen. `apps/web/tsconfig.json` steht auf
+    // "preserve", weil Next die Uebersetzung selbst macht; hier gibt es kein
+    // Next, also die neue Uebersetzung direkt.
+    "jsx": "react-jsx",
     // Damit Tests die Server-Helfer der WebApp unter demselben Kuerzel
     // ansprechen wie die WebApp selbst. Vitest kennt dieselbe Zuordnung.
     "paths": {

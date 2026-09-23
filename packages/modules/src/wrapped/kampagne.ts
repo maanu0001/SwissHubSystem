@@ -33,9 +33,21 @@ const log = createLogger('wrapped:kampagne');
  */
 
 const ERLAUBTE_WECHSEL: Record<WrappedCampaignStatus, WrappedCampaignStatus[]> = {
-  DRAFT: ['PREPARING'],
+  /*
+   * Auch ein Entwurf darf ins Archiv.
+   *
+   * Zuerst fuehrte nur aus `PUBLISHED` ein Weg dorthin. Damit liess sich
+   * ein aufgegebener Entwurf nie wieder aus der Liste bekommen - er stand
+   * dort fuer immer, und beim naechsten Jahr suchte man den richtigen
+   * zwischen drei falschen. Aufgeben ist ein gueltiger Ausgang.
+   *
+   * `PREPARING` bleibt ausgenommen: waehrend ein Durchgang laeuft, schreibt
+   * er weiter in eine Kampagne, die man gerade wegraeumen wollte. Wer sie
+   * loswerden will, bricht erst den Durchgang ab.
+   */
+  DRAFT: ['PREPARING', 'ARCHIVED'],
   PREPARING: ['READY', 'DRAFT'],
-  READY: ['PUBLISHED', 'DRAFT', 'PREPARING'],
+  READY: ['PUBLISHED', 'DRAFT', 'PREPARING', 'ARCHIVED'],
   PUBLISHED: ['ARCHIVED', 'READY'],
   ARCHIVED: [],
 };
@@ -423,14 +435,29 @@ export async function ziehZurueck(campaignId: string, actor: Handelnder, grund: 
   });
 }
 
+/**
+ * Eine Kampagne ins Archiv legen.
+ *
+ * Aus jedem Zustand, aus dem die Tabelle oben es erlaubt - also aus einem
+ * Entwurf, einer fertigen und einer veroeffentlichten Kampagne, aber nicht
+ * waehrend ein Durchgang laeuft.
+ *
+ * Bedingtes `updateMany` statt lesen-pruefen-schreiben: zwei gleichzeitige
+ * Aufrufe wuerden sonst beide die Pruefung bestehen und beide schreiben.
+ * So gewinnt genau einer, und der zweite bekommt eine ehrliche Absage.
+ */
 export async function archiviere(campaignId: string, actor: Handelnder): Promise<void> {
+  const erlaubt = (Object.keys(ERLAUBTE_WECHSEL) as WrappedCampaignStatus[]).filter((zustand) =>
+    ERLAUBTE_WECHSEL[zustand].includes('ARCHIVED'),
+  );
   const { count } = await prisma.wrappedCampaign.updateMany({
-    where: { id: campaignId, status: 'PUBLISHED' },
+    where: { id: campaignId, status: { in: erlaubt } },
     data: { status: 'ARCHIVED', archivedAt: new Date(), updatedByDiscordId: actor.discordId },
   });
   if (count === 0) {
     throw new AppError('CONFLICT', {
-      userMessage: 'Nur ein veröffentlichter Rückblick lässt sich archivieren.',
+      userMessage:
+        'Dieser Rückblick lässt sich gerade nicht archivieren - er ist bereits archiviert, oder es läuft noch ein Durchgang.',
     });
   }
   await recordAudit({

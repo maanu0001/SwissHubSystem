@@ -269,6 +269,9 @@ export const RATE_LIMITS = {
   /** Veroeffentlichen, zurueckziehen, archivieren - selten und folgenreich. */
   wrappedFreigabe: { limit: 20, windowMs: 10 * 60 * 1000 },
 
+  /** Eine Karte zum Teilen zeichnen - je Aufruf ein gerendertes Bild. */
+  wrappedShare: { limit: 30, windowMs: 10 * 60 * 1000 },
+
   /** Den eigenen Fortschritt im Rueckblick merken. */
   wrappedFortschritt: { limit: 240, windowMs: 10 * 60 * 1000 },
 } as const satisfies Record<string, RateLimitRule>;

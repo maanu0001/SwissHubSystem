@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
  * Reine Typ-Importe (`import type`) bleiben ohne Bedeutung: TypeScript
  * entfernt sie beim Übersetzen vollständig.
  */
-const { globSync, readFileSync } = await import('node:fs');
+const { existsSync, globSync, readFileSync } = await import('node:fs');
 const { join } = await import('node:path');
 
 /** Einstiegspunkte ohne Server-Abhängigkeiten. */
@@ -26,9 +26,45 @@ const CLIENT_SAFE = [
   // Die Permission Engine ohne Store und Registry-Anbindung an die Datenbank.
   // Die Berechtigungsmatrix bewertet damit im Browser nach genau derselben
   // Regel wie der Server - eine zweite Regel im Browser waere die Stelle, an
-  // der Anzeige und Wirkung auseinanderlaufen. Dass dieser Einstiegspunkt
-  // wirklich nichts Serverseitiges mitbringt, prueft der Abschnitt unten.
+  // der Anzeige und Wirkung auseinanderlaufen.
   '@swisshub/permissions/engine',
+  /*
+   * Die reinen Teile des Wrapped-Moduls.
+   *
+   * Szenenliste, Texte, Archetyp, Highlight, Platzhalter, Testpersonen und
+   * die Typen der Daten. Alles davon ist Rechnung und Text - kein Prisma,
+   * kein Discord, keine Umgebung. Die Szenen im Browser brauchen genau
+   * diese Regeln, und zwar dieselben, nach denen der Server die
+   * Momentaufnahme gebaut hat.
+   *
+   * `@swisshub/modules` selbst steht **nicht** hier: der Haupteinstieg
+   * zieht die Modul-Registry mitsamt Datenbank herein.
+   */
+  '@swisshub/modules/wrapped/daten',
+  '@swisshub/modules/wrapped/texte',
+  '@swisshub/modules/wrapped/archetyp',
+  '@swisshub/modules/wrapped/highlight',
+  '@swisshub/modules/wrapped/vorlage',
+  '@swisshub/modules/wrapped/szenen',
+  '@swisshub/modules/wrapped/fixtures',
+];
+
+/**
+ * Womit ein Einstiegspunkt sich selbst disqualifiziert.
+ *
+ * Nicht die Liste der Suenden, sondern die Wurzeln: `@swisshub/database`
+ * bringt Prisma, `@swisshub/config` das Umgebungs-Schema, `@swisshub/discord`
+ * den Gateway-Client. `server-only` wirft im Browser von sich aus, und
+ * `node:`-Module gibt es dort nicht.
+ */
+const SERVERGEBUNDEN = [
+  '@swisshub/database',
+  '@swisshub/auth',
+  '@swisshub/secrets',
+  '@swisshub/automation',
+  '@swisshub/logger',
+  'server-only',
+  '@prisma/client',
 ];
 
 const CLIENT_FILES = globSync('apps/web/src/**/*.{ts,tsx}', { cwd: process.cwd() })
@@ -54,6 +90,115 @@ function valueImports(file: string): string[] {
   }
   return specs;
 }
+
+/**
+ * Die Erlaubnisliste prueft sich selbst.
+ *
+ * Ein Eintrag oben ist eine Behauptung: «dieser Einstiegspunkt bringt
+ * nichts Serverseitiges mit». Ohne Pruefung bleibt sie eine Behauptung -
+ * und sie altert, sobald jemand in einer der beteiligten Dateien eine
+ * Kleinigkeit ergaenzt. Deshalb wird der Importbaum jedes Eintrags
+ * verfolgt, quer durch die Pakete, und auf die Wurzeln oben abgeklopft.
+ */
+const EXPORTE: Record<string, string> = {
+  '@swisshub/config/client': 'packages/config/src/client.ts',
+  '@swisshub/discord/cdn': 'packages/discord/src/cdn.ts',
+  '@swisshub/shared': 'packages/shared/src/index.ts',
+  '@swisshub/permissions/engine': 'packages/permissions/src/engine.ts',
+  '@swisshub/modules/wrapped/daten': 'packages/modules/src/wrapped/daten.ts',
+  '@swisshub/modules/wrapped/texte': 'packages/modules/src/wrapped/texte.ts',
+  '@swisshub/modules/wrapped/archetyp': 'packages/modules/src/wrapped/archetyp.ts',
+  '@swisshub/modules/wrapped/highlight': 'packages/modules/src/wrapped/highlight.ts',
+  '@swisshub/modules/wrapped/vorlage': 'packages/modules/src/wrapped/vorlage.ts',
+  '@swisshub/modules/wrapped/szenen': 'packages/modules/src/wrapped/szenen.ts',
+  '@swisshub/modules/wrapped/fixtures': 'packages/modules/src/wrapped/fixtures.ts',
+};
+
+/** Alle Wert-Importe einer Datei - auch die relativen. */
+function alleImporte(datei: string): string[] {
+  const quelle = readFileSync(join(process.cwd(), datei), 'utf8');
+  const treffer: string[] = [];
+  const muster = /^import\s+(type\s+)?(?:[\w*{][^'"]*?\s+from\s+)?['"]([^'"]+)['"]/gm;
+  let gefunden: RegExpExecArray | null;
+  while ((gefunden = muster.exec(quelle)) !== null) {
+    if (gefunden[1]) {
+      continue;
+    }
+    if (gefunden[2]) {
+      treffer.push(gefunden[2]);
+    }
+  }
+  return treffer;
+}
+
+/** Aus einem relativen Verweis die Datei machen - `.ts` oder `/index.ts`. */
+function relativZuDatei(vonDatei: string, spezifikator: string): string | null {
+  const basis = join(process.cwd(), vonDatei, '..', spezifikator);
+  for (const kandidat of [`${basis}.ts`, `${basis}.tsx`, join(basis, 'index.ts')]) {
+    if (existsSync(kandidat)) {
+      return kandidat.slice(process.cwd().length + 1);
+    }
+  }
+  return null;
+}
+
+/** Jede Datei, die an einem Einstiegspunkt haengt - mitsamt dem, was sie zieht. */
+function baum(start: string): { dateien: Set<string>; pakete: Set<string> } {
+  const dateien = new Set<string>();
+  const pakete = new Set<string>();
+  const offen = [start];
+
+  while (offen.length > 0) {
+    const datei = offen.pop()!;
+    if (dateien.has(datei)) {
+      continue;
+    }
+    dateien.add(datei);
+
+    for (const spezifikator of alleImporte(datei)) {
+      if (spezifikator.startsWith('.')) {
+        const ziel = relativZuDatei(datei, spezifikator);
+        if (ziel) {
+          offen.push(ziel);
+        }
+        continue;
+      }
+      pakete.add(spezifikator);
+      const eigenes = EXPORTE[spezifikator];
+      if (eigenes) {
+        offen.push(eigenes);
+      }
+    }
+  }
+  return { dateien, pakete };
+}
+
+describe('Erlaubte Einstiegspunkte', () => {
+  it('sind vollständig zugeordnet', () => {
+    // Ein neuer Eintrag in CLIENT_SAFE ohne Datei hier wäre eine
+    // Erlaubnis, die niemand geprüft hat.
+    for (const eintrag of CLIENT_SAFE) {
+      expect(EXPORTE[eintrag], `${eintrag} fehlt in EXPORTE`).toBeTypeOf('string');
+    }
+  });
+
+  it.each(CLIENT_SAFE)('%s bringt nichts Serverseitiges mit', (eintrag) => {
+    const start = EXPORTE[eintrag];
+    expect(start).toBeTypeOf('string');
+    const { pakete } = baum(start!);
+
+    const verboten = [...pakete].filter(
+      (spezifikator) =>
+        SERVERGEBUNDEN.includes(spezifikator) ||
+        spezifikator.startsWith('node:') ||
+        // `@swisshub/config` ja, `@swisshub/config/client` nein.
+        spezifikator === '@swisshub/config' ||
+        spezifikator === '@swisshub/discord' ||
+        spezifikator === '@swisshub/modules',
+    );
+    expect(verboten, `${eintrag} zieht ${verboten.join(', ')} mit`).toEqual([]);
+  });
+});
 
 describe('Client-Bundle', () => {
   it('findet die Client-Komponenten', () => {

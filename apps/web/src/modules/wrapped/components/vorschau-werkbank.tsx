@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Bug, ExternalLink, Loader2, Monitor, RefreshCw, Smartphone, Tablet } from 'lucide-react';
 import { WRAPPED_SZENEN } from '@swisshub/modules/wrapped/szenen';
@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { WRAPPED_BUEHNE_MELDUNG } from '@/modules/wrapped/components/buehne-rahmen';
+import { KARTEN_FORMATE, type KartenFormat, type KartenSeite } from '@/modules/wrapped/share-karte';
 import { wrappedVorschauAction } from '@/modules/wrapped/aktionen';
 import type { SzenenBefund } from '@swisshub/modules/wrapped/szenen';
 import type { WrappedDaten } from '@swisshub/modules/wrapped/daten';
@@ -122,6 +123,8 @@ export function VorschauWerkbank({
   const [einzeln, setEinzeln] = useState(false);
   const [szene, setSzene] = useState(0);
   const [stand, setStand] = useState<{ index: number; key: string; gesamt: number } | null>(null);
+  const [karte, setKarte] = useState<KartenFormat>('uebersicht');
+  const [kartenSeite, setKartenSeite] = useState<KartenSeite>('story');
 
   const geraetDaten = GERAETE.find((eintrag) => eintrag.key === geraet) ?? GERAETE[2];
 
@@ -173,6 +176,35 @@ export function VorschauWerkbank({
     debug,
   });
 
+  /*
+   * Der Massstab.
+   *
+   * Nur verkleinern, nie vergroessern: ein Telefon auf einem breiten
+   * Schirm soll ein Telefon bleiben und nicht aufgeblasen werden.
+   */
+  const messpunkt = useRef<HTMLDivElement | null>(null);
+  const [faktor, setFaktor] = useState(1);
+  useEffect(() => {
+    const element = messpunkt.current;
+    if (!element) {
+      return;
+    }
+    const passe = (): void => setFaktor(Math.min(1, element.clientWidth / geraetDaten.breite));
+    passe();
+    const beobachter = new ResizeObserver(passe);
+    beobachter.observe(element);
+    return () => beobachter.disconnect();
+  }, [geraetDaten.breite]);
+
+  const karteAdresse = kartenLink(campaignId, {
+    quelle,
+    persona,
+    discordId,
+    werte,
+    format: karte,
+    seite: kartenSeite,
+  });
+
   // Der Rahmen meldet, welche Szene gerade laeuft.
   useEffect(() => {
     const hoeren = (ereignis: MessageEvent): void => {
@@ -198,7 +230,7 @@ export function VorschauWerkbank({
   }, [szene, nutzdaten.sceneKeys.length]);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
       <div className="space-y-5">
         <section className="space-y-3 rounded-xl border border-border bg-card p-4">
           <h3 className="text-sm font-semibold">Wessen Zahlen</h3>
@@ -376,6 +408,47 @@ export function VorschauWerkbank({
           ) : null}
         </section>
 
+        <section className="space-y-3 rounded-xl border border-border bg-card p-4">
+          <div>
+            <h3 className="text-sm font-semibold">Karte zum Teilen</h3>
+            <p className="text-xs text-muted-foreground">
+              Dieselbe Karte, die ein Mitglied am Ende herunterlädt.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {KARTEN_FORMATE.map((eintrag) => (
+              <Button
+                key={eintrag.key}
+                size="sm"
+                variant={karte === eintrag.key ? 'default' : 'outline'}
+                onClick={() => setKarte(eintrag.key)}
+              >
+                {eintrag.label}
+              </Button>
+            ))}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setKartenSeite((alt) => (alt === 'story' ? 'quadrat' : 'story'))}
+            >
+              {kartenSeite === 'story' ? '9:16' : '1:1'}
+            </Button>
+          </div>
+
+          {/*
+            Ein `img` und kein eingebauter Bildbaustein: das Bild entsteht
+            erst beim Abruf, hat keine bekannte Adresse zum Vorausladen und
+            soll auch nicht zwischengespeichert werden.
+          */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={karteAdresse}
+            alt={`Vorschau der Karte «${KARTEN_FORMATE.find((eintrag) => eintrag.key === karte)?.label}»`}
+            className="w-full rounded-lg border border-border bg-black"
+          />
+        </section>
+
         <section className="space-y-2 rounded-xl border border-border bg-card p-4">
           <h3 className="text-sm font-semibold">Welche Szenen erscheinen</h3>
           <ul className="space-y-1">
@@ -421,58 +494,47 @@ export function VorschauWerkbank({
           sind `vw`, `dvh` und die Breakpoints darin die des Geraets. Die
           Verkleinerung geschieht von aussen und aendert daran nichts: das
           Dokument haelt seine 390 Pixel, nur das Bild wird kleiner.
+
+          Drei Ebenen, und jede hat einen Grund:
+
+            1. der Messpunkt - immer so breit wie die Spalte,
+            2. der sichtbare Rahmen - so gross wie das verkleinerte Bild,
+            3. das `iframe` - absolut gesetzt, in voller Geraetegroesse.
+
+          Die dritte Ebene muss aus dem Fluss heraus. `transform: scale()`
+          aendert nichts an der Groesse, die das Layout einnimmt: ein
+          `iframe` von 390 Pixeln blieb im Fluss 390 Pixel breit und zog auf
+          einem Telefon die ganze Seite mit sich - die Bedienelemente daneben
+          wurden zu breit, und die Seite liess sich seitlich schieben.
         */}
-        <div className="mx-auto overflow-hidden rounded-2xl border border-border bg-black">
-          <iframe
-            key={buehneAdresse}
-            title="Vorschau der Bühne"
-            src={buehneAdresse}
-            width={geraetDaten.breite}
-            height={geraetDaten.hoehe}
-            className="origin-top-left border-0"
-            style={{ transform: 'scale(var(--v-massstab, 1))' }}
-            ref={(element) => massstab(element, geraetDaten.breite, geraetDaten.hoehe)}
-          />
+        <div ref={messpunkt} className="w-full">
+          {/*
+            `max-w-full` fuer das erste Bild.
+
+            Der Massstab steht erst fest, wenn die Spalte gemessen ist - beim
+            ersten Zeichnen ist er 1, und der Rahmen waere auf einem Telefon
+            breiter als der Schirm. Das `iframe` darin liegt absolut und
+            schiebt ohnehin nichts; der Rahmen wird also nur beschnitten,
+            bis die Messung da ist, statt die Seite zu verschieben.
+          */}
+          <div
+            className="relative mx-auto max-w-full overflow-hidden rounded-2xl border border-border bg-black"
+            style={{ width: geraetDaten.breite * faktor, height: geraetDaten.hoehe * faktor }}
+          >
+            <iframe
+              key={buehneAdresse}
+              title="Vorschau der Bühne"
+              src={buehneAdresse}
+              width={geraetDaten.breite}
+              height={geraetDaten.hoehe}
+              className="absolute left-0 top-0 origin-top-left border-0"
+              style={{ transform: `scale(${faktor})` }}
+            />
+          </div>
         </div>
       </div>
     </div>
   );
-}
-
-/**
- * Den Kasten so verkleinern, dass er in den Rahmen passt.
- *
- * Als `ref`-Rueckruf statt als Effekt, damit es auch beim ersten Bild
- * stimmt - ein Kasten von 1440 Pixeln, der eine Bildwiederholung lang in
- * voller Groesse steht, schiebt die ganze Seite zur Seite.
- */
-function massstab(element: HTMLIFrameElement | null, breite: number, hoehe: number): void {
-  if (!element?.parentElement) {
-    return;
-  }
-  const passe = (): void => {
-    const rahmen = element.parentElement;
-    if (!rahmen) {
-      return;
-    }
-    /*
-     * Gemessen wird am Grosselternteil, nicht am Rahmen selbst.
-     *
-     * Der Rahmen bekommt seine Breite gleich von dieser Rechnung. Wer ihn
-     * zugleich als Massstab nimmt, misst sein eigenes Ergebnis und bleibt
-     * beim ersten Wert stehen - bei einem Telefonformat schrumpfte der
-     * Rahmen dann Schritt fuer Schritt zu einem Strich.
-     */
-    const platz = rahmen.parentElement?.clientWidth ?? rahmen.clientWidth;
-    const faktor = Math.min(1, platz / breite);
-    element.style.setProperty('--v-massstab', String(faktor));
-    rahmen.style.width = `${breite * faktor}px`;
-    rahmen.style.height = `${hoehe * faktor}px`;
-  };
-  passe();
-  const messpunkt = element.parentElement.parentElement ?? element.parentElement;
-  const beobachter = new ResizeObserver(passe);
-  beobachter.observe(messpunkt);
 }
 
 const FELDER = [
@@ -542,4 +604,38 @@ function adresse(
     suche.set('hilfslinien', '1');
   }
   return `${systemRoutes.wrappedBuehne(campaignId)}?${suche.toString()}`;
+}
+
+/**
+ * Die Adresse der Kartenvorschau.
+ *
+ * Dieselben Angaben wie fuer die Buehne, nur um Format und Seitenverhaeltnis
+ * erweitert. Ein Stueck Zustand mehr waere ein Stueck Zustand, das
+ * auseinanderlaufen kann.
+ */
+function kartenLink(
+  campaignId: string,
+  zustand: {
+    quelle: 'fixture' | 'person';
+    persona: string;
+    discordId: string;
+    werte: Record<string, string>;
+    format: KartenFormat;
+    seite: KartenSeite;
+  },
+): string {
+  const suche = new URLSearchParams({
+    quelle: zustand.quelle,
+    format: zustand.format,
+    seite: zustand.seite,
+  });
+  if (zustand.quelle === 'fixture') {
+    suche.set('persona', zustand.persona);
+    for (const [feld, wert] of Object.entries(zahlenAus(zustand.werte))) {
+      suche.set(feld, String(wert));
+    }
+  } else if (zustand.discordId.trim()) {
+    suche.set('discordId', zustand.discordId.trim());
+  }
+  return `/api/wrapped/karte-vorschau/${campaignId}?${suche.toString()}`;
 }
