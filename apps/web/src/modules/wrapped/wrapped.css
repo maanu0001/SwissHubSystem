@@ -58,9 +58,17 @@
   overflow: hidden;
   background: hsl(var(--w-schwarz));
   color: hsl(var(--w-weiss));
-  /* Auf dem Telefon ist `100vh` die Hoehe *ohne* Adressleiste - und damit zu
-     viel. `100dvh` folgt dem, was tatsaechlich sichtbar ist. */
-  height: 100dvh;
+  /*
+   * Auf dem Telefon ist `100vh` die Hoehe *ohne* Adressleiste - und damit
+   * zu viel. `100dvh` folgt dem, was tatsaechlich sichtbar ist.
+   *
+   * Die Variable davor gibt es fuer die Werkbank im Studio: dort steht die
+   * Buehne in einem Kasten von 390x844 und soll genau so hoch sein, nicht
+   * so hoch wie das Fenster. Ohne sie war die Vorschau eines Telefons in
+   * Wahrheit die Vorschau eines Fensters - und die Komposition, die man
+   * beurteilen wollte, gab es so gar nicht.
+   */
+  height: var(--w-buehne-hoehe, 100dvh);
 }
 
 /* --- Der Faden ------------------------------------------------------------

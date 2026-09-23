@@ -41,8 +41,10 @@ import { Badge } from '@/components/ui/badge';
 import { JailRowActions } from '@/modules/jail/components/jail-row-actions';
 import { CreateJailDialog } from '@/modules/jail/components/create-jail-dialog';
 import { SetupProgress } from '@/modules/configuration/components/setup-progress';
+import { WrappedDashboardHinweis } from '@/modules/wrapped/components/dashboard-hinweis';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { loadDashboardData } from '@/server/dashboard';
+import { ladeWrappedHinweis } from '@/server/wrapped';
 import { moderationReasonTemplates } from '@/server/moderation';
 import { ticketViewer } from '@/server/tickets';
 
@@ -161,8 +163,19 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
       return rank(a) - rank(b) || a.definition.name.localeCompare(b.definition.name);
     });
 
+  const wrappedHinweis = await ladeWrappedHinweis(context);
+
   return (
     <>
+      {wrappedHinweis ? (
+        <WrappedDashboardHinweis
+          titel={wrappedHinweis.titel}
+          schluessel={wrappedHinweis.schluessel}
+          jahr={wrappedHinweis.jahr}
+          gesehen={wrappedHinweis.gesehen}
+        />
+      ) : null}
+
       {health && health.completeness < 100 ? (
         <section aria-label="Einrichtung" className="rounded-xl border border-warning/40 bg-warning/5 p-5">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">

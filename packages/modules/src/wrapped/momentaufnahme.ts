@@ -108,6 +108,37 @@ async function ladeKandidaten(
   return zeilen;
 }
 
+/**
+ * Die aktivsten Mitglieder des Zeitraums - als Vorschlag fuer die Vorschau.
+ *
+ * Dieselbe Abfrage wie oben, nur nach Aktivitaet statt nach Kennung
+ * sortiert und ohne Schwellen: das Studio soll auch dann jemanden
+ * vorschlagen koennen, wenn die Schwellen streng stehen. Wer hier steht,
+ * hat am meisten zu zeigen - und genau daran prueft man die Gestaltung.
+ *
+ * Nur lesend. Diese Funktion ist Teil der Vorschau und darf es bleiben.
+ */
+export async function aktivsteKandidaten(
+  campaign: WrappedCampaign,
+  limit = 8,
+): Promise<Array<{ discordId: string; name: string | null; activeDays: number }>> {
+  return prisma.$queryRaw<Array<{ discordId: string; name: string | null; activeDays: number }>>`
+    SELECT d."discordId" AS "discordId",
+           COALESCE(MAX(p."displayName"), MAX(p."username")) AS "name",
+           COUNT(*) FILTER (WHERE d."messages" > 0 OR d."voiceSeconds" > 0)::int AS "activeDays"
+      FROM "AnalyticsUserDaily" d
+      LEFT JOIN "AnalyticsMemberProfile" p
+        ON p."guildId" = d."guildId" AND p."discordId" = d."discordId"
+     WHERE d."guildId" = ${campaign.guildId}
+       AND d."day" >= ${campaign.periodStart}
+       AND d."day" < ${campaign.periodEnd}
+       AND COALESCE(p."isBot", false) = false
+     GROUP BY d."discordId"
+     ORDER BY "activeDays" DESC, d."discordId" ASC
+     LIMIT ${limit}
+  `;
+}
+
 /** Wie viele Personen ein Durchgang zu bearbeiten hat. */
 export async function zaehleKandidaten(campaign: WrappedCampaign): Promise<number> {
   const [zeile] = await prisma.$queryRaw<Array<{ anzahl: bigint }>>`

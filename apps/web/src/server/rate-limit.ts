@@ -252,6 +252,25 @@ export const RATE_LIMITS = {
 
   /** Moderation und Verwaltung der Runden. */
   clipModerate: { limit: 120, windowMs: 10 * 60 * 1000 },
+
+  /** Kampagnen anlegen, aendern, Szenen sortieren. */
+  wrappedStudio: { limit: 120, windowMs: 10 * 60 * 1000 },
+
+  /**
+   * Die Vorschau im Studio.
+   *
+   * Sie schreibt nichts, rechnet aber je Aufruf einen kompletten Rueckblick
+   * durch - ueber ein Dutzend Abfragen, darunter zwei ueber die
+   * Sprachabschnitte. Ohne Begrenzung waere ein offener Vorschau-Tab mit
+   * Autoklick eine Last auf der Datenbank.
+   */
+  wrappedVorschau: { limit: 60, windowMs: 5 * 60 * 1000 },
+
+  /** Veroeffentlichen, zurueckziehen, archivieren - selten und folgenreich. */
+  wrappedFreigabe: { limit: 20, windowMs: 10 * 60 * 1000 },
+
+  /** Den eigenen Fortschritt im Rueckblick merken. */
+  wrappedFortschritt: { limit: 240, windowMs: 10 * 60 * 1000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

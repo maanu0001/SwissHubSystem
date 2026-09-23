@@ -61,6 +61,15 @@ export const systemRoutes = {
   wrappedStudio: (): SystemRoute => '/system/wrapped',
   wrappedKampagne: (campaignId: string): SystemRoute => `/system/wrapped/${id(campaignId)}`,
   wrappedVorschau: (campaignId: string): SystemRoute => `/system/wrapped/${id(campaignId)}/vorschau`,
+  /**
+   * Die nackte Buehne fuer den Rahmen in der Werkbank.
+   *
+   * Ausserhalb der Anwendungsgruppe, weil sie in einem `iframe` steckt: nur
+   * so sind `vw`, `dvh` und die Breakpoints die des gewaehlten Geraets und
+   * nicht die des Browserfensters. Eine Vorschau, in der ein Telefon die
+   * Schriftgroessen eines Desktops zeigt, prueft nichts.
+   */
+  wrappedBuehne: (campaignId: string): SystemRoute => `/wrapped-buehne/${id(campaignId)}`,
   hallOfFame: (): SystemRoute => '/clips/hall-of-fame',
   clipRunde: (key: string): SystemRoute => `/clips/runde/${id(key)}`,
   mitglieder: (): SystemRoute => '/members',

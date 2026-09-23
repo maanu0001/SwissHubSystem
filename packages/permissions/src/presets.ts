@@ -46,6 +46,7 @@ const MITGLIED_BASIS: string[] = [
   'tournaments.module.view',
   'premium.module.view',
   'voiceHub.module.view',
+  'wrapped.module.view',
 
   'dashboard.view',
 
@@ -94,6 +95,11 @@ const MITGLIED_BASIS: string[] = [
   'voiceHub.manageOwn',
   'voiceHub.manageUsers',
   'voiceHub.transferOwnership',
+
+  // Wrapped: den eigenen Jahresrueckblick oeffnen. Nur den eigenen - es
+  // gibt keine Berechtigung, mit der sich der Rueckblick einer anderen
+  // Person anzeigen liesse, auch nicht fuer das Team.
+  'wrapped.view_own',
 
   // Musik steht bewusst nicht hier: sie ist auf diesem Server eine
   // Premium-Sache. Wer sie allen geben will, nimmt die Vorlage «Premium»

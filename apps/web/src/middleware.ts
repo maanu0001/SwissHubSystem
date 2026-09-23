@@ -20,9 +20,23 @@ const EINBETTUNGS_HOSTS = [
  * CSP-Header des Requests steht. Dadurch braucht es kein `unsafe-inline` für
  * Skripte - die wirksamste Massnahme gegen XSS.
  */
+/**
+ * Die einzige Seite, die in einen Rahmen darf - und nur in einen eigenen.
+ *
+ * Die Werkbank im Wrapped Studio stellt die Buehne in ein `iframe`, damit
+ * `vw`, `dvh` und die Breakpoints darin die des gewaehlten Geraets sind.
+ * Das geht nur, wenn genau diese Seite sich einbetten laesst.
+ *
+ * `'self'` und nicht mehr: eine fremde Seite darf sie weiterhin nicht in
+ * einen Rahmen stellen. Alle uebrigen Seiten bleiben bei `'none'` - die
+ * Ausnahme ist eine Zeile lang und endet hier.
+ */
+const RAHMENFAEHIG = /^\/wrapped-buehne(\/|$)/;
+
 export function middleware(request: NextRequest): NextResponse {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
   const isDevelopment = process.env.NODE_ENV !== 'production';
+  const darfInRahmen = RAHMENFAEHIG.test(request.nextUrl.pathname);
 
   const csp = [
     "default-src 'self'",
@@ -55,7 +69,7 @@ export function middleware(request: NextRequest): NextResponse {
     `frame-src 'self' ${EINBETTUNGS_HOSTS.join(' ')}`,
     `connect-src 'self'${isDevelopment ? ' ws: wss:' : ''}`,
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${darfInRahmen ? "'self'" : "'none'"}`,
     "base-uri 'self'",
     "object-src 'none'",
     "manifest-src 'self'",
@@ -68,6 +82,16 @@ export function middleware(request: NextRequest): NextResponse {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set('content-security-policy', csp);
+  /*
+   * `X-Frame-Options` kennt kein Muster und steht global auf `DENY`.
+   *
+   * Aeltere Browser richten sich danach und ignorieren `frame-ancestors`.
+   * Fuer die eine rahmenfaehige Seite wird der Kopf deshalb hier auf
+   * `SAMEORIGIN` gesetzt - er ueberschreibt den aus `next.config.ts`.
+   */
+  if (darfInRahmen) {
+    response.headers.set('x-frame-options', 'SAMEORIGIN');
+  }
   return response;
 }
 
