@@ -32,7 +32,7 @@ export function ClipBilanzBlock({ bilanz }: { bilanz: clips.ClipBilanz }): React
 
   return (
     <section className="mt-4 rounded-xl border border-border p-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <h3 className="text-sm font-medium">Clip of the Week</h3>
         {bilanz.letzterSieg ? (
           <Link

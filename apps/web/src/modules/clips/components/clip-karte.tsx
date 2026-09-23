@@ -140,16 +140,29 @@ export function ClipKarte({
           </span>
         ) : null}
 
-        {karte.spiel ? (
-          <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-2.5 py-1 text-xs text-white backdrop-blur">
-            {karte.spiel}
-          </span>
-        ) : null}
+        <span className="absolute inset-x-3 bottom-3 flex flex-wrap items-center gap-2">
+          {karte.spiel ? (
+            <span className="rounded-full bg-black/70 px-2.5 py-1 text-xs text-white backdrop-blur">
+              {karte.spiel}
+            </span>
+          ) : null}
+          {/*
+            «dein Clip» gehoert aufs Bild, nicht hinter den Namen: dort war es
+            auf 320 Pixeln das Erste, was abgeschnitten wurde - und damit
+            genau die Auskunft, die verschwand, wenn man sie am noetigsten
+            hat.
+          */}
+          {karte.eigenerClip ? (
+            <span className="rounded-full bg-primary/90 px-2.5 py-1 text-xs font-medium text-primary-foreground">
+              Dein Clip
+            </span>
+          ) : null}
+        </span>
       </button>
 
       <div className="space-y-3 p-4">
         <div className="min-w-0">
-          <h3 className="truncate font-semibold leading-tight">{karte.titel}</h3>
+          <h3 className="line-clamp-2 font-semibold leading-tight">{karte.titel}</h3>
           {karte.beschreibung ? (
             <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{karte.beschreibung}</p>
           ) : null}
@@ -163,10 +176,7 @@ export function ClipKarte({
               name={name}
               size={24}
             />
-            <span className="truncate text-sm text-muted-foreground">
-              {name}
-              {karte.eigenerClip ? <span className="ml-1 text-primary">· dein Clip</span> : null}
-            </span>
+            <span className="truncate text-sm text-muted-foreground">{name}</span>
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
