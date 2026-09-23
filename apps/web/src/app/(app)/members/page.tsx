@@ -17,6 +17,15 @@ import { cn } from '@/lib/utils';
 export const metadata: Metadata = { title: 'Mitglieder' };
 export const dynamic = 'force-dynamic';
 
+/**
+ * Mitglieder je Seite.
+ *
+ * Hundert, nicht vierundzwanzig: bei ueber 6000 Mitgliedern waeren das 250
+ * Seiten. Geblaettert, gesucht und gefiltert wird in der Datenbank - der
+ * Browser bekommt immer nur diese eine Seite.
+ */
+const PRO_SEITE = 100;
+
 const querySchema = z.object({
   q: z
     .string()
@@ -26,7 +35,11 @@ const querySchema = z.object({
   rolle: z.string().max(20).optional(),
   status: z.enum(['alle', 'jail', 'premium']).optional().default('alle'),
   bots: z.enum(['an', 'aus']).optional().default('aus'),
-  seite: z.coerce.number().int().min(1).max(50).optional().default(1),
+  // Obergrenze grosszuegig: bei 100 je Seite sind das eine Million
+  // Mitglieder. Sie ist ein Riegel gegen absurde Werte in der Adresszeile,
+  // keine fachliche Grenze - die alte lag bei 50 Seiten und haette den
+  // Bestand bei 5000 abgeschnitten.
+  seite: z.coerce.number().int().min(1).max(10_000).optional().default(1),
 });
 
 /**
@@ -57,7 +70,7 @@ export default async function MembersPage({
     members: [],
     total: 0,
     page: params.seite,
-    pageSize: 24,
+    pageSize: PRO_SEITE,
   };
   let rollen: Array<{ id: string; name: string }> = [];
   let error: string | null = null;
@@ -73,7 +86,7 @@ export default async function MembersPage({
           premium: params.status === 'premium',
           ohneBots: params.bots === 'aus',
         },
-        { page: params.seite, pageSize: 24 },
+        { page: params.seite, pageSize: PRO_SEITE },
       ),
       // Nur fuer die Auswahlliste. Faellt sie aus, bleibt die Suche nutzbar.
       discord.roles

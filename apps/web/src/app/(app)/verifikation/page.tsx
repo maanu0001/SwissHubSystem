@@ -72,25 +72,33 @@ export default async function VerifikationPage(): Promise<React.JSX.Element> {
           hint="Nachricht da, Entscheidung offen"
           icon={<ListChecks aria-hidden="true" />}
         />
+        {/*
+          Gesamtwerte, nicht der heutige Tag.
+
+          An einem ruhigen Tag stand hier dreimal eine Null, und die sah aus
+          wie «das System tut nichts» statt wie «heute war wenig los». Die
+          Gesamtzahl sagt, was das Modul geleistet hat; was heute geschah,
+          steht in der Warteschlange und im Verlauf.
+        */}
         <StatCard
-          label="Ø Wartezeit heute"
+          label="Ø Wartezeit insgesamt"
           value={zahlen.schnittWartezeit === null ? '—' : dauer(zahlen.schnittWartezeit)}
           hint={
             zahlen.schnittBasis > 0
-              ? `Median ${zahlen.medianWartezeit === null ? '—' : dauer(zahlen.medianWartezeit)} · ${zahlen.schnittBasis} Fälle`
-              : 'Heute noch nichts entschieden'
+              ? `Median ${zahlen.medianWartezeit === null ? '—' : dauer(zahlen.medianWartezeit)} · ${zahlen.schnittBasis} entschiedene Fälle`
+              : 'Noch nichts entschieden'
           }
           icon={<Clock aria-hidden="true" />}
         />
         <StatCard
-          label="Heute verifiziert"
-          value={String(zahlen.heuteVerifiziert)}
-          hint={`davon ${zahlen.heuteAiVerifiziert} durch die AI`}
+          label="Verifiziert insgesamt"
+          value={String(zahlen.gesamtVerifiziert)}
+          hint={`davon ${zahlen.gesamtAiVerifiziert} durch die AI`}
           icon={<CheckCircle2 aria-hidden="true" />}
         />
         <StatCard
-          label="Heute abgelehnt"
-          value={String(zahlen.heuteAbgelehnt)}
+          label="Abgelehnt insgesamt"
+          value={String(zahlen.gesamtAbgelehnt)}
           hint="Ausschliesslich durch Menschen"
           icon={<XCircle aria-hidden="true" />}
         />

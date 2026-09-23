@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { AlertTriangle, Clock, Inbox, TicketIcon, UserCheck, Users } from 'lucide-react';
+import { Clock, Inbox, Users } from 'lucide-react';
 import { isModuleEnabled, tickets } from '@swisshub/modules';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState } from '@/components/shared/states';
@@ -58,9 +58,19 @@ export default async function TicketsPage(): Promise<React.JSX.Element> {
 
   const kennzahlen = await tickets.getOverview(viewer);
 
+  /*
+   * Drei Kacheln, und das ist eine Entscheidung.
+   *
+   * Hier standen sechs: dazu «In Bearbeitung», «Nicht zugewiesen» und
+   * «Überfällig». Sie beantworteten keine Frage, die man vor dem Blick in die
+   * Liste hat - und sie drängten das Einzige, was zählt, nach unten: was
+   * gerade auf das Team wartet.
+   *
+   * Entfernt ist nur die Anzeige. `getOverview` liefert die übrigen Zahlen
+   * weiterhin; die Auswertung steht unter «Statistiken».
+   */
   const karten = [
     { label: 'Offen', wert: kennzahlen.offen, icon: Inbox },
-    { label: 'In Bearbeitung', wert: kennzahlen.inBearbeitung, icon: UserCheck },
     {
       label: 'Wartet auf Support',
       wert: kennzahlen.wartetAufSupport,
@@ -68,25 +78,13 @@ export default async function TicketsPage(): Promise<React.JSX.Element> {
       warnung: kennzahlen.wartetAufSupport > 0,
     },
     { label: 'Wartet auf Mitglied', wert: kennzahlen.wartetAufMitglied, icon: Users },
-    {
-      label: 'Nicht zugewiesen',
-      wert: kennzahlen.nichtZugewiesen,
-      icon: TicketIcon,
-      warnung: kennzahlen.nichtZugewiesen > 0,
-    },
-    {
-      label: 'Überfällig',
-      wert: kennzahlen.ueberfaellig,
-      icon: AlertTriangle,
-      warnung: kennzahlen.ueberfaellig > 0,
-    },
   ];
 
   return (
     <>
       {nav}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-3">
         {karten.map((karte) => (
           <Card key={karte.label}>
             <CardContent className="flex items-center gap-4 pt-6">

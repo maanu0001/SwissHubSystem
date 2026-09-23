@@ -36,6 +36,7 @@ export * from './settings/fields';
 export * from './settings/service';
 export * from './guild/config';
 export * from './discord/sync';
+export * from './discord/member-sync';
 export * from './discord/inspector';
 export * from './health/types';
 export * from './health/service';

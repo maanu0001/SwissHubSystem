@@ -414,6 +414,77 @@ model DiscordChannelCache {
   @@index([deletedAt])
 }
 
+/// Die Mitglieder des Servers, gespiegelt aus Discord.
+///
+/// ## Warum es diese Tabelle gibt
+///
+/// Mitglieder wurden bewusst nicht gespiegelt - "Datensparsamkeit" - und bei
+/// jedem Seitenaufruf direkt bei Discord geholt. Das ging nicht auf: Discords
+/// `GET /guilds/{id}/members` liefert je Anfrage hoechstens 1000 Eintraege
+/// und blaettert ueber einen Cursor. Geholt wurde genau **eine** Seite, und
+/// die war auf 100 gedeckelt. Gesucht, gefiltert und geblaettert wurde
+/// anschliessend in JavaScript - also in diesen 100 Eintraegen.
+///
+/// Damit kannte die Anwendung 100 von ueber 6000 Mitgliedern. Wer auf Seite
+/// 58 stand, war ueber die Suche nicht zu finden; die Gesamtzahl war die
+/// Laenge des einen geholten Stapels.
+///
+/// Ueber alle Mitglieder zu suchen und zu filtern heisst, alle zu kennen. Und
+/// sie bei jedem Klick erneut von Discord zu holen, waere weder schnell noch
+/// hoeflich. Also dieselbe Loesung wie fuer Rollen und Kanaele: ein Spiegel,
+/// der vollstaendig abgeglichen und danach ueber die Gateway-Ereignisse
+/// fortgeschrieben wird.
+///
+/// ## Was hier steht
+///
+/// Nur, was die Mitgliederverwaltung anzeigt und wonach sie sucht oder
+/// filtert. Keine Nachrichten, keine Verlaeufe - die stehen dort, wo sie
+/// hingehoeren, und werden je Mitglied einzeln geholt.
+model DiscordMemberCache {
+  discordId String @id
+
+  username    String
+  /// Discords globaler Anzeigename, falls gesetzt.
+  globalName  String?
+  /// Der serverspezifische Spitzname, falls gesetzt.
+  nickname    String?
+  /// Was angezeigt wird: Spitzname, sonst globaler Name, sonst Benutzername.
+  displayName String
+
+  avatarHash String?
+  isBot      Boolean  @default(false)
+  roleIds    String[] @default([])
+
+  joinedAt         DateTime?
+  accountCreatedAt DateTime?
+  boosting         Boolean   @default(false)
+  timedOutUntil    DateTime?
+
+  /// Benutzername, globaler Name, Spitzname und Anzeigename in Kleinschrift,
+  /// durch Leerzeichen getrennt.
+  ///
+  /// Eine Spalte statt vier ODER-Bedingungen: die Suche bleibt eine
+  /// Bedingung, und die Felder koennen wachsen, ohne dass jede Abfrage
+  /// nachgezogen werden muss.
+  searchText String @default("")
+
+  syncedAt DateTime @default(now())
+  /// Gesetzt, sobald das Mitglied den Server verlassen hat.
+  ///
+  /// Markiert statt geloescht, genau wie bei Rollen und Kanaelen: ein
+  /// Moderationseintrag zeigt sonst auf einen Namen, den niemand mehr
+  /// aufloesen kann. Die Mitgliederliste zeigt diese Eintraege nicht.
+  leftAt   DateTime?
+
+  /// Die Liste: aktive Mitglieder, Bots je nach Filter, nach Name sortiert.
+  @@index([leftAt, isBot, displayName])
+  /// Die Suche. Bei wenigen tausend Zeilen liest Postgres die Tabelle ohnehin
+  /// am schnellsten durch; der Index traegt die Sortierung.
+  @@index([leftAt, joinedAt])
+  /// Der Rollenfilter - ohne GIN waere jede Rollenabfrage ein Tabellenscan.
+  @@index([roleIds], type: Gin)
+}
+
 /// Zaehler, der bei jeder Konfigurationsaenderung erhoeht wird.
 /// Bot und WebApp erkennen daran, dass ihre Caches veraltet sind - dadurch
 /// wirken Aenderungen ohne Neustart.

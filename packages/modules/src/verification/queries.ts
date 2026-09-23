@@ -167,13 +167,32 @@ export async function listHistory(
 export interface Kennzahlen {
   wartetAufNachricht: number;
   wartetAufModeration: number;
-  heuteVerifiziert: number;
-  heuteAbgelehnt: number;
-  heuteAiVerifiziert: number;
-  /** Mittlere Wartezeit der heute entschiedenen Faelle, in Sekunden. */
+  /**
+   * Alle jemals freigeschalteten Vorgaenge - nicht nur die von heute.
+   *
+   * Gezaehlt werden Verifikationsvorgaenge, nicht Personen: wer den Server
+   * verlaesst und neu beitritt, durchlaeuft einen zweiten Vorgang, und der
+   * ist eine zweite Entscheidung. Je Vorgang gibt es genau eine Zeile, und
+   * `decidedAt` faellt genau einmal - ein Vorgang kann hier also nicht
+   * mehrfach erscheinen.
+   */
+  gesamtVerifiziert: number;
+  gesamtAbgelehnt: number;
+  gesamtAiVerifiziert: number;
+  /**
+   * Mittlere Wartezeit ueber die gesamte entschiedene Historie, in Sekunden.
+   *
+   * Wartezeit ist unveraendert `decidedAt - joinedAt`: vom Beitritt bis zur
+   * Entscheidung. Nur der Zeitraum hat sich geaendert - frueher der heutige
+   * Tag, jetzt alles Vorhandene.
+   *
+   * Offene Vorgaenge bleiben aussen vor. Ihre Wartezeit steht noch nicht
+   * fest, und sie mit der bisher verstrichenen Zeit einzurechnen wuerde den
+   * Schnitt mit jeder Minute verschieben, in der niemand entscheidet.
+   */
   schnittWartezeit: number | null;
   medianWartezeit: number | null;
-  /** Wie viele der heute entschiedenen Faelle. Grundlage der beiden Werte. */
+  /** Wie viele entschiedene Faelle. Grundlage der beiden Werte. */
   schnittBasis: number;
   aiAnfragenHeute: number;
   aiFehlerHeute: number;
@@ -181,17 +200,6 @@ export interface Kennzahlen {
   aiQuote7Tage: number | null;
   ablehnQuote7Tage: number | null;
   ohneNachricht7Tage: number;
-}
-
-function median(werte: number[]): number | null {
-  if (werte.length === 0) {
-    return null;
-  }
-  const sortiert = [...werte].sort((a, b) => a - b);
-  const mitte = Math.floor(sortiert.length / 2);
-  return sortiert.length % 2 === 0
-    ? Math.round((sortiert[mitte - 1]! + sortiert[mitte]!) / 2)
-    : sortiert[mitte]!;
 }
 
 /**
@@ -206,9 +214,9 @@ export async function kennzahlen(jetzt = new Date()): Promise<Kennzahlen> {
   const leer: Kennzahlen = {
     wartetAufNachricht: 0,
     wartetAufModeration: 0,
-    heuteVerifiziert: 0,
-    heuteAbgelehnt: 0,
-    heuteAiVerifiziert: 0,
+    gesamtVerifiziert: 0,
+    gesamtAbgelehnt: 0,
+    gesamtAiVerifiziert: 0,
     schnittWartezeit: null,
     medianWartezeit: null,
     schnittBasis: 0,
@@ -229,24 +237,20 @@ export async function kennzahlen(jetzt = new Date()): Promise<Kennzahlen> {
   const [
     wartetAufNachricht,
     wartetAufModeration,
-    heuteVerifiziert,
-    heuteAbgelehnt,
-    heuteAiVerifiziert,
+    gesamtVerifiziert,
+    gesamtAbgelehnt,
+    gesamtAiVerifiziert,
     aiFehlerHeute,
   ] = await Promise.all([
     prisma.verificationRequest.count({ where: { guildId, status: 'WAITING_FOR_MESSAGE' } }),
     prisma.verificationRequest.count({
       where: { guildId, status: { in: ['WAITING_FOR_REVIEW', 'AI_ANALYZING'] } },
     }),
-    prisma.verificationRequest.count({
-      where: { guildId, status: 'VERIFIED', decidedAt: { gte: tagesBeginn } },
-    }),
-    prisma.verificationRequest.count({
-      where: { guildId, status: 'REJECTED', decidedAt: { gte: tagesBeginn } },
-    }),
-    prisma.verificationRequest.count({
-      where: { guildId, status: 'VERIFIED', decidedBy: 'AI', decidedAt: { gte: tagesBeginn } },
-    }),
+    // Ohne Zeitgrenze: der gesamte vorhandene Bestand. Was vor der
+    // Aufzeichnung geschah, steht nirgends und wird auch nicht geschaetzt.
+    prisma.verificationRequest.count({ where: { guildId, status: 'VERIFIED' } }),
+    prisma.verificationRequest.count({ where: { guildId, status: 'REJECTED' } }),
+    prisma.verificationRequest.count({ where: { guildId, status: 'VERIFIED', decidedBy: 'AI' } }),
     prisma.verificationRequest.count({
       where: { guildId, aiVerdict: 'FAILED', aiCheckedAt: { gte: tagesBeginn } },
     }),
@@ -257,17 +261,33 @@ export async function kennzahlen(jetzt = new Date()): Promise<Kennzahlen> {
     _sum: { aiAttempts: true },
   });
 
-  // Wartezeiten aus den heute entschiedenen Faellen.
-  const entschieden = await prisma.verificationRequest.findMany({
-    where: { guildId, decidedAt: { gte: tagesBeginn }, status: { in: ['VERIFIED', 'REJECTED'] } },
-    select: { joinedAt: true, decidedAt: true },
-    take: 1000,
-  });
-  const dauern = entschieden
-    .filter((eintrag): eintrag is { joinedAt: Date; decidedAt: Date } => eintrag.decidedAt !== null)
-    .map((eintrag) =>
-      Math.max(0, Math.floor((eintrag.decidedAt.getTime() - eintrag.joinedAt.getTime()) / 1000)),
-    );
+  /*
+   * Wartezeiten ueber die gesamte entschiedene Historie.
+   *
+   * In der Datenbank gerechnet, nicht hier. Die vorige Fassung holte bis zu
+   * 1000 Zeilen und bildete Schnitt und Median in JavaScript - fuer einen
+   * Tag ging das auf, fuer den gesamten Bestand waere es eine Abfrage, die
+   * mit jedem Monat teurer wird und ab Zeile 1001 einfach falsche Werte
+   * liefert.
+   *
+   * `GREATEST(..., 0)` haelt dieselbe Regel fest wie vorher `Math.max(0, ...)`:
+   * eine negative Dauer ist keine Wartezeit, sondern eine kaputte Uhr.
+   */
+  const [wartezeit] = await prisma.$queryRaw<
+    Array<{ anzahl: bigint; schnitt: number | null; median: number | null }>
+  >`
+    SELECT
+      count(*) AS anzahl,
+      avg(GREATEST(EXTRACT(EPOCH FROM ("decidedAt" - "joinedAt")), 0))::float8 AS schnitt,
+      percentile_cont(0.5) WITHIN GROUP (
+        ORDER BY GREATEST(EXTRACT(EPOCH FROM ("decidedAt" - "joinedAt")), 0)
+      )::float8 AS median
+    FROM "VerificationRequest"
+    WHERE "guildId" = ${guildId}
+      AND "decidedAt" IS NOT NULL
+      AND "status"::text IN ('VERIFIED', 'REJECTED')
+  `;
+  const schnittBasis = Number(wartezeit?.anzahl ?? 0);
 
   const [verifiziert7, aiVerifiziert7, abgelehnt7, ohneNachricht7] = await Promise.all([
     prisma.verificationRequest.count({
@@ -288,13 +308,18 @@ export async function kennzahlen(jetzt = new Date()): Promise<Kennzahlen> {
   return {
     wartetAufNachricht,
     wartetAufModeration,
-    heuteVerifiziert,
-    heuteAbgelehnt,
-    heuteAiVerifiziert,
+    gesamtVerifiziert,
+    gesamtAbgelehnt,
+    gesamtAiVerifiziert,
     schnittWartezeit:
-      dauern.length > 0 ? Math.round(dauern.reduce((summe, wert) => summe + wert, 0) / dauern.length) : null,
-    medianWartezeit: median(dauern),
-    schnittBasis: dauern.length,
+      schnittBasis > 0 && wartezeit?.schnitt !== null && wartezeit?.schnitt !== undefined
+        ? Math.round(wartezeit.schnitt)
+        : null,
+    medianWartezeit:
+      schnittBasis > 0 && wartezeit?.median !== null && wartezeit?.median !== undefined
+        ? Math.round(wartezeit.median)
+        : null,
+    schnittBasis,
     aiAnfragenHeute: aiAnfragen._sum.aiAttempts ?? 0,
     aiFehlerHeute,
     aiQuote7Tage: verifiziert7 > 0 ? Math.round((aiVerifiziert7 / verifiziert7) * 100) : null,

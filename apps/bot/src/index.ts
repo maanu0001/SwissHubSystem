@@ -20,6 +20,7 @@ import {
   jail,
   invalidateSyncCaches,
   syncDiscord,
+  syncMembers,
   writeHeartbeat,
 } from '@swisshub/modules';
 import { createJobRunner } from './jobs';
@@ -37,6 +38,7 @@ import { registerTicketInteractions } from './ticket-interactions';
 import { registerTicketMessageSync } from './ticket-messages';
 import { registerAnalyticsEvents, anwesendeImVoice } from './analytics-events';
 import { registerModerationEvents } from './moderation-events';
+import { registerMemberMirror } from './member-mirror';
 import { registerAutomationEvents } from './automation-events';
 import { registerInviteEvents, synchronisiereEinladungenBeimStart } from './invite-events';
 import { registerTournamentInteractions } from './tournament-interactions';
@@ -222,6 +224,14 @@ async function main(): Promise<void> {
   // Analytics-Modul eingeschaltet hat.
   registerModerationEvents(client, isActiveGuild);
 
+  /*
+   * Den Mitgliederspiegel fortschreiben.
+   *
+   * Der vollstaendige Abgleich laeuft beim Start und danach als Sicherheitsnetz;
+   * dazwischen halten die Gateway-Ereignisse ihn aktuell.
+   */
+  registerMemberMirror(client, isActiveGuild);
+
   // Dieselbe Stelle, derselbe Grund: die Zuhoerer der Automation Engine
   // brauchen `isActiveGuild`. Ob ueberhaupt geschrieben wird, entscheidet das
   // Automation-Modul selbst.
@@ -335,6 +345,27 @@ async function main(): Promise<void> {
 
       // Beim Start einmal synchronisieren, damit Rollen- und Channel-Auswahl
       // im Dashboard sofort aktuell sind.
+      /*
+       * Der vollstaendige Mitgliederabgleich.
+       *
+       * Getrennt vom Rollen- und Kanal-Sync, weil er einen anderen Takt hat:
+       * jener laeuft bei jeder Rollenaenderung, dieser holt ueber 6000
+       * Mitglieder in sieben Anfragen. Beides im selben Aufruf hiesse, bei
+       * jeder umbenannten Rolle den ganzen Server neu zu laden.
+       *
+       * Mit eigenem Auffangnetz: faellt er aus, bleibt der Spiegel vom letzten
+       * Lauf stehen, und die Gateway-Ereignisse schreiben ihn weiter fort.
+       */
+      void syncMembers()
+        .then((stand) => {
+          if (!stand.success) {
+            log.warn('Mitglieder konnten beim Start nicht abgeglichen werden', { error: stand.error });
+          }
+        })
+        .catch((error: unknown) =>
+          log.warn('Mitglieder konnten beim Start nicht abgeglichen werden', { error }),
+        );
+
       const summary = await syncDiscord({ trigger: 'startup' }).catch((error: unknown) => {
         log.warn('Start-Sync fehlgeschlagen', { error });
         return null;

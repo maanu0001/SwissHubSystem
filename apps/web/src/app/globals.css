@@ -138,3 +138,73 @@
     background: transparent;
   }
 }
+
+/**
+ * Die Kulisse der oeffentlichen Rangliste.
+ *
+ * Zwei Bewegungen, beide sehr langsam und beide ausschliesslich auf
+ * `transform` und `opacity` - damit sie im Compositor laufen und weder Layout
+ * noch Neuzeichnen ausloesen.
+ *
+ * Bei `prefers-reduced-motion: reduce` steht alles still. Sichtbar bleibt es:
+ * die Kulisse verschwinden zu lassen waere ein anderes Aussehen, nicht
+ * weniger Bewegung.
+ */
+@layer components {
+  .lb-raster {
+    background-image:
+      linear-gradient(to right, hsl(var(--foreground) / 0.07) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--foreground) / 0.07) 1px, transparent 1px);
+    background-size: 56px 56px;
+    /* Perspektive: das Raster liegt, statt an der Wand zu kleben. */
+    transform: perspective(70rem) rotateX(58deg);
+    transform-origin: top center;
+    mask-image: radial-gradient(70% 60% at 50% 0%, #000 0%, transparent 75%);
+    -webkit-mask-image: radial-gradient(70% 60% at 50% 0%, #000 0%, transparent 75%);
+    animation: lb-raster-lauf 28s linear infinite;
+  }
+
+  .lb-licht {
+    will-change: opacity, transform;
+  }
+
+  .lb-licht-a {
+    opacity: 0.22;
+    animation: lb-atmen 19s ease-in-out infinite;
+  }
+
+  .lb-licht-b {
+    opacity: 0.12;
+    animation: lb-atmen 24s ease-in-out infinite reverse;
+  }
+
+  @keyframes lb-raster-lauf {
+    from {
+      background-position: 0 0;
+    }
+    to {
+      /* Genau eine Rasterzelle - der Lauf ist dadurch nahtlos. */
+      background-position: 0 56px;
+    }
+  }
+
+  @keyframes lb-atmen {
+    0%,
+    100% {
+      opacity: 0.1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    50% {
+      opacity: 0.26;
+      transform: translate3d(0, 1.5rem, 0) scale(1.08);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lb-raster,
+    .lb-licht-a,
+    .lb-licht-b {
+      animation: none;
+    }
+  }
+}

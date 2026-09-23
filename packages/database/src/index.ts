@@ -76,6 +76,7 @@ export type {
   DiscordEventSeverity,
   DiscordInvite,
   DiscordMessageSnapshot,
+  DiscordMemberCache,
   DiscordRoleCache,
   GuildConfig,
   SyncRun,

@@ -489,6 +489,31 @@ export function createJobRunner(
       },
     },
     {
+      /**
+       * Der Mitgliederspiegel als Sicherheitsnetz.
+       *
+       * Im Betrieb halten die Gateway-Ereignisse ihn aktuell. Nur reicht das
+       * nicht: waehrend eines Neustarts oder einer abgerissenen Verbindung
+       * liefert Discord keine Ereignisse nach, und wer in dieser Zeit
+       * beitritt oder geht, fehlte sonst bis zum naechsten Neustart.
+       *
+       * Sechs Stunden, nicht fuenfzehn Minuten: ein Lauf holt ueber 6000
+       * Mitglieder in sieben Anfragen. Das ist nichts, was man Discord
+       * viermal je Stunde antut, und die Ereignisse dazwischen sind
+       * zuverlaessig genug, dass ein Spiegel nie lange abweicht.
+       */
+      name: 'discord-member-sync',
+      intervalMs: 6 * 60 * 60 * 1000,
+      runOnStart: false,
+      async run() {
+        const { syncMembers } = await import('@swisshub/modules');
+        const stand = await syncMembers();
+        if (!stand.success) {
+          log.warn('Mitglieder-Abgleich fehlgeschlagen', { error: stand.error });
+        }
+      },
+    },
+    {
       name: 'discord-sync',
       // Sicherheitsnetz: Discord-Ereignisse können ausfallen (Neustart,
       // verpasste Gateway-Events). Ein regelmässiger Abgleich hält die
