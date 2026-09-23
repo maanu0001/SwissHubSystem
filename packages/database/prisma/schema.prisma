@@ -4258,6 +4258,8 @@ model AnalyticsTracking {
   messagesSince   DateTime?
   /// Ab wann Sprachzeit gemessen wird.
   voiceSince      DateTime?
+  /// Ab wann Bei- und Austritte gezählt werden.
+  membersSince    DateTime?
   /// Bis wohin der einmalige Backfill aus dem Ereignisprotokoll gelaufen ist.
   backfilledUntil DateTime?
 

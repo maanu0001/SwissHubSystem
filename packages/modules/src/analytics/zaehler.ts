@@ -65,10 +65,10 @@ async function darfZaehlen(
  */
 export async function merkeTrackingBeginn(
   guildId: string,
-  art: 'messages' | 'voice',
+  art: 'messages' | 'voice' | 'members',
   zeitpunkt: Date,
 ): Promise<void> {
-  const feld = art === 'messages' ? 'messagesSince' : 'voiceSince';
+  const feld = { messages: 'messagesSince', voice: 'voiceSince', members: 'membersSince' }[art];
   await prisma.analyticsTracking
     .upsert({
       where: { guildId },
@@ -658,6 +658,9 @@ export async function zaehleBeitritt(
         // fuer die Bindungsquote zaehlt der aktuelle Aufenthalt.
         update: { joinedAt: at, leftAt: null, isBot },
       }),
+      // Ab hier wird gemessen. Ohne diese Marke waere der Backfill der
+      // Meinung, diese Zeit gehoere noch ihm - und raeumte sie weg.
+      merkeTrackingBeginn(guildId, 'members', at),
     ]);
   } catch (error) {
     log.warn('Beitritt konnte nicht gezählt werden', { error });
@@ -692,6 +695,7 @@ export async function zaehleAustritt(
         create: { guildId, discordId, leftAt: at, isBot },
         update: { leftAt: at },
       }),
+      merkeTrackingBeginn(guildId, 'members', at),
     ]);
     // Wer geht, sitzt nicht mehr im Sprachkanal.
     await schliesseOffene(guildId, discordId, at);

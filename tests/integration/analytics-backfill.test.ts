@@ -169,7 +169,9 @@ describeWithDatabase('Analytics-Backfill', () => {
       channelId: '700000000000000001',
       at: T(-2),
     });
-    await ereignis('MEMBER_JOIN', B, T(-3));
+    // Zwei Tage vorher - also aus der Zeit vor der Aufzeichnung, und damit
+    // im Zuständigkeitsbereich des Backfills.
+    await ereignis('MEMBER_JOIN', B, T(-50));
 
     await analytics.backfill(GUILD);
 

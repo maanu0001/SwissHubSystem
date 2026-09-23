@@ -1,6 +1,6 @@
 import { prisma } from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
-import { tag, stunde } from './zeit';
+import { tag, stunde, tagesBeginn } from './zeit';
 import { intern } from './zaehler';
 
 const log = createLogger('analytics:backfill');
@@ -25,6 +25,30 @@ const log = createLogger('analytics:backfill');
  *
  * Er ist **fortsetzbar**: `backfilledUntil` haelt fest, wie weit er gekommen
  * ist, und ein Abbruch verliert hoechstens den letzten Stapel.
+ *
+ * ## Er endet, wo die Live-Aufzeichnung beginnt
+ *
+ * Das Wichtigste an diesem Lauf, und es fehlte:
+ *
+ * Wiederholbar ist er, weil er den bearbeiteten Bereich vorher **ausraeumt**
+ * und neu schreibt. Das geht nur, solange dort ausschliesslich seine eigenen
+ * Zahlen stehen. Greift er in einen Zeitraum, den die laufende Aufzeichnung
+ * bereits gefuellt hat, loescht er deren Zahlen - und ersetzen kann er sie
+ * nicht, denn im Ereignisprotokoll steht nur ein Bruchteil davon.
+ *
+ * Genau das geschah: der Job rief ihn alle fuenf Minuten mit `bis = jetzt`.
+ * Ausgeraeumt wurde tageweise, nachgezogen nur das Fenster der letzten fuenf
+ * Minuten. Damit stand die **gesamte Sprachzeit des Tages** alle fuenf
+ * Minuten wieder auf null, und die laufenden Abschnitte waren geloescht.
+ * Nachrichten blieben stehen - die werden hier nie angetastet -, und so sah
+ * es aus, als wuerde nur die Sprachzeit nicht aufgezeichnet.
+ *
+ * Deshalb: der Lauf bearbeitet **nur Tage, die vor dem Beginn der
+ * Live-Aufzeichnung abgeschlossen waren**. Danach gehoert der Zeitraum der
+ * laufenden Aufzeichnung, und hier wird nichts mehr angefasst. Der
+ * angebrochene Tag, an dem die Aufzeichnung begann, bleibt aussen vor - dort
+ * stehen ohnehin die gemessenen Zahlen, und die sind besser als jede
+ * Rekonstruktion.
  */
 
 export interface BackfillErgebnis {
@@ -39,13 +63,54 @@ export interface BackfillErgebnis {
 
 const STAPEL = 2000;
 
+/**
+ * Praefix der Sitzungskennungen, die dieser Lauf vergibt.
+ *
+ * Daran - und nur daran - ist ein rekonstruierter Abschnitt von einem
+ * gemessenen zu unterscheiden.
+ */
+const BACKFILL_SITZUNG = 'backfill-';
+
+/**
+ * Ab wann die laufende Aufzeichnung zaehlt - oder `null`, wenn noch nie.
+ *
+ * `voiceSince`, `messagesSince` und `membersSince` werden beim allerersten
+ * gemessenen Wert ihrer Art gesetzt und wandern danach nicht mehr. Der
+ * fruehste der drei ist der Punkt, ab dem in den Aggregaten gemessene Zahlen
+ * stehen.
+ *
+ * Alle drei, nicht nur einer: der Backfill raeumt Sprachzeit **und**
+ * Mitgliederzahlen. Fehlte hier eine Art, raeumte er genau die weg, deren
+ * Marke fehlt - auf einem Server, auf dem noch niemand geschrieben hat,
+ * waeren das die Beitritte.
+ */
+function liveBeginn(
+  stand: { voiceSince: Date | null; messagesSince: Date | null; membersSince: Date | null } | null,
+): Date | null {
+  const marken = [stand?.voiceSince, stand?.messagesSince, stand?.membersSince].filter((wert): wert is Date =>
+    Boolean(wert),
+  );
+  if (marken.length === 0) {
+    return null;
+  }
+  return marken.reduce((frueheste, wert) => (wert < frueheste ? wert : frueheste));
+}
+
 export async function backfill(
   guildId: string,
   optionen: { bis?: Date; maxStapel?: number } = {},
 ): Promise<BackfillErgebnis> {
-  const bis = optionen.bis ?? new Date();
   const stand = await prisma.analyticsTracking.findUnique({ where: { guildId } });
   const von = stand?.backfilledUntil ?? new Date(0);
+
+  /*
+   * Die Obergrenze: der Beginn des Tages, an dem die Live-Aufzeichnung
+   * einsetzte. Alles davor ist abgeschlossene Vergangenheit und gehoert
+   * diesem Lauf; alles danach gehoert der Aufzeichnung.
+   */
+  const gewuenscht = optionen.bis ?? new Date();
+  const grenze = liveBeginn(stand);
+  const bis = grenze ? new Date(Math.min(gewuenscht.getTime(), tagesBeginn(grenze).getTime())) : gewuenscht;
 
   const ergebnis: BackfillErgebnis = {
     ereignisse: 0,
@@ -56,6 +121,16 @@ export async function backfill(
     hinweis:
       'Nachrichten lassen sich nicht nachziehen: eine geschriebene Nachricht war vor dieser Erweiterung kein Ereignis. Gezählt wird ab jetzt.',
   };
+
+  /*
+   * Nichts mehr nachzuziehen - und das heisst vor allem: nichts anfassen.
+   *
+   * Dieser Ausstieg steht **vor** dem Ausraeumen. Stuende er dahinter, waere
+   * er wirkungslos: das Ausraeumen ist der Schaden, nicht das Nachziehen.
+   */
+  if (bis <= von) {
+    return ergebnis;
+  }
 
   // Bereits nachgezogene Werte im Zielbereich verwerfen, damit ein zweiter
   // Lauf nicht addiert. Die Zeilen entstehen neu.
@@ -122,28 +197,53 @@ export async function backfill(
   return ergebnis;
 }
 
-/** Verwirft, was ein frueherer Lauf im selben Bereich geschrieben hat. */
+/**
+ * Verwirft, was ein frueherer Lauf im selben Bereich geschrieben hat.
+ *
+ * Zwei Grenzen, und beide sind hier der ganze Punkt:
+ *
+ * 1. **`bis` ist ausschliessend.** Geraeumt wird bis zur letzten Sekunde
+ *    davor. `bis` ist der Beginn des Tages, an dem die Aufzeichnung einsetzte
+ *    - wuerde dieser Tag mitgeraeumt, waeren genau die gemessenen Zahlen weg,
+ *    um die es geht.
+ * 2. **Nur eigene Abschnitte.** Ein Sprachabschnitt aus dem laufenden Betrieb
+ *    ist eine Messung; dieser Lauf hat ihn nicht geschrieben und loescht ihn
+ *    nicht. Erkennbar ist das an der Sitzungskennung, die `sprachzeitNachziehen`
+ *    vergibt. Ein offener Abschnitt gehoert ohnehin immer der Aufzeichnung.
+ */
 async function raeumeAuf(guildId: string, von: Date, bis: Date): Promise<void> {
+  // Die letzte Sekunde vor `bis` - der Tag und die Stunde, in die `bis`
+  // selbst faellt, bleiben unberuehrt.
+  const letzte = new Date(bis.getTime() - 1);
+  if (letzte < von) {
+    return;
+  }
+
   // Nur die nachziehbaren Groessen zuruecksetzen. Nachrichtenzahlen stammen
   // aus dem laufenden Betrieb und duerfen nicht angetastet werden.
   await prisma.analyticsDaily.updateMany({
-    where: { guildId, day: { gte: tag(von), lte: tag(bis) } },
+    where: { guildId, day: { gte: tag(von), lte: tag(letzte) } },
     data: { joins: 0, leaves: 0, voiceSeconds: 0, voiceSessions: 0 },
   });
   await prisma.analyticsHourly.updateMany({
-    where: { guildId, hourStart: { gte: stunde(von), lte: stunde(bis) } },
+    where: { guildId, hourStart: { gte: stunde(von), lte: stunde(letzte) } },
     data: { joins: 0, leaves: 0, voiceSeconds: 0, voiceSessions: 0 },
   });
   await prisma.analyticsUserDaily.updateMany({
-    where: { guildId, day: { gte: tag(von), lte: tag(bis) } },
+    where: { guildId, day: { gte: tag(von), lte: tag(letzte) } },
     data: { voiceSeconds: 0, voiceSessions: 0 },
   });
   await prisma.analyticsChannelDaily.updateMany({
-    where: { guildId, kind: 'VOICE', day: { gte: tag(von), lte: tag(bis) } },
+    where: { guildId, kind: 'VOICE', day: { gte: tag(von), lte: tag(letzte) } },
     data: { voiceSeconds: 0 },
   });
   await prisma.analyticsVoiceSegment.deleteMany({
-    where: { guildId, joinedAt: { gte: von, lte: bis } },
+    where: {
+      guildId,
+      joinedAt: { gte: von, lte: letzte },
+      sessionId: { startsWith: BACKFILL_SITZUNG },
+      leftAt: { not: null },
+    },
   });
 }
 
@@ -235,7 +335,7 @@ async function sprachzeitNachziehen(
     await prisma.analyticsVoiceSegment.create({
       data: {
         guildId,
-        sessionId: `backfill-${person}-${offen.von.getTime()}`,
+        sessionId: `${BACKFILL_SITZUNG}${person}-${offen.von.getTime()}`,
         discordId: person,
         channelId: offen.channelId,
         channelName: offen.channelName,
