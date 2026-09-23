@@ -22,9 +22,27 @@ export function dauer(sekunden: number): string {
   return minuten > 0 ? `${zahl(stunden)} h ${minuten} min` : `${zahl(stunden)} h`;
 }
 
-/** Nur Stunden, gerundet - für Kennzahlkarten. */
+/**
+ * Stunden mit einer Nachkommastelle - für Kennzahlkarten.
+ *
+ * Vorher wurde auf ganze Stunden gerundet, und eine halbe Stunde im
+ * Sprachkanal stand damit als `0 h` auf der Seite: eine Null, die nach
+ * «nichts passiert» aussieht, obwohl jemand da war. Unter einer Stunde war
+ * die Kennzahl schlicht unbrauchbar.
+ *
+ * Eine Nachkommastelle ist die Auflösung, die zur Sache passt: sechs Minuten
+ * sind ein Zehntel, und mehr Stellen behaupteten eine Genauigkeit, die
+ * niemand ablesen will. Sie steht immer da - auch bei `1.0 h`, denn eine
+ * Spalte, in der mal eine und mal keine Nachkommastelle erscheint, liest
+ * sich schlechter als eine gleichmässige.
+ *
+ * Gerundet wird **erst hier**. Gezählt und summiert wird in Sekunden; wer
+ * früher auf Stunden umrechnet, verliert bei jedem Zwischenschritt ein
+ * bisschen und wundert sich am Ende über die Summe.
+ */
 export function stunden(sekunden: number): string {
-  return `${zahl(Math.round(sekunden / 3600))} h`;
+  const wert = Math.max(0, sekunden) / 3600;
+  return `${wert.toLocaleString('de-CH', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h`;
 }
 
 export function prozent(wert: number | null): string {

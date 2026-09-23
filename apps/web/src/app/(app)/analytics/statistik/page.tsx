@@ -20,7 +20,8 @@ import {
   LinienDiagramm,
   type Reihe,
 } from '@/modules/analytics/components/charts';
-import { dauer, prozent, spanne, spitzenzeit, stunden, zahl } from '@/modules/analytics/format';
+import { dauer, prozent, spanne, spitzenzeit, zahl } from '@/modules/analytics/format';
+import { LiveSprachzeit, LiveZahl } from '@/modules/analytics/components/live-sprachzeit';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Statistik' };
@@ -136,6 +137,15 @@ export default async function StatistikPage({
     return `/api/analytics/statistik-export?${parameter.toString()}`;
   };
 
+  /**
+   * Läuft gerade eine Sprachsitzung?
+   *
+   * Nur dann lohnt sich ein Abgleich: an einem abgeschlossenen Zeitraum
+   * ändert sich nichts mehr, und die Seite soll dafür nicht alle dreissig
+   * Sekunden nachfragen.
+   */
+  const laeuft = zahlen.wachsend > 0 || heuteWerte.wachsend > 0 || heuteWerte.imSprachkanal > 0;
+
   const labels = punkte.map((punkt) => punkt.label);
   const aktivitaetsReihen: Reihe[] = [
     {
@@ -147,7 +157,9 @@ export default async function StatistikPage({
     {
       id: 'sprache',
       label: 'Sprachstunden',
-      werte: punkte.map((punkt) => Math.round(punkt.sprachSekunden / 3600)),
+      // Eine Nachkommastelle statt ganzer Stunden - sonst verschwindet ein
+      // Abend mit vierzig Minuten Gespräch in einer Null.
+      werte: punkte.map((punkt) => Math.round(punkt.sprachSekunden / 360) / 10),
       farbe: 'text-success',
     },
   ];
@@ -202,11 +214,29 @@ export default async function StatistikPage({
             veraenderung={zahlen.nachrichten}
             hinweis={`${zahl(zahlen.nachrichtenProTag ?? 0)} pro Tag`}
           />
+          {/*
+            Sprachzeit ist die eine Kennzahl, die nicht stillsteht: wer noch
+            im Kanal sitzt, sammelt weiter. Der Server liefert den Stand und
+            die Zahl der laufenden Sitzungen; die Kachel rechnet damit
+            weiter und gleicht sich regelmässig ab.
+          */}
           <KpiCard
             label="Sprachzeit"
-            wert={stunden(zahlen.sprachSekunden.wert)}
+            wert={
+              <LiveSprachzeit
+                feld="zeitraum"
+                basisSekunden={zahlen.sprachSekunden.wert}
+                wachsend={zahlen.wachsend}
+                asOf={zahlen.asOf.toISOString()}
+              />
+            }
             veraenderung={zahlen.sprachSekunden}
-            hinweis={`${zahl(zahlen.sprachSitzungen.wert)} Sitzungen`}
+            live={zahlen.wachsend > 0}
+            hinweis={
+              <>
+                <LiveZahl feld="sitzungen" basis={zahlen.sprachSitzungen.wert} aktiv={laeuft} /> Sitzungen
+              </>
+            }
           />
           <KpiCard
             label="Neue Mitglieder"
@@ -242,11 +272,25 @@ export default async function StatistikPage({
         <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">Heute</h2>
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr))]">
           <KpiCard label="Nachrichten heute" wert={zahl(heuteWerte.nachrichten)} />
-          <KpiCard label="Sprachzeit heute" wert={stunden(heuteWerte.sprachSekunden)} />
-          <KpiCard label="Aktiv heute" wert={zahl(heuteWerte.aktive)} />
+          <KpiCard
+            label="Sprachzeit heute"
+            wert={
+              <LiveSprachzeit
+                feld="heute"
+                basisSekunden={heuteWerte.sprachSekunden}
+                wachsend={heuteWerte.wachsend}
+                asOf={heuteWerte.asOf.toISOString()}
+              />
+            }
+            live={heuteWerte.wachsend > 0}
+          />
+          <KpiCard
+            label="Aktiv heute"
+            wert={<LiveZahl feld="aktive" basis={heuteWerte.aktive} aktiv={laeuft} />}
+          />
           <KpiCard
             label="Gerade im Sprachkanal"
-            wert={zahl(heuteWerte.imSprachkanal)}
+            wert={<LiveZahl feld="imSprachkanal" basis={heuteWerte.imSprachkanal} aktiv={laeuft} />}
             hinweis="Laufende Anwesenheit"
           />
         </div>

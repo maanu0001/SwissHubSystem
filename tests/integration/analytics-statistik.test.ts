@@ -368,7 +368,19 @@ describeWithDatabase('Analytics-Statistik', () => {
     expect(lage.seit).toBeNull();
   });
 
-  it('zählt eine laufende Sitzung erst, wenn sie beendet ist', async () => {
+  it('zählt eine laufende Sitzung sofort - und beim Beenden nicht doppelt', async () => {
+    /*
+     * Diese Zusage stand einmal umgekehrt da: eine laufende Sitzung zählte
+     * erst, wenn sie beendet war. In den Tagesaggregaten ist das weiterhin
+     * so und auch richtig - ein abgeschlossener Tag darf nicht nachträglich
+     * weiterwachsen. Die *Statistik* darf aber nicht dabei stehenbleiben:
+     * wer seit zwei Stunden im Kanal sitzt, hat zwei Stunden gesprochen, und
+     * «0 h» ist darauf keine Antwort.
+     *
+     * Der laufende Anteil kommt deshalb aus `joinedAt` gegen die Serverzeit
+     * dazu. Beim Beenden wandert dieselbe Zeit ins Aggregat - die Zahl
+     * bleibt, sie wechselt nur die Quelle.
+     */
     await konfiguriere();
     await analytics.starteSprachAbschnitt({
       guildId: GUILD,
@@ -377,16 +389,26 @@ describeWithDatabase('Analytics-Statistik', () => {
       at: T(-2),
     });
 
-    // Solange offen: keine Sekunden in den Tageswerten - ein abgeschlossener
-    // Tag darf nicht nachträglich weiterwachsen.
-    let zahlen = await analytics.statistik.kennzahlen({ guildId: GUILD, zeitraum: ZEITRAUM() });
-    expect(zahlen.sprachSekunden.wert).toBe(0);
-    // Die laufende Anwesenheit ist trotzdem sichtbar.
-    expect((await analytics.statistik.heute(GUILD)).imSprachkanal).toBe(1);
+    const jetzt = T();
+    const scope = { guildId: GUILD, zeitraum: ZEITRAUM(), jetzt };
 
-    await analytics.beendeSprachAbschnitt(GUILD, A, T());
-    zahlen = await analytics.statistik.kennzahlen({ guildId: GUILD, zeitraum: ZEITRAUM() });
+    // Im Aggregat steht noch nichts.
+    const tageswerte = await prisma.analyticsDaily.aggregate({
+      where: { guildId: GUILD },
+      _sum: { voiceSeconds: true },
+    });
+    expect(tageswerte._sum.voiceSeconds ?? 0).toBe(0);
+
+    // In der Statistik trotzdem die vollen zwei Stunden.
+    let zahlen = await analytics.statistik.kennzahlen(scope);
     expect(zahlen.sprachSekunden.wert).toBe(7200);
+    expect(zahlen.wachsend).toBe(1);
+    expect((await analytics.statistik.heute(GUILD, false, jetzt)).imSprachkanal).toBe(1);
+
+    await analytics.beendeSprachAbschnitt(GUILD, A, jetzt);
+    zahlen = await analytics.statistik.kennzahlen(scope);
+    expect(zahlen.sprachSekunden.wert).toBe(7200);
+    expect(zahlen.wachsend).toBe(0);
   });
 
   it('berechnet Aktivierung neuer Mitglieder', async () => {

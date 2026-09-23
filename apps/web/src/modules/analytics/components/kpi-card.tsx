@@ -9,8 +9,15 @@ export interface KpiVeraenderung {
 
 interface KpiCardProps {
   label: string;
-  wert: string;
-  hinweis?: string;
+  /**
+   * Der Wert - fertig formatiert.
+   *
+   * Auch ein Element, damit eine Kennzahl weiterlaufen kann, ohne dass die
+   * ganze Karte dafür zur Client-Komponente wird. Die Sprachzeit tut genau
+   * das: sie rechnet im Browser weiter und gleicht sich regelmässig ab.
+   */
+  wert: React.ReactNode;
+  hinweis?: React.ReactNode;
   veraenderung?: KpiVeraenderung;
   /**
    * Ist ein Anstieg gut?
@@ -19,6 +26,13 @@ interface KpiCardProps {
    * «mehr Leute sind gegangen» wäre eine irreführende Auskunft.
    */
   anstiegIstGut?: boolean;
+  /**
+   * Enthält der Wert eine laufende Sitzung?
+   *
+   * Dann steht ein kleiner Punkt daneben. Er erklärt, warum sich die Zahl
+   * beim Zusehen ändert - ohne ihn sähe das nach einem Fehler aus.
+   */
+  live?: boolean;
 }
 
 /**
@@ -34,10 +48,20 @@ export function KpiCard({
   hinweis,
   veraenderung,
   anstiegIstGut = true,
+  live = false,
 }: KpiCardProps): React.JSX.Element {
   return (
     <div className="min-w-0 rounded-xl border border-border bg-card p-5">
-      <p className="truncate text-sm font-medium text-muted-foreground">{label}</p>
+      <p className="flex items-center gap-1.5 truncate text-sm font-medium text-muted-foreground">
+        {label}
+        {live ? (
+          <span
+            className="size-1.5 shrink-0 rounded-full bg-success"
+            title="Enthält eine laufende Sprachsitzung"
+            aria-label="Enthält eine laufende Sprachsitzung"
+          />
+        ) : null}
+      </p>
       <p className="mt-2 text-3xl font-semibold leading-none tabular-nums">{wert}</p>
       {veraenderung ? <Trend veraenderung={veraenderung} anstiegIstGut={anstiegIstGut} /> : null}
       {hinweis ? <p className="mt-1.5 text-xs text-muted-foreground">{hinweis}</p> : null}

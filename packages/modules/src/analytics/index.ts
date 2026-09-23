@@ -10,4 +10,5 @@ export * as statistik from './statistik';
 export * from './backfill';
 export * from './media';
 export * from './dedup';
+export * from './sprachzeit';
 export * from './export';
