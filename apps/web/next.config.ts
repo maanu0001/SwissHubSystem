@@ -25,8 +25,37 @@ const productionHeaders = [
   },
 ];
 
+/**
+ * Typpruefung und Lint innerhalb von `next build` abschalten - nur im Abbild.
+ *
+ * ## Warum
+ *
+ * `next build` uebersetzt zuerst und prueft danach im **selben Prozess** die
+ * Typen der ganzen Anwendung. Der Heap traegt dann beides zugleich: die
+ * Artefakte der Uebersetzung und das vollstaendige Typprogramm. Auf dem
+ * Server ist er auf 1536 MB begrenzt - mit gutem Grund, siehe Dockerfile -,
+ * und genau daran ist der Build gescheitert: «Ineffective mark-compacts near
+ * heap limit», nachdem die Uebersetzung bereits durch war.
+ *
+ * ## Was stattdessen geschieht
+ *
+ * Nichts entfaellt. Das Abbild fuehrt `npm run lint` und beide
+ * `tsc --noEmit`-Projekte **vor** dem Build aus, jedes in einem eigenen
+ * Prozess mit eigenem Heap. Ein Typfehler bricht den Build weiterhin ab -
+ * nur eine Stufe frueher. Gemessen: `tsc` allein braucht zwischen 1200 und
+ * 1536 MB, die Uebersetzung allein deutlich weniger; zusammen passen sie
+ * nicht.
+ *
+ * Ohne diese Variable - also bei jedem `npm run build` auf einem
+ * Entwicklungsrechner - bleibt alles wie bisher.
+ */
+const geteilteBuildPruefung = process.env.SWISSHUB_SPLIT_BUILD_CHECKS === '1';
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  ...(geteilteBuildPruefung
+    ? { typescript: { ignoreBuildErrors: true }, eslint: { ignoreDuringBuilds: true } }
+    : {}),
   poweredByHeader: false,
   // Der Entwicklungs-Indikator liegt sonst ueber der Statusleiste der Seitenleiste.
   devIndicators: { position: 'bottom-right' },

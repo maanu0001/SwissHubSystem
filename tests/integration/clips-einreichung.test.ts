@@ -302,7 +302,9 @@ describeWithDatabase('Clips moderieren', () => {
      * schlimmer als keine - deshalb steht hier beides: aus schweigt, ein
      * sendet.
      */
-    const send = vi.fn(async () => ({ id: 'msg-1', channelId: '700000000000000010' }));
+    const send = vi.fn<
+      (kanalId: string, inhalt: { allowedMentions?: unknown }) => Promise<{ id: string; channelId: string }>
+    >(async () => ({ id: 'msg-1', channelId: '700000000000000010' }));
     const modul = { channels: { send } } as unknown as Parameters<typeof clips.gibFrei>[2];
 
     const aus = await eingereicht();
@@ -314,9 +316,9 @@ describeWithDatabase('Clips moderieren', () => {
     await clips.gibFrei(an.entryId, actor(MOD), modul);
 
     expect(send).toHaveBeenCalledTimes(1);
-    const inhalt = send.mock.calls[0]?.[1] as { allowedMentions?: unknown };
+    const inhalt = send.mock.calls[0]?.[1];
     // Dreissig Clips duerfen nicht dreissig Erwaehnungen bedeuten.
-    expect(inhalt.allowedMentions).toEqual({ parse: [] });
+    expect(inhalt?.allowedMentions).toEqual({ parse: [] });
 
     // Ein zweiter Klick auf «Freigeben» postet nicht noch einmal.
     await clips.gibFrei(an.entryId, actor(MOD), modul);

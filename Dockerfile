@@ -66,6 +66,25 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 # Platz wirklich nicht, bricht der Build mit «heap out of memory» ab - eine
 # klare Meldung nach zwei Minuten ist besser als eine halbe Stunde Stillstand.
 ENV NODE_OPTIONS=--max-old-space-size=1536
+
+# Erst pruefen, dann bauen - und zwar in getrennten Prozessen.
+#
+# `next build` tat beides in einem: uebersetzen und anschliessend die Typen
+# der ganzen Anwendung pruefen. Der Heap trug dadurch die Artefakte der
+# Uebersetzung und das vollstaendige Typprogramm gleichzeitig und lief ueber
+# die Grenze oben. Gescheitert ist das nicht beim Uebersetzen - das war nach
+# 65 Sekunden durch - sondern erst bei «Linting and checking validity of
+# types».
+#
+# Hier laufen dieselben Pruefungen, nur nacheinander und jede mit eigenem
+# Heap. Ein Lint- oder Typfehler bricht das Abbild weiterhin ab; er tut es
+# eine Stufe frueher und mit einer deutlicheren Meldung.
+RUN npm run lint
+RUN npx tsc -p tsconfig.json --noEmit
+RUN npx tsc -p apps/web/tsconfig.json --noEmit
+
+# Sagt `next.config.ts`, dass die Pruefung schon gelaufen ist.
+ENV SWISSHUB_SPLIT_BUILD_CHECKS=1
 RUN npm run build --workspace @swisshub/web
 
 # --- WebApp ------------------------------------------------------------------
