@@ -170,7 +170,11 @@ const INTRO: WrappedStory = {
     templateKey: 'INTRO',
     daten: { periode: periodenLabel(kontext.periode), jahr: kontext.periode.jahr },
     vorschlag: {
-      ueberschrift: 'SwissHub Wrapped',
+      // Leer als Vorgabe: die Kopfzeile jeder Folie traegt bereits «SwissHub
+      // Wrapped August 2026». Eine zweite Zeile mit demselben Wortlaut waere
+      // dieselbe Aussage doppelt. Wer eine eigene Zeile darueber will, traegt
+      // sie im Editor ein.
+      ueberschrift: '',
       text:
         kontext.periode.art === 'MONTHLY'
           ? 'So hat SwissHub diesen Monat gezockt.'

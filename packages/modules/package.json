@@ -21,6 +21,8 @@
     "./wrapped/vorlage": "./src/wrapped/vorlage.ts",
     "./wrapped/szenen": "./src/wrapped/szenen.ts",
     "./wrapped/fixtures": "./src/wrapped/fixtures.ts",
+    "./wrapped/perioden": "./src/wrapped/perioden.ts",
+    "./wrapped/vorlagen": "./src/wrapped/vorlagen.ts",
     "./spielwahl/baum": "./src/spielwahl/baum.ts",
     "./games/schemas": "./src/games/schemas.ts",
     "./profil/angaben": "./src/profile/angaben.ts",

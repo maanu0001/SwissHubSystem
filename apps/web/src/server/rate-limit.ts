@@ -98,6 +98,14 @@ export const RATE_LIMITS = {
   profilWrite: { limit: 90, windowMs: 10 * 60 * 1000 },
   /** Ein Profilbanner hochladen - jedes Mal ein paar Megabyte. */
   profilUpload: { limit: 10, windowMs: 30 * 60 * 1000 },
+  /**
+   * Ein ganzes Wrapped-Archiv exportieren.
+   *
+   * Eng: jeder Aufruf rastert bis zu fuenfzehn Bilder zu je 1080x1920. Das
+   * ist nichts, was man versehentlich oft tut - und nichts, was der Server
+   * nebenbei mitmacht.
+   */
+  wrappedExport: { limit: 12, windowMs: 10 * 60 * 1000 },
   /** Einladungen: eng, damit die Teamsuche nicht zum Rundmail wird. */
   tournamentInvite: { limit: 30, windowMs: 10 * 60 * 1000 },
   /** Resultate melden und bestaetigen - waehrend eines Turniers zuegig. */

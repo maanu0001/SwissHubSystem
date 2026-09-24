@@ -48,6 +48,17 @@ const CLIENT_SAFE = [
   '@swisshub/modules/wrapped/szenen',
   '@swisshub/modules/wrapped/fixtures',
   /*
+   * Die reinen Teile der periodischen Ausgaben.
+   *
+   * `perioden` rechnet Monate und Jahre aus, `vorlagen` beschreibt, wie eine
+   * Folie aussieht - beides ohne Datenbank. Der Editor und der Zeichner
+   * brauchen sie im Browser, und zwar dieselben: eine zweite Liste erlaubter
+   * Vorlagen im Browser waere die Stelle, an der Vorschau und Export
+   * auseinanderlaufen.
+   */
+  '@swisshub/modules/wrapped/perioden',
+  '@swisshub/modules/wrapped/vorlagen',
+  /*
    * Die Form des Turnierbaums.
    *
    * Die Buehne von «Was spielen wir?» zeichnet ihn und muss dafuer wissen,
@@ -169,6 +180,8 @@ const EXPORTE: Record<string, string> = {
   '@swisshub/modules/wrapped/vorlage': 'packages/modules/src/wrapped/vorlage.ts',
   '@swisshub/modules/wrapped/szenen': 'packages/modules/src/wrapped/szenen.ts',
   '@swisshub/modules/wrapped/fixtures': 'packages/modules/src/wrapped/fixtures.ts',
+  '@swisshub/modules/wrapped/perioden': 'packages/modules/src/wrapped/perioden.ts',
+  '@swisshub/modules/wrapped/vorlagen': 'packages/modules/src/wrapped/vorlagen.ts',
   '@swisshub/modules/spielwahl/baum': 'packages/modules/src/spielwahl/baum.ts',
   '@swisshub/modules/level/karte': 'packages/modules/src/level/card.ts',
   '@swisshub/modules/games/schemas': 'packages/modules/src/games/schemas.ts',

@@ -128,6 +128,23 @@ export async function erzeugeAusgabe(
 
   const { title, subtitle } = titelFuer(periode);
 
+  /*
+   * Erst nachsehen, dann anlegen.
+   *
+   * Die Eindeutigkeit bleibt der eigentliche Riegel - diese Abfrage ist nur
+   * der leise Weg dorthin. Ohne sie laeuft der Job jede Minute in den
+   * Verstoss, und Prisma schreibt jedes Mal eine Fehlerzeile ins Protokoll:
+   * nach einem Tag waeren das 1440 Meldungen ueber etwas, das voellig in
+   * Ordnung ist.
+   */
+  const schonDa = await prisma.wrappedEdition.findUnique({
+    where: { guildId_type_periodKey: { guildId, type: periode.art, periodKey: periode.key } },
+    select: { id: true, _count: { select: { slides: true } } },
+  });
+  if (schonDa) {
+    return { editionId: schonDa.id, neu: false, folien: schonDa._count.slides, uebersprungen: 0 };
+  }
+
   let edition;
   try {
     edition = await prisma.wrappedEdition.create({

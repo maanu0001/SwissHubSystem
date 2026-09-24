@@ -33,6 +33,23 @@ export const WRAPPED_PERMISSIONS = {
   generate: 'wrapped.generate',
   /** Veroeffentlichen und zurueckziehen. */
   publish: 'wrapped.publish',
+  /*
+   * Die periodischen Ausgaben.
+   *
+   * Vier neue Schluessel, nicht acht: Ansehen, Bearbeiten und Erzeugen
+   * koennen `studioView`, `studioEdit` und `generate` mitmachen - es ist
+   * dasselbe Studio und dieselbe Taetigkeit. Eigene Schluessel bekommt nur,
+   * was eine eigene Entscheidung ist: etwas einfrieren, etwas wieder
+   * aufmachen, Bilder herausgeben, Momente pflegen.
+   */
+  /** Eine Ausgabe einfrieren. */
+  editionFinalize: 'wrapped.edition.finalize',
+  /** Eine eingefrorene Ausgabe wieder aufmachen. */
+  editionUnlock: 'wrapped.edition.unlock',
+  /** Die fertigen Bilder herunterladen. */
+  export: 'wrapped.export',
+  /** Community Moments pflegen. */
+  momentsManage: 'wrapped.moments.manage',
 } as const;
 
 export type WrappedPermission = (typeof WRAPPED_PERMISSIONS)[keyof typeof WRAPPED_PERMISSIONS];
@@ -193,6 +210,32 @@ export const wrappedModule: ModuleDefinition = registerModule({
       key: WRAPPED_PERMISSIONS.publish,
       label: 'Veröffentlichen',
       description: 'Einen fertigen Rückblick für die Mitglieder freigeben, zurückziehen oder archivieren.',
+      module: WRAPPED_MODULE_ID,
+    },
+    {
+      key: WRAPPED_PERMISSIONS.editionFinalize,
+      label: 'Ausgabe einfrieren',
+      description:
+        'Eine Monats- oder Jahresausgabe festschreiben. Danach ändern sich Zahlen und Folien nicht mehr von selbst.',
+      module: WRAPPED_MODULE_ID,
+    },
+    {
+      key: WRAPPED_PERMISSIONS.editionUnlock,
+      label: 'Ausgabe entsperren',
+      description:
+        'Eine eingefrorene Ausgabe wieder bearbeitbar machen. Ändert rückwirkend, was bereits veröffentlicht wurde.',
+      module: WRAPPED_MODULE_ID,
+    },
+    {
+      key: WRAPPED_PERMISSIONS.export,
+      label: 'Bilder herunterladen',
+      description: 'Die fertigen Folien als PNG oder ZIP für Social Media exportieren.',
+      module: WRAPPED_MODULE_ID,
+    },
+    {
+      key: WRAPPED_PERMISSIONS.momentsManage,
+      label: 'Community Moments pflegen',
+      description: 'Besondere Momente mit Bild erfassen, ändern und für Ausgaben freigeben.',
       module: WRAPPED_MODULE_ID,
     },
   ],
