@@ -16,7 +16,6 @@ export * from './auszeichnungen';
 export * from './bearbeiten';
 export * from './entdecken';
 export * from './gestaltung';
-export * from './karriere';
 export * from './schemas';
 export * from './service';
 export * from './showcase';

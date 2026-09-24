@@ -150,8 +150,6 @@ describeWithDatabase('Mitgliederprofile', () => {
     expect(fremd?.angaben).toBeUndefined();
     expect(fremd?.spiele).toBeUndefined();
     expect(fremd?.socials).toBeUndefined();
-    expect(fremd?.karriere).toBeUndefined();
-    expect(fremd?.turniere).toBeUndefined();
     // Nicht nur ausgeblendet - im Ergebnis steht der Text nirgends.
     expect(JSON.stringify(fremd)).not.toContain('Geheim');
 

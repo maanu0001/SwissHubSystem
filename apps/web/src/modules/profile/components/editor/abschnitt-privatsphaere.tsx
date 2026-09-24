@@ -35,16 +35,6 @@ const ABSCHNITTE = [
     titel: 'Konten',
     text: 'Twitch, Steam, Riot ID und die übrigen Kennungen.',
   },
-  {
-    key: 'visibilityCareer' as const,
-    titel: 'Karriere',
-    text: 'Beitritt, Turniere und gewonnene Clip-Runden als Zeitleiste.',
-  },
-  {
-    key: 'visibilityActivity' as const,
-    titel: 'Turnierbilanz',
-    text: 'Teilnahmen, Podeste und Siege als Zahlen.',
-  },
 ];
 
 export function AbschnittPrivatsphaere({

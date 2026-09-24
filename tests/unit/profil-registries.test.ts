@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import * as angaben from '@swisshub/modules/profil/angaben';
 import * as auszeichnungen from '@swisshub/modules/profil/auszeichnungen';
 import * as gestaltung from '@swisshub/modules/profil/gestaltung';
-import * as karriere from '@swisshub/modules/profil/karriere';
 import * as schemas from '@swisshub/modules/profil/schemas';
 import * as showcase from '@swisshub/modules/profil/showcase';
 import * as socials from '@swisshub/modules/profil/socials';
@@ -261,34 +260,6 @@ describe('Auszeichnungen', () => {
     const erreicht = bewertet.filter((eintrag) => eintrag.erreicht);
     expect(erreicht[0]?.stufe).toBe('gold');
     expect(bewertet.findIndex((e) => !e.erreicht)).toBeGreaterThan(erreicht.length - 1);
-  });
-});
-
-describe('Karriere', () => {
-  it('stellt Eintraege ohne Datum ans Ende statt an den Anfang', () => {
-    const sortiert = karriere.sortiere([
-      {
-        key: 'b',
-        art: 'level',
-        am: null,
-        titel: 'Level',
-        beschreibung: null,
-        symbol: 'Sparkles',
-        link: null,
-        hervorgehoben: false,
-      },
-      {
-        key: 'a',
-        art: 'beitritt',
-        am: new Date('2020-01-01'),
-        titel: 'Beitritt',
-        beschreibung: null,
-        symbol: 'DoorOpen',
-        link: null,
-        hervorgehoben: false,
-      },
-    ]);
-    expect(sortiert.map((eintrag) => eintrag.key)).toEqual(['a', 'b']);
   });
 });
 

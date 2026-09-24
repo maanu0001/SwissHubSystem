@@ -78,8 +78,21 @@ export function ProfilHero({ ansicht }: { ansicht: profile.ProfilAnsicht }): Rea
       <div className="relative px-4 pb-5 sm:px-6 sm:pb-6">
         <div className="-mt-10 flex flex-col gap-4 sm:-mt-14 sm:flex-row sm:items-end sm:gap-5">
           <div className="flex items-end gap-4">
+            {/*
+             * Avatar und Ring in einem Kasten.
+             *
+             * `flex` und nicht `block`: der Avatar ist ein Inline-Element,
+             * und in einem Blockkasten entstuende unter ihm die Luecke fuer
+             * die Grundlinie. Der Kasten waere dann hoeher als breit, und
+             * `rounded-full` machte daraus ein Oval.
+             *
+             * Die Groesse steht als Variable und nicht als `size-20
+             * sm:size-24`. Die Klassen verloren gegen das `style` im Avatar,
+             * lautlos: auf dem Handy war er 96 Pixel gross, obwohl dort 80
+             * gemeint waren - auf jedem Bildschirm derselbe Wert.
+             */}
             <div
-              className="rounded-full p-1 ring-2 ring-[hsl(var(--profil-akzent)/0.65)]"
+              className="flex rounded-full p-1 ring-2 ring-[hsl(var(--profil-akzent)/0.65)] [--avatar-size:80px] sm:[--avatar-size:96px]"
               style={{ backgroundColor: 'hsl(var(--profil-flaeche))' }}
             >
               <DiscordAvatar
@@ -87,7 +100,7 @@ export function ProfilHero({ ansicht }: { ansicht: profile.ProfilAnsicht }): Rea
                 avatarHash={identitaet.avatarHash}
                 name={identitaet.discordName}
                 size={96}
-                className="size-20 sm:size-24"
+                ring={false}
               />
             </div>
             {level ? (

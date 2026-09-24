@@ -1,11 +1,10 @@
 import Link from 'next/link';
-import { ArrowRight, EyeOff, Trophy } from 'lucide-react';
+import { ArrowRight, EyeOff, FileText, UserSearch } from 'lucide-react';
 import { systemRoutes } from '@swisshub/shared';
 import type { profile } from '@swisshub/modules';
 import { Abschnitt } from './abschnitt';
 import { ProfilAuszeichnungen } from './profil-auszeichnungen';
 import { ProfilHero } from './profil-hero';
-import { ProfilKarriere } from './profil-karriere';
 import { ProfilSpiele } from './profil-spiele';
 import { ProfilSteckbrief, hatSteckbrief } from './profil-steckbrief';
 import { ProfilVitrine } from './profil-vitrine';
@@ -31,10 +30,7 @@ import { ProfilVitrine } from './profil-vitrine';
  * und sie liest eine Liste, keine Eingabe.
  */
 export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): React.JSX.Element {
-  const seitenspalte =
-    hatSteckbrief(ansicht.angaben, ansicht.socials) ||
-    (ansicht.turniere?.teilnahmen ?? 0) > 0 ||
-    ansicht.auszeichnungen.length > 0;
+  const seitenspalte = hatSteckbrief(ansicht.angaben, ansicht.socials) || ansicht.auszeichnungen.length > 0;
 
   const leer =
     (ansicht.spiele?.length ?? 0) === 0 &&
@@ -68,26 +64,12 @@ export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): 
               <ProfilSpiele spiele={ansicht.spiele} />
             </Abschnitt>
           ) : null}
-
-          {ansicht.karriere && ansicht.karriere.length > 0 ? (
-            <Abschnitt titel="SwissHub-Karriere" verzug={180}>
-              <div className="rounded-xl border border-[hsl(var(--profil-rand))] bg-[hsl(var(--profil-flaeche))] p-4 sm:p-5">
-                <ProfilKarriere meilensteine={ansicht.karriere} />
-              </div>
-            </Abschnitt>
-          ) : null}
         </div>
 
         <div className={`space-y-6 ${seitenspalte ? '' : 'hidden'}`}>
           {hatSteckbrief(ansicht.angaben, ansicht.socials) ? (
             <Abschnitt titel="Über" verzug={140}>
               <ProfilSteckbrief angaben={ansicht.angaben} socials={ansicht.socials} />
-            </Abschnitt>
-          ) : null}
-
-          {ansicht.turniere && ansicht.turniere.teilnahmen > 0 ? (
-            <Abschnitt titel="Turniere" verzug={200}>
-              <TurnierBilanz turniere={ansicht.turniere} />
             </Abschnitt>
           ) : null}
 
@@ -113,7 +95,42 @@ export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): 
           Teile dieses Profils sind privat.
         </p>
       ) : null}
+
+      {ansicht.eigenes ? <EigeneWege /> : null}
     </div>
+  );
+}
+
+/**
+ * Die beiden Seiten, die neben dem Profil liegen.
+ *
+ * Sie standen frueher als eigene Eintraege in der Seitenleiste - drei
+ * Profil-Eintraege nebeneinander fuer eine Person, von denen man zwei im
+ * Jahr einmal oeffnet. Hier stehen sie richtig: die Suchliste dort, wo man
+ * einstellt, ob man in ihr auftaucht, und die Selbstauskunft dort, wo man
+ * ohnehin nach den eigenen Daten sieht.
+ *
+ * Nur im eigenen Profil - im fremden waeren es zwei Verweise auf Seiten
+ * ueber jemand anderen.
+ */
+function EigeneWege(): React.JSX.Element {
+  return (
+    <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-[hsl(var(--profil-rand))] pt-5 text-sm">
+      <Link
+        href={systemRoutes.entdecken()}
+        className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <UserSearch className="size-4" aria-hidden="true" />
+        Mitglieder entdecken
+      </Link>
+      <Link
+        href={systemRoutes.meineDaten()}
+        className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <FileText className="size-4" aria-hidden="true" />
+        Meine Daten
+      </Link>
+    </nav>
   );
 }
 
@@ -141,66 +158,6 @@ function Einladung(): React.JSX.Element {
         Profil einrichten
         <ArrowRight className="size-4" aria-hidden="true" />
       </Link>
-    </div>
-  );
-}
-
-/**
- * Die Turnierbilanz.
- *
- * «Teilgenommen» meint bestaetigt teilgenommen - eine blosse Anmeldung
- * zaehlt hier nicht mit, und ein Platz erscheint nur, wenn das Turnier
- * tatsaechlich einen vergeben hat.
- */
-function TurnierBilanz({ turniere }: { turniere: profile.ProfilTurniere }): React.JSX.Element {
-  return (
-    <div className="space-y-3 rounded-xl border border-[hsl(var(--profil-rand))] bg-[hsl(var(--profil-flaeche))] p-4 sm:p-5">
-      <dl className="grid grid-cols-3 gap-3 text-center">
-        {[
-          { label: 'Teilgenommen', wert: turniere.teilnahmen },
-          { label: 'Podeste', wert: turniere.podeste },
-          { label: 'Siege', wert: turniere.siege },
-        ].map((eintrag) => (
-          <div key={eintrag.label}>
-            <dd
-              className={`text-2xl font-bold tabular-nums leading-none ${
-                eintrag.label === 'Siege' && eintrag.wert > 0 ? 'text-[hsl(45_92%_58%)]' : ''
-              }`}
-            >
-              {eintrag.wert}
-            </dd>
-            <dt className="mt-1 text-[0.65rem] uppercase tracking-wider text-muted-foreground">
-              {eintrag.label}
-            </dt>
-          </div>
-        ))}
-      </dl>
-
-      {turniere.letzte.length > 0 ? (
-        <ul className="space-y-1.5 border-t border-[hsl(var(--profil-rand))] pt-3">
-          {turniere.letzte.slice(0, 4).map((turnier) => (
-            <li key={turnier.id} className="flex items-center gap-2 text-xs">
-              {turnier.platz && turnier.platz <= 3 ? (
-                <Trophy
-                  className={`size-3.5 shrink-0 ${turnier.platz === 1 ? 'text-[hsl(45_92%_58%)]' : 'text-muted-foreground'}`}
-                  aria-hidden="true"
-                />
-              ) : (
-                <span className="size-3.5 shrink-0" aria-hidden="true" />
-              )}
-              <Link
-                href={systemRoutes.turnier(turnier.slug)}
-                className="min-w-0 flex-1 truncate underline-offset-4 hover:underline"
-              >
-                {turnier.name}
-              </Link>
-              {turnier.platz ? (
-                <span className="shrink-0 tabular-nums text-muted-foreground">{turnier.platz}.</span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </div>
   );
 }

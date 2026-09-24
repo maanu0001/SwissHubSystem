@@ -6,7 +6,6 @@ import { getProfile as getLevelProfile, getRank } from '../level/service';
 import * as angaben from './angaben';
 import * as auszeichnungen from './auszeichnungen';
 import * as gestaltung from './gestaltung';
-import * as karriere from './karriere';
 import * as showcase from './showcase';
 import * as socials from './socials';
 import { zeigeFelder, type AngezeigtesFeld } from './spielfelder';
@@ -63,7 +62,7 @@ const STANDARD = {
   discoverable: true,
 };
 
-export type Abschnitt = 'profil' | 'games' | 'socials' | 'karriere' | 'aktivitaet';
+export type Abschnitt = 'profil' | 'games' | 'socials';
 
 export interface ProfilIdentitaet {
   discordId: string;
@@ -149,8 +148,6 @@ export interface ProfilAnsicht {
   socials?: socials.SocialAnzeige[];
   vitrine: showcase.ShowcaseKarte[];
   auszeichnungen: auszeichnungen.Auszeichnung[];
-  karriere?: karriere.Meilenstein[];
-  turniere?: ProfilTurniere;
   /** Sieht der Betrachter sein eigenes Profil? */
   eigenes: boolean;
   /** Abschnitte, die dieses Mitglied vor anderen verbirgt. */
@@ -197,8 +194,6 @@ export async function ladeProfil(discordId: string, betrachterId: string): Promi
   const zeigeAngaben = sichtbar(profil.visibilityProfile, eigenes);
   const zeigeSpiele = sichtbar(profil.visibilityGames, eigenes);
   const zeigeSocials = sichtbar(profil.visibilitySocials, eigenes);
-  const zeigeKarriere = sichtbar(profil.visibilityCareer, eigenes);
-  const zeigeAktivitaet = sichtbar(profil.visibilityActivity, eigenes);
 
   /*
    * Was geladen wird, haengt an der Sichtbarkeit - siehe oben. Was immer
@@ -267,8 +262,6 @@ export async function ladeProfil(discordId: string, betrachterId: string): Promi
     if (profil.visibilityProfile === 'PRIVATE') verborgen.push('profil');
     if (profil.visibilityGames === 'PRIVATE') verborgen.push('games');
     if (profil.visibilitySocials === 'PRIVATE') verborgen.push('socials');
-    if (profil.visibilityCareer === 'PRIVATE') verborgen.push('karriere');
-    if (profil.visibilityActivity === 'PRIVATE') verborgen.push('aktivitaet');
   }
 
   const vorlage = gestaltung.bannervorlage(profil.bannerPreset);
@@ -312,17 +305,6 @@ export async function ladeProfil(discordId: string, betrachterId: string): Promi
     ...(zeigeSocials ? { socials: socialAnzeigen } : {}),
     vitrine,
     auszeichnungen: eigenes ? auszeichnungen.bewerte(grundlage) : erreichte,
-    ...(zeigeKarriere
-      ? {
-          karriere: baueKarriere({
-            beitrittAm: spiegel.joinedAt,
-            turniere,
-            level,
-            clipSieg: clipBilanz.letzterSieg,
-          }),
-        }
-      : {}),
-    ...(zeigeAktivitaet ? { turniere } : {}),
     eigenes,
     verborgen,
   };
@@ -560,79 +542,6 @@ function loeseVitrinenplatz(
       // Ueberspringen statt raten.
       return null;
   }
-}
-
-/**
- * Die Zeitleiste.
- *
- * Nur Belegtes - siehe `karriere.ts`. Eine leere Leiste ist ein gueltiges
- * Ergebnis; die Ansicht zeigt dann nichts statt eines Platzhalters.
- */
-function baueKarriere(quellen: {
-  beitrittAm: Date | null;
-  turniere: ProfilTurniere;
-  level: ProfilLevel | null;
-  clipSieg: { key: string; nummer: number; titel: string } | null;
-}): karriere.Meilenstein[] {
-  const eintraege: karriere.Meilenstein[] = [];
-
-  if (quellen.beitrittAm) {
-    eintraege.push({
-      key: 'beitritt',
-      art: 'beitritt',
-      am: quellen.beitrittAm,
-      titel: 'Auf den SwissHub gekommen',
-      beschreibung: null,
-      symbol: 'DoorOpen',
-      link: null,
-      hervorgehoben: false,
-    });
-  }
-
-  for (const turnier of quellen.turniere.letzte) {
-    const sieg = turnier.platz === 1;
-    eintraege.push({
-      key: `turnier:${turnier.id}`,
-      art: sieg ? 'turnier-sieg' : 'turnier',
-      am: turnier.startsAt,
-      titel: sieg ? `${turnier.name} gewonnen` : turnier.name,
-      beschreibung: turnier.platz && !sieg ? `${turnier.platz}. Platz` : turnier.gameName,
-      symbol: sieg ? 'Trophy' : 'Swords',
-      link: systemRoutes.turnier(turnier.slug),
-      hervorgehoben: turnier.platz !== null && turnier.platz <= 3,
-    });
-  }
-
-  if (quellen.clipSieg) {
-    eintraege.push({
-      key: `clip:${quellen.clipSieg.key}`,
-      art: 'clip-sieg',
-      // Die Runde hat ein Datum, die Bilanz gibt es nicht heraus. Lieber
-      // ohne Datum ans Ende als mit einem geratenen nach vorne.
-      am: null,
-      titel: 'Clip der Woche gewonnen',
-      beschreibung: quellen.clipSieg.titel,
-      symbol: 'Clapperboard',
-      link: systemRoutes.clipRunde(quellen.clipSieg.key),
-      hervorgehoben: true,
-    });
-  }
-
-  if (quellen.level && quellen.level.level > 1) {
-    eintraege.push({
-      key: 'level',
-      art: 'level',
-      // Ohne Datum: wann welche Schwelle fiel, ist nirgends gespeichert.
-      am: null,
-      titel: quellen.level.hoechstlevel ? 'Höchstlevel erreicht' : `Level ${quellen.level.level}`,
-      beschreibung: `${quellen.level.xp} XP`,
-      symbol: quellen.level.hoechstlevel ? 'Crown' : 'Sparkles',
-      link: null,
-      hervorgehoben: quellen.level.hoechstlevel,
-    });
-  }
-
-  return karriere.sortiere(eintraege);
 }
 
 /** Was der Editor zum Bearbeiten braucht - immer das eigene Profil. */

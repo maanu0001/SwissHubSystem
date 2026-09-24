@@ -20,9 +20,27 @@ interface DiscordAvatarProps {
   discordId: string;
   avatarHash?: string | null;
   name: string;
+  /**
+   * Die Kantenlaenge - und zugleich die angeforderte Aufloesung.
+   *
+   * Gesetzt wird sie als CSS-Variable, nicht direkt als `width`/`height`.
+   * Der Unterschied zaehlt, sobald ein Aufrufer die Groesse je Breakpoint
+   * braucht: eine Klasse wie `sm:size-24` verliert gegen ein `style`, und
+   * zwar lautlos - der Avatar blieb dann auf allen Bildschirmen gleich
+   * gross, obwohl die Klasse etwas anderes sagte. Ueber die Variable
+   * gewinnt die Klasse, weil sie dieselbe Variable neu setzt.
+   */
   size?: 20 | 24 | 28 | 32 | 36 | 40 | 48 | 64 | 96;
   /** Kleiner Punkt unten rechts. */
   status?: AvatarStatus | null;
+  /**
+   * Der duenne Rand um das Bild.
+   *
+   * In Listen hebt er den Avatar vom Hintergrund ab. Wo bereits ein eigener
+   * Ring darum liegt - der Profilkopf - waeren es zwei ineinander, und der
+   * aeussere saehe dadurch aus, als sitze er nicht richtig.
+   */
+  ring?: boolean;
   className?: string;
 }
 
@@ -44,6 +62,7 @@ export function DiscordAvatar({
   name,
   size = 40,
   status = null,
+  ring = true,
   className,
 }: DiscordAvatarProps): React.JSX.Element {
   // 0 = eigenes Bild, 1 = Discord-Standardbild, 2 = Monogramm.
@@ -79,10 +98,19 @@ export function DiscordAvatar({
   return (
     <span
       className={cn(
-        'relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-secondary ring-1 ring-border',
+        'relative inline-flex size-[var(--avatar-size,var(--avatar-eigen))] shrink-0 items-center justify-center overflow-hidden rounded-full bg-secondary',
+        ring && 'ring-1 ring-border',
         className,
       )}
-      style={{ width: size, height: size }}
+      /*
+       * Zwei Variablen, damit ein Aufrufer die Groesse je Breakpoint setzen
+       * kann. `--avatar-eigen` traegt die Vorgabe aus `size` und steht hier
+       * am Element; `--avatar-size` darf ein Elternteil setzen und gewinnt
+       * dann. Stuende die Vorgabe direkt unter `--avatar-size`, schluege der
+       * eigene Inline-Wert jeden geerbten - genau der Fehler, den das hier
+       * behebt.
+       */
+      style={{ '--avatar-eigen': `${size}px` } as React.CSSProperties}
     >
       {fallbackLevel < 2 ? (
         // eslint-disable-next-line @next/next/no-img-element

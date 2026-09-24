@@ -28,7 +28,6 @@
     "./profil/angaben": "./src/profile/angaben.ts",
     "./profil/auszeichnungen": "./src/profile/auszeichnungen.ts",
     "./profil/gestaltung": "./src/profile/gestaltung.ts",
-    "./profil/karriere": "./src/profile/karriere.ts",
     "./profil/schemas": "./src/profile/schemas.ts",
     "./profil/showcase": "./src/profile/showcase.ts",
     "./profil/socials": "./src/profile/socials.ts",

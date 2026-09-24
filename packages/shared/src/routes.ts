@@ -58,13 +58,14 @@ export const systemRoutes = {
    *
    * Zwei Wurzeln und nicht eine, weil die Kopfzeile ihren Titel ueber den
    * laengsten passenden Praefix sucht: unter `/profil/<id>` stuende sonst
-   * «Mein Profil» ueber dem Profil eines anderen. `/spieler` gehoert
-   * stattdessen zu «Mitglieder entdecken» - dort kommt man her, und dort
-   * leuchtet dann auch die Seitenleiste.
+   * «Mein Profil» ueber dem Profil eines anderen. `/spieler` traegt seinen
+   * Namen deshalb selbst - im Profilkopf, wo er hingehoert.
    */
   profil: (discordId?: string): SystemRoute => (discordId ? `/spieler/${id(discordId)}` : '/profil'),
   profilBearbeiten: (): SystemRoute => '/profil/bearbeiten',
   entdecken: (): SystemRoute => '/entdecken',
+  /** Die Selbstauskunft: welche Daten das System ueber einen selbst fuehrt. */
+  meineDaten: (): SystemRoute => '/profile',
 
   /*
    * Was spielen wir? - die gemeinsame Spielauswahl.
