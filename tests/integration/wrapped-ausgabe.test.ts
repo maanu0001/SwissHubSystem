@@ -1,8 +1,25 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describeWithDatabase, pushSchema, useTestSchema } from '../helpers/database';
 import { crc32, deflateSync } from 'node:zlib';
 
 useTestSchema('test_wrapped_ausgabe');
+
+/*
+ * Ein eigenes Upload-Verzeichnis - **vor** dem Import der Module.
+ *
+ * Ohne das schreibt der Bildtest weiter unten nach `/var/lib/swisshub/uploads`.
+ * Auf einem Entwicklungsrechner geht das zufaellig gut; auf dem CI-Runner
+ * gibt es das Verzeichnis nicht, und der Lauf endete mit `EACCES`. Genau so
+ * ist er gescheitert - lokal gruen, im Gate rot.
+ *
+ * `storage.ts` liest den Pfad beim Laden in eine Konstante. Das Setzen muss
+ * deshalb vor dem `await import` darunter stehen, nicht in einem `beforeAll`
+ * - dieselbe Reihenfolge wie in `branding-upload.test.ts`.
+ */
+process.env.SWISSHUB_UPLOAD_DIR = mkdtempSync(join(tmpdir(), 'swisshub-wrapped-uploads-'));
 
 /**
  * Periodische Wrapped-Ausgaben gegen eine echte Datenbank.
