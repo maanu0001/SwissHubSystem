@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Check, Link2, Share2 } from 'lucide-react';
+import { systemRoutes } from '@swisshub/shared';
 import { toast } from 'sonner';
 
 /**
@@ -82,5 +84,29 @@ export function TeilenKnopf({
       )}
       {kopiert ? 'Kopiert' : 'Profil teilen'}
     </button>
+  );
+}
+
+/**
+ * Der Knopf, wenn das Profil noch nicht oeffentlich steht.
+ *
+ * Hier war vorher gar nichts - der Teilen-Knopf erschien erst, wenn jemand
+ * sein Profil bereits freigegeben hatte. Wer das nicht getan hatte, sah
+ * nichts und hatte damit auch keinen Hinweis darauf, dass es die Funktion
+ * gibt. Die Einstellung liegt im Editor unter «Privatsphaere», und dorthin
+ * suchte niemand, der nicht wusste, wonach.
+ *
+ * Deshalb steht der Knopf jetzt immer da und fuehrt genau dorthin.
+ */
+export function ProfilFreigebenKnopf(): React.JSX.Element {
+  return (
+    <Link
+      href={`${systemRoutes.profilBearbeiten()}?abschnitt=privatsphaere`}
+      className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg border border-[hsl(var(--profil-rand))] bg-card-elevated px-3 py-2 text-sm font-medium transition-colors hover:border-[hsl(var(--profil-akzent)/0.6)]"
+      title="Dein Profil ist noch nicht öffentlich - hier stellst du es frei."
+    >
+      <Share2 className="size-4" aria-hidden="true" />
+      Profil teilen
+    </Link>
   );
 }

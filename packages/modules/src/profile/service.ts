@@ -150,10 +150,21 @@ export interface ProfilAnsicht {
   vitrine: showcase.ShowcaseKarte[];
   auszeichnungen: auszeichnungen.Auszeichnung[];
   /**
-   * Die oeffentliche Adresse - nur im eigenen Profil und nur, wenn es
-   * oeffentlich steht. Sie traegt den Teilen-Knopf.
+   * Der Stand des oeffentlichen Profils - nur im eigenen.
+   *
+   * Hier stand frueher nur der Slug, und zwar nur bei einem bereits
+   * oeffentlichen Profil. Der Teilen-Knopf hing daran und erschien damit
+   * genau dann nicht, wenn man ihn gebraucht haette: wer noch nicht
+   * oeffentlich ist, sah keinen Knopf, und ohne Knopf fand niemand den Weg
+   * zur Einstellung. Ein Henne-Ei, das die ganze Funktion unsichtbar machte.
+   *
+   * Deshalb jetzt beides: ob es oeffentlich steht, und wie die Adresse
+   * lautet, sobald es eine gibt.
    */
-  oeffentlicherSlug?: string | null;
+  oeffentlich?: {
+    aktiv: boolean;
+    slug: string | null;
+  };
   /** Sieht der Betrachter sein eigenes Profil? */
   eigenes: boolean;
   /** Abschnitte, die dieses Mitglied vor anderen verbirgt. */
@@ -368,8 +379,13 @@ export async function ladeProfilFuer(
       ...auszeichnungen.ausVerleihungen(verliehen),
       ...(eigenes ? auszeichnungen.bewerte(grundlage) : erreichte),
     ],
-    ...(eigenes && profil.visibilityProfile === 'PUBLIC' && zeile?.publicSlug
-      ? { oeffentlicherSlug: zeile.publicSlug }
+    ...(eigenes
+      ? {
+          oeffentlich: {
+            aktiv: profil.visibilityProfile === 'PUBLIC',
+            slug: zeile?.publicSlug ?? null,
+          },
+        }
       : {}),
     eigenes,
     verborgen,

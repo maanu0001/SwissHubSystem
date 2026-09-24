@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { PLATZHALTER as VORLAGEN_PLATZHALTER } from '@swisshub/modules/voice/naming';
 import { ConfirmationDialog } from '@/components/shared/confirmation-dialog';
 import { EmptyState } from '@/components/shared/states';
 import { ChannelSelect } from '@/modules/configuration/components/channel-select';
@@ -53,7 +54,18 @@ const LEER: Entwurf = {
 };
 
 /** Die Platzhalter, die eine Namensvorlage kennt. */
-const PLATZHALTER = ['{username}', '{displayName}', '{game}', '{number}'];
+/*
+ * Dieselbe Liste wie im Dienst - siehe `voice-hub/presets`.
+ *
+ * Sie stand hier als eigene Kopie und kannte nur die geschweifte
+ * Schreibweise. Wer `@username` tippte, sah deshalb die Warnung «ohne
+ * Platzhalter», obwohl der Server sie inzwischen annimmt - zwei Listen,
+ * zwei Meinungen.
+ */
+const PLATZHALTER = [...VORLAGEN_PLATZHALTER];
+
+/** Fuer den Hinweis reicht eine Schreibweise - die kuerzere. */
+const ANGEZEIGT = PLATZHALTER.filter((platz) => platz.startsWith('{'));
 
 /**
  * Vorlagen für neue Talks.
@@ -135,8 +147,8 @@ export function PresetManager({
             />
             <p className={hatPlatzhalter ? 'text-xs text-muted-foreground' : 'text-xs text-warning'}>
               {hatPlatzhalter
-                ? `Platzhalter: ${PLATZHALTER.join(', ')}`
-                : 'Ohne Platzhalter heissen alle Talks gleich.'}
+                ? `Platzhalter: ${ANGEZEIGT.join(', ')} - oder @username`
+                : 'Ohne Platzhalter für den Namen heissen alle Talks gleich.'}
             </p>
           </div>
 

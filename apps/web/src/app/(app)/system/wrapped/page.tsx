@@ -4,7 +4,6 @@ import { Gift, Images, Users } from 'lucide-react';
 import { prisma } from '@swisshub/database';
 import { wrapped } from '@swisshub/modules';
 import { systemRoutes } from '@swisshub/shared';
-import { PageHeader } from '@/components/shared/page-header';
 import { StatCard } from '@/components/shared/stat-card';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState, ErrorState } from '@/components/shared/states';
@@ -48,11 +47,19 @@ export default async function WrappedStudioPage(): Promise<React.JSX.Element> {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Wrapped Studio"
-        description="Jahresrückblicke vorbereiten, prüfen und veröffentlichen."
-        actions={stand.darfBearbeiten ? <KampagneAnlegen csrfToken={csrfToken} /> : null}
-      />
+      {/*
+       * Keine eigene Kopfzeile: «Wrapped Studio» steht schon in der
+       * Navigation und damit in `AppHeader`. Hier stand derselbe Titel ein
+       * zweites Mal, direkt darunter.
+       *
+       * Die Aktion bleibt - sie gehoert zur Seite und nicht in die
+       * Kopfzeile der Anwendung.
+       */}
+      {stand.darfBearbeiten ? (
+        <div className="flex justify-end">
+          <KampagneAnlegen csrfToken={csrfToken} />
+        </div>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard

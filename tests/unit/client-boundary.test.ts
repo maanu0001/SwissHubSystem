@@ -107,6 +107,7 @@ const CLIENT_SAFE = [
    * `profile/service`, `profile/bearbeiten` und `profile/entdecken` stehen
    * bewusst **nicht** hier: die lesen und schreiben.
    */
+  '@swisshub/modules/voice/naming',
   '@swisshub/modules/profil/angaben',
   '@swisshub/modules/profil/auszeichnungen',
   '@swisshub/modules/profil/gestaltung',
@@ -184,6 +185,7 @@ const EXPORTE: Record<string, string> = {
   '@swisshub/modules/spielwahl/baum': 'packages/modules/src/spielwahl/baum.ts',
   '@swisshub/modules/level/karte': 'packages/modules/src/level/card.ts',
   '@swisshub/modules/games/schemas': 'packages/modules/src/games/schemas.ts',
+  '@swisshub/modules/voice/naming': 'packages/modules/src/voice/naming.ts',
   '@swisshub/modules/profil/angaben': 'packages/modules/src/profile/angaben.ts',
   '@swisshub/modules/profil/auszeichnungen': 'packages/modules/src/profile/auszeichnungen.ts',
   '@swisshub/modules/profil/gestaltung': 'packages/modules/src/profile/gestaltung.ts',

@@ -2,6 +2,7 @@ import { prisma } from '@swisshub/database';
 import type { VoicePreset } from '@swisshub/database';
 import { resolveGuildId } from '@swisshub/discord';
 import { AppError } from '@swisshub/shared';
+import { PLATZHALTER } from '../voice/naming';
 
 /**
  * Vorlagen fuer neue Talks.
@@ -104,12 +105,33 @@ function pruefe(input: PresetInput): void {
       userMessage: 'Das Standardlimit ist grösser als das erlaubte Höchstlimit.',
     });
   }
-  if (!input.nameTemplate.includes('{')) {
-    // Ohne Platzhalter hiessen alle Talks gleich - Discord erlaubt das, aber
-    // in der Kanalliste liesse sich danach keiner mehr auseinanderhalten.
+  /*
+   * Ohne Platzhalter hiessen alle Talks gleich - Discord erlaubt das, aber
+   * in der Kanalliste liesse sich danach keiner mehr auseinanderhalten.
+   *
+   * Geprueft wird auf die Platzhalter selbst und nicht mehr auf eine
+   * geschweifte Klammer. Wer `@username` schrieb - die Schreibweise, die
+   * jedem zuerst einfaellt -, bekam vorher die Meldung, es fehle ein
+   * Platzhalter, obwohl er einen hingeschrieben hatte. Die Meldung nannte
+   * dann `{username}`, und der Unterschied zwischen beiden war aus ihr
+   * nicht zu erraten.
+   */
+  if (!PLATZHALTER.some((platz) => input.nameTemplate.includes(platz))) {
     throw new AppError('VALIDATION_FAILED', {
       userMessage:
-        'Die Namensvorlage braucht mindestens einen Platzhalter, z.B. {username} - sonst heissen alle Talks gleich.',
+        'Die Namensvorlage braucht einen Platzhalter für den Namen - {username} oder @username. Ohne einen heissen alle Talks gleich.',
+    });
+  }
+
+  if (input.nameTemplate.length > 90) {
+    /*
+     * Discord laesst 100 Zeichen zu. Die Vorlage darf nicht schon allein
+     * ausreizen, was am Ende samt eingesetztem Namen hineinpassen muss -
+     * sonst waere der Name abgeschnitten, und zwar dort, wo der Name steht.
+     */
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage:
+        'Die Namensvorlage ist zu lang. Discord erlaubt 100 Zeichen, und der eingesetzte Name braucht davon noch Platz.',
     });
   }
 }

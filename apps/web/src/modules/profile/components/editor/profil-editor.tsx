@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import * as angaben from '@swisshub/modules/profil/angaben';
 import * as gestaltung from '@swisshub/modules/profil/gestaltung';
@@ -59,7 +60,23 @@ export function ProfilEditor({
   daten: profile.EditorDaten;
   identitaet: { discordId: string; discordName: string; avatarHash: string | null };
 }): React.JSX.Element {
-  const [offen, setOffen] = useState<AbschnittKey>('allgemein');
+  /*
+   * Der Abschnitt darf aus der Adresse kommen.
+   *
+   * «Profil teilen» fuehrt hierher, wenn ein Profil noch nicht oeffentlich
+   * steht - und zwar direkt zur Privatsphaere. Ohne das landete man oben
+   * bei «Allgemein» und suchte weiter.
+   *
+   * Nur als Startwert: danach fuehrt der Zustand, sonst spraenge der
+   * Abschnitt bei jeder Navigation zurueck.
+   */
+  const suche = useSearchParams();
+  const gewuenscht = suche.get('abschnitt');
+  const start = ABSCHNITTE.some((eintrag) => eintrag.key === gewuenscht)
+    ? (gewuenscht as AbschnittKey)
+    : 'allgemein';
+
+  const [offen, setOffen] = useState<AbschnittKey>(start);
   const [schmutzig, setSchmutzig] = useState<Partial<Record<AbschnittKey, boolean>>>({});
   const [allgemein, setAllgemein] = useState(daten.allgemein);
   const [design, setDesign] = useState(daten.gestaltung);

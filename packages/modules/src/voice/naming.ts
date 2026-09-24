@@ -6,8 +6,31 @@
  * unterbringt, was in einer Kanalliste nichts zu suchen hat.
  */
 
-/** Zeichen, die im Namen bleiben duerfen: Buchstaben, Ziffern, Zeichensetzung. */
-const ERLAUBT = /[^\p{L}\p{N}\p{Zs}\p{Emoji_Presentation}\p{Extended_Pictographic}\-_.'·•!?()[\]]/gu;
+/**
+ * Zeichen, die im Namen bleiben duerfen.
+ *
+ * ## Warum hier mehr steht als frueher
+ *
+ * Die Liste war an Textkanaelen orientiert. Discord normalisiert deren
+ * Namen selbst - Kleinschreibung, Leerzeichen zu Bindestrichen -, und wer
+ * davon ausgeht, haelt eine enge Liste fuer noetig. Fuer **Sprachkanaele**
+ * gilt das nicht: dort bleibt stehen, was man eingibt, und ein Trennstrich
+ * wie `|` ist dort so ueblich wie ein Bindestrich.
+ *
+ * Genau daran scheiterte `🔊| Stübli`: das Zeichen stand nicht in der
+ * Liste und fiel lautlos heraus. Dazugekommen sind deshalb die
+ * Trennzeichen, die man in Kanalnamen tatsaechlich sieht - `|`, `/`, `&`,
+ * `+`, `~`, `:`, `,`, `«»` und die typografischen Anfuehrungszeichen.
+ *
+ * ## Was weiterhin faellt
+ *
+ * `@`, `#` und `<`. Ein Kanalname erzeugt zwar keine Erwaehnung, aber
+ * `@everyone` in einer Kanalliste ist ein Trick, den niemand braucht. Diese
+ * drei bleiben draussen, und das ist der einzige Grund, warum es diese
+ * Liste ueberhaupt gibt.
+ */
+const ERLAUBT =
+  /[^\p{L}\p{N}\p{Zs}\p{Emoji_Presentation}\p{Extended_Pictographic}\-_.'’·•!?()[\]|/&+~:,«»"]/gu;
 
 /**
  * Saeubert einen eingesetzten Wert.
@@ -19,6 +42,25 @@ const ERLAUBT = /[^\p{L}\p{N}\p{Zs}\p{Emoji_Presentation}\p{Extended_Pictographi
 export function saeubere(wert: string, laenge = 40): string {
   return wert.replace(ERLAUBT, '').replace(/\s+/gu, ' ').trim().slice(0, laenge);
 }
+
+/**
+ * Die Platzhalter, die eine Namensvorlage kennt.
+ *
+ * Beide Schreibweisen - `{username}` ist die dokumentierte, `@username`
+ * die, die jedem zuerst einfaellt. Die Liste steht hier, weil `baueKanalName`
+ * unten sie einsetzt: Pruefung, Hinweis in der Oberflaeche und Einsetzen
+ * lesen damit dieselbe Quelle.
+ */
+export const PLATZHALTER = [
+  '{username}',
+  '{displayName}',
+  '{game}',
+  '{number}',
+  '@username',
+  '@displayName',
+  '@game',
+  '@number',
+] as const;
 
 export interface NamensWerte {
   username: string;
@@ -40,7 +82,23 @@ export function baueKanalName(vorlage: string, werte: NamensWerte): string {
   const displayName = saeubere(werte.displayName ?? werte.username, 25) || username;
   const game = saeubere(werte.game ?? '', 30);
 
+  /*
+   * Zwei Schreibweisen fuer denselben Platzhalter.
+   *
+   * `{username}` ist die dokumentierte. `@username` schreibt, wer an
+   * Discord denkt - und das tut hier jeder. Beide zu unterstuetzen kostet
+   * eine Zeile; die Alternative war eine Fehlermeldung, die den Unterschied
+   * erklaeren muss, und ein Admin, der sie nicht versteht.
+   *
+   * Die `@`-Form wird **zuerst** ersetzt, damit das `@` verschwunden ist,
+   * bevor irgendetwas anderes passiert. Was danach noch an `@` uebrig ist,
+   * stand nicht fuer einen Platzhalter.
+   */
   const gebaut = vorlage
+    .replace(/@username\b/gu, username)
+    .replace(/@displayName\b/gu, displayName)
+    .replace(/@game\b/gu, game || 'Gaming')
+    .replace(/@number\b/gu, werte.number ? String(werte.number) : '')
     .replace(/\{username\}/gu, username)
     .replace(/\{displayName\}/gu, displayName)
     .replace(/\{game\}/gu, game || 'Gaming')

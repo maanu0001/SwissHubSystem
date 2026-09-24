@@ -80,6 +80,35 @@ describe('Oeffentliche Routen', () => {
     }
   });
 
+  it('zeigt den Teilen-Knopf auch bei noch nicht oeffentlichem Profil', () => {
+    /*
+     * Der Fehler, der die ganze Funktion unsichtbar machte.
+     *
+     * Der Knopf hing an `oeffentlicherSlug`, und den gibt es nur bei einem
+     * bereits oeffentlichen Profil. Wer teilen wollte, musste also schon
+     * geteilt haben - und wer nicht wusste, dass es die Funktion gibt, fand
+     * die Einstellung nicht, weil sie im Editor unter «Privatsphaere»
+     * liegt.
+     *
+     * Geprueft wird deshalb beides: dass der Knopf nicht mehr an einem Slug
+     * haengt, und dass es den Weg zur Einstellung gibt.
+     */
+    const hero = readFileSync(
+      join(process.cwd(), 'apps/web/src/modules/profile/components/profil-hero.tsx'),
+      'utf8',
+    );
+    const knopf = readFileSync(
+      join(process.cwd(), 'apps/web/src/modules/profile/components/teilen-knopf.tsx'),
+      'utf8',
+    );
+
+    expect(hero, 'Der Knopf haengt wieder am Slug').not.toMatch(
+      /ansicht\.eigenes && ansicht\.oeffentlicherSlug/u,
+    );
+    expect(hero).toContain('ProfilFreigebenKnopf');
+    expect(knopf).toContain('abschnitt=privatsphaere');
+  });
+
   it('laesst die oeffentliche Profilseite nicht ewig alt werden', () => {
     const quelle = readFileSync(join(APP, 'u/[slug]/page.tsx'), 'utf8');
     // Ohne `revalidate` zeigte die Seite nach einer Profilaenderung beliebig

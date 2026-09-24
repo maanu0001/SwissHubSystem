@@ -25,6 +25,7 @@
     "./wrapped/vorlagen": "./src/wrapped/vorlagen.ts",
     "./spielwahl/baum": "./src/spielwahl/baum.ts",
     "./games/schemas": "./src/games/schemas.ts",
+    "./voice/naming": "./src/voice/naming.ts",
     "./profil/angaben": "./src/profile/angaben.ts",
     "./profil/auszeichnungen": "./src/profile/auszeichnungen.ts",
     "./profil/gestaltung": "./src/profile/gestaltung.ts",

@@ -4,7 +4,7 @@ import { systemRoutes } from '@swisshub/shared';
 import type { profile } from '@swisshub/modules';
 import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { LevelRing } from './level-ring';
-import { TeilenKnopf } from './teilen-knopf';
+import { ProfilFreigebenKnopf, TeilenKnopf } from './teilen-knopf';
 
 /**
  * Der Profilkopf.
@@ -154,8 +154,20 @@ export function ProfilHero({ ansicht }: { ansicht: profile.ProfilAnsicht }): Rea
                 />
               </div>
             ) : null}
-            {ansicht.eigenes && ansicht.oeffentlicherSlug ? (
-              <TeilenKnopf slug={ansicht.oeffentlicherSlug} name={identitaet.discordName} />
+            {/*
+             * Der Knopf steht immer da, wenn es das eigene Profil ist.
+             *
+             * Vorher hing er am Slug, den es nur bei einem bereits
+             * oeffentlichen Profil gibt - wer teilen wollte, musste also
+             * schon geteilt haben. Jetzt fuehrt er im einen Fall zum Link
+             * und im anderen zur Einstellung.
+             */}
+            {ansicht.eigenes && ansicht.oeffentlich ? (
+              ansicht.oeffentlich.aktiv && ansicht.oeffentlich.slug ? (
+                <TeilenKnopf slug={ansicht.oeffentlich.slug} name={identitaet.discordName} />
+              ) : (
+                <ProfilFreigebenKnopf />
+              )
             ) : null}
             {ansicht.eigenes ? (
               <Link
