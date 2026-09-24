@@ -72,16 +72,25 @@ export function EntdeckenKarte({
           </ul>
         ) : null}
 
-        <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-[0.65rem] text-muted-foreground">
-          {karte.verfuegbarkeit ? (
-            <span className="inline-flex items-center gap-1 font-medium text-[hsl(var(--karte-akzent))]">
-              <span className="size-1.5 rounded-full bg-[hsl(var(--karte-akzent))]" aria-hidden="true" />
-              {karte.verfuegbarkeit.label}
-            </span>
-          ) : null}
-          {karte.spielart ? <span>{karte.spielart}</span> : null}
-          {karte.sprachen.length > 0 ? <span>{karte.sprachen.join(', ')}</span> : null}
-        </div>
+        {/*
+         * Die Fusszeile nur, wenn etwas darin steht.
+         *
+         * Wer noch kein Profil gepflegt hat, hatte sonst eine Karte mit einer
+         * leeren Zeile am Fuss - und weil `mt-auto` sie nach unten drückt, war
+         * die Karte so hoch wie eine volle und zu drei Vierteln leer.
+         */}
+        {karte.verfuegbarkeit || karte.spielart || karte.sprachen.length > 0 ? (
+          <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-[0.65rem] text-muted-foreground">
+            {karte.verfuegbarkeit ? (
+              <span className="inline-flex items-center gap-1 font-medium text-[hsl(var(--karte-akzent))]">
+                <span className="size-1.5 rounded-full bg-[hsl(var(--karte-akzent))]" aria-hidden="true" />
+                {karte.verfuegbarkeit.label}
+              </span>
+            ) : null}
+            {karte.spielart ? <span>{karte.spielart}</span> : null}
+            {karte.sprachen.length > 0 ? <span>{karte.sprachen.join(', ')}</span> : null}
+          </div>
+        ) : null}
       </div>
     </Link>
   );
