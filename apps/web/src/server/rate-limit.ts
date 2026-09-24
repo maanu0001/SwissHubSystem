@@ -286,6 +286,15 @@ export const RATE_LIMITS = {
   /** Veroeffentlichen, zurueckziehen, archivieren - selten und folgenreich. */
   wrappedFreigabe: { limit: 20, windowMs: 10 * 60 * 1000 },
 
+  /**
+   * Eine periodische Ausgabe erheben.
+   *
+   * Je Aufruf ein Durchgang ueber einen ganzen Monat oder ein ganzes Jahr -
+   * bei der Jahresausgabe zwei Abfragen ueber saemtliche Personentage. Das
+   * ist nichts, was man oft hintereinander tut.
+   */
+  wrappedGenerate: { limit: 20, windowMs: 10 * 60 * 1000 },
+
   /** Eine Karte zum Teilen zeichnen - je Aufruf ein gerendertes Bild. */
   wrappedShare: { limit: 30, windowMs: 10 * 60 * 1000 },
 

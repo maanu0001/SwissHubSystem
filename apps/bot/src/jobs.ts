@@ -545,6 +545,35 @@ export function createJobRunner(
       },
     },
     {
+      name: 'wrapped-ausgaben',
+      /*
+       * Monats- und Jahresausgaben.
+       *
+       * Einmal je Stunde und nicht je Minute: ein Monat wechselt zwoelfmal
+       * im Jahr, und ob die Septemberausgabe um 01:00 oder um 01:59
+       * entsteht, merkt niemand. Sechzig Abfragen je Stunde, die
+       * ueberwiegend nichts finden, waeren der Preis fuer eine Genauigkeit,
+       * die nichts wert ist.
+       *
+       * Kein Kalender, kein Zeitgeber: der Durchgang fragt jedes Mal, ob
+       * der zuletzt abgeschlossene Monat schon existiert. Damit ueberlebt
+       * er Neustarts und holt auch dann nach, wenn der Bot ueber den
+       * Monatswechsel hinweg aus war.
+       */
+      intervalMs: 60 * 60 * 1000,
+      runOnStart: true,
+      async run() {
+        const { isModuleEnabled } = await import('@swisshub/modules');
+        if (!(await isModuleEnabled(wrapped.WRAPPED_MODULE_ID))) {
+          return;
+        }
+        const ergebnis = await wrapped.runWrappedAusgabeTick();
+        if (ergebnis.erzeugt.length > 0 || ergebnis.wiederholt.length > 0) {
+          log.info('Wrapped-Ausgaben verarbeitet', { ...ergebnis });
+        }
+      },
+    },
+    {
       name: 'spielwahl-tick',
       /*
        * Der Rueckhalt fuer «Was spielen wir?».

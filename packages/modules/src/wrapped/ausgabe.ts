@@ -1,6 +1,7 @@
 import { AUDIT_ACTIONS, Prisma, prisma, recordAudit } from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
 import { WRAPPED_MODULE_ID } from './config';
+import type { Handelnder } from './kampagne';
 import { AppError } from '@swisshub/shared';
 import type { WrappedQuellen } from './daten';
 import {
@@ -44,10 +45,14 @@ const log = createLogger('wrapped:ausgabe');
 
 export type AusgabeArt = WrappedPeriodenArt;
 
-export interface AusgabeAkteur {
-  discordId: string;
-  username: string;
-}
+/**
+ * Wer handelt.
+ *
+ * Derselbe Typ wie im persoenlichen Rueckblick - `Handelnder` aus
+ * `kampagne.ts`. Ein zweiter waere ein zweiter Ort, an dem jemand
+ * entscheiden muesste, ob der Benutzername fehlen darf.
+ */
+export type AusgabeAkteur = Handelnder;
 
 /** Alles, was die Stories brauchen - in einem Zug geholt. */
 export async function sammleKontext(guildId: string, periode: WrappedPeriode): Promise<StoryKontext> {
@@ -183,7 +188,7 @@ export async function erzeugeAusgabe(
       action: AUDIT_ACTIONS.WRAPPED_EDITION_CREATED,
       module: WRAPPED_MODULE_ID,
       actorDiscordId: optionen.akteur.discordId,
-      actorUsername: optionen.akteur.username,
+      actorUsername: optionen.akteur.username ?? null,
       targetLabel: title,
       metadata: {
         editionId: edition.id,
@@ -331,7 +336,7 @@ export async function regeneriereAusgabe(
     action: AUDIT_ACTIONS.WRAPPED_EDITION_REGENERATED,
     module: WRAPPED_MODULE_ID,
     actorDiscordId: optionen.akteur.discordId,
-    actorUsername: optionen.akteur.username,
+    actorUsername: optionen.akteur.username ?? null,
     targetLabel: edition.title,
     metadata: {
       editionId,
@@ -394,7 +399,7 @@ export async function schalteFolie(slideId: string, enabled: boolean, akteur: Au
     action: enabled ? AUDIT_ACTIONS.WRAPPED_SLIDE_ENABLED : AUDIT_ACTIONS.WRAPPED_SLIDE_DISABLED,
     module: WRAPPED_MODULE_ID,
     actorDiscordId: akteur.discordId,
-    actorUsername: akteur.username,
+    actorUsername: akteur.username ?? null,
     targetLabel: folie.edition.periodKey,
     metadata: { editionId: folie.editionId, storyKey: folie.storyKey },
   });
@@ -472,7 +477,7 @@ export async function finalisiereAusgabe(editionId: string, akteur: AusgabeAkteu
     action: AUDIT_ACTIONS.WRAPPED_EDITION_FINALIZED,
     module: WRAPPED_MODULE_ID,
     actorDiscordId: akteur.discordId,
-    actorUsername: akteur.username,
+    actorUsername: akteur.username ?? null,
     targetLabel: edition.periodKey,
     metadata: { editionId, folien: edition._count.slides },
   });
@@ -503,7 +508,7 @@ export async function entsperreAusgabe(editionId: string, akteur: AusgabeAkteur)
     action: AUDIT_ACTIONS.WRAPPED_EDITION_UNLOCKED,
     module: WRAPPED_MODULE_ID,
     actorDiscordId: akteur.discordId,
-    actorUsername: akteur.username,
+    actorUsername: akteur.username ?? null,
     targetLabel: edition.periodKey,
     metadata: { editionId, vorher: edition.status },
   });
@@ -542,7 +547,7 @@ export async function markiereVeroeffentlicht(editionId: string, akteur: Ausgabe
     action: AUDIT_ACTIONS.WRAPPED_EDITION_PUBLISHED,
     module: WRAPPED_MODULE_ID,
     actorDiscordId: akteur.discordId,
-    actorUsername: akteur.username,
+    actorUsername: akteur.username ?? null,
     targetLabel: edition.periodKey,
     metadata: { editionId },
   });

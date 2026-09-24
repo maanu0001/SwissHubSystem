@@ -46,3 +46,4 @@ export * from './vorlagen';
 export * from './ausgabe';
 export * from './momente';
 export * from './zip';
+export * from './ausgabe-tick';

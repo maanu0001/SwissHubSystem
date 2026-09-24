@@ -79,7 +79,7 @@ export async function erstelleMoment(
     action: AUDIT_ACTIONS.WRAPPED_MOMENT_CREATED,
     module: WRAPPED_MODULE_ID,
     actorDiscordId: akteur.discordId,
-    actorUsername: akteur.username,
+    actorUsername: akteur.username ?? null,
     targetLabel: eingabe.title,
     metadata: { momentId: moment.id, happenedOn: eingabe.happenedOn },
   });
@@ -117,7 +117,7 @@ export async function aendereMoment(
     action: AUDIT_ACTIONS.WRAPPED_MOMENT_UPDATED,
     module: WRAPPED_MODULE_ID,
     actorDiscordId: akteur.discordId,
-    actorUsername: akteur.username,
+    actorUsername: akteur.username ?? null,
     targetLabel: eingabe.title,
     metadata: { momentId },
   });
@@ -164,7 +164,7 @@ export async function loescheMoment(momentId: string, akteur: AusgabeAkteur): Pr
     action: AUDIT_ACTIONS.WRAPPED_MOMENT_DELETED,
     module: WRAPPED_MODULE_ID,
     actorDiscordId: akteur.discordId,
-    actorUsername: akteur.username,
+    actorUsername: akteur.username ?? null,
     targetLabel: moment.title,
     metadata: { momentId },
   });

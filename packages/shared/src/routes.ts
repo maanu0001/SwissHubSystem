@@ -104,6 +104,17 @@ export const systemRoutes = {
    * Schriftgroessen eines Desktops zeigt, prueft nichts.
    */
   wrappedBuehne: (campaignId: string): SystemRoute => `/wrapped-buehne/${id(campaignId)}`,
+
+  /*
+   * Die periodischen Ausgaben - Monat und Jahr.
+   *
+   * Unter dem Studio und nicht daneben: es ist dasselbe Modul, dieselbe
+   * Berechtigung und dieselbe Arbeit. Eine zweite Hauptnavigation dafuer
+   * waere ein zweiter Ort, an dem man Wrapped sucht.
+   */
+  wrappedAusgaben: (): SystemRoute => '/system/wrapped/ausgaben',
+  wrappedAusgabe: (editionId: string): SystemRoute => `/system/wrapped/ausgaben/${id(editionId)}`,
+  wrappedMomente: (): SystemRoute => '/system/wrapped/momente',
   hallOfFame: (): SystemRoute => '/clips/hall-of-fame',
   clipRunde: (key: string): SystemRoute => `/clips/runde/${id(key)}`,
   mitglieder: (): SystemRoute => '/members',
