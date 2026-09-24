@@ -259,6 +259,7 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   // --- Premium ---------------------------------------------------------------
   PREMIUM_CHECKOUT_STARTED: 'Bezahlvorgang gestartet',
   PREMIUM_PLAN_UPDATED: 'Premium-Plan geändert',
+  PREMIUM_SUBSCRIPTION_GIFTED: 'Premium verschenkt',
   PREMIUM_SUBSCRIPTION_CANCELLED: 'Abonnement gekündigt',
   PREMIUM_SUBSCRIPTION_RESUMED: 'Abonnement fortgesetzt',
   PREMIUM_MANUAL_SYNC: 'Premium von Hand abgeglichen',
@@ -290,6 +291,7 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
 
   // --- Clips -----------------------------------------------------------------
   CLIP_COMPETITION_CREATED: 'Clip-Runde eröffnet',
+  CLIP_WINNER_REWARDED: 'Clip-Gewinner belohnt',
   CLIP_COMPETITION_FINALIZED: 'Clip-Runde abgeschlossen',
   CLIP_COMPETITION_CANCELLED: 'Clip-Runde abgebrochen',
   CLIP_COMPETITION_REOPENED: 'Clip-Runde wieder aktiviert',

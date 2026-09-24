@@ -79,6 +79,26 @@ export const clipsSettingsSchema = z.object({
   /** Clips schon waehrend der Einreichungsphase zeigen. */
   showClipsDuringSubmission: z.boolean().default(true),
 
+  /**
+   * Der Ersatz, wenn der Gewinner schon Premium hat.
+   *
+   * Die Woche Premium selbst steht nicht hier - sie ist die Zusage des
+   * Wettbewerbs und keine Stellschraube. Fuer den Ersatz gibt es dagegen
+   * keine natuerliche Zahl, deshalb gehoert er ins Dashboard.
+   *
+   * 1000 ist aus den Vorgaben des XP-Systems abgeleitet und nicht geraten:
+   * bei 10 XP je Voice-Minute sind das rund hundert Minuten - ein
+   * Spielabend - und etwa drei Prozent des Weges zum Hoechstlevel (32'500).
+   * Spuerbar, ohne den Levelweg zu entwerten.
+   *
+   * Die Obergrenze liegt bei 10'000, knapp einem Drittel des ganzen Weges.
+   * Sie verhindert die vertippte Null, nicht die bewusste Entscheidung.
+   *
+   * 0 heisst: kein Ersatz. Dann steht im Protokoll, dass nichts vergeben
+   * wurde, und warum.
+   */
+  winnerRewardXp: z.number().int().min(0).max(10_000).default(1000),
+
   announcementChannelId: z.string().nullable().default(null),
   announceStart: z.boolean().default(true),
   announceVoting: z.boolean().default(true),
@@ -105,6 +125,16 @@ const WOCHENTAGE = [
 ];
 
 const clipsSettingsFields: SettingsField[] = [
+  {
+    key: 'winnerRewardXp',
+    type: 'number',
+    label: 'Ersatz-XP, wenn der Gewinner schon Premium hat',
+    description:
+      'Der Gewinner bekommt eine Woche SwissHub Premium. Wer bereits ein laufendes Abo hat, bekommt stattdessen diese XP. 0 schaltet den Ersatz ab.',
+    min: 0,
+    max: 10_000,
+    group: 'Gewinner-Belohnung',
+  },
   {
     key: 'autoCreateWeekly',
     type: 'boolean',

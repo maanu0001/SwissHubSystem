@@ -675,10 +675,60 @@ model ClipCompetition {
 
   entries ClipCompetitionEntry[] @relation("Teilnahmen")
   votes   ClipVote[]
+  reward  ClipCompetitionReward?
 
   @@unique([guildId, key])
   @@index([guildId, status, votingEndsAt])
   @@index([guildId, number])
+}
+
+/// Was der Gewinner einer Runde bekommen hat.
+///
+/// ## Warum das eine eigene Zeile ist und kein Feld an der Runde
+///
+/// Die Zeile **ist** der Riegel. Ein Abschluss kann zweimal laufen - der
+/// Genesungszweig in `finalisiere` gibt eine steckengebliebene Runde nach
+/// fuenf Minuten wieder frei, und das Team kann von Hand nachfassen. Ohne
+/// eigenen Eintrag mit Eindeutigkeit stuende die Pruefung «wurde schon
+/// vergeben?» in der Anwendung, und zwei gleichzeitige Durchgaenge saehen
+/// beide «nein».
+///
+/// Deshalb `@@unique` auf der Runde: die zweite Vergabe scheitert an der
+/// Datenbank, nicht an einer Abfrage, die zu frueh gelesen hat.
+model ClipCompetitionReward {
+  id String @id @default(cuid())
+
+  /// Genau eine Belohnung je Runde.
+  competitionId String          @unique
+  competition   ClipCompetition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  /// Wer sie bekommen hat. Als Discord-Kennung, weil der Bot damit arbeitet.
+  winnerDiscordId String
+
+  kind ClipRewardKind
+
+  /// Bei PREMIUM: das gewaehrte Abonnement. Bleibt stehen, wenn es spaeter
+  /// abgelaufen ist - die Belohnung wurde vergeben, das ist die Tatsache.
+  subscriptionId String?
+
+  /// Bei XP: wie viele tatsaechlich verbucht wurden.
+  xpAmount Int?
+
+  /// Warum es diese Art wurde. Fuer das Protokoll und fuer Rueckfragen.
+  reason String?
+
+  grantedAt DateTime @default(now())
+
+  @@index([winnerDiscordId])
+}
+
+enum ClipRewardKind {
+  /// Sieben Tage SwissHub Premium.
+  PREMIUM
+  /// Der Gewinner hatte bereits Premium - stattdessen XP.
+  XP
+  /// Weder das eine noch das andere moeglich. Siehe `reason`.
+  NONE
 }
 
 /// Die Teilnahme eines Clips an einer Runde.

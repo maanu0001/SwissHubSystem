@@ -359,6 +359,129 @@ export async function endSubscriptionAdministratively(
   return result;
 }
 
+export interface GeschenkInput {
+  discordId: string;
+  /** Wie lange. Sieben Tage beim Clip der Woche. */
+  tage: number;
+  /** Womit - der Produkt-Schluessel aus `products.ts`. */
+  produktSlug?: string;
+  /** Woher das Geschenk kommt. Steht im Protokoll und am Abonnement. */
+  quelle: string;
+  /** Fuer das Protokoll. Ein Scheduler hat keinen. */
+  actor?: SubscriptionActor;
+  jetzt?: Date;
+}
+
+/**
+ * Premium verschenken.
+ *
+ * Fuer Preise - heute der Clip der Woche. Bewusst kein zweiter
+ * Premium-Lebenszyklus: es entsteht ein gewoehnliches Abonnement mit
+ * `currentPeriodEnd` in der Zukunft, und damit greift alles, was es schon
+ * gibt. `findExpiredSubscriptions` holt es nach Ablauf ab, der Discord-Sync
+ * nimmt die Rolle wieder weg, die Uebersicht zaehlt es mit. Ein eigener
+ * Ablaufpfad haette dieselbe Arbeit ein zweites Mal machen muessen - und
+ * beim ersten Umbau eines der beiden vergessen.
+ *
+ * Wer bereits Anspruechen hat, bekommt **nichts**: `null` zurueck, ohne
+ * Fehler. Das ist kein Sonderfall, sondern die Frage, die der Aufrufer
+ * stellt - der Clip der Woche vergibt dann XP statt einer zweiten Woche.
+ * Die Pruefung liegt hier und nicht beim Aufrufer, weil sie in dieselbe
+ * Transaktion gehoert wie das Anlegen; dazwischen darf niemand ein
+ * Abonnement beginnen.
+ *
+ * Auch ein liegengebliebener Checkout-Versuch (`PENDING`) blockiert: er
+ * haelt den Schluessel fuer «hoechstens ein offenes Abonnement», und ihn zu
+ * ueberschreiben hiesse, eine angefangene Zahlung zu verwerfen.
+ */
+export async function schenkePremium(input: GeschenkInput): Promise<SubscriptionWithProduct | null> {
+  const jetzt = input.jetzt ?? new Date();
+  const bis = new Date(jetzt.getTime() + input.tage * 24 * 60 * 60 * 1000);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const benutzer = await tx.user.findUnique({
+      where: { discordId: input.discordId },
+      select: { id: true },
+    });
+    if (!benutzer) {
+      return null;
+    }
+
+    // Dieselbe Sperre wie im Checkout: gesperrt wird der Benutzer, nicht das
+    // Abonnement - es gibt ja vielleicht noch keines.
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${benutzer.id} FOR UPDATE`;
+
+    const offen = await tx.premiumSubscription.findFirst({
+      where: { userId: benutzer.id, activeUserKey: { not: null } },
+    });
+    if (offen) {
+      return null;
+    }
+
+    const produkt = await tx.premiumProduct.findUnique({
+      where: { slug: input.produktSlug ?? 'premium' },
+    });
+    if (!produkt) {
+      return null;
+    }
+
+    return tx.premiumSubscription.create({
+      data: {
+        userId: benutzer.id,
+        discordId: input.discordId,
+        productId: produkt.id,
+        status: 'ACTIVE',
+        activeUserKey: benutzer.id,
+        currentPeriodStart: jetzt,
+        currentPeriodEnd: bis,
+        provider: input.quelle,
+        // Discord ist jetzt im Rueckstand - der Sync holt die Rolle nach.
+        discordSyncStatus: 'PENDING',
+      },
+      include: { product: true },
+    });
+  });
+
+  if (!result) {
+    return null;
+  }
+
+  const { meldeEreignis } = await import('../automation/emit');
+  await meldeEreignis(
+    'premium.activated',
+    {
+      subscriptionId: result.id,
+      discordId: result.discordId,
+      produkt: result.product.slug,
+      laeuftBis: result.currentPeriodEnd?.toISOString() ?? null,
+    },
+    { subjectId: result.discordId, entityId: result.id },
+  );
+
+  await safeRecordAudit({
+    action: AUDIT_ACTIONS.PREMIUM_SUBSCRIPTION_GIFTED,
+    module: PREMIUM_MODULE_ID,
+    actorDiscordId: input.actor?.discordId ?? null,
+    actorUsername: input.actor?.username ?? null,
+    targetDiscordId: input.discordId,
+    targetLabel: result.product.name,
+    success: true,
+    metadata: {
+      subscriptionId: result.id,
+      tage: input.tage,
+      quelle: input.quelle,
+      laeuftBis: result.currentPeriodEnd?.toISOString() ?? null,
+    },
+  });
+
+  logger.info('Premium verschenkt', {
+    subscriptionId: result.id,
+    quelle: input.quelle,
+    tage: input.tage,
+  });
+  return result;
+}
+
 /**
  * Abgelaufene Abonnements aufraeumen.
  *

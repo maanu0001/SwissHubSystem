@@ -2,6 +2,7 @@ import { Prisma, prisma, recordAudit, AUDIT_ACTIONS } from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
 import { AppError } from '@swisshub/shared';
 import { getModuleSettings, isModuleEnabled } from '../module-state';
+import { belohneGewinner } from './belohnung';
 import { CLIPS_MODULE_ID, type ClipsSettings } from './config';
 import { inDerWoche, kalenderwoche } from './woche';
 import { meldeEreignis } from '../automation/emit';
@@ -366,6 +367,38 @@ export async function finalisiere(competitionId: string, optionen: Finalisierung
       include: { clip: { select: { id: true, title: true } } },
     });
     if (eintrag) {
+      /*
+       * Erst belohnen, dann ankuendigen.
+       *
+       * Die Ankuendigung nennt, was es gegeben hat - dafuer muss es das
+       * schon gegeben haben. Und schlaegt die Vergabe fehl, soll auf
+       * Discord nicht «eine Woche Premium» stehen, wo keine vergeben wurde.
+       *
+       * Ein Fehler hier beendet den Abschluss nicht: die Runde ist
+       * ausgezaehlt, die Raenge stehen, der Gewinner ist geschrieben. Das
+       * alles wegen einer misslungenen Belohnung zurueckzudrehen waere die
+       * schlechtere Haelfte des Tauschs. Die Belohnungszeile haelt fest,
+       * dass und warum nichts vergeben wurde.
+       */
+      const einstellungen = await getModuleSettings<ClipsSettings>(CLIPS_MODULE_ID);
+      const belohnung = await belohneGewinner({
+        competitionId,
+        rundenLabel: `Clip of the Week #${runde.number}`,
+        winnerDiscordId: eintrag.submittedByDiscordId,
+        einstellungen,
+        jetzt,
+      }).catch((error: unknown) => {
+        log.error('Belohnung des Gewinners fehlgeschlagen', { competitionId, error });
+        return null;
+      });
+      if (belohnung) {
+        log.info('Gewinner belohnt', {
+          competitionId,
+          art: belohnung.art,
+          schonVergeben: belohnung.schonVergeben,
+        });
+      }
+
       await meldeEreignis(
         'clips.winner',
         {

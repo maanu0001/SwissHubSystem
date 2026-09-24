@@ -18,3 +18,4 @@ export * from './service';
 export * from './abfragen';
 export * from './ankuendigung';
 export * from './tick';
+export * from './belohnung';
