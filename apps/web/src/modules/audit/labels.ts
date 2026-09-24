@@ -312,6 +312,21 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   WRAPPED_ARCHIVED: 'Rückblick archiviert',
   WRAPPED_SNAPSHOT_REBUILT: 'Momentaufnahme neu erzeugt',
 
+  // Die periodischen Ausgaben - Monat und Jahr. «Ausgabe» und nicht
+  // «Rückblick»: die Zeilen darüber gehören dem persönlichen Jahresrückblick,
+  // und im Protokoll nebeneinander wäre sonst nicht zu erkennen, welches von
+  // beiden gemeint ist.
+  WRAPPED_EDITION_CREATED: 'Wrapped-Ausgabe erhoben',
+  WRAPPED_EDITION_REGENERATED: 'Wrapped-Ausgabe neu erhoben',
+  WRAPPED_EDITION_FINALIZED: 'Wrapped-Ausgabe eingefroren',
+  WRAPPED_EDITION_UNLOCKED: 'Wrapped-Ausgabe entsperrt',
+  WRAPPED_EDITION_PUBLISHED: 'Wrapped-Ausgabe als veröffentlicht markiert',
+  WRAPPED_SLIDE_ENABLED: 'Folie eingeschaltet',
+  WRAPPED_SLIDE_DISABLED: 'Folie ausgeschaltet',
+  WRAPPED_MOMENT_CREATED: 'Community Moment erfasst',
+  WRAPPED_MOMENT_UPDATED: 'Community Moment geändert',
+  WRAPPED_MOMENT_DELETED: 'Community Moment gelöscht',
+
   SPIELWAHL_SESSION_CREATED: 'Spielwahl eröffnet',
   SPIELWAHL_SESSION_CLOSED: 'Spielwahl beendet',
   SPIELWAHL_PARTICIPANT_REMOVED: 'Aus der Spielwahl entfernt',

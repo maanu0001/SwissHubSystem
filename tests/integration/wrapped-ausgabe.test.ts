@@ -20,6 +20,9 @@ const AKTEUR = { discordId: '900000000000000051', username: 'testleitung' };
 async function leeren(): Promise<void> {
   await prisma.wrappedSlide.deleteMany({});
   await prisma.wrappedEdition.deleteMany({});
+  // Auch die Kampagnen des persoenlichen Rueckblicks: der letzte Fall unten
+  // legt eine an, und das Schema ueberlebt den Testlauf.
+  await prisma.wrappedCampaign.deleteMany({});
   await prisma.wrappedMoment.deleteMany({});
   await prisma.analyticsUserDaily.deleteMany({});
   await prisma.analyticsDaily.deleteMany({});
