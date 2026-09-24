@@ -264,7 +264,7 @@ describe('Auszeichnungen', () => {
 });
 
 describe('Eingabepruefung', () => {
-  it('nimmt nur die beiden Sichtbarkeitsstufen an', () => {
+  it('nimmt genau die drei Sichtbarkeitsstufen an', () => {
     const basis = {
       visibilityProfile: 'MEMBERS',
       visibilityGames: 'MEMBERS',
@@ -274,7 +274,22 @@ describe('Eingabepruefung', () => {
       discoverable: true,
     };
     expect(schemas.privatsphaereSchema.safeParse(basis).success).toBe(true);
+
+    /*
+     * `PUBLIC` wurde hier ausdruecklich abgelehnt, solange es die Stufe
+     * nicht gab. Jetzt gibt es sie - fuer die oeffentliche Profilseite -,
+     * und sie wird angenommen.
+     *
+     * Was sich **nicht** geaendert hat: niemand bekommt sie automatisch.
+     * Die Migration setzt kein Profil darauf; sie entsteht nur, wenn jemand
+     * sie selbst einstellt. Das prueft `profil-oeffentlich.test.ts`.
+     */
     expect(schemas.privatsphaereSchema.safeParse({ ...basis, visibilityProfile: 'PUBLIC' }).success).toBe(
+      true,
+    );
+
+    // Erfundene Stufen bleiben draussen.
+    expect(schemas.privatsphaereSchema.safeParse({ ...basis, visibilityProfile: 'ALLE' }).success).toBe(
       false,
     );
   });

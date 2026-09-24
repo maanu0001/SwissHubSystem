@@ -291,6 +291,9 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
 
   // --- Clips -----------------------------------------------------------------
   CLIP_COMPETITION_CREATED: 'Clip-Runde eröffnet',
+  PROFILE_AWARD_GRANTED: 'Auszeichnung verliehen',
+  PROFILE_AWARD_REVOKED: 'Auszeichnung entzogen',
+  PROFILE_ADMIN_EDITED: 'Fremdes Profil bearbeitet',
   CLIP_WINNER_REWARDED: 'Clip-Gewinner belohnt',
   CLIP_COMPETITION_FINALIZED: 'Clip-Runde abgeschlossen',
   CLIP_COMPETITION_CANCELLED: 'Clip-Runde abgebrochen',

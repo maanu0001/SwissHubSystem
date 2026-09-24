@@ -273,9 +273,23 @@ describe('Profilbild: Bild und Rand aus demselben Kasten', () => {
   });
 
   it('lässt den Avatar seine Geometrie selbst bestimmen', () => {
+    /*
+     * Die Absicht ist dieselbe geblieben, der Weg nicht.
+     *
+     * Hier stand `style={{ width: size, height: size }}`. Das hielt den
+     * Avatar unabhängig von der Zeilenhöhe - und machte zugleich jede
+     * Größenklasse eines Aufrufers wirkungslos, weil ein Inline-Stil sie
+     * schlägt. Im Profilkopf stand der Avatar dadurch auf jedem Bildschirm
+     * gleich groß, obwohl `size-20 sm:size-24` daneben stand.
+     *
+     * Die Größe kommt jetzt aus einer Variablen, die ein Elternteil je
+     * Breakpoint überschreiben kann. Der Avatar bestimmt seine Geometrie
+     * weiterhin selbst - er lässt sie sich nur von außen sagen. Die Details
+     * prüft `avatar-groesse.test.ts`.
+     */
     expect(avatar).toContain('rounded-full');
     expect(avatar).toContain('overflow-hidden');
-    expect(avatar).toContain('style={{ width: size, height: size }}');
+    expect(avatar).toContain('size-[var(--avatar-size,var(--avatar-eigen))]');
     expect(avatar).toContain('object-cover');
   });
 

@@ -7381,6 +7381,43 @@ model MemberProfile {
   @@index([playStyle])
 }
 
+/// Eine von Hand verliehene Auszeichnung.
+///
+/// ## Warum es die neben den abgeleiteten gibt
+///
+/// Die uebrigen Auszeichnungen stehen in keiner Tabelle - sie werden aus
+/// Turnieren, Clip-Siegen und dem Level gerechnet. Das ist Absicht: eine
+/// Kopie liefe irgendwann auseinander, und niemand koennte einen
+/// Turniersieg vergeben, den es nicht gab.
+///
+/// Manche Auszeichnungen lassen sich aber nicht rechnen. «OG Member»,
+/// «Community Legend» - dafuer gibt es keine Zahl, die jemand erhoben hat,
+/// sondern eine Entscheidung. Solche haben hier ihren Platz.
+///
+/// Die Trennung bleibt scharf: was hier steht, ist eine Verleihung und
+/// niemals eine abgeleitete Auszeichnung. Ein Admin kann «Turniersieger»
+/// nicht von Hand vergeben, weil `key` nur Schluessel aus der Liste der
+/// verleihbaren Arten annimmt.
+model MemberAward {
+  id String @id @default(cuid())
+
+  discordId String
+  /// Schluessel aus `VERLEIHBARE` in `profile/auszeichnungen.ts`.
+  key       String
+
+  /// Wer verliehen hat - fuer das Protokoll und fuer Rueckfragen.
+  grantedByDiscordId String
+  /// Warum. Freiwillig, aber oft das Einzige, was in einem Jahr noch erklaert,
+  /// weshalb jemand sie hat.
+  note               String?
+
+  grantedAt DateTime @default(now())
+
+  /// Einmal je Person und Auszeichnung.
+  @@unique([discordId, key])
+  @@index([discordId])
+}
+
 /// Was ein Mitglied zu einem bestimmten Spiel sagt.
 model MemberGameProfile {
   id        String        @id @default(cuid())

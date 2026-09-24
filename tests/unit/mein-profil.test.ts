@@ -74,7 +74,15 @@ describe('Sidebar: Mein Profil ohne Mitglieder-Permission', () => {
     ['Moderator', MODERATOR],
     ['Administrator', ADMIN],
   ])('zeigt %s den Eintrag «Mein Profil»', (_name, rechte) => {
-    expect(hrefs(person(rechte).navigation)).toContain('/profile');
+    /*
+     * `/profil` und nicht `/profile`.
+     *
+     * Die Selbstauskunft unter `/profile` hatte frueher einen eigenen
+     * Eintrag. Sie gibt es weiterhin - sie haengt jetzt am Profil statt an
+     * der Seitenleiste. Der Punkt dieses Tests bleibt derselbe: wer keinen
+     * Mitgliederbereich sieht, kommt trotzdem an sein eigenes Profil.
+     */
+    expect(hrefs(person(rechte).navigation)).toContain('/profil');
   });
 
   it('zeigt einem Mitglied ohne Berechtigung keinen Mitgliederbereich', () => {
@@ -95,14 +103,14 @@ describe('Sidebar: Mein Profil ohne Mitglieder-Permission', () => {
   it('zeigt dem Moderator weiterhin beides', () => {
     const gefunden = hrefs(person(MODERATOR).navigation);
 
-    expect(gefunden).toContain('/profile');
+    expect(gefunden).toContain('/profil');
     expect(gefunden).toContain('/members');
   });
 
   it('lässt den Administrator unverändert', () => {
     const gefunden = hrefs(person(ADMIN).navigation);
 
-    expect(gefunden).toContain('/profile');
+    expect(gefunden).toContain('/profil');
     expect(gefunden).toContain('/members');
   });
 
@@ -111,7 +119,7 @@ describe('Sidebar: Mein Profil ohne Mitglieder-Permission', () => {
     // zweite Liste, die auseinanderlaufen könnte.
     const gruppen = groupNavigation(person(PREMIUM).navigation);
     const gruppeMitProfil = gruppen.find((gruppe) =>
-      gruppe.items.some((eintrag) => eintrag.href === '/profile'),
+      gruppe.items.some((eintrag) => eintrag.href === '/profil'),
     );
 
     expect(gruppeMitProfil?.id).toBe('overview');
@@ -277,13 +285,13 @@ describe('Active State der Seitenleiste', () => {
   it('markiert «Mein Profil» auf der eigenen Profilseite', () => {
     const eintraege = hrefs(person(PREMIUM).navigation);
 
-    expect(aktiverEintrag('/profile', eintraege)).toBe('/profile');
+    expect(aktiverEintrag('/profil', eintraege)).toBe('/profil');
   });
 
   it('markiert es auch auf einer Unterseite des Profils', () => {
     const eintraege = hrefs(person(PREMIUM).navigation);
 
-    expect(aktiverEintrag('/profile/irgendwas', eintraege)).toBe('/profile');
+    expect(aktiverEintrag('/profil/bearbeiten', eintraege)).toBe('/profil');
   });
 
   it('markiert beim Moderator auf der eigenen Profilseite nicht «Mitglieder»', () => {
@@ -291,7 +299,7 @@ describe('Active State der Seitenleiste', () => {
     // `/members/<id>` und traf den Mitgliedereintrag.
     const eintraege = hrefs(person(MODERATOR).navigation);
 
-    expect(aktiverEintrag('/profile', eintraege)).toBe('/profile');
+    expect(aktiverEintrag('/profil', eintraege)).toBe('/profil');
   });
 
   it('benutzt dieselbe zentrale Regel für Desktop und Mobile', () => {

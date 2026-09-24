@@ -2,7 +2,8 @@
 
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { members, searchMembers } from '@swisshub/modules';
+import { AUDIT_ACTIONS, recordAudit } from '@swisshub/database';
+import { members, profile, searchMembers } from '@swisshub/modules';
 import { AppError, sanitizeText, snowflakeSchema } from '@swisshub/shared';
 import { defineAction } from '@/server/action';
 import { memberActor, memberViewer } from '@/server/members';
@@ -223,3 +224,118 @@ export const adjustMemberXpAction = defineAction(
     return { xp: ergebnis.xpAfter, level: ergebnis.levelAfter };
   },
 );
+
+/*
+ * Auszeichnungen und fremde Profile.
+ *
+ * Alle drei tragen eine `permission` in der Definition, und die prueft
+ * `defineAction`, bevor der Rumpf laeuft. Das ist der Unterschied zu einer
+ * Oberflaeche, die den Knopf nur versteckt: wer die Kennung eines anderen
+ * in die Anfrage schreibt, kommt trotzdem nicht durch - die Pruefung haengt
+ * an der Berechtigung des Absenders und nicht daran, welche Kennung er
+ * mitschickt.
+ */
+
+const auszeichnungSchema = z.object({
+  discordId: snowflakeSchema,
+  key: z.string().min(1).max(64),
+  notiz: z
+    .string()
+    .max(200)
+    .transform((wert) => sanitizeText(wert, 200))
+    .nullish(),
+});
+
+/** Eine verleihbare Auszeichnung vergeben. */
+export const verleiheAuszeichnungAction = defineAction(
+  {
+    name: 'members.awards.grant',
+    module: 'members',
+    permission: members.MEMBER_PERMISSIONS.awardsManage,
+    schema: auszeichnungSchema,
+    rateLimit: 'memberCenter',
+  },
+  async ({ ctx, input }) => {
+    const neu = await profile.verleihe(
+      { discordId: ctx.user.discordId, username: ctx.user.username ?? ctx.user.discordId },
+      { discordId: input.discordId, key: input.key, notiz: input.notiz ?? null },
+    );
+    await profilNeuLaden(input.discordId);
+    return { neu };
+  },
+);
+
+/** Eine verliehene Auszeichnung wieder entziehen. */
+export const entzieheAuszeichnungAction = defineAction(
+  {
+    name: 'members.awards.revoke',
+    module: 'members',
+    permission: members.MEMBER_PERMISSIONS.awardsManage,
+    schema: auszeichnungSchema.pick({ discordId: true, key: true }),
+    rateLimit: 'memberCenter',
+  },
+  async ({ ctx, input }) => {
+    const entzogen = await profile.entziehe(
+      { discordId: ctx.user.discordId, username: ctx.user.username ?? ctx.user.discordId },
+      input.discordId,
+      input.key,
+    );
+    await profilNeuLaden(input.discordId);
+    return { entzogen };
+  },
+);
+
+/**
+ * Das oeffentliche Profil eines Mitglieds aendern.
+ *
+ * Dieselben Felder und dasselbe Schema wie im eigenen Editor -
+ * `profile.allgemeinSchema`. Es gibt genau ein Profilmodell; ein zweites
+ * fuer die Verwaltung waere ein zweiter Ort, an dem dieselben Felder
+ * gepflegt werden muessten, und irgendwann stuende an einem der beiden
+ * etwas anderes.
+ */
+export const bearbeiteFremdesProfilAction = defineAction(
+  {
+    name: 'members.profile.edit',
+    module: 'members',
+    permission: members.MEMBER_PERMISSIONS.profileEdit,
+    schema: z.object({ discordId: snowflakeSchema }).and(profile.allgemeinSchema),
+    rateLimit: 'memberCenter',
+  },
+  async ({ ctx, input }) => {
+    const { discordId, ...felder } = input;
+    await profile.speichereAllgemein(discordId, felder);
+
+    await recordAudit({
+      action: AUDIT_ACTIONS.PROFILE_ADMIN_EDITED,
+      module: 'members',
+      actorDiscordId: ctx.user.discordId,
+      actorUsername: ctx.user.username ?? null,
+      targetDiscordId: discordId,
+      targetLabel: felder.displayName ?? discordId,
+      success: true,
+      // Was geaendert wurde, nicht womit: die Werte stehen im Profil, und
+      // das Protokoll soll keine zweite Kopie davon fuehren.
+      metadata: { felder: Object.keys(felder) },
+    });
+
+    await profilNeuLaden(discordId);
+    return { ok: true };
+  },
+);
+
+/**
+ * Nach einer Aenderung von aussen: die Seiten neu laden lassen.
+ *
+ * Auch die oeffentliche - sonst zeigte sie bis zu einer Minute lang den
+ * alten Stand, und wer gerade etwas entfernt hat, saehe es dort noch.
+ */
+async function profilNeuLaden(discordId: string): Promise<void> {
+  revalidatePath(`/members/${discordId}`);
+  revalidatePath(`/spieler/${discordId}`);
+  const slug = await profile.slugVon(discordId).catch(() => null);
+  if (slug) {
+    revalidatePath(`/u/${slug}`);
+    revalidatePath(`/u/${slug}/karte`);
+  }
+}

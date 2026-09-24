@@ -93,6 +93,29 @@ export const MEMBER_PERMISSIONS = {
   notesCreate: 'members.notes.create',
   notesEdit: 'members.notes.edit',
   notesDelete: 'members.notes.delete',
+
+  /**
+   * Das oeffentliche Profil eines anderen bearbeiten.
+   *
+   * Getrennt von `rolesManage` und den Notizen, weil es etwas anderes ist:
+   * hier aendert jemand, was ein Mitglied ueber sich erzaehlt. Das ist
+   * gelegentlich noetig - ein Name, der gegen die Regeln verstoesst, ein
+   * Text, der weg muss - und soll deshalb keine Nebenwirkung einer
+   * Moderationsberechtigung sein.
+   *
+   * Bearbeitet werden nur Profilfelder. Tickets, Jail, Verifikation und
+   * Notizen haben ihre eigenen Berechtigungen und kommen hier nicht mit.
+   */
+  profileEdit: 'members.profile.edit',
+
+  /**
+   * Auszeichnungen verleihen und entziehen.
+   *
+   * Nur die verleihbaren - «OG Member», «Community Legend». Die gerechneten
+   * bleiben unantastbar, und zwar nicht wegen dieser Berechtigung, sondern
+   * weil es fuer sie keinen Weg gibt, sie von Hand zu setzen.
+   */
+  awardsManage: 'members.awards.manage',
 } as const;
 
 const sicht = (
@@ -199,4 +222,16 @@ export const MEMBER_CENTER_PERMISSIONS: PermissionDefinition[] = [
     true,
   ),
   sicht(MEMBER_PERMISSIONS.notesDelete, 'Notizen löschen', 'Interne Notizen löschen.', true),
+  sicht(
+    MEMBER_PERMISSIONS.profileEdit,
+    'Fremdes Profil bearbeiten',
+    'Das öffentliche Profil eines Mitglieds ändern - Name, Text, Spiele, Gestaltung.',
+    true,
+  ),
+  sicht(
+    MEMBER_PERMISSIONS.awardsManage,
+    'Auszeichnungen verleihen',
+    'Verleihbare Auszeichnungen wie «OG Member» vergeben und entziehen. Gerechnete bleiben unberührt.',
+    true,
+  ),
 ];

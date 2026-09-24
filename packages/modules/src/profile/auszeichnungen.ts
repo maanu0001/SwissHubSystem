@@ -298,6 +298,108 @@ export interface Auszeichnung {
   erreicht: boolean;
   /** `null`, wenn sich dafuer nichts sinnvoll zaehlen laesst. */
   fortschritt: { erreicht: number; noetig: number } | null;
+  /** Von Hand verliehen statt gerechnet - siehe `VERLEIHBARE`. */
+  verliehen?: boolean;
+}
+
+/**
+ * Auszeichnungen, die jemand vergibt statt sie zu erreichen.
+ *
+ * ## Warum es sie ueberhaupt gibt
+ *
+ * Alles oben wird gerechnet, und das ist gut so: ein Turniersieg
+ * entsteht, indem jemand ein Turnier gewinnt, und nicht, indem ein Admin
+ * einen Haken setzt. Wer das aufweicht, hat ein Profil, das Erfolge zeigt,
+ * die die Daten nicht hergeben.
+ *
+ * Es gibt aber Dinge, die sich nicht rechnen lassen. Wer von Anfang an
+ * dabei war, als es noch keine Analytics gab. Wer den Server durch eine
+ * schwierige Zeit getragen hat. Dafuer gibt es keine Zahl, sondern eine
+ * Entscheidung - und die trifft ein Mensch.
+ *
+ * ## Die Trennung
+ *
+ * Diese Liste und `ARTEN` ueberschneiden sich nicht, und das prueft ein
+ * Test. Ein Admin kann deshalb «Turniersieger» nicht von Hand vergeben:
+ * der Schluessel steht hier nicht, und die Aktion nimmt nur Schluessel von
+ * hier an.
+ *
+ * Keine `erfuellt`-Funktion: es gibt keine Bedingung. Entweder jemand hat
+ * sie bekommen, oder nicht.
+ */
+export interface VerleihbareArt {
+  key: string;
+  label: string;
+  beschreibung: string;
+  symbol: string;
+  stufe: Stufe;
+}
+
+export const VERLEIHBARE: readonly VerleihbareArt[] = [
+  {
+    key: 'og-member',
+    label: 'OG Member',
+    beschreibung: 'War da, als der SwissHub noch klein war.',
+    symbol: 'Flame',
+    stufe: 'gold',
+  },
+  {
+    key: 'community-legend',
+    label: 'Community Legend',
+    beschreibung: 'Hat den SwissHub zu dem gemacht, was er ist.',
+    symbol: 'Crown',
+    stufe: 'gold',
+  },
+  {
+    key: 'helfer',
+    label: 'Gute Seele',
+    beschreibung: 'Hilft anderen, ohne dass jemand danach fragt.',
+    symbol: 'HeartHandshake',
+    stufe: 'silber',
+  },
+  {
+    key: 'event-held',
+    label: 'Event-Held',
+    beschreibung: 'Hat einen Abend getragen, an den sich alle erinnern.',
+    symbol: 'PartyPopper',
+    stufe: 'silber',
+  },
+  {
+    key: 'bug-jaeger',
+    label: 'Bug-Jäger',
+    beschreibung: 'Hat einen Fehler gefunden, den sonst niemand gesehen hat.',
+    symbol: 'Bug',
+    stufe: 'bronze',
+  },
+] as const;
+
+/** Eine verleihbare Art nachschlagen. `undefined`, wenn es sie nicht gibt. */
+export function verleihbareArt(key: string): VerleihbareArt | undefined {
+  return VERLEIHBARE.find((art) => art.key === key);
+}
+
+/** Verleihungen in Auszeichnungen umwandeln - fuer die Anzeige. */
+export function ausVerleihungen(schluessel: readonly string[]): Auszeichnung[] {
+  return schluessel.flatMap((key) => {
+    const art = verleihbareArt(key);
+    if (!art) {
+      // Ein Schluessel, den es nicht mehr gibt: lieber weglassen als eine
+      // Auszeichnung ohne Namen zeigen.
+      return [];
+    }
+    return [
+      {
+        key: art.key,
+        label: art.label,
+        beschreibung: art.beschreibung,
+        symbol: art.symbol,
+        stufe: art.stufe,
+        erreicht: true,
+        fortschritt: null,
+        verliehen: true,
+      },
+    ];
+  });
 }
 
 /**

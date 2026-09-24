@@ -266,7 +266,9 @@ describe('«Modul sehen» - bestehende Rollen', () => {
     expect(module.has('moderation')).toBe(false);
     // Das eigene Profil ja - die Mitgliedersuche nicht. Beide gehoeren zum
     // Modul «Mitglieder»; «Modul sehen» oeffnet den Bereich, nicht die Suche.
-    expect(seiten.has('/profile')).toBe(true);
+    // `/profil` ist der Profil-Eintrag; die Selbstauskunft unter `/profile`
+    // hat keinen eigenen mehr und haengt am Profil.
+    expect(seiten.has('/profil')).toBe(true);
     expect(seiten.has('/members')).toBe(false);
   });
 });

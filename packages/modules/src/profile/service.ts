@@ -7,6 +7,7 @@ import * as angaben from './angaben';
 import * as auszeichnungen from './auszeichnungen';
 import * as gestaltung from './gestaltung';
 import * as showcase from './showcase';
+import { verliehenAn } from './verleihung';
 import * as socials from './socials';
 import { zeigeFelder, type AngezeigtesFeld } from './spielfelder';
 
@@ -246,22 +247,24 @@ export async function ladeProfilFuer(
    * sind ohnehin oeffentlich (das Leaderboard zeigt jedes Level), und die
    * Vitrine braucht sie.
    */
-  const [level, spiele, socialZeilen, vitrineZeilen, turniere, clipBilanz, events] = await Promise.all([
-    ladeLevel(discordId),
-    profil.id && zeigeSpiele ? ladeSpiele(profil.id) : Promise.resolve([]),
-    profil.id && zeigeSocials
-      ? prisma.memberSocialLink.findMany({
-          where: { profileId: profil.id },
-          orderBy: { sortOrder: 'asc' },
-        })
-      : Promise.resolve([]),
-    profil.id
-      ? prisma.memberShowcase.findMany({ where: { profileId: profil.id }, orderBy: { slot: 'asc' } })
-      : Promise.resolve([]),
-    ladeTurniere(discordId),
-    ladeClipBilanz(discordId),
-    prisma.calendarRegistration.count({ where: { discordId, status: 'CONFIRMED' } }),
-  ]);
+  const [level, spiele, socialZeilen, vitrineZeilen, turniere, clipBilanz, events, verliehen] =
+    await Promise.all([
+      ladeLevel(discordId),
+      profil.id && zeigeSpiele ? ladeSpiele(profil.id) : Promise.resolve([]),
+      profil.id && zeigeSocials
+        ? prisma.memberSocialLink.findMany({
+            where: { profileId: profil.id },
+            orderBy: { sortOrder: 'asc' },
+          })
+        : Promise.resolve([]),
+      profil.id
+        ? prisma.memberShowcase.findMany({ where: { profileId: profil.id }, orderBy: { slot: 'asc' } })
+        : Promise.resolve([]),
+      ladeTurniere(discordId),
+      ladeClipBilanz(discordId),
+      prisma.calendarRegistration.count({ where: { discordId, status: 'CONFIRMED' } }),
+      verliehenAn(discordId),
+    ]);
 
   const grundlage: auszeichnungen.Grundlage = {
     beitrittAm: spiegel.joinedAt,
@@ -349,7 +352,22 @@ export async function ladeProfilFuer(
     ...(zeigeSpiele ? { spiele } : {}),
     ...(zeigeSocials ? { socials: socialAnzeigen } : {}),
     vitrine,
-    auszeichnungen: eigenes ? auszeichnungen.bewerte(grundlage) : erreichte,
+    /*
+     * Verliehene zuerst, dann die gerechneten.
+     *
+     * Vereinigt wird hier und nicht in der Anzeige: es gibt genau eine
+     * Liste von Auszeichnungen, und sie entsteht an einer Stelle. Zwei
+     * Listen, die die Oberflaeche zusammensetzt, waeren zwei Stellen, an
+     * denen eine davon vergessen werden kann - und auf der oeffentlichen
+     * Seite faellt das niemandem auf.
+     *
+     * Verliehene stehen vorn: sie sind seltener, und jemand hat sich etwas
+     * dabei gedacht.
+     */
+    auszeichnungen: [
+      ...auszeichnungen.ausVerleihungen(verliehen),
+      ...(eigenes ? auszeichnungen.bewerte(grundlage) : erreichte),
+    ],
     ...(eigenes && profil.visibilityProfile === 'PUBLIC' && zeile?.publicSlug
       ? { oeffentlicherSlug: zeile.publicSlug }
       : {}),

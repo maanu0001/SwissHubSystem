@@ -82,9 +82,9 @@ export function AbschnittPrivatsphaere({
           Was du hier verbirgst, wird für andere gar nicht erst geladen - nicht nur ausgeblendet. Dein
           Discord-Name, dein Avatar und dein Level bleiben sichtbar; die zeigt der Server ohnehin überall.
           <br />
-          <strong className="font-medium text-foreground">Öffentlich</strong> heisst wirklich öffentlich:
-          ohne Anmeldung, über deinen Profil-Link, für jeden im Netz. «Angaben» ist dabei der Hauptschalter
-          - steht er nicht auf öffentlich, gibt es deine öffentliche Seite gar nicht.
+          <strong className="font-medium text-foreground">Öffentlich</strong> heisst wirklich öffentlich: ohne
+          Anmeldung, über deinen Profil-Link, für jeden im Netz. «Angaben» ist dabei der Hauptschalter - steht
+          er nicht auf öffentlich, gibt es deine öffentliche Seite gar nicht.
         </span>
       </p>
 

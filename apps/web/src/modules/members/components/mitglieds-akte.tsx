@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/shared/page-header';
+import { CommunityProfil } from './community-profil';
 import { ProfilAvatar } from '@/modules/members/components/profil-avatar';
 import { KopierKnopf } from '@/modules/members/components/kopier-knopf';
 import { RoleBadge } from '@/components/shared/role-badge';
@@ -70,6 +71,14 @@ const REITER = [
   { id: 'moderation', label: 'Moderation', section: 'moderation' },
   { id: 'appeals', label: 'Entbannungsanträge', section: 'appeals' },
   { id: 'notizen', label: 'Notizen', section: 'notes' },
+  /*
+   * Das Community-Profil - was ein Mitglied ueber sich erzaehlt.
+   *
+   * Ohne `section`: die uebrigen Reiter haengen an den Sichtbarkeiten des
+   * Member Center, dieser an zwei Verwaltungsberechtigungen. Er wird
+   * deshalb unten gesondert gefiltert.
+   */
+  { id: 'community', label: 'Community-Profil' },
 ] as const;
 
 /**
@@ -159,7 +168,18 @@ export async function MitgliedsAkte({
       : null;
 
   const selbst = basic.discordId === context.user.discordId;
+  const darfProfilBearbeiten = can(context, members.MEMBER_PERMISSIONS.profileEdit);
+  const darfAuszeichnungen = can(context, members.MEMBER_PERMISSIONS.awardsManage);
+
   const reiter = REITER.filter((eintrag) => {
+    if (eintrag.id === 'community') {
+      /*
+       * Nicht im eigenen Profil: dort ist «Mein Profil» der Ort dafuer, mit
+       * dem vollen Editor. Ein zweiter, kleinerer Editor daneben waere eine
+       * zweite Stelle fuer dieselben Felder.
+       */
+      return !selbst && (darfProfilBearbeiten || darfAuszeichnungen);
+    }
     if (!('section' in eintrag)) {
       return true;
     }
@@ -556,6 +576,13 @@ export async function MitgliedsAkte({
                     ))}
                   </ul>
                 )
+              ) : aktiv === 'community' ? (
+                <CommunityProfil
+                  discordId={basic.discordId}
+                  csrfToken={csrfToken}
+                  darfBearbeiten={darfProfilBearbeiten}
+                  darfAuszeichnungen={darfAuszeichnungen}
+                />
               ) : aktiv === 'notizen' ? (
                 fehler.has('notes') ? (
                   nichtVerfuegbar

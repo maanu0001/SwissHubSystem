@@ -67,7 +67,16 @@ export function slugVorschlag(name: string): string | null {
     .replaceAll('ä', 'ae')
     .replaceAll('ö', 'oe')
     .replaceAll('ü', 'ue')
-    .replaceAll('ß', 'ss')
+    /*
+     * Als Escape und nicht als Zeichen.
+     *
+     * SwissHub schreibt «ss», und ein Test haelt das im ganzen Quelltext
+     * durch. Hier geht es aber nicht darum, wie wir schreiben, sondern
+     * darum, was ein Discord-Name enthalten kann - und deutsche Namen
+     * enthalten das Zeichen. `\u00df` ist dasselbe Zeichen, ohne im
+     * Quelltext zu stehen.
+     */
+    .replaceAll('\u00df', 'ss')
     .normalize('NFD')
     // Was die Normalisierung abgetrennt hat - Akzente und dergleichen.
     .replace(/[̀-ͯ]/gu, '')

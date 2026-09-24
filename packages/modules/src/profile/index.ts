@@ -21,5 +21,6 @@ export * from './service';
 export * from './showcase';
 export * from './oeffentlich';
 export * from './slug';
+export * from './verleihung';
 export * from './socials';
 export * from './spielfelder';
