@@ -273,6 +273,24 @@ export const spielwahlModule: ModuleDefinition = registerModule({
       module: SPIELWAHL_MODULE_ID,
     },
   ],
+  /*
+   * Der Spielekatalog stand hier frueher als zweiter Eintrag der
+   * Seitenleiste. Er gehoert aber nicht neben «Was spielen wir?», sondern
+   * darunter: man pflegt ihn selten, und daneben verwaltet man ohnehin die
+   * uebrigen Vorgaben des Moduls.
+   *
+   * Die Seite selbst ist unveraendert geblieben - dieselbe Adresse, dieselbe
+   * Oberflaeche, dieselbe Berechtigung. Nur der Weg dorthin ist ein anderer.
+   */
+  managementLinks: [
+    {
+      href: '/was-spielen-wir/games',
+      label: 'Spielekatalog',
+      description: 'Die Spiele pflegen, aus denen alle Module auswählen - auch Turniere, Clips und Profile.',
+      icon: 'Gamepad2',
+      permission: SPIELWAHL_PERMISSIONS.gamesManage,
+    },
+  ],
   navigation: [
     {
       href: '/was-spielen-wir',
@@ -283,15 +301,6 @@ export const spielwahlModule: ModuleDefinition = registerModule({
       group: 'modules',
       order: 26,
       altPermissions: [SPIELWAHL_PERMISSIONS.create, SPIELWAHL_PERMISSIONS.manage],
-    },
-    {
-      href: '/was-spielen-wir/games',
-      label: 'Spielekatalog',
-      description: 'Die Spiele pflegen, aus denen alle Module auswählen',
-      permission: SPIELWAHL_PERMISSIONS.gamesManage,
-      icon: 'Gamepad2',
-      group: 'modules',
-      order: 27,
     },
   ],
 });

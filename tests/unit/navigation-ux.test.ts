@@ -73,13 +73,13 @@ describe('Sichtbarkeit bleibt unverändert', () => {
       buildNavigation(rechteVon([]), ALLE_MODULE)
         .map((eintrag) => eintrag.href)
         .sort(),
-    ).toEqual(['/entdecken', '/profil', '/profile']);
+    ).toEqual(['/profil']);
 
     expect(
       buildNavigation(rechteVon([]), ALLE_MODULE, ALLE_SIGNALE)
         .map((eintrag) => eintrag.href)
         .sort(),
-    ).toEqual(['/entdecken', '/profil', '/profile', '/xp-gluecksrad']);
+    ).toEqual(['/profil', '/xp-gluecksrad']);
   });
 
   it('zeigt ohne members.view weiterhin keinen Mitgliederbereich', () => {
@@ -170,12 +170,7 @@ describe('Schnellnavigation', () => {
   it('bietet einem Mitglied ohne Rechte nur seine eigenen Bereiche an', () => {
     const ohneRechte = ausGruppen(groupNavigation(buildNavigation(rechteVon([]), ALLE_MODULE, ALLE_SIGNALE)));
 
-    expect(ohneRechte.map((eintrag) => eintrag.href).sort()).toEqual([
-      '/entdecken',
-      '/profil',
-      '/profile',
-      '/xp-gluecksrad',
-    ]);
+    expect(ohneRechte.map((eintrag) => eintrag.href).sort()).toEqual(['/profil', '/xp-gluecksrad']);
     expect(ohneRechte.some((eintrag: Eintrag) => eintrag.href === '/members')).toBe(false);
   });
 

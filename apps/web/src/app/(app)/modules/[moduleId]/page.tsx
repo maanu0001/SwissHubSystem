@@ -12,6 +12,7 @@ import {
 } from '@swisshub/modules';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { NavIcon } from '@/components/layout/nav-icon';
 import { EmptyState } from '@/components/shared/states';
 import { SettingsForm } from '@/modules/configuration/components/settings-form';
 import { HealthChecks } from '@/modules/configuration/components/health-checks';
@@ -67,6 +68,16 @@ export default async function ModuleSettingsPage({
   const checks = definition.healthChecks ? await definition.healthChecks(healthContext).catch(() => []) : [];
   const fields = definition.settingsFields ?? [];
 
+  /*
+   * Die Verweise pruefen ihre eigene Berechtigung.
+   *
+   * Wer die Einstellungen eines Moduls sehen darf, darf nicht automatisch
+   * jede seiner Verwaltungsseiten oeffnen - der Spielekatalog haengt an
+   * `spielwahl.games.manage` und nicht an `settings.view`. Ein Verweis auf
+   * eine Seite, die danach mit 403 antwortet, waere schlimmer als keiner.
+   */
+  const verwaltung = (definition.managementLinks ?? []).filter((eintrag) => can(context, eintrag.permission));
+
   return (
     <>
       <Link
@@ -91,6 +102,35 @@ export default async function ModuleSettingsPage({
           </CardContent>
         ) : null}
       </Card>
+
+      {verwaltung.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Verwalten</CardTitle>
+            <CardDescription>
+              Eigene Seiten dieses Moduls. Sie stehen nicht in der Seitenleiste - man braucht sie selten, und
+              hier sucht man sie.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            {verwaltung.map((eintrag) => (
+              <Link
+                key={eintrag.href}
+                href={eintrag.href}
+                className="flex items-start gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
+              >
+                <span className="icon-chip size-10 shrink-0 [&_svg]:size-4">
+                  <NavIcon name={eintrag.icon} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">{eintrag.label}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">{eintrag.description}</span>
+                </span>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

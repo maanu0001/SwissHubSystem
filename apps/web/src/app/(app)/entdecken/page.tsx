@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { profile } from '@swisshub/modules';
+import { PageHeader } from '@/components/shared/page-header';
 import { Pagination } from '@/components/shared/pagination';
 import { EntdeckenFilter } from '@/modules/profile/components/entdecken-filter';
 import { EntdeckenKarte } from '@/modules/profile/components/entdecken-karte';
@@ -78,9 +79,18 @@ export default async function EntdeckenPage({
 
   return (
     <div className="space-y-6">
-      {/* Keine eigene Kopfzeile: Titel und Beschreibung stehen schon in der
-          Navigation und damit in `AppHeader`. Sie hier zu wiederholen hiesse,
-          sie an zwei Stellen pflegen zu muessen. */}
+      {/*
+       * Eine eigene Kopfzeile, seit der Navigationseintrag weg ist.
+       *
+       * Solange «Mitglieder entdecken» in der Seitenleiste stand, lieferte
+       * `AppHeader` Titel und Beschreibung, und beides hier zu wiederholen
+       * waere doppelt gewesen. Ohne den Eintrag liefert er nichts mehr - die
+       * Seite stuende sonst ohne Ueberschrift da.
+       */}
+      <PageHeader
+        title="Mitglieder entdecken"
+        description="Mitglieder nach Spiel, Plattform und Spielzeit finden"
+      />
       <EntdeckenFilter spiele={spiele} />
 
       {seite.karten.length === 0 ? (

@@ -204,6 +204,17 @@ export async function resolveNavigationSignals(): Promise<Set<string>> {
   return gesetzt;
 }
 
+/** Eine eigene Verwaltungsseite eines Moduls - siehe `managementLinks`. */
+export interface ModuleManagementLink {
+  href: string;
+  label: string;
+  description: string;
+  /** Lucide Icon Name. */
+  icon: string;
+  /** Wer die Seite oeffnen darf. Der Verweis erscheint nur fuer ihn. */
+  permission: string;
+}
+
 export interface ModuleDefinition {
   id: string;
   name: string;
@@ -226,6 +237,20 @@ export interface ModuleDefinition {
   settingsFields?: SettingsField[];
   /** Schema-Version der Einstellungen (für spätere Migrationen). */
   configVersion?: number;
+  /**
+   * Verwaltungsflaechen, die zu diesem Modul gehoeren, aber eine eigene
+   * Seite brauchen.
+   *
+   * Ein Formularfeld reicht fuer eine Zahl oder einen Kanal. Ein Katalog mit
+   * Suche, Cover und Archivierung ist eine Seite - er passt in kein Feld,
+   * und ihn in die Seitenleiste zu haengen gaebe einem Werkzeug, das man
+   * vielleicht monatlich braucht, denselben Rang wie einem Bereich, den man
+   * taeglich oeffnet.
+   *
+   * Der Verweis loest beides: die Seite bleibt, wo sie ist, und gefunden
+   * wird sie dort, wo man dieses Modul ohnehin einstellt.
+   */
+  managementLinks?: ModuleManagementLink[];
   /** Discord-Berechtigungen, die der Bot für dieses Modul benötigt. */
   requiredDiscordPermissions?: DiscordPermissionName[];
   /** Zusätzliche Prüfungen für die Modul-Gesundheit (siehe `health.ts`). */

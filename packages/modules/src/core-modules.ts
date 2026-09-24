@@ -102,11 +102,14 @@ registerModule({
     },
     {
       /*
-       * Das Community-Profil.
+       * Das Community-Profil - der einzige Profil-Eintrag der Seitenleiste.
        *
-       * Steht vor «Meine Daten», weil es fuer die meisten Mitglieder das
-       * ist, was sie mit «mein Profil» meinen: was andere von ihnen sehen.
-       * Die Akte darunter bleibt, sie beantwortet eine andere Frage.
+       * Daneben standen frueher «Mitglieder entdecken» und «Meine Daten».
+       * Beide Seiten gibt es weiterhin, sie haengen jetzt aber am Profil
+       * statt an der Seitenleiste: die Suchliste dort, wo man einstellt, ob
+       * man in ihr auftaucht, und die Selbstauskunft dort, wo man ohnehin
+       * nach den eigenen Daten sieht. Drei Eintraege fuer eine Person waren
+       * einer zu viel - und zwei davon besucht man im Jahr einmal.
        */
       href: '/profil',
       label: 'Mein Profil',
@@ -116,55 +119,6 @@ registerModule({
       icon: 'UserRound',
       group: 'overview',
       order: 18,
-    },
-    {
-      href: '/entdecken',
-      label: 'Mitglieder entdecken',
-      description: 'Mitglieder nach Spiel, Plattform und Spielzeit finden',
-      // Das Profil eines anderen liegt unter `/spieler/<id>` und gehoert
-      // hierher: von hier kommt man, und «Mein Profil» darf nicht ueber dem
-      // Profil eines anderen stehen.
-      titlePrefix: '/spieler',
-      /*
-       * Auch `baseline`: die Community soll sich finden koennen. Haenge das
-       * an eine Verwaltungsberechtigung, und ein gewoehnliches Mitglied
-       * sieht die anderen nicht - dann braucht niemand ein Profil.
-       */
-      permission: 'members.view.basic.own',
-      baseline: true,
-      icon: 'UserSearch',
-      group: 'overview',
-      order: 19,
-    },
-    {
-      href: '/profile',
-      label: 'Meine Daten',
-      description: 'Die eigenen Daten im SwissHub System',
-      /*
-       * Das eigene Profil haengt an der Anmeldung, nicht an einer Zuteilung.
-       *
-       * Dieser Eintrag gehoert zum Mitglieder-Modul - und damit hing er an
-       * `members.module.view`. Eine Rolle ohne den Mitgliederbereich verlor
-       * dadurch beides auf einmal: die Mitgliedersuche, die sie nicht haben
-       * sollte, **und** den Weg zum eigenen Profil, den sie braucht. Wer sein
-       * eigenes Profil sehen will, sollte dafuer nicht den Zugang zu allen
-       * anderen bekommen muessen.
-       *
-       * `baseline` ist genau dafuer da und schon vorhanden - siehe
-       * `NavigationEntry.baseline`. Kein Sonderfall in der Seitenleiste, keine
-       * zweite Sichtbarkeitsregel: der Eintrag ueberlebt die Modulsperre und
-       * die Rechtepruefung, weil er an der Anmeldung haengt.
-       *
-       * Sichtbar ist nicht erlaubt: welche Abschnitte das Profil zeigt,
-       * entscheidet weiterhin der Aggregator je Abschnitt und je
-       * Geltungsbereich. Und `members.view` bleibt unberuehrt - der Eintrag
-       * daneben fuehrt weiterhin nur, wer ihn hat.
-       */
-      permission: 'members.view.basic.own',
-      baseline: true,
-      icon: 'UserRound',
-      group: 'overview',
-      order: 20,
     },
   ],
 });
