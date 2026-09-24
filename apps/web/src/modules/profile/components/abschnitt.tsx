@@ -21,7 +21,7 @@ export function Abschnitt({
   return (
     <section className="pr-auftritt" style={{ '--pr-verzug': `${verzug}ms` } as React.CSSProperties}>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">{titel}</h2>
+        <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">{titel}</h3>
         {notiz ? <div className="text-xs text-muted-foreground">{notiz}</div> : null}
       </div>
       {children}

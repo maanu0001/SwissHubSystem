@@ -93,9 +93,11 @@ export function ProfilHero({ ansicht }: { ansicht: profile.ProfilAnsicht }): Rea
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h1 className="min-w-0 break-words text-2xl font-bold leading-tight sm:text-3xl lg:text-4xl">
+              {/* `h2` und nicht `h1`: das einzige `h1` der Anwendung steht in
+                  `AppHeader`. Ein zweites wäre für Screenreader ein Fehler. */}
+              <h2 className="min-w-0 break-words text-2xl font-bold leading-tight sm:text-3xl lg:text-4xl">
                 {identitaet.discordName}
-              </h1>
+              </h2>
               {identitaet.profilname ? (
                 <span className="text-sm text-muted-foreground sm:text-base">«{identitaet.profilname}»</span>
               ) : null}

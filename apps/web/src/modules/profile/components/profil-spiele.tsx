@@ -53,7 +53,7 @@ function SpielKachel({ spiel }: { spiel: profile.ProfilSpiel }): React.JSX.Eleme
 
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <h3 className="min-w-0 break-words text-sm font-semibold leading-tight">{spiel.name}</h3>
+          <h4 className="min-w-0 break-words text-sm font-semibold leading-tight">{spiel.name}</h4>
           {spiel.favorit ? (
             <Star
               className="size-4 shrink-0 fill-[hsl(45_92%_58%)] text-[hsl(45_92%_58%)]"

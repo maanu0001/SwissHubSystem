@@ -253,15 +253,17 @@ describe('XP-Glücksrad in der Seitenleiste', () => {
  * Einträge, die bewusst ohne Berechtigung erscheinen.
  *
  * `baseline` heisst: der Eintrag hängt an der Anmeldung, nicht an einer
- * Zuteilung - und beide hier haben denselben Grund. Das XP-Glücksrad gehört
- * der ganzen Gemeinschaft; das eigene Profil ist Selbstauskunft. Für beides
- * wäre «sieht es nicht» der Sonderfall, den jemand einstellen müsste, und
- * niemand tut das.
+ * Zuteilung - und alle hier haben denselben Grund. Das XP-Glücksrad gehört
+ * der ganzen Gemeinschaft; «Meine Daten» ist Selbstauskunft; «Mein Profil»
+ * gehört jedem, der eines hat; und «Mitglieder entdecken» hinge sonst an
+ * einer Verwaltungsberechtigung - dann sähe ein gewöhnliches Mitglied die
+ * anderen nicht, und niemand bräuchte ein Profil. Für all das wäre «sieht es
+ * nicht» der Sonderfall, den jemand einstellen müsste, und niemand tut das.
  *
  * Die Liste steht hier als Whitelist und nicht als Ausnahme im Test darunter:
  * `baseline` umgeht die Rechtevergabe, und was dazukommt, soll auffallen.
  */
-const OHNE_BERECHTIGUNG_SICHTBAR = new Set(['/xp-gluecksrad', '/profile']);
+const OHNE_BERECHTIGUNG_SICHTBAR = new Set(['/xp-gluecksrad', '/profile', '/profil', '/entdecken']);
 
 describe('Navigation gewährt keine Rechte', () => {
   it('liefert für jeden Eintrag eine Berechtigung, die der Betrachter besitzt', () => {

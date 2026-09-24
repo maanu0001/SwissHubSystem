@@ -67,19 +67,19 @@ describe('Sichtbarkeit bleibt unverändert', () => {
   );
 
   it('zeigt einer Rolle ohne Rechte weiterhin nur die baseline-Einträge', () => {
-    // Ohne laufende Verlosung bleibt davon das eigene Profil - das
+    // Ohne laufende Verlosung bleiben davon die eigenen Bereiche - das
     // XP-Glücksrad hängt zusätzlich an seinem Laufzeit-Kennzeichen.
     expect(
       buildNavigation(rechteVon([]), ALLE_MODULE)
         .map((eintrag) => eintrag.href)
         .sort(),
-    ).toEqual(['/profile']);
+    ).toEqual(['/entdecken', '/profil', '/profile']);
 
     expect(
       buildNavigation(rechteVon([]), ALLE_MODULE, ALLE_SIGNALE)
         .map((eintrag) => eintrag.href)
         .sort(),
-    ).toEqual(['/profile', '/xp-gluecksrad']);
+    ).toEqual(['/entdecken', '/profil', '/profile', '/xp-gluecksrad']);
   });
 
   it('zeigt ohne members.view weiterhin keinen Mitgliederbereich', () => {
@@ -170,7 +170,12 @@ describe('Schnellnavigation', () => {
   it('bietet einem Mitglied ohne Rechte nur seine eigenen Bereiche an', () => {
     const ohneRechte = ausGruppen(groupNavigation(buildNavigation(rechteVon([]), ALLE_MODULE, ALLE_SIGNALE)));
 
-    expect(ohneRechte.map((eintrag) => eintrag.href).sort()).toEqual(['/profile', '/xp-gluecksrad']);
+    expect(ohneRechte.map((eintrag) => eintrag.href).sort()).toEqual([
+      '/entdecken',
+      '/profil',
+      '/profile',
+      '/xp-gluecksrad',
+    ]);
     expect(ohneRechte.some((eintrag: Eintrag) => eintrag.href === '/members')).toBe(false);
   });
 
