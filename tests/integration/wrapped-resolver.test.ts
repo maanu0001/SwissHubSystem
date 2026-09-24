@@ -367,3 +367,74 @@ describeWithDatabase('Wrapped: Datenlage', () => {
     expect(lage.games.lage).toBe('fehlt');
   });
 });
+
+describeWithDatabase('Wrapped: der Name auf dem Rückblick', () => {
+  /*
+   * Ohne Namen sagt der Rueckblick «Du» statt «Manuel», und die Share Card
+   * laedt als `swisshub-wrapped-2025-mitglied.png` herunter. Genau das war
+   * der Zustand: gesucht wurde im Analytics-Profil und - falls das ganz
+   * fehlte - im Level-Profil. Der Discord-Spiegel, die eine Tabelle, in
+   * der zu jedem aktuellen Mitglied ein Name steht, kam nicht vor.
+   */
+  beforeAll(() => {
+    pushSchema();
+  });
+
+  beforeEach(async () => {
+    await leeren();
+    await prisma.discordMemberCache.deleteMany({});
+  });
+
+  const spiegel = async (discordId: string, name: string): Promise<void> => {
+    await prisma.discordMemberCache.create({
+      data: {
+        discordId,
+        username: name.toLowerCase(),
+        displayName: name,
+        searchText: name.toLowerCase(),
+      },
+    });
+  };
+
+  it('nimmt den Namen aus dem Discord-Spiegel, wenn die Statistik keinen hat', async () => {
+    await prisma.analyticsMemberProfile.create({
+      data: { guildId: GUILD, discordId: ANNA, username: null, displayName: null },
+    });
+    await spiegel(ANNA, 'Manuel');
+    await tag(ANNA, '2026-03-01T00:00:00Z', 20, 0);
+
+    const daten = await wrapped.sammleDaten(kontext, ANNA);
+    expect(daten.person.displayName).toBe('Manuel');
+    expect(daten.person.username).toBe('manuel');
+  });
+
+  it('findet ihn auch, wenn es gar kein Statistikprofil gibt', async () => {
+    await spiegel(ANNA, 'Manuel');
+    const daten = await wrapped.sammleDaten(kontext, ANNA);
+    expect(daten.person.displayName).toBe('Manuel');
+  });
+
+  it('lässt der Statistik den Vortritt - sie kennt den Namen von damals', async () => {
+    // Ein Rueckblick auf 2026 soll den Namen von 2026 zeigen, nicht den,
+    // unter dem jemand sich seither umbenannt hat.
+    await person(ANNA, 'Damals');
+    await spiegel(ANNA, 'Heute');
+    const daten = await wrapped.sammleDaten(kontext, ANNA);
+    expect(daten.person.displayName).toBe('Damals');
+  });
+
+  it('greift auf das Level-Profil zurück, wenn jemand den Server verlassen hat', async () => {
+    // Kein Spiegeleintrag mehr - wer weg ist, steht dort nicht.
+    await prisma.levelProfile.create({
+      data: { discordId: ANNA, username: 'ehemalig', displayName: 'Ehemalig' },
+    });
+    const daten = await wrapped.sammleDaten(kontext, ANNA);
+    expect(daten.person.displayName).toBe('Ehemalig');
+  });
+
+  it('erfindet keinen Namen, wenn keine Quelle einen hat', async () => {
+    const daten = await wrapped.sammleDaten(kontext, ANNA);
+    expect(daten.person.displayName).toBeNull();
+    expect(daten.person.username).toBeNull();
+  });
+});

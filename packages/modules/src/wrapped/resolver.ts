@@ -631,22 +631,48 @@ export async function sammleDaten(kontext: ResolverKontext, discordId: string): 
   const voice: WrappedVoice = { ...voiceOhneMates, mates };
   const { messages, aktivitaet } = werteTageAus(tage);
 
-  // Der Fallback auf den Namen aus dem Level-Profil ist kein Zufall: wer nie
-  // etwas geschrieben hat, steht nicht im Analytics-Profil, wohl aber im
-  // Level-System, sobald er einmal XP bekam.
-  const ersatz =
-    profil === null
-      ? await prisma.levelProfile.findUnique({
+  /*
+   * Der Name - drei Quellen, in dieser Reihenfolge.
+   *
+   * **Analytics-Profil.** Der Stand zur letzten Aeusserung im Zeitraum, und
+   * damit der richtige fuer einen Rueckblick: wer sich seither umbenannt
+   * hat, hiess damals anders.
+   *
+   * **Discord-Spiegel.** Der Fallback, der frueher fehlte. Er kam hier
+   * nicht vor, obwohl er die eine Tabelle ist, in der zu jedem aktuellen
+   * Mitglied ein Name steht - und das hatte Folgen bis ganz nach draussen:
+   * ohne Namen sagt der Rueckblick «Du» statt «Manuel», und die Share Card
+   * laedt als `swisshub-wrapped-2025-mitglied.png` herunter. Betroffen ist
+   * jeder, zu dem das Analytics-Profil (noch) keinen Namen mitgeschrieben
+   * hat.
+   *
+   * **Level-Profil.** Bleibt als letzte Reserve: wer den Server verlassen
+   * hat, steht im Spiegel nicht mehr, im Level-System aber schon.
+   *
+   * Nur der Name. `joinedAt` kommt weiterhin ausschliesslich aus dem
+   * Analytics-Profil - dort heisst `null` ausdruecklich «vor Beginn der
+   * Aufzeichnung dabei», und diese Aussage soll der Spiegel nicht
+   * ueberschreiben.
+   */
+  const brauchtNamen = !profil?.displayName && !profil?.username;
+  const [spiegel, levelProfil] = brauchtNamen
+    ? await Promise.all([
+        prisma.discordMemberCache.findUnique({
           where: { discordId },
           select: { username: true, displayName: true, avatarHash: true },
-        })
-      : null;
+        }),
+        prisma.levelProfile.findUnique({
+          where: { discordId },
+          select: { username: true, displayName: true, avatarHash: true },
+        }),
+      ])
+    : [null, null];
 
   const person: WrappedPerson = {
     discordId,
-    username: profil?.username ?? ersatz?.username ?? null,
-    displayName: profil?.displayName ?? ersatz?.displayName ?? null,
-    avatarHash: profil?.avatarHash ?? ersatz?.avatarHash ?? null,
+    username: profil?.username ?? spiegel?.username ?? levelProfil?.username ?? null,
+    displayName: profil?.displayName ?? spiegel?.displayName ?? levelProfil?.displayName ?? null,
+    avatarHash: profil?.avatarHash ?? spiegel?.avatarHash ?? levelProfil?.avatarHash ?? null,
     joinedAt: iso(profil?.joinedAt ?? null),
     imZeitraumBeigetreten:
       profil?.joinedAt !== null &&
