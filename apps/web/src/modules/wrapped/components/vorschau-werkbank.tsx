@@ -229,8 +229,17 @@ export function VorschauWerkbank({
     }
   }, [szene, nutzdaten.sceneKeys.length]);
 
+  /*
+   * Zwei Spalten schon ab Tablet.
+   *
+   * Bei `lg` stand auf einem Tablet die ganze Bedienung ueber der Buehne -
+   * man stellte etwas ein und musste scrollen, um die Wirkung zu sehen.
+   * Genau das soll eine Werkbank nicht verlangen. 22rem fuer die Bedienung
+   * lassen bei 768 Pixeln noch rund 360 fuer die Buehne; ein Telefon wird
+   * darin leicht verkleinert, aber es bleibt daneben.
+   */
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 md:grid-cols-[22rem_minmax(0,1fr)]">
       <div className="space-y-5">
         <section className="space-y-3 rounded-xl border border-border bg-card p-4">
           <h3 className="text-sm font-semibold">Wessen Zahlen</h3>

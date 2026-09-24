@@ -25,7 +25,17 @@ import type { SzenenProps } from './registry';
  */
 export function ClipSzene({ daten }: SzenenProps): React.JSX.Element {
   const clip = daten.clips.best;
+  /*
+   * Das Vorschaubild wird erst sichtbar, wenn es da ist.
+   *
+   * `onError` faengt ein Bild ab, das nicht kommt - aber nur, wenn der
+   * Fehler auch gemeldet wird. Bleibt die Anfrage haengen, etwa hinter
+   * einem Firmennetz, zeigt der Browser sein Symbol fuer «kaputtes Bild»,
+   * und das steht dann mitten in einer Szene, die von Ruhe lebt. Also
+   * andersherum: unsichtbar, bis `onLoad` kommt.
+   */
   const [bildKaputt, setBildKaputt] = useState(false);
+  const [bildDa, setBildDa] = useState(false);
   if (!clip) {
     return <SzenenRahmen>{null}</SzenenRahmen>;
   }
@@ -49,8 +59,11 @@ export function ClipSzene({ daten }: SzenenProps): React.JSX.Element {
               <img
                 src={clip.thumbnailUrl}
                 alt=""
-                className="size-full object-cover opacity-80 transition group-hover:opacity-100"
+                className={`size-full object-cover transition ${
+                  bildDa ? 'opacity-80 group-hover:opacity-100' : 'opacity-0'
+                }`}
                 loading="eager"
+                onLoad={() => setBildDa(true)}
                 onError={() => setBildKaputt(true)}
               />
             ) : null}

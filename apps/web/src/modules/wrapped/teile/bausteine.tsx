@@ -158,7 +158,21 @@ export function enge(text: string): React.CSSProperties {
   return { ['--w-zahl-enge' as string]: String(Math.round(faktor * 1000) / 1000) };
 }
 
-/** Ein Avatar in beliebiger Groesse - über die zentralen Adressbauer. */
+/**
+ * Ein Avatar in beliebiger Groesse - ueber die zentralen Adressbauer.
+ *
+ * ## Warum die Initialen immer darunterliegen
+ *
+ * Die erste Fassung zeigte das Bild und wechselte bei `onError` zu den
+ * Initialen. Das deckt den Fall ab, in dem ein Fehler gemeldet wird - nicht
+ * den, in dem die Anfrage einfach haengenbleibt. Dann stand das
+ * Browsersymbol fuer «kaputtes Bild» in einer Szene, die von Ruhe lebt, und
+ * in der Konstellation waren es gleich sechs davon.
+ *
+ * Jetzt liegen die Initialen immer darunter, und das Bild blendet sich
+ * darueber, sobald es da ist. Kein Loch waehrend des Ladens, kein Symbol,
+ * wenn nie etwas kommt - und mit Bild sieht man die Initialen nie.
+ */
 export function WrappedAvatar({
   discordId,
   avatarHash,
@@ -173,38 +187,39 @@ export function WrappedAvatar({
   className?: string;
 }): React.JSX.Element {
   const [kaputt, setKaputt] = useState(false);
+  const [geladen, setGeladen] = useState(false);
   const quelle = avatarHash
     ? getDiscordAvatarUrl(discordId, avatarHash, avatarSizeFor(groesse * 2))
     : defaultAvatarUrl(discordId);
 
-  if (kaputt) {
-    return (
-      <span
-        className={cn(
-          'grid shrink-0 place-items-center rounded-full bg-white/10 font-semibold text-white/70',
-          className,
-        )}
-        style={{ width: groesse, height: groesse, fontSize: groesse * 0.34 }}
-        role="img"
-        aria-label={name}
-      >
-        {name.trim().slice(0, 2).toUpperCase() || '?'}
-      </span>
-    );
-  }
-
   return (
-    /* eslint-disable-next-line @next/next/no-img-element */
-    <img
-      src={quelle}
-      alt=""
-      width={groesse}
-      height={groesse}
-      loading="eager"
-      onError={() => setKaputt(true)}
-      className={cn('shrink-0 rounded-full object-cover', className)}
-      style={{ width: groesse, height: groesse }}
-    />
+    <span
+      className={cn(
+        'relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-white/10 font-semibold text-white/70',
+        className,
+      )}
+      style={{ width: groesse, height: groesse, fontSize: groesse * 0.34 }}
+      role="img"
+      aria-label={name}
+    >
+      {name.trim().slice(0, 2).toUpperCase() || '?'}
+      {kaputt ? null : (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={quelle}
+          alt=""
+          width={groesse}
+          height={groesse}
+          loading="eager"
+          onLoad={() => setGeladen(true)}
+          onError={() => setKaputt(true)}
+          className={cn(
+            'absolute inset-0 size-full rounded-full object-cover transition-opacity duration-300',
+            geladen ? 'opacity-100' : 'opacity-0',
+          )}
+        />
+      )}
+    </span>
   );
 }
 
