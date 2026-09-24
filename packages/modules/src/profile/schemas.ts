@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AUSZEICHNUNGS_SYMBOLE } from './auszeichnungen';
 import { ABSPRACHE, PLATTFORMEN, SPIELZEITEN, SPRACHEN, mehrfachSchema } from './angaben';
 import { istAkzent, istBannervorlage, istThema } from './gestaltung';
 import { SHOWCASE_PLAETZE, istShowcaseArt, showcaseArt } from './showcase';
@@ -243,3 +244,30 @@ export const entdeckenSchema = z.object({
 });
 
 export type EntdeckenEingabe = z.infer<typeof entdeckenSchema>;
+
+/**
+ * Eine verleihbare Auszeichnung anlegen oder bearbeiten.
+ *
+ * Symbol und Stufe werden hier gegen die erlaubten Werte geprueft und
+ * gleich darauf noch einmal im Dienst. Das ist keine Doppelung ohne Grund:
+ * das Schema faengt die Eingabe aus dem Formular ab, der Dienst faengt
+ * jeden anderen Aufrufer ab - und es gibt mehr als einen.
+ */
+export const auszeichnungsArtSchema = z.object({
+  label: z
+    .string()
+    .trim()
+    .min(2, 'Der Name braucht mindestens zwei Zeichen.')
+    .max(40, 'Der Name darf höchstens 40 Zeichen haben.'),
+  beschreibung: z
+    .string()
+    .trim()
+    .min(4, 'Bitte in einem Satz erklären, wofür es sie gibt.')
+    .max(160, 'Die Beschreibung darf höchstens 160 Zeichen haben.'),
+  symbol: z.enum(AUSZEICHNUNGS_SYMBOLE as [string, ...string[]]),
+  stufe: z.enum(['bronze', 'silber', 'gold']),
+  aktiv: z.boolean(),
+  sortierung: z.number().int().min(0).max(9999).optional(),
+});
+
+export type AuszeichnungsArtEingabe = z.infer<typeof auszeichnungsArtSchema>;

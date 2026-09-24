@@ -298,7 +298,7 @@ export interface Auszeichnung {
   erreicht: boolean;
   /** `null`, wenn sich dafuer nichts sinnvoll zaehlen laesst. */
   fortschritt: { erreicht: number; noetig: number } | null;
-  /** Von Hand verliehen statt gerechnet - siehe `VERLEIHBARE`. */
+  /** Von Hand verliehen statt gerechnet - siehe `auszeichnungs-arten.ts`. */
   verliehen?: boolean;
 }
 
@@ -317,16 +317,73 @@ export interface Auszeichnung {
  * schwierige Zeit getragen hat. Dafuer gibt es keine Zahl, sondern eine
  * Entscheidung - und die trifft ein Mensch.
  *
+ * ## Warum diese Liste nicht mehr hier steht
+ *
+ * Sie stand hier, als `readonly`-Konstante mit fuenf Eintraegen. Eine
+ * sechste anzulegen hiess: Commit, Review, Deployment. Im Betrieb gab es
+ * deshalb keine Verwaltung dafuer - es gab nichts zu verwalten.
+ *
+ * Jetzt liegen die verleihbaren Arten in `AwardDefinition` und werden in
+ * `auszeichnungs-arten.ts` gepflegt. Diese Datei bleibt, was sie war: die
+ * **gerechneten** Auszeichnungen und ihre Bedingungen, ohne Datenbank.
+ *
  * ## Die Trennung
  *
- * Diese Liste und `ARTEN` ueberschneiden sich nicht, und das prueft ein
- * Test. Ein Admin kann deshalb «Turniersieger» nicht von Hand vergeben:
- * der Schluessel steht hier nicht, und die Aktion nimmt nur Schluessel von
- * hier an.
+ * `ARTEN` oben und die verleihbaren unten ueberschneiden sich nicht, und
+ * das ist keine Konvention: `erstelleAuszeichnungsArt` weist jeden
+ * Schluessel ab, den `auszeichnungsArt` kennt. «Turniersieg» laesst sich
+ * deshalb nicht von Hand vergeben - nicht, weil eine Pruefung es abfaengt,
+ * sondern weil es den Schluessel gar nicht erst gibt.
  *
  * Keine `erfuellt`-Funktion: es gibt keine Bedingung. Entweder jemand hat
  * sie bekommen, oder nicht.
  */
+/**
+ * Die Symbole, die zur Wahl stehen.
+ *
+ * Eine feste Liste und kein freies Textfeld: die Oberflaeche zeichnet
+ * Symbole ueber `NavIcon`, und die kennt nur eine feste Zuordnung. Ein
+ * freier Name ergaebe einen grauen Platzhalter - sichtbar erst dann, wenn
+ * die Auszeichnung schon an einem Profil haengt.
+ *
+ * Die Liste steht hier und nicht in der Oberflaeche, weil beide sie
+ * brauchen: die Auswahl zeichnet sie, und `erstelleAuszeichnungsArt`
+ * prueft dagegen. Zwei Listen liefen auseinander, und die Pruefung waere
+ * die, die es nicht merkt.
+ */
+export const AUSZEICHNUNGS_SYMBOLE: readonly string[] = [
+  'Award',
+  'Trophy',
+  'Medal',
+  'Crown',
+  'Star',
+  'Gem',
+  'Sparkles',
+  'Flame',
+  'Zap',
+  'Rocket',
+  'Heart',
+  'HeartHandshake',
+  'PartyPopper',
+  'Gift',
+  'Bug',
+  'Swords',
+  'Shield',
+  'ShieldCheck',
+  'Gamepad2',
+  'Dices',
+  'Clapperboard',
+  'Music',
+  'Mic',
+  'Megaphone',
+  'Users',
+  'CalendarCheck',
+  'CalendarDays',
+  'Gavel',
+  'KeyRound',
+  'Bot',
+];
+
 export interface VerleihbareArt {
   key: string;
   label: string;
@@ -335,55 +392,25 @@ export interface VerleihbareArt {
   stufe: Stufe;
 }
 
-export const VERLEIHBARE: readonly VerleihbareArt[] = [
-  {
-    key: 'og-member',
-    label: 'OG Member',
-    beschreibung: 'War da, als der SwissHub noch klein war.',
-    symbol: 'Flame',
-    stufe: 'gold',
-  },
-  {
-    key: 'community-legend',
-    label: 'Community Legend',
-    beschreibung: 'Hat den SwissHub zu dem gemacht, was er ist.',
-    symbol: 'Crown',
-    stufe: 'gold',
-  },
-  {
-    key: 'helfer',
-    label: 'Gute Seele',
-    beschreibung: 'Hilft anderen, ohne dass jemand danach fragt.',
-    symbol: 'HeartHandshake',
-    stufe: 'silber',
-  },
-  {
-    key: 'event-held',
-    label: 'Event-Held',
-    beschreibung: 'Hat einen Abend getragen, an den sich alle erinnern.',
-    symbol: 'PartyPopper',
-    stufe: 'silber',
-  },
-  {
-    key: 'bug-jaeger',
-    label: 'Bug-Jäger',
-    beschreibung: 'Hat einen Fehler gefunden, den sonst niemand gesehen hat.',
-    symbol: 'Bug',
-    stufe: 'bronze',
-  },
-] as const;
-
-/** Eine verleihbare Art nachschlagen. `undefined`, wenn es sie nicht gibt. */
-export function verleihbareArt(key: string): VerleihbareArt | undefined {
-  return VERLEIHBARE.find((art) => art.key === key);
-}
-
-/** Verleihungen in Auszeichnungen umwandeln - fuer die Anzeige. */
-export function ausVerleihungen(schluessel: readonly string[]): Auszeichnung[] {
+/**
+ * Verleihungen in Auszeichnungen umwandeln - fuer die Anzeige.
+ *
+ * Die Arten kommen als Parameter und nicht aus einer Konstanten: sie stehen
+ * in der Datenbank, und diese Datei kennt keine. Der Aufrufer laedt sie -
+ * er laedt ohnehin die Verleihungen.
+ *
+ * Die Reihenfolge ist die der Schluessel, also die der Verleihung. Wer
+ * seine erste Auszeichnung zuerst sehen will, bekommt sie zuerst.
+ */
+export function ausVerleihungen(
+  schluessel: readonly string[],
+  arten: readonly VerleihbareArt[],
+): Auszeichnung[] {
+  const nachKey = new Map(arten.map((art) => [art.key, art]));
   return schluessel.flatMap((key) => {
-    const art = verleihbareArt(key);
+    const art = nachKey.get(key);
     if (!art) {
-      // Ein Schluessel, den es nicht mehr gibt: lieber weglassen als eine
+      // Ein Schluessel ohne Definition: lieber weglassen als eine
       // Auszeichnung ohne Namen zeigen.
       return [];
     }

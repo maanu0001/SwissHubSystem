@@ -8,6 +8,7 @@ import * as auszeichnungen from './auszeichnungen';
 import * as gestaltung from './gestaltung';
 import * as showcase from './showcase';
 import { verliehenAn } from './verleihung';
+import { auszeichnungsArtenNach } from './auszeichnungs-arten';
 import * as socials from './socials';
 import { zeigeFelder, type AngezeigtesFeld } from './spielfelder';
 
@@ -277,6 +278,15 @@ export async function ladeProfilFuer(
       verliehenAn(discordId),
     ]);
 
+  /*
+   * Die Definitionen zu den verliehenen Schluesseln - auch die archivierten.
+   *
+   * Erst hier und nicht oben im `Promise.all`: welche Schluessel es sind,
+   * steht erst fest, wenn `verliehenAn` geantwortet hat. Wer nichts
+   * verliehen bekommen hat, loest gar keine Abfrage aus.
+   */
+  const verliehenArten = await auszeichnungsArtenNach(verliehen);
+
   const grundlage: auszeichnungen.Grundlage = {
     beitrittAm: spiegel.joinedAt,
     level: level?.level ?? 1,
@@ -376,7 +386,7 @@ export async function ladeProfilFuer(
      * dabei gedacht.
      */
     auszeichnungen: [
-      ...auszeichnungen.ausVerleihungen(verliehen),
+      ...auszeichnungen.ausVerleihungen(verliehen, verliehenArten),
       ...(eigenes ? auszeichnungen.bewerte(grundlage) : erreichte),
     ],
     ...(eigenes

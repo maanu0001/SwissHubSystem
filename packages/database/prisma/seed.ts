@@ -10,7 +10,7 @@ import { EnvironmentError, assertServerEnv, bootstrapConfig } from '@swisshub/co
 import { prisma } from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
 import { ADMIN_FULL } from '@swisshub/permissions';
-import { CORE_SETTINGS_KEY, coreSettingsSchema, jail } from '@swisshub/modules';
+import { CORE_SETTINGS_KEY, coreSettingsSchema, jail, profile } from '@swisshub/modules';
 
 const log = createLogger('seed');
 
@@ -82,6 +82,22 @@ async function main(): Promise<void> {
       'DISCORD_JAIL_ROLE_ID ist nicht gesetzt. Das Jail-Modul bleibt aktiv, kann aber erst genutzt werden,\n' +
         'sobald in den Einstellungen der WebApp eine Jail-Rolle hinterlegt wurde.',
     );
+  }
+
+  /*
+   * 4. Die verleihbaren Auszeichnungen.
+   *
+   * In der Produktion legt die Migration sie an. Hier ist es fuer `db push`
+   * und fuer frische Entwicklungsdatenbanken: ohne sie stuende die
+   * Verwaltung leer da, und das Verleihen haette nichts anzubieten.
+   *
+   * `legeErstausstattungAn` schreibt nur in eine leere Tabelle. Eine
+   * entfernte Auszeichnung taucht deshalb nicht beim naechsten Start wieder
+   * auf.
+   */
+  const angelegt = await profile.legeErstausstattungAn();
+  if (angelegt > 0) {
+    log.info('Verleihbare Auszeichnungen angelegt', { anzahl: angelegt });
   }
 
   log.info('Seed abgeschlossen');

@@ -120,6 +120,16 @@ export const systemRoutes = {
   clipRunde: (key: string): SystemRoute => `/clips/runde/${id(key)}`,
   mitglieder: (): SystemRoute => '/members',
 
+  /**
+   * Die verleihbaren Auszeichnungen - die Liste selbst, nicht die Vergabe.
+   *
+   * Unter `/members`, weil es dazugehoert: verliehen wird in der
+   * Mitgliederakte, und was sich verleihen laesst, steht hier. Ein eigener
+   * Hauptbereich dafuer waere ein zweiter Ort, an dem man Auszeichnungen
+   * sucht.
+   */
+  auszeichnungen: (): SystemRoute => '/members/auszeichnungen',
+
   /** Die Warteschlange der Verifikation. */
   verifikation: (): SystemRoute => '/verifikation/warteschlange',
 

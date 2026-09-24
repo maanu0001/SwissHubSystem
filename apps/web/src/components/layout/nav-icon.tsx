@@ -1,4 +1,8 @@
 import {
+  Award,
+  Star,
+  Gem,
+  Zap,
   CalendarDays,
   Activity,
   Bell,
@@ -59,8 +63,19 @@ import {
  * Bewusst als feste Zuordnung statt dynamischem Import: dadurch landet nur ein
  * kleiner Teil der Icon-Bibliothek im Bundle und Module können keine
  * beliebigen Komponenten einschleusen.
+ *
+ * `Award`, `Star`, `Gem` und `Zap` kamen mit den verwaltbaren Auszeichnungen
+ * dazu: wer eine anlegt, waehlt ein Symbol, und die Auswahl darf nicht aus
+ * vier Pokalen bestehen.
+ *
+ * Die Namen unten stehen einzeln je Zeile und ohne Kommentar dazwischen -
+ * `module-icons.test.ts` liest diesen Block als Text aus.
  */
 const ICONS: Record<string, LucideIcon> = {
+  Award,
+  Star,
+  Gem,
+  Zap,
   CalendarDays,
   Activity,
   Bell,

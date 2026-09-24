@@ -76,7 +76,11 @@ const BEREICH: ReadonlyArray<readonly [RegExp, AuditKategorie]> = [
   [/^(INTEGRATION|PREMIUM)/u, { id: 'integrationen', label: 'Integrationen' }],
   [/^MIGRATION/u, { id: 'migration', label: 'Migration' }],
   [/^(SETTING|MODULE|ROLE_MAPPING|BRANDING|LOG_CHANNEL)/u, { id: 'einstellungen', label: 'Einstellungen' }],
-  [/^(MEMBER|MEMBERS|VOICE)/u, { id: 'mitglieder', label: 'Mitglieder' }],
+  // `PROFILE` gehoert hierher und nicht unter «System»: Auszeichnungen und
+  // fremd bearbeitete Profile sind Vorgaenge an einem Mitglied. Vorher
+  // fielen sie durch bis zum Auffangmuster - und waren im Filter
+  // «Mitglieder» nicht zu finden.
+  [/^(MEMBER|MEMBERS|VOICE|PROFILE)/u, { id: 'mitglieder', label: 'Mitglieder' }],
 ];
 
 export function auditKategorie(action: string): AuditKategorie {

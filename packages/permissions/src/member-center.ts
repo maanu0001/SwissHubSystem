@@ -116,6 +116,18 @@ export const MEMBER_PERMISSIONS = {
    * weil es fuer sie keinen Weg gibt, sie von Hand zu setzen.
    */
   awardsManage: 'members.awards.manage',
+
+  /**
+   * Die verleihbaren Auszeichnungen selbst pflegen.
+   *
+   * Getrennt von `awardsManage`, weil es zwei verschiedene Handlungen sind:
+   * dort vergibt jemand eine bestehende Auszeichnung an ein Mitglied, hier
+   * entscheidet jemand, welche Auszeichnungen es ueberhaupt gibt. Ein
+   * Moderator, der «Gute Seele» verleihen darf, soll deshalb nicht
+   * nebenbei eine Auszeichnung erfinden oder eine bestehende umbenennen -
+   * eine Umbenennung wirkt auf jedes Profil, das sie schon traegt.
+   */
+  awardsDefine: 'members.awards.define',
 } as const;
 
 const sicht = (
@@ -232,6 +244,12 @@ export const MEMBER_CENTER_PERMISSIONS: PermissionDefinition[] = [
     MEMBER_PERMISSIONS.awardsManage,
     'Auszeichnungen verleihen',
     'Verleihbare Auszeichnungen wie «OG Member» vergeben und entziehen. Gerechnete bleiben unberührt.',
+    true,
+  ),
+  sicht(
+    MEMBER_PERMISSIONS.awardsDefine,
+    'Auszeichnungen verwalten',
+    'Festlegen, welche verleihbaren Auszeichnungen es gibt - anlegen, umbenennen, Symbol und Stufe ändern, archivieren.',
     true,
   ),
 ];

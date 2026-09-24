@@ -7398,11 +7398,54 @@ model MemberProfile {
 /// niemals eine abgeleitete Auszeichnung. Ein Admin kann «Turniersieger»
 /// nicht von Hand vergeben, weil `key` nur Schluessel aus der Liste der
 /// verleihbaren Arten annimmt.
+/// Eine verleihbare Auszeichnung - die Definition, nicht die Verleihung.
+///
+/// Die gerechneten Auszeichnungen stehen bewusst in keiner Tabelle: sie
+/// entstehen aus Turnieren, Clips und dem Level und wuerden als Kopie
+/// auseinanderlaufen. Verleihbare haben keine Zahl hinter sich, sondern eine
+/// Entscheidung - und die muss sich pflegen lassen, ohne dass jemand eine
+/// Datei anfasst und die Anwendung neu baut.
+///
+/// Drei Zustaende wie beim Spielekatalog: aktiv, abgeschaltet (`enabled`
+/// false - wird nicht mehr vergeben, bestehende Verleihungen bleiben) und
+/// archiviert (aus der Verwaltungsliste genommen). Geloescht wird nur, was
+/// niemand hat; `MemberAward` zeigt ueber `key` hierher, ohne
+/// Fremdschluessel, damit eine entfernte Definition keine Verleihung
+/// mitreisst.
+model AwardDefinition {
+  id String @id @default(cuid())
+
+  /// Der stabile Schluessel - steht so in `MemberAward.key`.
+  key   String @unique
+  label String
+  /// Ein Satz, der erklaert, wofuer es sie gibt.
+  description String
+  /// Name eines Lucide-Symbols.
+  symbol      String
+  /// `bronze`, `silber` oder `gold`. Steuert nur das Aussehen.
+  tier        String @default("bronze")
+
+  /// Wird sie noch vergeben?
+  enabled    Boolean   @default(true)
+  /// Aus der Verwaltungsliste genommen. Verliehene bleiben gueltig.
+  archivedAt DateTime?
+  /// Reihenfolge in der Verwaltung und im Profil.
+  sortOrder  Int       @default(100)
+
+  createdByDiscordId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([archivedAt, sortOrder])
+}
+
 model MemberAward {
   id String @id @default(cuid())
 
   discordId String
-  /// Schluessel aus `VERLEIHBARE` in `profile/auszeichnungen.ts`.
+  /// Schluessel einer `AwardDefinition`. Bewusst ohne Fremdschluessel: eine
+  /// Definition laesst sich nur entfernen, wenn sie niemand hat, und eine
+  /// Verleihung soll nicht daran haengen, dass die Definition noch existiert.
   key       String
 
   /// Wer verliehen hat - fuer das Protokoll und fuer Rueckfragen.

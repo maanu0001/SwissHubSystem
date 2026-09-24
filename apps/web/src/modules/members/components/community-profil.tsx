@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ExternalLink, Pencil } from 'lucide-react';
+import { ExternalLink, Pencil, Settings2 } from 'lucide-react';
 import { profile } from '@swisshub/modules';
 import { systemRoutes } from '@swisshub/shared';
 import { buttonVariants } from '@/components/ui/button';
@@ -21,16 +21,34 @@ export async function CommunityProfil({
   csrfToken,
   darfBearbeiten,
   darfAuszeichnungen,
+  darfVerwalten,
 }: {
   discordId: string;
   csrfToken: string;
   darfBearbeiten: boolean;
   darfAuszeichnungen: boolean;
+  /** Darf die Liste der Auszeichnungen selbst pflegen - `members.awards.define`. */
+  darfVerwalten: boolean;
 }): Promise<React.JSX.Element> {
-  const [slug, verleihungen] = await Promise.all([
+  const [slug, verleihungen, aktive] = await Promise.all([
     profile.slugVon(discordId).catch(() => null),
     darfAuszeichnungen ? profile.verleihungenVon(discordId).catch(() => []) : Promise.resolve([]),
+    darfAuszeichnungen
+      ? profile.listeAuszeichnungsArten().catch(() => [])
+      : Promise.resolve([] as profile.VerwalteteArt[]),
   ]);
+
+  /*
+   * Die vergebbaren Arten plus die, die dieses Mitglied schon hat.
+   *
+   * Ohne den zweiten Teil verschwaende eine archivierte Auszeichnung aus
+   * dieser Liste - und mit ihr der Knopf, mit dem man sie wieder entzieht.
+   * Am Profil stuende sie weiterhin.
+   */
+  const fehlende = verleihungen
+    .map((eintrag) => eintrag.key)
+    .filter((key) => !aktive.some((art) => art.key === key));
+  const arten = [...aktive, ...(await profile.auszeichnungsArtenNach(fehlende).catch(() => []))];
 
   return (
     <div className="space-y-6">
@@ -79,11 +97,27 @@ export async function CommunityProfil({
               Nur die verleihbaren. Turniersiege, Clip-Siege und das Level werden gerechnet und lassen sich
               hier nicht setzen - sie entstehen dadurch, dass jemand sie sich verdient.
             </p>
+            {darfVerwalten ? (
+              <Link
+                href={systemRoutes.auszeichnungen()}
+                className="inline-flex items-center gap-1.5 text-xs text-primary-bright underline-offset-4 hover:underline"
+              >
+                <Settings2 className="size-3.5" aria-hidden="true" />
+                Welche Auszeichnungen es gibt, wird hier verwaltet
+              </Link>
+            ) : null}
           </div>
           <AuszeichnungsVerwaltung
             discordId={discordId}
             csrfToken={csrfToken}
-            arten={[...profile.VERLEIHBARE]}
+            arten={arten.map((art) => ({
+              key: art.key,
+              label: art.label,
+              beschreibung: art.beschreibung,
+              symbol: art.symbol,
+              stufe: art.stufe,
+              vergebbar: art.aktiv && !art.archiviert,
+            }))}
             verliehen={verleihungen.map((eintrag) => ({
               key: eintrag.key,
               am: formatDateTime(eintrag.grantedAt),

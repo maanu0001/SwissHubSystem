@@ -13,6 +13,14 @@ interface Art {
   beschreibung: string;
   symbol: string;
   stufe: 'bronze' | 'silber' | 'gold';
+  /**
+   * Laesst sie sich gerade vergeben?
+   *
+   * `false` bei abgeschalteten und archivierten Arten. Sie stehen trotzdem
+   * in der Liste, wenn dieses Mitglied sie **hat** - sonst verschwaende mit
+   * der Karte auch der Knopf, mit dem man sie entzieht.
+   */
+  vergebbar: boolean;
 }
 
 interface Verliehen {
@@ -120,6 +128,8 @@ export function AuszeichnungsVerwaltung({
                   Entziehen
                 </button>
               </div>
+            ) : !art.vergebbar ? (
+              <p className="text-xs text-muted-foreground">Wird nicht mehr vergeben.</p>
             ) : (
               <div className="space-y-2">
                 <input

@@ -170,6 +170,10 @@ export async function MitgliedsAkte({
   const selbst = basic.discordId === context.user.discordId;
   const darfProfilBearbeiten = can(context, members.MEMBER_PERMISSIONS.profileEdit);
   const darfAuszeichnungen = can(context, members.MEMBER_PERMISSIONS.awardsManage);
+  // Zwei verschiedene Handlungen: verleihen (oben) und festlegen, welche es
+  // ueberhaupt gibt. Die zweite fuehrt nur zu einem Hinweis mit Link -
+  // verwaltet wird dort, nicht hier.
+  const darfArtenVerwalten = can(context, members.MEMBER_PERMISSIONS.awardsDefine);
 
   const reiter = REITER.filter((eintrag) => {
     if (eintrag.id === 'community') {
@@ -582,6 +586,7 @@ export async function MitgliedsAkte({
                   csrfToken={csrfToken}
                   darfBearbeiten={darfProfilBearbeiten}
                   darfAuszeichnungen={darfAuszeichnungen}
+                  darfVerwalten={darfArtenVerwalten}
                 />
               ) : aktiv === 'notizen' ? (
                 fehler.has('notes') ? (

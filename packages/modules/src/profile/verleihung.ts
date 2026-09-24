@@ -3,11 +3,18 @@
  *
  * ## Was hier nicht geht
  *
- * Eine abgeleitete Auszeichnung vergeben. `verleihbareArt` nimmt nur
- * Schluessel aus `VERLEIHBARE`, und die Liste ueberschneidet sich nicht mit
- * den gerechneten - ein Test prueft das. «Turniersieger» laesst sich
- * deshalb nicht von Hand setzen, und zwar nicht, weil eine Pruefung es
- * abfaengt, sondern weil es den Schluessel hier nicht gibt.
+ * Eine abgeleitete Auszeichnung vergeben. `vergebbareArt` liest die
+ * Definitionen aus `AwardDefinition`, und dort kann kein gerechneter
+ * Schluessel stehen: `erstelleAuszeichnungsArt` weist jeden ab, den
+ * `auszeichnungsArt` kennt. «Turniersieger» laesst sich deshalb nicht von
+ * Hand setzen, und zwar nicht, weil hier eine Pruefung greift, sondern
+ * weil es den Schluessel gar nicht erst gibt.
+ *
+ * ## Und was eine abgeschaltete Art bedeutet
+ *
+ * Nicht mehr vergeben, aber weiterhin gueltig. Wer «Event-Held» schon hat,
+ * behaelt ihn, auch wenn die Art archiviert wurde - `entziehe` kommt
+ * deshalb ohne Definition aus, `verleihe` nicht.
  *
  * ## Und was hier nicht entschieden wird
  *
@@ -18,7 +25,7 @@
  */
 import { AUDIT_ACTIONS, prisma, safeRecordAudit, type Prisma } from '@swisshub/database';
 import { AppError } from '@swisshub/shared';
-import { verleihbareArt } from './auszeichnungen';
+import { vergebbareArt } from './auszeichnungs-arten';
 
 /** Wer verleiht - fuer das Protokoll. */
 export interface Verleiher {
@@ -29,7 +36,7 @@ export interface Verleiher {
 export interface VerleihEingabe {
   /** Wem. */
   discordId: string;
-  /** Welche - ein Schluessel aus `VERLEIHBARE`. */
+  /** Welche - der Schluessel einer aktiven `AwardDefinition`. */
   key: string;
   /** Warum. Freiwillig. */
   notiz?: string | null;
@@ -62,7 +69,7 @@ export async function verleihungenVon(discordId: string) {
  * sehen beide «hat sie noch nicht», und eine davon laeuft in P2002.
  */
 export async function verleihe(akteur: Verleiher, eingabe: VerleihEingabe): Promise<boolean> {
-  const art = verleihbareArt(eingabe.key);
+  const art = await vergebbareArt(eingabe.key);
   if (!art) {
     throw new AppError('VALIDATION_FAILED', {
       userMessage: 'Diese Auszeichnung lässt sich nicht von Hand vergeben.',
@@ -106,7 +113,10 @@ export async function verleihe(akteur: Verleiher, eingabe: VerleihEingabe): Prom
  * nichts zu entziehen gab.
  */
 export async function entziehe(akteur: Verleiher, discordId: string, key: string): Promise<boolean> {
-  const art = verleihbareArt(key);
+  // Absichtlich ohne `vergebbareArt`: eine archivierte Art muss sich
+  // entziehen lassen. Der Name dient nur dem Protokoll - fehlt er, steht
+  // dort der Schluessel.
+  const art = await prisma.awardDefinition.findUnique({ where: { key } });
   const { count } = await prisma.memberAward.deleteMany({ where: { discordId, key } });
   if (count === 0) {
     return false;

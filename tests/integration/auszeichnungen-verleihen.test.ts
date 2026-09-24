@@ -13,15 +13,19 @@ useTestSchema('test_auszeichnungen_verleihen');
  * Turnier gewinnt, und nicht, indem ein Admin einen Haken setzt.
  *
  * Verleihbar sind nur die, fuer die es keine Zahl gibt: «OG Member»,
- * «Community Legend». Der wichtigste Test hier prueft, dass sich die beiden
- * Listen nicht ueberschneiden - waere «turnier-sieg» versehentlich
- * verleihbar, koennte ein Admin einen Sieg vergeben, den es nie gab.
+ * «Community Legend». Seit diese Liste verwaltbar ist, sitzt der Riegel
+ * eine Stufe frueher: `erstelleAuszeichnungsArt` weist jeden Schluessel ab,
+ * den die gerechneten schon kennen. Der wichtigste Test hier prueft genau
+ * das - koennte jemand eine Art mit dem Schluessel «turnier-sieg» anlegen,
+ * liesse sich danach ein Sieg vergeben, den es nie gab.
  */
 const { prisma } = await import('@swisshub/database');
 const { profile } = await import('@swisshub/modules');
 
 const MITGLIED = '100000000000000001';
 const ADMIN = { discordId: '100000000000000009', username: 'admin' };
+/** Derselbe Akteur, aber mit der Berechtigung fuer die Verwaltung. */
+const VERWALTER = { ...ADMIN, can: (): boolean => true };
 
 describeWithDatabase('Auszeichnungen verleihen', () => {
   beforeAll(() => {
@@ -30,12 +34,15 @@ describeWithDatabase('Auszeichnungen verleihen', () => {
 
   beforeEach(async () => {
     await prisma.memberAward.deleteMany({});
+    await prisma.awardDefinition.deleteMany({});
+    await prisma.auditLog.deleteMany({});
+    await profile.legeErstausstattungAn();
     await prisma.auditLog.deleteMany({});
   });
 
-  it('haelt verliehene und gerechnete Auszeichnungen strikt getrennt', () => {
+  it('haelt verliehene und gerechnete Auszeichnungen strikt getrennt', async () => {
     const gerechnet = new Set(profile.bewerte(grundlage()).map((eintrag) => eintrag.key));
-    for (const art of profile.VERLEIHBARE) {
+    for (const art of await profile.listeAuszeichnungsArten()) {
       expect(
         gerechnet.has(art.key),
         `«${art.key}» ist verleihbar UND wird gerechnet - damit liesse sich ein Erfolg von Hand setzen.`,
@@ -43,12 +50,31 @@ describeWithDatabase('Auszeichnungen verleihen', () => {
     }
   });
 
+  it('laesst keine Art mit dem Schluessel einer gerechneten anlegen', async () => {
+    // «Turniersieg» ergibt den Schluessel `turniersieg` - den gibt es nicht.
+    // Gefaehrlich ist der Name, der genau trifft.
+    await expect(
+      profile.erstelleAuszeichnungsArt(
+        {
+          label: 'Turnier sieg',
+          beschreibung: 'Ein Turnier gewonnen.',
+          symbol: 'Trophy',
+          stufe: 'gold',
+          aktiv: true,
+        },
+        VERWALTER,
+      ),
+    ).rejects.toThrow();
+    expect(await prisma.awardDefinition.count({ where: { key: 'turnier-sieg' } })).toBe(0);
+  });
+
   it('verleiht und zeigt die Auszeichnung danach am Profil', async () => {
     const neu = await profile.verleihe(ADMIN, { discordId: MITGLIED, key: 'og-member' });
     expect(neu).toBe(true);
     expect(await profile.verliehenAn(MITGLIED)).toEqual(['og-member']);
 
-    const angezeigt = profile.ausVerleihungen(['og-member']);
+    const arten = await profile.auszeichnungsArtenNach(['og-member']);
+    const angezeigt = profile.ausVerleihungen(['og-member'], arten);
     expect(angezeigt[0]?.label).toBe('OG Member');
     expect(angezeigt[0]?.erreicht).toBe(true);
     expect(angezeigt[0]?.verliehen).toBe(true);
@@ -57,7 +83,7 @@ describeWithDatabase('Auszeichnungen verleihen', () => {
   it('lehnt eine gerechnete Auszeichnung ab', async () => {
     // «Turniersieger» wird aus echten Turnieren gerechnet. Von Hand gibt es
     // sie nicht - und zwar nicht, weil eine Pruefung sie abfaengt, sondern
-    // weil der Schluessel nicht in der Liste der verleihbaren steht.
+    // weil der Schluessel in keiner Definition steht.
     await expect(profile.verleihe(ADMIN, { discordId: MITGLIED, key: 'turnier-sieg' })).rejects.toThrow();
     expect(await prisma.memberAward.count()).toBe(0);
   });
@@ -106,6 +132,28 @@ describeWithDatabase('Auszeichnungen verleihen', () => {
     // Lesen ist kein Vorgang - sonst stuende das Protokoll voller Zeilen,
     // die niemanden interessieren.
     expect(await prisma.auditLog.count()).toBe(0);
+  });
+
+  it('vergibt eine archivierte Art nicht mehr - laesst sie aber entziehen', async () => {
+    await profile.verleihe(ADMIN, { discordId: MITGLIED, key: 'helfer' });
+
+    const art = (await profile.listeAuszeichnungsArten()).find((eintrag) => eintrag.key === 'helfer')!;
+    expect(await profile.archiviereAuszeichnungsArt(art.id, VERWALTER)).toBe(true);
+
+    // Wer sie hat, behaelt sie - und sie traegt weiterhin ihren Namen.
+    expect(await profile.verliehenAn(MITGLIED)).toEqual(['helfer']);
+    const arten = await profile.auszeichnungsArtenNach(['helfer']);
+    expect(profile.ausVerleihungen(['helfer'], arten)[0]?.label).toBe('Gute Seele');
+
+    // Neu vergeben geht nicht mehr.
+    await prisma.memberAward.deleteMany({});
+    await expect(profile.verleihe(ADMIN, { discordId: MITGLIED, key: 'helfer' })).rejects.toThrow();
+
+    // Entziehen dagegen schon - sonst bliebe eine Auszeichnung fuer immer.
+    await prisma.memberAward.create({
+      data: { discordId: MITGLIED, key: 'helfer', grantedByDiscordId: ADMIN.discordId },
+    });
+    expect(await profile.entziehe(ADMIN, MITGLIED, 'helfer')).toBe(true);
   });
 });
 

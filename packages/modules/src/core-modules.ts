@@ -102,6 +102,27 @@ registerModule({
     },
     {
       /*
+       * Die verleihbaren Auszeichnungen.
+       *
+       * Sie standen als Konstante im Quelltext - fuenf Stueck, nicht
+       * aenderbar, und deshalb ohne Verwaltung. Jetzt gibt es eine, und sie
+       * braucht einen Weg dorthin: direkt unter «Mitglieder», weil dort
+       * verliehen wird.
+       *
+       * Eigene Berechtigung, nicht `members.awards.manage`: verleihen und
+       * festlegen, was es zu verleihen gibt, sind zwei Handlungen. Eine
+       * Umbenennung wirkt auf jedes Profil, das sie traegt.
+       */
+      href: '/members/auszeichnungen',
+      label: 'Auszeichnungen',
+      description: 'Welche Auszeichnungen sich verleihen lassen - anlegen, bearbeiten, archivieren',
+      permission: 'members.awards.define',
+      icon: 'Award',
+      group: 'moderation',
+      order: 21,
+    },
+    {
+      /*
        * Das Community-Profil - der einzige Profil-Eintrag der Seitenleiste.
        *
        * Daneben standen frueher «Mitglieder entdecken» und «Meine Daten».
