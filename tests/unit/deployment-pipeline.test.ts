@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { LEBENSZEICHEN_DATEI } from '../../apps/bot/src/jobs';
+import { MAX_LEGACY_DB_BYTES } from '../../packages/modules/src/level/import/reader';
 
 /**
  * Was die Deployment-Kette zusammenhaelt.
@@ -96,5 +97,44 @@ describe('Deployment-Workflow', () => {
     expect(workflow).toContain('set -euo pipefail');
     expect(workflow).toContain('script_stop: true');
     expect(workflow).toMatch(/^\s+exit 1$/mu);
+  });
+});
+
+/**
+ * Der Reverse Proxy und die Grenzen der Anwendung.
+ *
+ * nginx entscheidet vor der Anwendung. Steht `client_max_body_size` unter dem
+ * groessten Upload, das SwissHub annimmt, bricht nginx die Uebertragung mit
+ * **413** ab - und der Fehler sieht aus, als kaeme er von SwissHub. Der
+ * Anwendung faellt nichts auf: sie hat die Datei nie gesehen.
+ *
+ * Genau das ist schon auseinandergelaufen. Die Konfiguration stand auf 72 MB,
+ * die Anleitung sagte weiter 8 MB, und keine der beiden Zahlen war an das
+ * Limit gebunden, das sie decken soll. Diese Pruefung bindet sie: wer
+ * `MAX_LEGACY_DB_BYTES` anhebt, ohne den Proxy nachzuziehen, faellt hier auf.
+ */
+describe('Reverse Proxy und Upload-Limits', () => {
+  const nginx = readFileSync(join(process.cwd(), 'deploy/nginx/system.swisshub.gg.conf'), 'utf8');
+
+  /** `72m`, `72M` oder `73728k` - nginx nimmt alle drei. */
+  function grenzeInBytes(quelle: string): number {
+    const treffer = /client_max_body_size\s+(\d+)([kmg]?);/iu.exec(quelle);
+    expect(treffer, 'client_max_body_size fehlt in der nginx-Konfiguration').not.toBeNull();
+    const [, zahl = '0', einheit = ''] = treffer as RegExpExecArray;
+    const faktor = { '': 1, k: 1024, m: 1024 * 1024, g: 1024 * 1024 * 1024 }[einheit.toLowerCase()];
+    return Number(zahl) * (faktor ?? 1);
+  }
+
+  it('laesst den groessten Upload der Anwendung durch', () => {
+    expect(grenzeInBytes(nginx)).toBeGreaterThanOrEqual(MAX_LEGACY_DB_BYTES);
+  });
+
+  it('nennt in der Anleitung dieselbe Zahl wie die Konfiguration', () => {
+    const anleitung = readFileSync(join(process.cwd(), 'docs/DEPLOYMENT.md'), 'utf8');
+    const megabyte = Math.floor(grenzeInBytes(nginx) / (1024 * 1024));
+    expect(
+      anleitung,
+      `DEPLOYMENT.md muss ${megabyte} MB nennen - die nginx-Konfiguration setzt das.`,
+    ).toContain(`**${megabyte} MB**`);
   });
 });

@@ -362,9 +362,16 @@ Pruefen laesst sich das mit `npm run doctor` - der Abschnitt **Uploads** meldet,
 ob das Verzeichnis wirklich beschreibbar ist.
 
 > **Hinter einem Reverse Proxy:** `client_max_body_size` muss groesser sein als
-> das Upload-Limit der Anwendung (5 MB). Die mitgelieferte nginx-Konfiguration
-> setzt 8 MB. Ist der Wert zu klein, lehnt nginx die Datei mit **413** ab, bevor
-> die Anwendung sie sieht.
+> das groesste Upload-Limit der Anwendung. Das ist nicht das Bild-Limit, sondern
+> der Level-Import mit **64 MB** (`level/import/reader.ts`); danach kommt der
+> Jail-Import mit 32 MB. Die mitgelieferte nginx-Konfiguration setzt deshalb
+> **72 MB** - die Reserve deckt den Multipart-Rahmen. Ist der Wert zu klein,
+> lehnt nginx die Datei mit **413** ab, bevor die Anwendung sie sieht, und der
+> Fehler sieht aus, als kaeme er von SwissHub.
+>
+> Der Deploy-Workflow fasst nginx **nicht** an. Wird
+> `deploy/nginx/system.swisshub.gg.conf` geaendert, muss die Datei von Hand auf
+> den Server und `nginx -s reload` laufen - sonst gilt weiter der alte Wert.
 
 ## 8. Betrieb
 
