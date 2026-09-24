@@ -135,7 +135,9 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
     : null;
 
   const canCreateTicket = darfNutzen('tickets.create', 'tickets');
-  const canCreateSpielersuche = darfNutzen('spielersuche.create', 'spielersuche');
+  // Die Schnellaktion, die frueher «Spielersuche starten» hiess. Dasselbe
+  // Beduerfnis, anderer Weg: heute macht man eine Runde auf.
+  const canCreateSpielwahl = darfNutzen('spielwahl.create', 'spielwahl');
   const canUseMusic = darfNutzen('music.view', 'music');
 
   // Bleibt nichts uebrig, verschwindet die ganze Karte. Eine Ueberschrift
@@ -143,7 +145,7 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
   const hatSchnellaktionen =
     offeneVerifikationen !== null ||
     canCreateTicket ||
-    canCreateSpielersuche ||
+    canCreateSpielwahl ||
     canUseMusic ||
     canCreateJail ||
     canViewMembers ||
@@ -570,12 +572,12 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
                 />
               ) : null}
 
-              {canCreateSpielersuche ? (
+              {canCreateSpielwahl ? (
                 <QuickAction
-                  title="Spielersuche starten"
-                  description="Mitspieler finden"
+                  title="Was spielen wir?"
+                  description="Gemeinsam entscheiden"
                   icon={<Gamepad2 />}
-                  href="/spielersuche/neu"
+                  href="/was-spielen-wir"
                 />
               ) : null}
 

@@ -6,7 +6,7 @@ Dashboard.
 
 Es gibt **eine** Temp-Voice-Engine. Der Knopf im Talk und der Knopf im
 Dashboard rufen dieselben Funktionen auf – dieselbe Zugriffsprüfung, dieselbe
-Rechtevergabe auf Discord, derselbe Verlauf. Und die Spielersuche legt ihre
+Rechtevergabe auf Discord, derselbe Verlauf. Jedes Modul, das einen Kanal auf Zeit braucht, legt seine
 Sprachkanäle über dieselbe Engine an.
 
 ```
@@ -14,7 +14,7 @@ Hub betreten (Discord) ─┐
 Bedienfeld im Talk     ─┼─► voiceHub-Aktionen ─► TemporaryVoiceService ─► Discord-Kanal
 Dashboard (Web)        ─┘        (Zugriff)                              └─► Zeile + Verlauf + Audit
                                                                          ▲
-Spielersuche ────────────────────────────────────────────────────────────┘
+Andere Module ───────────────────────────────────────────────────────────┘
 ```
 
 Ein Talk lebt an zwei Orten gleichzeitig: als Discord-Kanal und als Zeile.
@@ -110,8 +110,8 @@ Talk» zu lesen, obwohl er keinen besitzt. Die Kehrseite ist eine Übergabe an
 jemanden, der im selben Hub schon einen Talk hat – die schlägt fehl, und das
 ist die Wahrheit und keine Falschmeldung.
 
-Kanäle der Spielersuche haben keinen Hub und lassen den Schlüssel leer: dort
-entscheidet die Spielersuche, wie viele Suchen jemand gleichzeitig hat.
+Kanäle anderer Quellen haben keinen Hub und lassen den Schlüssel leer: dort
+entscheidet das jeweilige Modul, wie viele Vorgänge jemand gleichzeitig hat.
 
 ### Reihenfolge: erst die Zeile, dann Discord
 
@@ -203,31 +203,34 @@ Der Abgleich läuft periodisch und holt nach, was liegen geblieben ist:
 Er ist damit zugleich die Rettung nach einem Absturz und das Netz gegen
 Ereignisse, die Discord nie geschickt hat.
 
-**Fremde Quellen fasst er nicht an.** Ein Kanal der Spielersuche wird gezählt,
-aber weder gelöscht noch neu vergeben: wann eine Suche endet, weiss nur die
-Spielersuche – sie schliesst dabei auch die Suche –, und niemand erbt eine
-Suche, nur weil er länger im Kanal sitzt.
+**Fremde Quellen fasst er nicht an.** Ein Kanal einer anderen Quelle wird gezählt,
+aber weder gelöscht noch neu vergeben: wann ein solcher Kanal endet, weiss nur
+das Modul dahinter – es schliesst dabei meist auch seinen eigenen Vorgang –,
+und niemand erbt diesen Vorgang, nur weil er länger im Kanal sitzt.
 
 ---
 
-## 6. Spielersuche
+## 6. Andere Quellen
 
-Die Spielersuche legte ihre Sprachkanäle schon vor dem Voice Hub an. Sie tut
-es weiterhin, aber über dieselbe Engine – ein zweites Temp-Voice-System neben
-dem ersten wäre genau das, was hier nicht entstehen soll.
+Der Voice Hub ist nicht der einzige, der Sprachkanäle auf Zeit anlegt – er
+ist nur der erste. `TemporaryVoiceSource` unterscheidet, woher ein Kanal
+stammt; die Engine behandelt alle gleich, bis es um zwei Fragen geht.
 
-Was dabei ausdrücklich gleich geblieben ist:
+Was eine fremde Quelle mitbringen darf:
 
-- Der Kanal ist **für alle offen**, unabhängig von der Kategorie – damit
-  spontan jemand dazustossen kann. Genau so hielt es der alte Bot.
-- Das Teilnehmerlimit folgt der Squad-Grösse des Spiels.
+- Der Kanal kann **für alle offen** sein, unabhängig von der Kategorie – damit
+  spontan jemand dazustossen kann (`everyoneAllow`).
+- Das Teilnehmerlimit kann aus der Sache folgen, nicht aus einem Preset.
 - Der Zugang (`gateway`) wird durchgereicht, nicht global genommen.
-- Wann der Kanal verschwindet, entscheidet weiterhin die Spielersuche.
+- Wann der Kanal verschwindet, entscheidet die Quelle selbst.
 
-Was sie dazugewonnen hat: eine Zeile, einen Eintrag im Abgleich und dieselbe
-Aufräumlogik nach einem Neustart.
+Was sie dabei gewinnt: eine Zeile, einen Eintrag im Abgleich und dieselbe
+Aufräumlogik nach einem Neustart. Ein zweites Temp-Voice-System neben dem
+ersten wäre genau das, was hier nicht entstehen soll.
 
----
+> `PLAYER_SEARCH` stammt aus der Spielersuche, die es nicht mehr gibt. Der
+> Wert bleibt im Aufzählungstyp, weil abgeschlossene Zeilen ihn tragen; neue
+> Kanäle entstehen nicht mehr damit.
 
 ## 7. Berechtigungen
 

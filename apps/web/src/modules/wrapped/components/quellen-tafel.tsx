@@ -44,7 +44,7 @@ const NAMEN: Array<{ key: keyof WrappedQuellen; label: string; woher: string }> 
   { key: 'clips', label: 'Clips', woher: 'Clip of the Week' },
   { key: 'events', label: 'Termine', woher: 'Kalender' },
   { key: 'tournaments', label: 'Turniere', woher: 'Turniersystem' },
-  { key: 'games', label: 'Spiele', woher: 'Spielersuche' },
+  { key: 'games', label: 'Spiele', woher: 'Was spielen wir?' },
 ];
 
 const datum = (wert: string | null): string | null =>

@@ -22,7 +22,7 @@ import type { Stand } from '@/modules/spielwahl/verbindung';
  * ## Was hier passieren muss, und zwar schnell
  *
  * Jemand tippt zwei Buchstaben und will sein Spiel sehen. Die Suche geht
- * gegen denselben Katalog wie die Spielersuche - keine zweite Spieleliste -
+ * gegen denselben Katalog wie Turniere und Clips - keine zweite Spieleliste -
  * und wartet 180 Millisekunden nach dem letzten Tastendruck, bevor sie
  * fragt. Ohne diese Pause wäre jeder Buchstabe eine Anfrage.
  *
@@ -225,7 +225,7 @@ function Spielsuche({
         <p className="py-4 text-center text-sm text-white/35">
           {suche.trim().length > 0
             ? 'Nichts gefunden.'
-            : 'Der Spielekatalog ist leer - das Team pflegt ihn unter Spielersuche.'}
+            : 'Der Spielekatalog ist leer - das Team pflegt ihn unter «Spielekatalog».'}
         </p>
       ) : null}
     </div>

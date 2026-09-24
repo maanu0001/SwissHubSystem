@@ -20,7 +20,7 @@ const log = createLogger('level:import');
 /**
  * Übernahme der alten `levels.db`.
  *
- * Zweistufig wie beim Spielersuche-Import: zuerst wird die Datei gelesen und
+ * Zweistufig: zuerst wird die Datei gelesen und
  * jede Zeile bewertet, dann - und nur nach ausdrücklicher Bestätigung - wird
  * geschrieben. Ohne diesen Zwischenschritt liesse sich nicht erkennen, was
  * eine Übernahme anrichtet, bevor sie passiert ist.

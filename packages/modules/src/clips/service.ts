@@ -268,13 +268,13 @@ export async function reicheEin(
   }
 }
 
-/** Das Spiel aus der zentralen Registry - oder ein Freitext als Rueckfall. */
+/** Das Spiel aus dem zentralen Katalog - oder ein Freitext als Rueckfall. */
 async function loeseSpielAuf(
   gameId: string | null,
   gameName: string | null,
 ): Promise<{ gameId: string | null; gameName: string | null }> {
   if (gameId) {
-    const spiel = await prisma.spielersucheGame.findUnique({
+    const spiel = await prisma.game.findUnique({
       where: { id: gameId },
       select: { id: true, name: true },
     });

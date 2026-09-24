@@ -1,5 +1,6 @@
 import { prisma } from '@swisshub/database';
 import { conflict, notFound, policyViolation } from '@swisshub/shared';
+import { coverSrc, listGames } from '../games';
 import { beruehre, namensKey, sperre } from './session';
 import type { KandidatEingabe } from './schemas';
 
@@ -33,7 +34,7 @@ export async function listeKandidaten(sessionId: string): Promise<KandidatAnsich
   const zeilen = await prisma.spielwahlCandidate.findMany({
     where: { sessionId },
     include: {
-      game: { select: { id: true, name: true, bannerUrl: true, maxSquadSize: true } },
+      game: { select: { id: true, name: true, coverPath: true, coverUrl: true, maxPlayers: true } },
       supporters: { orderBy: [{ erster: 'desc' }, { createdAt: 'asc' }], select: { discordId: true } },
     },
     orderBy: { createdAt: 'asc' },
@@ -41,14 +42,23 @@ export async function listeKandidaten(sessionId: string): Promise<KandidatAnsich
 
   return zeilen.map((zeile) => ({
     id: zeile.id,
-    name: zeile.game?.name ?? zeile.freierName ?? '—',
+    /*
+     * Der Schnappschuss gewinnt.
+     *
+     * Er haelt fest, wie das Spiel hiess, als es vorgeschlagen wurde. Der
+     * Katalog kann sich danach aendern - umbenannt, archiviert, geloescht -,
+     * und eine abgeschlossene Runde soll davon nichts merken. Der lebende
+     * Eintrag wird trotzdem gelesen: fuer das Cover, das sich verbessern
+     * darf, solange es eines gibt.
+     */
+    name: zeile.nameSnapshot,
     gameId: zeile.gameId,
     /*
      * Das Cover kommt ausschliesslich aus dem Katalog. Ein freier Vorschlag
      * bekommt keines - und schon gar nicht eine Adresse aus der Eingabe.
      */
-    bannerUrl: zeile.game?.bannerUrl ?? null,
-    maxSquadSize: zeile.game?.maxSquadSize ?? null,
+    bannerUrl: (zeile.game ? coverSrc(zeile.game) : null) ?? zeile.coverSnapshot,
+    maxSquadSize: zeile.game?.maxPlayers ?? null,
     unterstuetzer: zeile.supporters.map((eintrag) => eintrag.discordId),
   }));
 }
@@ -85,17 +95,24 @@ export async function schlageVor(
 
     let name: string;
     let gameId: string | null = null;
+    let cover: string | null = null;
 
     if (eingabe.gameId) {
-      const spiel = await tx.spielersucheGame.findFirst({
-        where: { id: eingabe.gameId, enabled: true },
-        select: { id: true, name: true },
+      /*
+       * `enabled` und nicht archiviert: ein abgeschaltetes Spiel steht fuer
+       * Neues nicht mehr zur Verfuegung. Was bereits vorgeschlagen ist,
+       * bleibt davon unberuehrt - das entscheidet `listeKandidaten`.
+       */
+      const spiel = await tx.game.findFirst({
+        where: { id: eingabe.gameId, enabled: true, archivedAt: null },
+        select: { id: true, name: true, coverPath: true, coverUrl: true },
       });
       if (!spiel) {
         throw notFound('spielwahl: Spiel unbekannt', 'Dieses Spiel steht nicht (mehr) im Katalog.');
       }
       gameId = spiel.id;
       name = spiel.name;
+      cover = coverSrc(spiel);
     } else {
       if (!session.freieVorschlaege) {
         throw policyViolation('In dieser Runde sind nur Spiele aus dem Katalog erlaubt.');
@@ -142,6 +159,10 @@ export async function schlageVor(
         sessionId,
         gameId,
         freierName: gameId ? null : name,
+        // Der Schnappschuss entsteht beim Vorschlagen und wird danach nie
+        // wieder angefasst. Genau das macht ihn zum Schnappschuss.
+        nameSnapshot: name,
+        coverSnapshot: cover,
         namensKey: key,
         supporters: { create: { discordId, erster: true } },
       },
@@ -214,19 +235,16 @@ export async function entferneKandidat(sessionId: string, candidateId: string): 
 /**
  * Die Spielsuche fuer das Vorschlagsfeld.
  *
- * Genau derselbe Katalog wie in der Spielersuche, in Turnieren und bei den
- * Clips - `SpielersucheGame`. Eine zweite Spieleliste gibt es nicht und soll
- * es nicht geben.
+ * Genau derselbe Katalog wie in Turnieren und bei den Clips. Eine zweite
+ * Spieleliste gibt es nicht und soll es nicht geben - deshalb liegt die
+ * Abfrage im Katalogdienst und nicht hier.
  */
 export async function sucheSpiele(query: string, limit = 12) {
-  const suche = query.trim();
-  return prisma.spielersucheGame.findMany({
-    where: {
-      enabled: true,
-      ...(suche.length > 0 ? { name: { contains: suche, mode: 'insensitive' as const } } : {}),
-    },
-    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-    take: Math.min(Math.max(limit, 1), 25),
-    select: { id: true, name: true, bannerUrl: true, maxSquadSize: true },
-  });
+  const spiele = await listGames({ suche: query });
+  return spiele.slice(0, Math.min(Math.max(limit, 1), 25)).map((spiel) => ({
+    id: spiel.id,
+    name: spiel.name,
+    bannerUrl: coverSrc(spiel),
+    maxSquadSize: spiel.maxPlayers,
+  }));
 }

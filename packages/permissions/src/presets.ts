@@ -40,7 +40,6 @@ const MITGLIED_BASIS: string[] = [
   // Navigation.
   'dashboard.module.view',
   'members.module.view',
-  'spielersuche.module.view',
   'tickets.module.view',
   'level.module.view',
   'tournaments.module.view',
@@ -56,7 +55,6 @@ const MITGLIED_BASIS: string[] = [
   'members.view.roles.own',
   'members.view.activity.own',
   'members.view.level.own',
-  'members.view.spielersuche.own',
   'members.view.tournaments.own',
   'members.view.tickets.own',
   'members.view.premium.own',
@@ -65,13 +63,6 @@ const MITGLIED_BASIS: string[] = [
   // gehoert dem Abend und nicht der Verwaltung.
   'spielwahl.view',
   'spielwahl.create',
-
-  // Spielersuche: eine eroeffnen, einer beitreten, die eigene schliessen.
-  'spielersuche.view',
-  'spielersuche.create',
-  'spielersuche.join',
-  'spielersuche.closeOwn',
-  'spielersuche.stats.viewOwn',
 
   // Tickets: ein eigenes eroeffnen und die eigenen lesen. Ausdruecklich
   // nicht `tickets.view` - das ist die Support-Sicht auf fremde.

@@ -29,7 +29,6 @@ export const MEMBER_SECTIONS = [
   'roles',
   'activity',
   'level',
-  'spielersuche',
   'tournaments',
   'tickets',
   'premium',
@@ -46,10 +45,6 @@ const SCHLUESSEL: Record<MemberSection, { own?: string; assigned?: string; all?:
   roles: { own: MEMBER_PERMISSIONS.rolesOwn, all: MEMBER_PERMISSIONS.rolesAll },
   activity: { own: MEMBER_PERMISSIONS.activityOwn, all: MEMBER_PERMISSIONS.activityAll },
   level: { own: MEMBER_PERMISSIONS.levelOwn, all: MEMBER_PERMISSIONS.levelAll },
-  spielersuche: {
-    own: MEMBER_PERMISSIONS.spielersucheOwn,
-    all: MEMBER_PERMISSIONS.spielersucheAll,
-  },
   tournaments: { own: MEMBER_PERMISSIONS.tournamentsOwn, all: MEMBER_PERMISSIONS.tournamentsAll },
   tickets: {
     own: MEMBER_PERMISSIONS.ticketsOwn,

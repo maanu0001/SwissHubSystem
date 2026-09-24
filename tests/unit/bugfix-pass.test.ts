@@ -90,7 +90,10 @@ describe('Dashboard steht wieder auf dem Stand vor dem Umbau', () => {
     const reihenfolge = [
       'title="Warteschlange"',
       'title="Ticket erstellen"',
-      'title="Spielersuche starten"',
+      // Stand an dieser Stelle: «Spielersuche starten». Das Modul ist weg,
+      // das Beduerfnis nicht - die Runde bei «Was spielen wir?» hat den Platz
+      // uebernommen.
+      'title="Was spielen wir?"',
       'title="Musik starten"',
       'title="Mitglied jailen"',
       'title="Mitglied suchen"',

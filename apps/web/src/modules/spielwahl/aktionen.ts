@@ -239,7 +239,8 @@ export const spielwahlSpieleSuchenAction = defineAction(
     csrf: false,
   },
   async ({ input }) => {
-    // Liest nur den gemeinsamen Katalog - dieselbe Liste wie die Spielersuche.
+    // Liest nur den gemeinsamen Katalog - dieselbe Liste, aus der auch
+    // Turniere und Clips schoepfen.
     return { spiele: await spielwahl.sucheSpiele(input.query) };
   },
 );

@@ -27,11 +27,9 @@ import { createJobRunner } from './jobs';
 import { startIntegrationWatch } from './integration-reload';
 import { registerVoteJailHandler } from './vote-jail';
 import { registerCommandHandler, registerCommands } from './commands/register';
-import { registerSpielersucheButtons } from './spielersuche-buttons';
 import { registerRaffleButtons } from './raffle-buttons';
 import { registerCalendarInteractions } from './calendar-interactions';
 import { registerRejectConfirmation, registerVerification } from './verification';
-import { recoverVoiceSessions, registerSpielersucheVoice } from './spielersuche-voice';
 import { registerVoicePresence } from './voice-presence';
 import { registerLevelGameButtons } from './level-games';
 import { registerTicketInteractions } from './ticket-interactions';
@@ -44,6 +42,7 @@ import { registerInviteEvents, synchronisiereEinladungenBeimStart } from './invi
 import { registerTournamentInteractions } from './tournament-interactions';
 import { recoverVoiceHub, registerVoiceHub } from './voice-hub';
 import { registerVoiceInteractions } from './voice-interactions';
+import { registerAbgeschalteteKnoepfe } from './altlasten';
 import {
   recoverVoiceMembers,
   registerLevelMessageXp,
@@ -135,9 +134,9 @@ async function main(): Promise<void> {
       // Nachrichten-Ereignisse für XP im Chat und für die Ticket-Kanäle.
       GatewayIntentBits.GuildMessages,
       ...(messageContent ? [GatewayIntentBits.MessageContent] : []),
-      // Voice-Zustände: XP für Zeit im Sprachkanal und das Aufräumen der
-      // Spielersuche-Kanäle. Ohne dieses Intent liefert Discord die
-      // Ereignisse nicht - die Handler liefen bisher ins Leere.
+      // Voice-Zustände: XP für Zeit im Sprachkanal, Anwesenheit in den Talks
+      // und das Aufräumen der Hub-Kanäle. Ohne dieses Intent liefert Discord
+      // die Ereignisse nicht - die Handler liefen bisher ins Leere.
       GatewayIntentBits.GuildVoiceStates,
       // Bann und Entbannung als Ereignis - ohne dieses Intent liefert Discord
       // sie nicht, und im Verlauf fehlte genau das, was am schwersten wiegt.
@@ -181,11 +180,10 @@ async function main(): Promise<void> {
   // Slash Commands (/jail, /jail_free, /vote_jail, ...). Die Befehle sind
   // reine Adapter auf dieselben Services, die auch das Dashboard nutzt.
   registerCommandHandler(client);
-  // Knöpfe und Voice-Tracking der Spielersuche.
-  registerSpielersucheButtons(client);
   registerRaffleButtons(client);
-  registerSpielersucheVoice(client);
   registerVoicePresence(client);
+  // Knoepfe abgeschalteter Funktionen, die in alten Nachrichten stehen.
+  registerAbgeschalteteKnoepfe(client);
   // XP aus Nachrichten und Voice sowie die Knöpfe der XP-Spiele.
   registerLevelMessageXp(client);
   registerLevelVoiceTracking(client);
@@ -295,11 +293,6 @@ async function main(): Promise<void> {
       if (inVoice > 0) {
         log.info('Anwesende im Voice übernommen', { members: inVoice });
       }
-
-      // Voice-Sessions, die ein Neustart offen gelassen hat, sauber schliessen.
-      await recoverVoiceSessions(readyClient, guildId).catch((error: unknown) =>
-        log.warn('Voice-Sessions konnten nicht bereinigt werden', { error }),
-      );
 
       /*
        * Dasselbe fuer die Sprachabschnitte der Statistik - in beide

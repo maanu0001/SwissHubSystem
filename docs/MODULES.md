@@ -600,46 +600,39 @@ queries.ts   Leseseite für den Assistenten
 
 Details und die vollständige Feldabbildung: [JAIL_MIGRATION.md](./JAIL_MIGRATION.md).
 
-## 10d. Beispiel: Spielersuche - ein Modul mit Discord-Zustand
+## 10d. Beispiel: Der Spielekatalog - ein Dienst ohne eigenes Modul
 
-Die Spielersuche ist das umfangreichste Modul und zeigt, wie ein Modul aussieht,
-das dauerhaft Discord-Objekte verwaltet (Nachrichten, Sprachkanäle) statt nur
-Rollen zu setzen:
+Nicht alles, was mehrere Module brauchen, ist selbst ein Modul. Der
+Spielekatalog ist der klarste Fall:
 
 ```
-packages/modules/src/spielersuche/
-  config.ts       Moduldefinition, Berechtigungen, Einstellungen, Health Checks
-  context.ts      Laufzeitkonfiguration an einem Ladepunkt
-  schemas.ts      Eingabevalidierung (Dashboard und Slash Command gemeinsam)
-  games.ts        Spieleverwaltung
-  service.ts      Zentrale Engine: erstellen, beitreten, verlassen, beenden
-  voice.ts        Sprachkanäle: anlegen, Rechte setzen, aufräumen
-  embed.ts        Discord-Darstellung inkl. persistenter Knöpfe
-  stats.ts        Nutzung, Voice-Zeit, Rangliste, Kennzahlen
-  onboarding.ts   Tägliche Hinweisnachricht
-  queries.ts      Leseseite für das Dashboard
-  import/         Übernahme der alten SQLite-Datenbank
+packages/modules/src/games/
+  config.ts      Die eine Berechtigung, die das Pflegen verlangt
+  katalog.ts     Lesen: listGames, getGame, searchGames, coverSrc
+  verwaltung.ts  Schreiben: anlegen, bearbeiten, archivieren, Cover
+  nutzung.ts     Was an einem Spiel haengt - Turniere, Clips, Runden
+  schemas.ts     Die Form eines Eintrags (client-sicher)
 ```
 
-Entscheidende Punkte:
+**Es gibt keinen Schalter dafuer.** Eine leere Spieleliste ist kein Zustand,
+den man einschalten koennte, und wenn es einen gaebe, haette das Ausschalten
+Turniere, Clips und die Mitgliederakte mitgenommen. Der Katalog ist deshalb
+in keiner Registry eingetragen; er wird importiert wie `@swisshub/shared`.
 
-- **Ein Service, drei Oberflächen.** `createSearch` wird von der Server Action,
-  vom Slash Command und (über `joinSearch`/`closeSearch`) von den Discord-Knöpfen
-  aufgerufen. Die Oberflächen liefern einen Akteur und eine Eingabe, sonst nichts.
-- **Grenzen in der Datenbank, nicht im Code.** Das Limit gleichzeitiger Suchen
-  steckt im Unique-Index auf `activeCreatorKey` (`<discordId>#<Platznummer>`).
-  Zwei gleichzeitige Anfragen können denselben Platz nicht beide belegen -
-  unabhängig davon, wie schnell der Anwendungscode ist.
-- **Nebenläufigkeit beim Beitritt.** Die Platzprüfung läuft in einer Transaktion
-  mit `SELECT … FOR UPDATE` auf der Suche. Aus 4 von 5 wird nie 6 von 5.
-- **Persistente Knöpfe.** Die Custom IDs sind stabil; die zugehörige Suche wird
-  über die Nachrichten-ID nachgeschlagen. Dadurch funktionieren die Knöpfe nach
-  einem Neustart - und die IDs des Vorgängersystems werden weiterhin erkannt.
-- **Discord-Objekte gehören dem Modul.** Ein Sprachkanal wird nur gelöscht, wenn
-  eine Suche in der Datenbank auf ihn zeigt. Fremde Kanäle bleiben unberührt.
+**Gepflegt wird er unter «Was spielen wir?»** - unter
+`/was-spielen-wir/games`, mit der Berechtigung `spielwahl.games.manage`.
+Das ist eine Zustaendigkeit und keine Zugehoerigkeit: `packages/modules/src/games`
+importiert nichts aus `spielwahl`. Wer die Verwaltung eines Tages woanders
+haben will, verschiebt eine Seite und eine Berechtigung, nicht den Dienst.
 
-Details zur Ablösung des Vorgängersystems:
-[SPIELERSUCHE_MIGRATION.md](./SPIELERSUCHE_MIGRATION.md).
+**Die Unterscheidung, die alles traegt:** ein Spiel ist _aktiv_,
+_abgeschaltet_ oder _archiviert_. Abgeschaltet heisst «steht fuer Neues
+nicht zur Verfuegung»; archiviert heisst «aus dem Katalog genommen». Was
+es **nicht** gibt, ist Loeschen - an einem Spiel haengen Turniere, Clips und
+vergangene Runden, und eine Verwaltungsaktion von heute darf deren
+Vergangenheit nicht umschreiben. Wo eine Anzeige den Namen von damals
+braucht, steht er als Schnappschuss in der Zeile
+(`SpielwahlCandidate.nameSnapshot`) und nicht als Verweis in den Katalog.
 
 ## 10e. Beispiel: XP-Verlosungen - ein Aufsatz mit eigener Mitgliederseite
 

@@ -26,6 +26,16 @@ export const SPIELWAHL_PERMISSIONS = {
   manage: 'spielwahl.manage',
   /** Die Vorgaben des Moduls einstellen. */
   settings: 'spielwahl.settings',
+  /**
+   * Den Spielekatalog pflegen.
+   *
+   * Sitzt hier, weil die Verwaltung hier steht - aber der Katalog gehoert
+   * nicht diesem Modul. Turniere, Clips und die Mitgliederakte lesen
+   * dieselbe Liste; wer sie aendert, aendert sie fuer alle. Deshalb eine
+   * eigene Berechtigung und nicht `manage`: eine Runde zu schliessen ist
+   * Moderation, den Katalog zu aendern ist Verwaltung.
+   */
+  gamesManage: 'spielwahl.games.manage',
 } as const;
 
 export type SpielwahlPermission = (typeof SPIELWAHL_PERMISSIONS)[keyof typeof SPIELWAHL_PERMISSIONS];
@@ -147,7 +157,8 @@ const spielwahlSettingsFields: SettingsField[] = [
  *
  * Die eine Voraussetzung ist der Spielekatalog. Ohne Spiele gibt es nichts
  * auszuwaehlen, und das Modul waere eine Buehne ohne Stuecke - gepflegt wird
- * die Liste unter Spielersuche, und zwar genau einmal fuer alle Module.
+ * die Liste hier, unter «Games verwalten», und zwar genau einmal fuer alle
+ * Module.
  */
 async function spielwahlHealthChecks(kontext?: ModuleHealthContext): Promise<ModuleHealthCheck[]> {
   const { prisma } = await import('@swisshub/database');
@@ -155,21 +166,21 @@ async function spielwahlHealthChecks(kontext?: ModuleHealthContext): Promise<Mod
   const settings = await getModuleSettings<SpielwahlSettings>(SPIELWAHL_MODULE_ID);
   const checks: ModuleHealthCheck[] = [];
 
-  const spiele = await prisma.spielersucheGame.count({ where: { enabled: true } });
+  const spiele = await prisma.game.count({ where: { enabled: true, archivedAt: null } });
   if (spiele === 0) {
     checks.push({
       label: 'Spielekatalog',
       status: 'error',
       detail:
-        'Kein aktives Spiel im Katalog. Ohne Spiele laesst sich nichts auswaehlen - die Liste wird unter Spielersuche gepflegt, dieselbe, die Turniere und Clips verwenden.',
-      fixHref: '/spielersuche/spiele',
+        'Kein aktives Spiel im Katalog. Ohne Spiele laesst sich nichts auswaehlen - die Liste wird unter «Games verwalten» gepflegt, dieselbe, die Turniere und Clips verwenden.',
+      fixHref: '/was-spielen-wir/games',
     });
   } else if (spiele < 4) {
     checks.push({
       label: 'Spielekatalog',
       status: 'warning',
       detail: `Nur ${spiele} aktive Spiele. Eine Auswahl mit drei Moeglichkeiten ist keine.`,
-      fixHref: '/spielersuche/spiele',
+      fixHref: '/was-spielen-wir/games',
     });
   } else {
     checks.push({ label: 'Spielekatalog', status: 'ok', detail: `${spiele} Spiele stehen zur Auswahl.` });
@@ -254,6 +265,13 @@ export const spielwahlModule: ModuleDefinition = registerModule({
       description: 'Vorgaben, Grenzen und den Ankündigungskanal des Moduls einstellen.',
       module: SPIELWAHL_MODULE_ID,
     },
+    {
+      key: SPIELWAHL_PERMISSIONS.gamesManage,
+      label: 'Spielekatalog verwalten',
+      description:
+        'Spiele anlegen, bearbeiten und archivieren. Der Katalog gilt für alle Module - auch für Turniere und Clips.',
+      module: SPIELWAHL_MODULE_ID,
+    },
   ],
   navigation: [
     {
@@ -265,6 +283,15 @@ export const spielwahlModule: ModuleDefinition = registerModule({
       group: 'modules',
       order: 26,
       altPermissions: [SPIELWAHL_PERMISSIONS.create, SPIELWAHL_PERMISSIONS.manage],
+    },
+    {
+      href: '/was-spielen-wir/games',
+      label: 'Spielekatalog',
+      description: 'Die Spiele pflegen, aus denen alle Module auswählen',
+      permission: SPIELWAHL_PERMISSIONS.gamesManage,
+      icon: 'Gamepad2',
+      group: 'modules',
+      order: 27,
     },
   ],
 });

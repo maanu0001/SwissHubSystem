@@ -42,7 +42,7 @@ const log = createLogger('wrapped:resolver');
  *   Clips         `ClipCompetitionEntry`
  *   Turniere      `TournamentParticipant`
  *   Termine       `CalendarRegistration`
- *   Spiele        `SpielersucheParticipant`
+ *   Spiele        `SpielwahlSupport`
  *
  * ## Was **nicht** hineingeht
  *
@@ -110,7 +110,7 @@ export async function ermittleQuellen(guildId: string, zeitraum: WrappedZeitraum
     prisma.clipCompetition.count({ where: { guildId, votingEndsAt: spanne } }),
     prisma.calendarEvent.count({ where: { guildId, startAt: spanne } }),
     prisma.tournament.count({ where: { guildId, createdAt: spanne } }),
-    prisma.spielersucheMatch.count({ where: { createdAt: spanne } }),
+    prisma.spielwahlSupport.count({ where: { createdAt: spanne } }),
     prisma.xpTransaction.count({ where: { createdAt: spanne } }),
   ]);
 
@@ -533,33 +533,53 @@ async function ermittleWettkampf(
   };
 }
 
+/**
+ * Welche Spiele jemand dieses Jahr mitgetragen hat.
+ *
+ * ## Warum Unterstuetzungen und nicht Teilnahmen
+ *
+ * Wer einer Runde beitritt, ist bei allem dabei, was dort vorgeschlagen
+ * wird - auch bei Spielen, die ihn nicht interessieren. Was jemand
+ * ausdruecklich gewollt hat, steht in `SpielwahlSupport`: er hat es
+ * vorgeschlagen oder mitgetragen. Das ist die Angabe, aus der sich ein
+ * «deine Spiele» bauen laesst, ohne etwas zu behaupten.
+ *
+ * ## Warum der Schnappschuss
+ *
+ * `nameSnapshot` haelt fest, wie das Spiel hiess, als es vorgeschlagen
+ * wurde. Ein Rueckblick auf ein Jahr soll die Namen dieses Jahres zeigen -
+ * und nicht die, die der Katalog heute fuehrt. Freie Vorschlaege zaehlen
+ * mit: sie haben denselben Abend bestimmt wie ein Katalogeintrag.
+ */
 async function ermittleSpiele(discordId: string, zeitraum: WrappedZeitraum): Promise<WrappedSpiele> {
-  const teilnahmen = await prisma.spielersucheParticipant.findMany({
+  const getragen = await prisma.spielwahlSupport.findMany({
     where: {
       discordId,
-      joinedAt: { gte: zeitraum.start, lt: zeitraum.end },
-      match: { gameId: { not: null } },
+      createdAt: { gte: zeitraum.start, lt: zeitraum.end },
     },
-    select: { match: { select: { gameId: true, game: { select: { name: true } } } } },
+    select: { candidate: { select: { gameId: true, nameSnapshot: true, namensKey: true } } },
   });
 
-  const zaehler = new Map<string, { name: string; sessions: number }>();
-  for (const eintrag of teilnahmen) {
-    const gameId = eintrag.match.gameId;
-    const name = eintrag.match.game?.name;
-    if (!gameId || !name) {
-      continue;
-    }
-    const bisher = zaehler.get(gameId);
-    zaehler.set(gameId, { name, sessions: (bisher?.sessions ?? 0) + 1 });
+  const zaehler = new Map<string, { gameId: string | null; name: string; sessions: number }>();
+  for (const eintrag of getragen) {
+    const kandidat = eintrag.candidate;
+    // Ohne Kennung im Katalog haelt der normalisierte Name die Vorschlaege
+    // zusammen - sonst waeren «Valheim» und «valheim » zwei Spiele.
+    const schluessel = kandidat.gameId ?? `frei:${kandidat.namensKey}`;
+    const bisher = zaehler.get(schluessel);
+    zaehler.set(schluessel, {
+      gameId: kandidat.gameId,
+      name: kandidat.nameSnapshot,
+      sessions: (bisher?.sessions ?? 0) + 1,
+    });
   }
 
   return {
-    top: [...zaehler.entries()]
-      .map(([gameId, wert]) => ({ gameId, name: wert.name, sessions: wert.sessions }))
+    top: [...zaehler.values()]
+      .map((wert) => ({ gameId: wert.gameId ?? '', name: wert.name, sessions: wert.sessions }))
       .sort((a, b) => b.sessions - a.sessions || a.name.localeCompare(b.name))
       .slice(0, 5),
-    quelle: 'spielersuche',
+    quelle: 'spielwahl',
   };
 }
 

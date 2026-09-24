@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
-import { prisma } from '@swisshub/database';
-import { clips } from '@swisshub/modules';
+import { clips, games } from '@swisshub/modules';
 import { systemRoutes } from '@swisshub/shared';
 import { PageHeader } from '@/components/shared/page-header';
 import { ZurueckLink } from '@/components/shared/zurueck-link';
@@ -55,14 +54,9 @@ export default async function ClipEinreichenPage(): Promise<React.JSX.Element> {
 
   const [eigene, spiele] = await Promise.all([
     clips.eigeneEinreichungen(stand.runde.id, context.user.discordId),
-    // Die zentrale Spiele-Registry - dieselbe, aus der Turniere und
-    // Spielersuche schoepfen. Eine eigene Liste waere die zweite Wahrheit.
-    prisma.spielersucheGame.findMany({
-      where: { enabled: true },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      select: { id: true, name: true },
-      take: 200,
-    }),
+    // Der zentrale Spielekatalog - derselbe, aus dem Turniere und «Was
+    // spielen wir?» schoepfen. Eine eigene Liste waere die zweite Wahrheit.
+    games.listGames(),
   ]);
 
   const offeneEigene = eigene.filter(

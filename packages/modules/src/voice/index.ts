@@ -2,7 +2,7 @@
  * Temporaere Sprachkanaele.
  *
  * Die gemeinsame Grundlage fuer alle Module, die Sprachkanaele auf Zeit
- * anlegen - der Voice Hub, die Spielersuche, spaeter vielleicht ein Turnier.
+ * anlegen - der Voice Hub, spaeter vielleicht ein Turnier oder ein Event.
  * Wer hier einen Kanal erzeugt, bekommt denselben Lebenszyklus: dieselbe
  * Rechtestrategie, dieselbe Schonfrist, denselben Abgleich nach einem
  * Neustart.

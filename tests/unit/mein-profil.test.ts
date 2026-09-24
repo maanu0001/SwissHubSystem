@@ -182,17 +182,17 @@ describe('Zugriff: eigenes Profil ja, fremdes nein', () => {
   });
 });
 
-// --- Die drei entfernten Reiter --------------------------------------------
+// --- Die im eigenen Profil entfernten Reiter --------------------------------
 
 const AKTE = readFileSync(
   join(process.cwd(), 'apps/web/src/modules/members/components/mitglieds-akte.tsx'),
   'utf8',
 );
 
-describe('Die drei Reiter im eigenen Profil', () => {
+describe('Die Reiter im eigenen Profil', () => {
   it('kennt die Ausnahmeliste im eigenen Profil', () => {
     expect(AKTE).toContain('NICHT_IM_EIGENEN_PROFIL');
-    for (const abschnitt of ["'spielersuche'", "'tournaments'", "'roles'"]) {
+    for (const abschnitt of ["'tournaments'", "'roles'"]) {
       expect(AKTE, abschnitt).toContain(abschnitt);
     }
   });
@@ -208,7 +208,6 @@ describe('Die drei Reiter im eigenen Profil', () => {
     // Nur im eigenen Profil entfernt - das Mitglieder-Modul behält sie.
     const reiterListe = AKTE.slice(AKTE.indexOf('const REITER'), AKTE.indexOf('] as const;'));
 
-    expect(reiterListe).toContain("label: 'Spielersuche'");
     expect(reiterListe).toContain("label: 'Turniere'");
     expect(reiterListe).toContain("label: 'Rollen'");
   });
@@ -221,10 +220,8 @@ describe('Die drei Reiter im eigenen Profil', () => {
   it('lässt die zugrundeliegenden Module unangetastet', () => {
     const vorhanden = new Set(listModuleDefinitions().map((modul) => modul.id));
 
-    expect(vorhanden.has('spielersuche')).toBe(true);
     expect(vorhanden.has('tournaments')).toBe(true);
     // Die Abschnitte selbst bleiben im Member Center bestehen.
-    expect(members.MEMBER_SECTIONS).toContain('spielersuche');
     expect(members.MEMBER_SECTIONS).toContain('tournaments');
     expect(members.MEMBER_SECTIONS).toContain('roles');
   });

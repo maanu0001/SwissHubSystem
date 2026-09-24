@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { prisma } from '@swisshub/database';
-import { spielersuche } from '@swisshub/modules';
+import { games } from '@swisshub/modules';
 import { AppError } from '@swisshub/shared';
 import { CustomFieldsAdmin, type FeldArt } from '@/modules/tournaments/components/custom-fields-admin';
 import { TournamentForm } from '@/modules/tournaments/components/tournament-form';
@@ -41,7 +41,7 @@ export default async function TurnierBearbeitenPage({
       orderBy: { sortOrder: 'asc' },
     }),
     prisma.tournamentCustomFieldResponse.count({ where: { field: { tournamentId: id } } }),
-    spielersuche.listGames({ includeDisabled: false }).catch(() => []),
+    games.listGames().catch(() => []),
     loadDiscordOptions(),
   ]);
 

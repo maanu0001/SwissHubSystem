@@ -63,7 +63,6 @@ const REITER = [
   { id: 'uebersicht', label: 'Übersicht' },
   { id: 'aktivitaet', label: 'Aktivität', section: 'activity' },
   { id: 'level', label: 'Level', section: 'level' },
-  { id: 'spielersuche', label: 'Spielersuche', section: 'spielersuche' },
   { id: 'turniere', label: 'Turniere', section: 'tournaments' },
   { id: 'tickets', label: 'Tickets', section: 'tickets' },
   { id: 'premium', label: 'Premium', section: 'premium' },
@@ -77,14 +76,14 @@ const REITER = [
  * Reiter, die im eigenen Profil nicht erscheinen.
  *
  * «Mein Profil» ist die Selbstauskunft - was jemand ueber sich selbst
- * nachschlaegt. Die eigenen Spielersuchen, Turnierteilnahmen und Discord-Rollen
+ * nachschlaegt. Die eigenen Turnierteilnahmen und Discord-Rollen
  * stehen jeweils dort, wo man sie auch bearbeitet, und in Discord ohnehin; als
  * Reiter im eigenen Profil waren sie eine dritte Darstellung derselben Sache.
  *
  * In der Akte eines *anderen* Mitglieds bleiben sie: dort beantworten sie eine
  * Frage, die man sonst nirgends stellen kann.
  */
-const NICHT_IM_EIGENEN_PROFIL: ReadonlySet<string> = new Set(['spielersuche', 'tournaments', 'roles']);
+const NICHT_IM_EIGENEN_PROFIL: ReadonlySet<string> = new Set(['tournaments', 'roles']);
 
 export async function MitgliedsAkte({
   discordId,
@@ -486,12 +485,6 @@ export async function MitgliedsAkte({
                     ) : null}
                   </>
                 )
-              ) : aktiv === 'spielersuche' ? (
-                fehler.has('spielersuche') ? (
-                  nichtVerfuegbar
-                ) : (
-                  <Spielersuche daten={profil.spielersuche} />
-                )
               ) : aktiv === 'turniere' ? (
                 fehler.has('tournaments') ? (
                   nichtVerfuegbar
@@ -606,9 +599,6 @@ function Uebersicht({ profil }: { profil: members.MemberCenterProfile }): React.
   if (profil.level) {
     kacheln.push({ label: 'Level', wert: `${profil.level.level} · ${profil.level.xp} XP` });
   }
-  if (profil.spielersuche) {
-    kacheln.push({ label: 'Spielersuchen', wert: String(profil.spielersuche.erstellt) });
-  }
   if (profil.tournaments) {
     kacheln.push({ label: 'Turniere', wert: String(profil.tournaments.gesamt) });
   }
@@ -685,7 +675,7 @@ function Aktivitaet({ activity }: { activity?: members.MemberActivity }): React.
             <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="pb-2 pr-4 font-medium">Zeitraum</th>
               <th className="pb-2 pr-4 font-medium">XP</th>
-              <th className="pb-2 pr-4 font-medium">Spielersuchen</th>
+              <th className="pb-2 pr-4 font-medium">Spielrunden</th>
               <th className="pb-2 pr-4 font-medium">Talks</th>
               <th className="pb-2 font-medium">Turniere</th>
             </tr>
@@ -695,7 +685,7 @@ function Aktivitaet({ activity }: { activity?: members.MemberActivity }): React.
               <tr key={fenster.tage}>
                 <td className="py-2 pr-4">{fenster.tage} Tage</td>
                 <td className="py-2 pr-4">{fenster.xpSumme}</td>
-                <td className="py-2 pr-4">{fenster.spielersuchen}</td>
+                <td className="py-2 pr-4">{fenster.spielrunden}</td>
                 <td className="py-2 pr-4">{fenster.talks}</td>
                 <td className="py-2">{fenster.turniere}</td>
               </tr>
@@ -746,45 +736,6 @@ function LevelAnsicht({ level }: { level?: members.MemberLevelView }): React.JSX
             Noch {level.fehlendeXp} XP bis Level {level.level + 1}.
           </p>
         </div>
-      )}
-    </div>
-  );
-}
-
-function Spielersuche({ daten }: { daten?: members.MemberSpielersucheView }): React.JSX.Element {
-  if (!daten) {
-    return <EmptyState className="border-0" title="Keine Spielersuchen" description="Nichts erfasst." />;
-  }
-  return (
-    <div className="space-y-4">
-      <dl className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-border px-4 py-3">
-          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Erstellt</dt>
-          <dd className="mt-1 text-lg font-semibold">{daten.erstellt}</dd>
-        </div>
-        <div className="rounded-xl border border-border px-4 py-3">
-          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Beigetreten</dt>
-          <dd className="mt-1 text-lg font-semibold">{daten.beigetreten}</dd>
-        </div>
-        <div className="rounded-xl border border-border px-4 py-3">
-          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Aktiv</dt>
-          <dd className="mt-1 text-lg font-semibold">{daten.aktive}</dd>
-        </div>
-      </dl>
-      {daten.letzte.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Noch keine Spielersuchen.</p>
-      ) : (
-        <ul className="divide-y divide-border">
-          {daten.letzte.map((suche) => (
-            <li key={suche.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-              <span className="truncate">{suche.gameName}</span>
-              <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-                <Badge variant="outline">{suche.status}</Badge>
-                {formatDate(suche.createdAt)}
-              </span>
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );

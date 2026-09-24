@@ -21,7 +21,8 @@
     "./wrapped/vorlage": "./src/wrapped/vorlage.ts",
     "./wrapped/szenen": "./src/wrapped/szenen.ts",
     "./wrapped/fixtures": "./src/wrapped/fixtures.ts",
-    "./spielwahl/baum": "./src/spielwahl/baum.ts"
+    "./spielwahl/baum": "./src/spielwahl/baum.ts",
+    "./games/schemas": "./src/games/schemas.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

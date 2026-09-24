@@ -221,7 +221,19 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   COMMUNICATION_SEND_FAILED: 'Senden fehlgeschlagen',
   COMMUNICATION_SETTINGS_CHANGED: 'Kommunikationseinstellungen geändert',
 
-  // --- Spielersuche ----------------------------------------------------------
+  // --- Spielekatalog ---------------------------------------------------------
+  GAME_CREATED: 'Spiel angelegt',
+  GAME_UPDATED: 'Spiel geändert',
+  GAME_ARCHIVED: 'Spiel archiviert',
+  GAME_RESTORED: 'Spiel zurückgeholt',
+
+  /*
+   * --- Spielersuche ----------------------------------------------------------
+   *
+   * Das Modul gibt es nicht mehr; diese Namen schon. Sie stehen in
+   * vorhandenen Protokollzeilen, und das Audit Log ist eine Beweiskette -
+   * wer sie entfernte, machte Monate an Eintraegen unleserlich.
+   */
   SPIELERSUCHE_CREATED: 'Spielersuche erstellt',
   SPIELERSUCHE_JOINED: 'Spielersuche beigetreten',
   SPIELERSUCHE_LEFT: 'Spielersuche verlassen',

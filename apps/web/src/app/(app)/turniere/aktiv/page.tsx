@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { spielersuche, tournaments } from '@swisshub/modules';
+import { games, tournaments } from '@swisshub/modules';
 import { PageHeader } from '@/components/shared/page-header';
 import { Pagination } from '@/components/shared/pagination';
 import { TournamentFilters } from '@/modules/tournaments/components/tournament-filters';
@@ -28,7 +28,7 @@ export default async function AktiveTurnierePage({
 
   const [{ rows, total, page, totalPages }, spiele] = await Promise.all([
     ladeTurnierListe(context, suche, { aktiv: true }),
-    spielersuche.listGames({ includeDisabled: true }).catch(() => []),
+    games.listGames({ includeDisabled: true, includeArchived: true }).catch(() => []),
   ]);
 
   return (

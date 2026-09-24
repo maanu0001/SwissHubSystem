@@ -40,12 +40,13 @@ export async function baueEmbed(session: SpielwahlSession): Promise<DiscordEmbed
     session.ergebnisCandidateId
       ? prisma.spielwahlCandidate.findUnique({
           where: { id: session.ergebnisCandidateId },
-          select: { freierName: true, game: { select: { name: true, bannerUrl: true } } },
+          select: { nameSnapshot: true, coverSnapshot: true, game: { select: { coverUrl: true } } },
         })
       : null,
   ]);
 
-  const gewonnen = gewinner?.game?.name ?? gewinner?.freierName ?? null;
+  // Der Schnappschuss: so hiess das Spiel, als es gewonnen hat.
+  const gewonnen = gewinner?.nameSnapshot ?? null;
   const fertig = session.status === 'ABGESCHLOSSEN';
   const beendet = session.status === 'ABGEBROCHEN';
 
@@ -76,8 +77,14 @@ export async function baueEmbed(session: SpielwahlSession): Promise<DiscordEmbed
     ],
   };
 
-  const cover = gewinner?.game?.bannerUrl;
-  if (fertig && cover) {
+  /*
+   * Discord laedt das Bild selbst nach und braucht dafuer eine oeffentlich
+   * erreichbare Adresse. Ein hochgeladenes Cover liegt hinter einer Route,
+   * die die Anmeldung prueft - fuer das Embed kommt deshalb nur die verlinkte
+   * Adresse in Frage, und sonst gar keine.
+   */
+  const cover = gewinner?.game?.coverUrl ?? gewinner?.coverSnapshot;
+  if (fertig && cover && cover.startsWith('https://')) {
     embed.image = { url: cover };
   }
 

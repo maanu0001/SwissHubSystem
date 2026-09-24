@@ -1,11 +1,6 @@
 import { Events, type Client } from 'discord.js';
 import { createLogger } from '@swisshub/logger';
 import { JAIL_COMMAND_DEFINITIONS, handleJailCommand } from './jail-commands';
-import {
-  SPIELERSUCHE_COMMAND_DEFINITIONS,
-  handleSpielersucheAutocomplete,
-  handleSpielersucheCommand,
-} from './spielersuche-commands';
 import { LEVEL_COMMAND_DEFINITIONS, LEVEL_COMMAND_NAMES, handleLevelCommand } from './level-commands';
 import {
   COMMUNICATION_COMMAND_DEFINITIONS,
@@ -31,16 +26,11 @@ const log = createLogger('bot:commands:register');
 /** Alle Befehle der Anwendung - eine Liste, ein Registrierungsvorgang. */
 const ALL_COMMANDS = [
   ...JAIL_COMMAND_DEFINITIONS,
-  ...SPIELERSUCHE_COMMAND_DEFINITIONS,
   ...LEVEL_COMMAND_DEFINITIONS,
   ...COMMUNICATION_COMMAND_DEFINITIONS,
   ...AUTOMATION_COMMAND_DEFINITIONS,
   ...SPIELWAHL_COMMAND_DEFINITIONS,
 ];
-
-const SPIELERSUCHE_COMMANDS = new Set(
-  SPIELERSUCHE_COMMAND_DEFINITIONS.map((definition) => definition.name as string),
-);
 
 /**
  * Registrierung der Slash Commands.
@@ -92,20 +82,12 @@ export function registerCommandHandler(client: Client): void {
       return;
     }
     if (interaction.isAutocomplete()) {
-      if (SPIELERSUCHE_COMMANDS.has(interaction.commandName)) {
-        void handleSpielersucheAutocomplete(interaction);
-        return;
-      }
       if (AUTOMATION_COMMAND_NAMES.has(interaction.commandName)) {
         void handleAutomationAutocomplete(interaction);
       }
       return;
     }
     if (!interaction.isChatInputCommand()) {
-      return;
-    }
-    if (SPIELERSUCHE_COMMANDS.has(interaction.commandName)) {
-      void handleSpielersucheCommand(interaction);
       return;
     }
     if (LEVEL_COMMAND_NAMES.has(interaction.commandName)) {

@@ -16,7 +16,6 @@ import {
   logs,
   moderation,
   notifications,
-  spielersuche,
   syncDiscord,
   writeHeartbeat,
   premium,
@@ -220,25 +219,6 @@ export function createJobRunner(
       runOnStart: true,
       async run() {
         await jail.expireVoteJails();
-      },
-    },
-    {
-      name: 'spielersuche-expiry',
-      // Abgelaufene Suchen beenden. Die Datenbank ist Source of Truth - ein
-      // Neustart verliert dadurch keine Ablaufzeit.
-      intervalMs: 60 * 1000,
-      runOnStart: true,
-      async run() {
-        await spielersuche.expireSearches();
-      },
-    },
-    {
-      name: 'spielersuche-onboarding',
-      // Minütlich prüfen, ob die tägliche Hinweisnachricht fällig ist. Der
-      // Versand selbst merkt sich den Tag und passiert höchstens einmal.
-      intervalMs: 60 * 1000,
-      async run() {
-        await spielersuche.runDailyOnboarding();
       },
     },
     {

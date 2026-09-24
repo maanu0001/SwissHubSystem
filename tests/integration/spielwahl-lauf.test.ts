@@ -29,7 +29,7 @@ async function leeren(): Promise<void> {
   await prisma.spielwahlCommand.deleteMany({});
   await prisma.spielwahlParticipant.deleteMany({});
   await prisma.spielwahlSession.deleteMany({});
-  await prisma.spielersucheGame.deleteMany({});
+  await prisma.game.deleteMany({});
 }
 
 async function spiele(anzahl: number): Promise<string[]> {
@@ -44,8 +44,8 @@ async function spiele(anzahl: number): Promise<string[]> {
   const ids: string[] = [];
   for (let index = 0; index < anzahl; index += 1) {
     const name = namen[index] ?? `Spiel ${index}`;
-    const spiel = await prisma.spielersucheGame.create({
-      data: { name, nameKey: name.toLowerCase(), roleId: `40000000000000000${index}`, enabled: true },
+    const spiel = await prisma.game.create({
+      data: { name, nameKey: name.toLowerCase(), enabled: true },
     });
     ids.push(spiel.id);
   }

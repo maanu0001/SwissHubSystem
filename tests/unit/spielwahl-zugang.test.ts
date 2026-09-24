@@ -113,13 +113,20 @@ describe('Zugang zur Spielauswahl', () => {
 
   it('lädt kein Bild aus einer Eingabe', () => {
     /*
-     * Ein freier Vorschlag bekommt kein Cover. Das Bild kommt ausschliesslich
-     * aus `game.bannerUrl` - also aus dem gepflegten Katalog und nie aus dem
-     * Textfeld, in das jemand gerade etwas getippt hat.
+     * Ein freier Vorschlag bekommt kein Cover. Das Bild entsteht
+     * ausschliesslich aus `coverSrc(spiel)` - also aus dem gepflegten
+     * Katalog und nie aus dem Textfeld, in das jemand gerade etwas getippt
+     * hat.
+     *
+     * Geprueft wird die Zuweisung: `cover` wird einmal deklariert, einmal
+     * aus dem Katalog gesetzt, und der Zweig fuer den freien Titel fasst sie
+     * nicht an. Dass das auch in der Datenbank so ankommt, prueft
+     * `tests/integration/spielwahl-katalog.test.ts`.
      */
     const kandidaten = quelle('packages/modules/src/spielwahl/kandidaten.ts');
-    expect(kandidaten).toContain('bannerUrl: zeile.game?.bannerUrl ?? null');
-    expect(kandidaten).not.toMatch(/freierName.*bannerUrl|bannerUrl.*freierName/u);
+    const zuweisungen = [...kandidaten.matchAll(/^\s*cover = (.+);$/gmu)].map((treffer) => treffer[1]);
+    expect(zuweisungen).toEqual(['coverSrc(spiel)']);
+    expect(kandidaten).toContain('coverSnapshot: cover');
   });
 
   it('prüft freie Titel gegen eine Erlaubnisliste von Zeichen', () => {

@@ -76,7 +76,7 @@ describe('Der Proxy lässt durch, was die Anwendung zulässt', () => {
 
     const grenzeMb = Number(treffer?.[1]);
     const groesste = Math.max(
-      ...['jail', 'level', 'spielersuche'].map((modul) => {
+      ...['jail', 'level'].map((modul) => {
         const quelle = lies(`packages/modules/src/${modul}/import/reader.ts`);
         const zahl = /MAX_LEGACY_DB_BYTES = (\d+) \* 1024 \* 1024/u.exec(quelle);
         return Number(zahl?.[1] ?? 0);

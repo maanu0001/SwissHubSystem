@@ -47,9 +47,10 @@ export interface ReconcileErgebnis {
  *
  * Die Engine fuehrt die Zeile und raeumt verwaiste auf - das ist reine
  * Buchhaltung und kann nichts kaputtmachen. Wann ein Kanal *endet*, ist
- * dagegen eine Frage des Moduls: die Spielersuche loescht ihren Gruppenkanal
- * sofort und schliesst dabei die Suche mit, und das weiss nur sie. Wuerde der
- * Abgleich hier mitmischen, kaempften zwei Stellen um denselben Kanal.
+ * dagegen eine Frage des Moduls: manche loeschen ihren Kanal sofort und
+ * schliessen dabei einen Vorgang mit, und das weiss nur das Modul selbst.
+ * Wuerde der Abgleich hier mitmischen, kaempften zwei Stellen um denselben
+ * Kanal.
  */
 const LOESCHT_LEERE_SELBST: ReadonlySet<string> = new Set(['VOICE_HUB', 'EVENT', 'OTHER']);
 
@@ -131,9 +132,9 @@ export async function reconcileTemporaryVoices(): Promise<ReconcileErgebnis> {
       });
     }
 
-    // Ab hier geht es um Besitz. Auch das ist Sache der Quelle: bei einer
-    // Spielersuche ist der Ersteller der Ersteller, und niemand erbt die
-    // Suche, nur weil er laenger im Kanal sitzt.
+    // Ab hier geht es um Besitz. Auch das ist Sache der Quelle: bei manchen
+    // Kanaelen ist der Ersteller der Ersteller, und niemand erbt den Vorgang
+    // dahinter, nur weil er laenger im Kanal sitzt.
     if (!LOESCHT_LEERE_SELBST.has(kanal.source)) {
       continue;
     }

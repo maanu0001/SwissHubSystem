@@ -31,7 +31,7 @@ async function leeren(): Promise<void> {
   await prisma.spielwahlCommand.deleteMany({});
   await prisma.spielwahlParticipant.deleteMany({});
   await prisma.spielwahlSession.deleteMany({});
-  await prisma.spielersucheGame.deleteMany({});
+  await prisma.game.deleteMany({});
 }
 
 /** Ein Gateway, das nur mitschreibt, was es tun sollte. */

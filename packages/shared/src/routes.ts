@@ -52,6 +52,7 @@ export const systemRoutes = {
    */
   spielwahl: (): SystemRoute => '/was-spielen-wir',
   spielwahlSession: (inviteToken: string): SystemRoute => `/was-spielen-wir/${id(inviteToken)}`,
+  spielekatalog: (): SystemRoute => '/was-spielen-wir/games',
 
   /** Clip of the Week - der Wettbewerb der Community. */
   clips: (): SystemRoute => '/clips',

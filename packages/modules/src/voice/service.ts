@@ -18,8 +18,8 @@ const log = createLogger('voice:service');
 /**
  * Die Engine fuer temporaere Sprachkanaele.
  *
- * Eine Stelle fuer alle Module. Der Voice Hub erzeugt Talks, die Spielersuche
- * erzeugt Gruppenkanaele, spaeter vielleicht ein Turnier seine Matchraeume -
+ * Eine Stelle fuer alle Module. Der Voice Hub erzeugt Talks, spaeter
+ * vielleicht ein Turnier seine Matchraeume oder ein Event seine Buehne -
  * alle mit demselben Lebenszyklus, demselben Aufraeumen nach einem Neustart
  * und derselben Rechtestrategie. Drei Module mit drei eigenen Fassungen
  * derselben Sache waeren drei Stellen, an denen ein leerer Kanal stehen
@@ -70,18 +70,17 @@ export interface CreateTemporaryVoiceInput {
    * von seiner Kategorie - ein oeffentlicher Talk in einer geschlossenen
    * Kategorie soll geschlossen bleiben.
    *
-   * Die Spielersuche will das Gegenteil: ihr Gruppenkanal ist ausdruecklich
-   * fuer alle offen, damit spontan jemand dazustossen kann, und zwar
+   * Manchmal ist das Gegenteil gewollt: ein Gruppenkanal, der ausdruecklich
+   * fuer alle offen ist, damit spontan jemand dazustossen kann - und zwar
    * unabhaengig davon, was die Kategorie sagt. Genau dafuer ist dieses Feld.
    */
   everyoneAllow?: bigint | null;
   /**
    * Der zu verwendende Zugang zu Discord.
    *
-   * Ohne Angabe der uebliche. Die Spielersuche reicht seit jeher ihren
-   * eigenen durch - unter anderem, damit sich im Test ein Fehlschlag beim
-   * Anlegen nachstellen laesst. Diese Moeglichkeit soll ihr die gemeinsame
-   * Engine nicht nehmen.
+   * Ohne Angabe der uebliche. Ein Aufrufer darf seinen eigenen durchreichen -
+   * unter anderem, damit sich im Test ein Fehlschlag beim Anlegen nachstellen
+   * laesst. Diese Moeglichkeit soll die gemeinsame Engine niemandem nehmen.
    */
   gateway?: DiscordGateway;
 }

@@ -322,7 +322,7 @@ export function TournamentForm({
                 ...vorher,
                 gameId: id === '' ? null : id,
                 // Der Name bleibt die Wahrheit: er steht auch dann noch da,
-                // wenn das Spiel später aus der Spielersuche verschwindet.
+                // wenn das Spiel später aus dem Katalog verschwindet.
                 gameName: spiel ? spiel.name : vorher.gameName,
               }));
             }}

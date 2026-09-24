@@ -72,6 +72,18 @@ const CLIENT_SAFE = [
    * Umgebung.
    */
   '@swisshub/modules/level/karte',
+  /*
+   * Die Form eines Katalogeintrags.
+   *
+   * Das Formular im Browser prueft dieselben Grenzen wie der Server - die
+   * Plattformliste, die Laengen, was eine Cover-Adresse sein darf. Eine
+   * zweite Fassung davon waere die Stelle, an der die Oberflaeche etwas
+   * zulaesst, das die Aktion danach zurueckweist.
+   *
+   * Die Datei importiert nur `zod`. Dass das so bleibt, prueft der Test
+   * unten.
+   */
+  '@swisshub/modules/games/schemas',
 ];
 
 /**
@@ -139,6 +151,7 @@ const EXPORTE: Record<string, string> = {
   '@swisshub/modules/wrapped/fixtures': 'packages/modules/src/wrapped/fixtures.ts',
   '@swisshub/modules/spielwahl/baum': 'packages/modules/src/spielwahl/baum.ts',
   '@swisshub/modules/level/karte': 'packages/modules/src/level/card.ts',
+  '@swisshub/modules/games/schemas': 'packages/modules/src/games/schemas.ts',
 };
 
 /** Alle Wert-Importe einer Datei - auch die relativen. */

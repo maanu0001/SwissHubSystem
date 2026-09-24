@@ -4,7 +4,7 @@ Zentrale Administrations- und Moderationsoberfläche für den SwissHub Discord-S
 Anwendung selbst schlicht **System**.
 Sie besteht aus einer Next.js WebApp, einem discord.js Bot und einer PostgreSQL-Datenbank
 in einem TypeScript-Monorepo. Umgesetzt sind die Module **Jail**, **Kommunikation**,
-**Spielersuche**, **Level-System**, **Tickets**, **Turniere**, **Musik**, **Premium** und
+**Was spielen wir?**, **Level-System**, **Tickets**, **Turniere**, **Musik**, **Premium** und
 **Voice Hub**; die Architektur ist darauf ausgelegt, weitere Module ohne
 Umbau zu ergänzen (siehe [docs/MODULES.md](docs/MODULES.md)).
 
@@ -19,16 +19,17 @@ Login mit Discord  ->  Guild-Check  ->  Permission Engine  ->  Moderation Policy
 - **Vote Jail:** Community-Abstimmung, die bei Erfolg über dieselbe Jail-Engine ausgeführt wird.
 - **Slash Commands:** `/jail`, `/silent_jail`, `/jail_free`, `/jail_list` und `/vote_jail` als
   Adapter auf genau dieselben Dienste wie das Dashboard - kein zweites Jail-System.
-  Dazu `/spielersuche`, `/spielersuche-hilf`, `/spielersuche-stats` und `/spielersucheadmin`.
-- **Spielersuche:** Mitspieler finden - `/spielersuche` und Dashboard nutzen dieselbe Engine,
-  inklusive automatischem Sprachkanal, Rollen-Ping mit Sperrfrist und Statistik.
-- **Member Center:** Die Mitgliederakte - Level, Tickets, Turniere, Premium, Spielersuche und
+  Dazu `/was-spielen-wir`, `/post` und die Befehle des Level-Systems.
+- **Was spielen wir?:** Die gemeinsame Spielauswahl - vorschlagen, dann Roulette, Abstimmung
+  oder Ausscheidungsduell, gleichzeitig für alle. Hier wird auch der **Spielekatalog**
+  gepflegt: eine Liste, aus der Turniere, Clips und Runden gleichermassen auswählen.
+- **Member Center:** Die Mitgliederakte - Level, Tickets, Turniere, Premium und
   Moderation zu einer Person an einem Ort. Jeder Abschnitt hat eine eigene Berechtigung mit
   Geltungsbereich (nur eigene Daten / alle); was jemand nicht sehen darf, wird gar nicht erst
   geladen.
 - **Voice Hub:** Wer einen Hub-Channel betritt, bekommt seinen eigenen Talk - mit Bedienfeld
-  im Textchat des Kanals und derselben Verwaltung im Dashboard. Die Spielersuche legt ihre
-  Sprachkanäle über dieselbe Engine an - kein zweites Temp-Voice-System.
+  im Textchat des Kanals und derselben Verwaltung im Dashboard. Jedes Modul, das einen Kanal
+  auf Zeit braucht, verwendet dieselbe Engine - kein zweites Temp-Voice-System.
 - **Kommunikation:** Neuigkeiten, Events und Umfragen als Discord-Embeds mit Live-Vorschau –
   auch über den Slash Command `/post`.
 - **Level-System:** XP für Nachrichten und Zeit im Voice, Level-Rollen, Inaktivitäts-Abzug und
@@ -170,7 +171,7 @@ Zusätzlich benötigt der Bot im Log-/Jail-Channel Lese- und Schreibrechte (Kana
 
 Gateway Intents: `GUILDS`, `GUILD_MEMBERS` (privilegiert, siehe Schritt 3), `GUILD_MESSAGES`
 und `GUILD_VOICE_STATES`. Die beiden letzten sind **nicht** privilegiert und werden für XP aus
-Nachrichten und Voice sowie für die Sprachkanäle der Spielersuche gebraucht. Der Inhalt von
+Nachrichten und Voice sowie für die Talks des Voice Hubs gebraucht. Der Inhalt von
 Nachrichten wird nicht gelesen - `MESSAGE_CONTENT` bleibt deshalb aus.
 
 ---
@@ -324,7 +325,6 @@ docs/
   CONFIGURATION.md         Was in die .env gehört und was ins Dashboard
   DEPLOYMENT.md            Produktivbetrieb auf einem eigenen Server
   JAIL_MIGRATION.md        Übernahme des alten Jail-Bots (bot.py / jail_data.db)
-  SPIELERSUCHE_MIGRATION.md Übernahme des Spielersuche-Bots (matchmaking.db)
   LEVEL_MIGRATION.md       Übernahme des Level-/XP-Bots (levels.db)
   XP_RAFFLE.md             XP-Verlosungen: Einsatzmodelle, Fairness, Ziehung
   COMMUNICATION.md         Neuigkeiten, Events, Umfragen, /post, Erwähnungen
@@ -574,9 +574,9 @@ Discord-Rollen vergeben.
    Dauer setzen. Die Auswahl bietet nur Rollen an, die der Bot tatsächlich verwalten kann.
    Im selben Bereich lässt sich **Vote Jail** aktivieren (Channel, benötigte Stimmen, Laufzeit,
    Jail-Dauer bei Erfolg - Standard: 5 Stimmen in 5 Minuten ergeben 30 Minuten Jail).
-5. **Spielersuche einrichten**: _Spielersuche -> Einstellungen_ (Channel und Voice-Kategorie),
-   danach _Spielersuche -> Spiele_. Einen bestehenden Spielersuche-Bot löst
-   _Spielersuche -> Import_ ab: [docs/SPIELERSUCHE_MIGRATION.md](docs/SPIELERSUCHE_MIGRATION.md).
+5. **Spielekatalog füllen**: _Was spielen wir? -> Spielekatalog_. Die Liste gilt für alle
+   Module - Turniere, Clips und die Runden wählen aus denselben Spielen. Ohne ein aktives
+   Spiel lässt sich keine Runde eröffnen; der Gesundheitscheck des Moduls sagt das auch.
 6. **Voice Hub einrichten**: _Voice Hub -> Presets_ (drei Vorlagen entstehen beim Einschalten
    von selbst), danach _Voice Hub -> Hub-Channels_: ein leerer Sprachkanal zum Betreten und die
    Kategorie, in der die Talks entstehen. Ohne eine Rolle mit `voiceHub.use` kann niemand einen
@@ -612,12 +612,10 @@ Discord-Rollen vergeben.
 | Vote Jail lässt sich nicht starten                             | Vote Jail deaktiviert oder kein Channel gewählt (_Module -> Jail_); zum Starten wird `jail.vote.start` benötigt.                                                                                                 |
 | Nachricht wird nicht gesendet                                  | Der Bot darf im Zielchannel nicht schreiben - _System -> Bot_ zeigt die fehlenden Rechte. Channels ohne Berechtigung sind in der Auswahl deaktiviert.                                                            |
 | Logo-Upload schlägt fehl                                       | `npm run doctor` prüft im Abschnitt _Uploads_, ob das Verzeichnis beschreibbar ist. Hinter nginx zusätzlich `client_max_body_size` (mindestens 8m) kontrollieren.                                                |
-| `/spielersuche` findet keine Spiele                            | Unter _Spielersuche -> Spiele_ ist kein aktives Spiel hinterlegt.                                                                                                                                                |
-| Spielersuche erstellt keinen Sprachkanal                       | Voice-Kategorie fehlt (_Spielersuche -> Einstellungen_) oder dem Bot fehlt dort `Kanäle verwalten`.                                                                                                              |
 | Betreten des Hub-Channels erzeugt keinen Talk                  | Modul aus, Wartungsmodus an, oder der Rolle fehlt `voiceHub.use`. _Module -> Voice Hub_ nennt im Gesundheitsbereich, was fehlt.                                                                                  |
 | Talk entsteht, aber niemand landet darin                       | Dem Bot fehlt `Mitglieder verschieben` in der Zielkategorie.                                                                                                                                                     |
 | Im Talk fehlt das Bedienfeld                                   | Dem Bot fehlt `Nachrichten senden` oder `Links einbetten` im Kanal. Der Talk bleibt bedienbar - im Dashboard unter _Voice Hub -> Talks_, oder über **Mehr -> Bedienfeld erneuern**.                              |
-| Spielrolle wird nicht gepingt                                  | Sperrfrist je Spiel (Standard 5 Minuten). Die Suche entsteht trotzdem; die Rückmeldung nennt die verbleibende Zeit.                                                                                              |
+| «Was spielen wir?» bietet keine Spiele an                      | Unter _Was spielen wir? -> Spielekatalog_ ist kein aktives Spiel hinterlegt. Archivierte zählen nicht.                                                                                                           |
 | Slash Commands erscheinen nicht auf Discord                    | Der Bot muss mit dem Scope `applications.commands` eingeladen sein; die Befehle werden beim Start pro Server registriert (Bot-Log prüfen).                                                                       |
 | `/jail` meldet "kei Berächtigung"                              | Die Berechtigungen sind dieselben wie im Dashboard: _Server -> Berechtigungen_, Rolle mit `jail.create` bzw. `jail.release` versehen.                                                                            |
 | Import meldet "Das ist keine SQLite-Datenbank"                 | Es wurde eine andere Datei gewählt - erwartet wird `jail_data.db`. `bot.py` wird nicht hochgeladen (sie enthält den alten Bot-Token im Klartext).                                                                |

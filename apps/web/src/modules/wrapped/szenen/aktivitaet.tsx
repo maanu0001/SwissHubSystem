@@ -191,9 +191,10 @@ export function AktiveTageSzene({ daten, stillstand }: SzenenProps): React.JSX.E
  * ## Die vorsichtige Formulierung
  *
  * Es steht nicht «dein meistgespieltes Spiel» da, sondern «am häufigsten
- * gesucht». Der Grund ist einfach: dieses System weiss nicht, was jemand
- * gespielt hat. Es weiss, bei welchen Spielen er in der Spielersuche dabei
- * war. Das ist weniger, und genau das wird gesagt.
+ * dabei». Der Grund ist einfach: dieses System weiss nicht, was jemand
+ * gespielt hat. Es weiss, welche Spiele er in einer gemeinsamen Auswahl
+ * vorgeschlagen oder mitgetragen hat. Das ist weniger, und genau das wird
+ * gesagt.
  *
  * Eine schoenere Behauptung waere hier leicht gewesen - und falsch.
  */
@@ -209,7 +210,7 @@ export function SpieleSzene({ daten }: SzenenProps): React.JSX.Element {
         <Vorzeile verzug={100}>
           <span className="inline-flex items-center gap-2">
             <Gamepad2 className="size-3.5" aria-hidden="true" />
-            Gesucht wurde vor allem
+            Am häufigsten dabei war
           </span>
         </Vorzeile>
 
@@ -248,7 +249,7 @@ export function SpieleSzene({ daten }: SzenenProps): React.JSX.Element {
 
         {/* Die Einschränkung gehört sichtbar in die Szene, nicht ins Kleingedruckte. */}
         <Nachsatz verzug={1700} className="text-white/35">
-          Gezählt werden die Spielersuchen, bei denen du dabei warst - nicht deine Spielzeit.
+          Gezählt werden die Runden, in denen du dieses Spiel mitgetragen hast - nicht deine Spielzeit.
         </Nachsatz>
       </div>
     </SzenenRahmen>

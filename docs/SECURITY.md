@@ -333,31 +333,6 @@ angezeigt, nicht geloggt und nicht in die neue Konfiguration übernommen - die D
 nicht erst hochgeladen. Der Token sollte im Discord Developer Portal rotiert werden; siehe
 [JAIL_MIGRATION.md](./JAIL_MIGRATION.md).
 
-### Übernahme der alten Spielersuche-Datenbank
-
-Für `matchmaking.db` gelten dieselben Regeln wie für die Jail-Datenbank
-(`packages/modules/src/spielersuche/import/reader.ts`): nur lesend geöffnet,
-ausschliesslich die sieben erwarteten Tabellen mit fest im Code stehendem SQL,
-keine Extensions, kein Pfad aus dem Browser, temporäre Kopie in einem zufällig
-benannten Verzeichnis mit Modus `0600`, Löschung in jedem Fall,
-Grössenlimit 32 MB, Signaturprüfung. Nichts aus der Datei wird je gegen
-PostgreSQL ausgeführt.
-
-Zusätzlich:
-
-- **Discord-IDs als BigInt.** Die Altdatenbank speichert IDs als `INTEGER`.
-  Als JavaScript-Zahl gelesen entstünden falsche IDs - und damit Rollen-Pings
-  an die falsche Rolle. Sie werden deshalb als BigInt gelesen.
-- **Ein Server pro Import.** Die Datei kann mehrere Discord-Server enthalten.
-  Übernommen wird genau einer; der Rest wird sichtbar übersprungen, damit keine
-  fremden Rollen- und Channel-IDs in die Konfiguration geraten.
-- **Banner-Adressen werden geprüft.** Erlaubt ist nur `https`; `http:`,
-  `data:`, `javascript:` und `file:` werden verworfen.
-- **Konfiguration nur auf Wunsch.** Channel und Kategorie werden nur
-  übernommen, wenn sie auf Discord noch existieren.
-- **Bestätigung ist Pflicht**, dass der alte Bot gestoppt ist - zwei laufende
-  Bots würden doppelte Suchen, Pings und Sprachkanäle erzeugen.
-
 ### Übernahme der alten Level-Datenbank und der alten `.env`
 
 Für `levels.db` gelten dieselben Regeln wie für die beiden anderen
@@ -420,28 +395,25 @@ siehe [LEVEL_MIGRATION.md](./LEVEL_MIGRATION.md).
   vor dem Einbetten neu gerastert, damit kein SVG in die Karte gerät, das
   seinerseits Inhalte nachlädt.
 
-### Spielersuche
+### Spielekatalog
 
-- **Berechtigungen statt fester Rollen.** Der Vorgänger prüfte zwei fest
-  eingetragene Rollen-IDs und „ist Discord-Administrator". Hier entscheidet
-  ausschliesslich die Zuordnung im Dashboard (`spielersuche.*`) - für
-  Dashboard, Slash Command und Knöpfe gleichermassen.
-- **Fremde Suchen beenden** verlangt `spielersuche.closeAny`; die eigene
-  genügt `spielersuche.closeOwn`. Die Server Action prüft beides erneut gegen
-  den konkreten Datensatz, nicht nur die Grundberechtigung.
-- **Keine Fremdsteuerung.** Eine über das Dashboard gestartete Suche entsteht
-  immer im Namen des eingeloggten Kontos; eine fremde Discord-ID lässt sich
-  nicht angeben.
-- **Rollen-Ping eng begrenzt.** Gepingt wird ausschliesslich die für das Spiel
-  konfigurierte Rolle, freigegeben über `allowedMentions.roles` mit genau
-  dieser einen ID. Alle übrigen Erwähnungen sind unterdrückt, auch im Embed
-  und in der Onboarding-Nachricht.
-- **Nebenläufigkeit.** Beitritt und Austritt laufen in einer Transaktion mit
-  Zeilensperre; das Limit gleichzeitiger Suchen steckt in einem Unique-Index.
-  Beides ist damit unabhängig vom Anwendungscode abgesichert.
-- **Sprachkanal-Rechte zurückhaltend.** Der Ersteller erhält Sprech- und
-  Moderationsrechte, aber kein „Kanäle verwalten" - anders als beim
-  Vorgängersystem.
+- **Berechtigung im Dienst, nicht in der Oberfläche.** `spielwahl.games.manage`
+  wird sowohl von der Server Action als auch vom Katalogdienst selbst geprüft.
+  Das ist keine Doppelung aus Unsicherheit: der Dienst hat mehrere Aufrufer und
+  darf sich nicht darauf verlassen, dass jemand vorher nachgesehen hat.
+- **Lesen ist frei, Schreiben nicht.** Jedes Mitglied darf aus dem Katalog
+  auswählen - er ist die Grundlage von Turnieren, Clips und Runden. Ändern darf
+  nur, wer die Berechtigung hat.
+- **Eine Cover-Adresse muss `https` sein.** Eine `javascript:`- oder
+  `data:`-Adresse stünde sonst in einem `src`-Attribut, und dort bedeutet sie
+  etwas anderes als „Bild". Ein hochgeladenes Cover liegt ausserhalb des
+  statisch bedienten Verzeichnisses; der Content-Type wird beim Ausliefern fest
+  gesetzt, damit eine hochgeladene Datei nie als HTML oder Skript ankommt.
+- **Plattformen gegen eine Erlaubnisliste**, nicht frei. Ein Filter funktioniert
+  nur, solange „PC" nicht auch „pc" und „PC / Steam" heisst.
+- **Gelöscht wird nicht.** An einem Spiel hängen Turniere, Clips und vergangene
+  Runden. Archivieren nimmt es aus jeder Auswahl und lässt alles gültig, was
+  darauf zeigt - eine Verwaltungsaktion von heute schreibt keine Vergangenheit um.
 
 ### Aussperrschutz
 

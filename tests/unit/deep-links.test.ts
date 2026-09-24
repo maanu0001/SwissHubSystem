@@ -49,10 +49,8 @@ describe('Discord-Adressen entstehen an einer Stelle', () => {
       'apps/web/src/app/(app)/server/page.tsx',
       'apps/web/src/app/(app)/tickets/[ticketId]/page.tsx',
       'apps/web/src/modules/voice/components/talk-panel.tsx',
-      'apps/web/src/modules/spielersuche/components/match-card.tsx',
       'apps/web/src/modules/verification/components/warteschlange.tsx',
       'packages/modules/src/logs/formatters.ts',
-      'packages/modules/src/spielersuche/embed.ts',
     ]) {
       expect(lies(datei), datei).not.toContain('https://discord.com/channels/');
     }

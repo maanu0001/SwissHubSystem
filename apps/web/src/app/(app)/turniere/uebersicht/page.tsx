@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
-import { spielersuche, tournaments } from '@swisshub/modules';
+import { games, tournaments } from '@swisshub/modules';
 import { PageToolbar } from '@/components/shared/page-header';
 import { Pagination } from '@/components/shared/pagination';
 import { buttonVariants } from '@/components/ui/button';
@@ -39,7 +39,7 @@ export default async function TurnierUebersichtPage({
 
   const [{ rows, total, page, totalPages }, spiele] = await Promise.all([
     ladeTurnierListe(context, suche),
-    spielersuche.listGames({ includeDisabled: true }).catch(() => []),
+    games.listGames({ includeDisabled: true, includeArchived: true }).catch(() => []),
   ]);
 
   const darfAnlegen = can(context, tournaments.TOURNAMENT_PERMISSIONS.create);

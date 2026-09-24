@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { spielersuche, tournaments } from '@swisshub/modules';
+import { games, tournaments } from '@swisshub/modules';
 import { PageHeader } from '@/components/shared/page-header';
 import { TournamentSectionNav } from '@/modules/tournaments/components/section-nav';
 import { LEERE_WERTE, TournamentForm } from '@/modules/tournaments/components/tournament-form';
@@ -20,10 +20,7 @@ export const dynamic = 'force-dynamic';
 export default async function TurnierNeuPage(): Promise<React.JSX.Element> {
   const context = await requirePagePermission(tournaments.TOURNAMENT_PERMISSIONS.create);
 
-  const [spiele, optionen] = await Promise.all([
-    spielersuche.listGames({ includeDisabled: false }).catch(() => []),
-    loadDiscordOptions(),
-  ]);
+  const [spiele, optionen] = await Promise.all([games.listGames().catch(() => []), loadDiscordOptions()]);
 
   return (
     <>

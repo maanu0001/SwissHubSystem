@@ -298,37 +298,53 @@ nur auf einem bestimmten Server gültig ist.
 
 Übernahme der alten Jail-Datenbank: [JAIL_MIGRATION.md](JAIL_MIGRATION.md).
 
-### Spielersuche
+### Was spielen wir?
 
-Unter **Spielersuche → Einstellungen**. Der frühere Bot hatte diese Werte teils
-in `.env`, teils in seiner SQLite-Datenbank.
+Unter **Module → Was spielen wir? → Einstellungen**. Es sind Voreinstellungen
+für eine neue Runde, keine Fesseln: was hier steht, findet der Host im
+Formular vor und kann es ändern. Die Grenzen dagegen gelten.
 
-| Einstellung                                | Standard                | Bedeutung                                                   |
-| ------------------------------------------ | ----------------------- | ----------------------------------------------------------- |
-| Spielersuche-Channel                       | –                       | Hier werden die Suchen veröffentlicht                       |
-| Voice-Kategorie                            | –                       | In dieser Kategorie entstehen die Sprachkanäle              |
-| Automatisch schliessen nach                | 12 Stunden              | Ablaufzeit einer Suche (1–168)                              |
-| Aktive Suchen pro Person                   | 1                       | Der Vorgänger erlaubte genau eine                           |
-| Maximal gesuchte Spieler                   | 20                      | Gilt für Spiele ohne eigene Squad-Grösse                    |
-| Spielrolle erwähnen                        | an                      | Rollen-Ping beim Start einer Suche                          |
-| Ping-Sperrfrist je Spiel                   | 5 Minuten               | Unterdrückt nur den Ping, nie die Suche. 0 = aus            |
-| Embed-Farbe                                | `#AFDBF5`               | Farbe der Suchen-Embeds                                     |
-| Fusszeile                                  | SwissHub Spielersuche … | Fusszeile jedes Embeds                                      |
-| Sprachkanal automatisch erstellen          | an                      | Je Suche ein eigener Kanal                                  |
-| Name des Sprachkanals                      | `🎮・{game}・{creator}` | Platzhalter: `{game}`, `{creator}`, `{id}`                  |
-| Leere Sprachkanäle löschen                 | an                      | Nur Kanäle, die dieses Modul erstellt hat                   |
-| Teilnehmerlimit des Kanals                 | –                       | Squad-Grösse des Spiels, sonst gesuchte Spieler + Ersteller |
-| Ersteller darf im eigenen Kanal moderieren | an                      | Stummschalten und verschieben - nie „Kanäle verwalten"      |
-| Tägliche Hinweisnachricht                  | aus                     | Onboarding-Nachricht                                        |
-| Uhrzeit                                    | 16:00                   | Zeitzone Europe/Zurich                                      |
-| Titel / Text / Banner / Fusszeile          | Vorgabe des alten Bots  | Inhalt der Hinweisnachricht                                 |
+| Einstellung                        | Standard | Bedeutung                                                        |
+| ---------------------------------- | -------- | ---------------------------------------------------------------- |
+| Vorschläge pro Person              | 3        | Wie viele Spiele jemand in eine Runde einbringen darf            |
+| Höchstzahl Teilnehmer              | 12       | Die harte Grenze - ein Host kann darunter bleiben, nicht darüber |
+| Abstimmungsdauer                   | 45 s     | Der Server entscheidet, nicht die Uhr im Browser                 |
+| Vorschläge ausserhalb des Katalogs | an       | Titel ohne Katalogeintrag; sie erscheinen ohne Cover             |
+| Offene Sessions pro Person         | 3        | Jede offene Runde hält einen Einladungslink am Leben             |
+| Verfall nach (Stunden)             | 12       | Eine Runde ohne Abschluss verfällt                               |
+| Ankündigungskanal                  | –        | Wohin eine Runde gestellt wird, wenn der Host es möchte          |
 
-Spiele werden nicht hier, sondern unter **Spielersuche → Spiele** gepflegt
-(Name, Discord-Rolle, Banner, Squad-Grösse, aktiv). Änderungen wirken sofort -
-auch für `/spielersuche` und dessen Autocomplete.
+### Spielekatalog
 
-Übernahme der alten Datenbank:
-[SPIELERSUCHE_MIGRATION.md](SPIELERSUCHE_MIGRATION.md).
+Die Spiele werden nicht in den Einstellungen gepflegt, sondern unter
+**Was spielen wir? → Spielekatalog**. Die Liste ist **eine für alle**:
+Turniere, Clips und die Runden wählen aus denselben Einträgen, und eine
+Änderung wirkt überall.
+
+| Feld                  | Pflicht | Bedeutung                                                  |
+| --------------------- | ------- | ---------------------------------------------------------- |
+| Name                  | ja      | Eindeutig, unabhängig von Gross-/Kleinschreibung           |
+| Kurzform              | nein    | Für enge Stellen wie die Radbeschriftung                   |
+| Genre                 | nein    | Frei; dient der Übersicht                                  |
+| Plattformen           | nein    | Aus einer festen Liste - sonst wäre der Filter keiner      |
+| Cover                 | nein    | Hochgeladen oder verlinkt; der Upload gilt vor der Adresse |
+| Übliche Gruppengrösse | nein    | Leer heisst unbegrenzt                                     |
+| Aktiv                 | ja      | Steht in neuen Runden zur Auswahl                          |
+| Beschreibung          | nein    | Bis 500 Zeichen                                            |
+
+**Drei Zustände, nicht zwei.** _Aktiv_ steht überall zur Auswahl.
+_Abgeschaltet_ wird nicht mehr angeboten, bleibt aber in der Verwaltung
+sichtbar und in laufenden Runden gültig. _Archiviert_ verschwindet aus der
+Verwaltungsliste und aus jeder Auswahl - die Zeile bleibt, weil Turniere,
+Clips und vergangene Runden darauf zeigen.
+
+**Gelöscht wird nichts.** Wer ein Spiel löschte, machte die Vergangenheit
+unleserlich, die daran hängt. Wo eine Anzeige den Namen von damals braucht,
+steht er als Schnappschuss in der Zeile und nicht als Verweis in den Katalog:
+ein umbenanntes Spiel ändert keine abgeschlossene Runde rückwirkend.
+
+Verwalten darf, wer `spielwahl.games.manage` hat. Lesen darf jedes Mitglied -
+der Katalog ist die Grundlage von Turnieren, Clips und Runden.
 
 ### Level-System
 

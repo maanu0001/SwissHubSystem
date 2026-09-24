@@ -57,7 +57,8 @@ export interface MemberActivity {
     tage: number;
     xpBuchungen: number;
     xpSumme: number;
-    spielersuchen: number;
+    /** Runden bei «Was spielen wir?», an denen diese Person teilgenommen hat. */
+    spielrunden: number;
     talks: number;
     turniere: number;
   }>;
@@ -127,14 +128,6 @@ export interface MemberTournamentView {
   podeste: number;
 }
 
-export interface MemberSpielersucheView {
-  aktive: number;
-  erstellt: number;
-  beigetreten: number;
-  voiceSekunden: number;
-  letzte: Array<{ id: string; gameName: string; status: string; createdAt: Date }>;
-}
-
 export interface MemberPremiumView {
   aktiv: boolean;
   plan: string | null;
@@ -167,7 +160,6 @@ export interface MemberCenterProfile {
   roles?: MemberSummary['roles'];
   activity?: MemberActivity;
   level?: MemberLevelView;
-  spielersuche?: MemberSpielersucheView;
   tournaments?: MemberTournamentView;
   tickets?: MemberTicketRow[];
   premium?: MemberPremiumView | null;
@@ -232,7 +224,7 @@ async function ladeAktivitaet(discordId: string): Promise<MemberActivity> {
   const fenster = await Promise.all(
     FENSTER_TAGE.map(async (tage) => {
       const seit = new Date(Date.now() - tage * 86_400_000);
-      const [xp, spielersuchen, talks, turniere] = await Promise.all([
+      const [xp, spielrunden, talks, turniere] = await Promise.all([
         profil
           ? prisma.xpTransaction.aggregate({
               where: { profileId: profil.id, createdAt: { gte: seit } },
@@ -240,8 +232,13 @@ async function ladeAktivitaet(discordId: string): Promise<MemberActivity> {
               _sum: { delta: true },
             })
           : Promise.resolve(null),
-        prisma.spielersucheMatch.count({
-          where: { creatorDiscordId: discordId, createdAt: { gte: seit } },
+        /*
+         * Frueher die eroeffneten Spielersuchen. Seit dem Wegfall des Moduls
+         * die Teilnahme an gemeinsamen Spielauswahlen - dieselbe Frage
+         * («war diese Person am Spielen beteiligt»), andere Quelle.
+         */
+        prisma.spielwahlParticipant.count({
+          where: { discordId, joinedAt: { gte: seit } },
         }),
         prisma.temporaryVoiceChannel.count({
           where: { ownerDiscordId: discordId, createdAt: { gte: seit } },
@@ -254,7 +251,7 @@ async function ladeAktivitaet(discordId: string): Promise<MemberActivity> {
         tage,
         xpBuchungen: xp?._count._all ?? 0,
         xpSumme: xp?._sum.delta ?? 0,
-        spielersuchen,
+        spielrunden,
         talks,
         turniere,
       };
@@ -267,31 +264,6 @@ async function ladeAktivitaet(discordId: string): Promise<MemberActivity> {
     letzteNachricht: profil?.lastMessageAt ?? null,
     letzteVoice: profil?.lastVoiceAt ?? null,
     fenster,
-  };
-}
-
-async function ladeSpielersuche(discordId: string): Promise<MemberSpielersucheView> {
-  const { getUserStats } = await import('../spielersuche/stats');
-  const { getMemberSearches } = await import('../spielersuche/queries');
-  const { getActiveSearchesForCreator } = await import('../spielersuche/service');
-
-  const [stats, letzte, aktive] = await Promise.all([
-    getUserStats(discordId),
-    getMemberSearches(discordId, 10),
-    getActiveSearchesForCreator(discordId),
-  ]);
-
-  return {
-    aktive: aktive.length,
-    erstellt: stats.createdSearches,
-    beigetreten: stats.joinedSearches,
-    voiceSekunden: stats.voiceSeconds,
-    letzte: letzte.map((suche) => ({
-      id: suche.id,
-      gameName: suche.gameName,
-      status: suche.status,
-      createdAt: suche.createdAt,
-    })),
   };
 }
 
@@ -509,9 +481,6 @@ export async function getMemberCenterProfile(query: MemberCenterQuery): Promise<
   if (erlaubt('level')) {
     aufgaben.push(abschnitt('level', () => ladeLevel(targetDiscordId)));
   }
-  if (erlaubt('spielersuche')) {
-    aufgaben.push(abschnitt('spielersuche', () => ladeSpielersuche(targetDiscordId)));
-  }
   if (erlaubt('tournaments')) {
     aufgaben.push(abschnitt('tournaments', () => ladeTurniere(targetDiscordId)));
   }
@@ -558,9 +527,6 @@ export async function getMemberCenterProfile(query: MemberCenterQuery): Promise<
       case 'level':
         profil.level = (ergebnis.wert as MemberLevelView | null) ?? undefined;
         break;
-      case 'spielersuche':
-        profil.spielersuche = ergebnis.wert as MemberSpielersucheView;
-        break;
       case 'tournaments':
         profil.tournaments = ergebnis.wert as MemberTournamentView;
         break;
@@ -590,7 +556,6 @@ export async function getMemberCenterProfile(query: MemberCenterQuery): Promise<
       'roles',
       'activity',
       'level',
-      'spielersuche',
       'tournaments',
       'tickets',
       'premium',

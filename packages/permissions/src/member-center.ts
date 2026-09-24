@@ -65,9 +65,6 @@ export const MEMBER_PERMISSIONS = {
   levelOwn: 'members.view.level.own',
   levelAll: 'members.view.level.all',
 
-  spielersucheOwn: 'members.view.spielersuche.own',
-  spielersucheAll: 'members.view.spielersuche.all',
-
   tournamentsOwn: 'members.view.tournaments.own',
   tournamentsAll: 'members.view.tournaments.all',
 
@@ -132,16 +129,6 @@ export const MEMBER_CENTER_PERMISSIONS: PermissionDefinition[] = [
   sicht(MEMBER_PERMISSIONS.activityAll, 'Aktivität aller ansehen', 'Die Aktivität jedes Mitglieds sehen.'),
   sicht(MEMBER_PERMISSIONS.levelOwn, 'Eigenes Level ansehen', 'Eigenes Level, XP und Rang sehen.'),
   sicht(MEMBER_PERMISSIONS.levelAll, 'Level aller ansehen', 'Level, XP und Rang jedes Mitglieds sehen.'),
-  sicht(
-    MEMBER_PERMISSIONS.spielersucheOwn,
-    'Eigene Spielersuchen ansehen',
-    'Die eigenen Spielersuchen und Statistiken sehen.',
-  ),
-  sicht(
-    MEMBER_PERMISSIONS.spielersucheAll,
-    'Spielersuchen aller ansehen',
-    'Die Spielersuchen jedes Mitglieds sehen.',
-  ),
   sicht(
     MEMBER_PERMISSIONS.tournamentsOwn,
     'Eigene Turniere ansehen',

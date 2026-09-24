@@ -583,7 +583,7 @@ model Clip {
   /// Das Spiel aus der zentralen Registry. Frei eingetragene Spiele waeren
   /// dreissig Schreibweisen fuer dasselbe Spiel.
   gameId   String?
-  game     SpielersucheGame? @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  game     Game?   @relation(fields: [gameId], references: [id], onDelete: SetNull)
   /// Nur, wenn die Registry das Spiel nicht kennt.
   gameName String?
 
@@ -1312,30 +1312,80 @@ model ReconciliationRun {
   @@index([module, startedAt])
 }
 
-/// Ein im Dashboard gepflegtes Spiel.
-///
-/// Der alte Bot kannte Spiele nur pro Guild; diese Anwendung ist auf genau
-/// einen Server konfiguriert, deshalb genuegt der Name als Schluessel.
-model SpielersucheGame {
-  id                 String                @id @default(cuid())
-  name               String
+// ---------------------------------------------------------------------------
+// Spielekatalog
+//
+// Eine Liste fuer alle. Turniere, Clips und «Was spielen wir?» zeigen auf
+// dieselben Zeilen; eine zweite Spieleliste gibt es nicht und soll es nicht
+// geben - sonst hiesse dasselbe Spiel an zwei Stellen anders.
+//
+// Die Tabelle hiess frueher `SpielersucheGame`, weil sie dort entstanden ist.
+// Der Name war irrefuehrend, sobald drei andere Module darauf zeigten, und mit
+// dem Wegfall der Spielersuche war er nur noch falsch. Umbenannt und nicht neu
+// angelegt: die Kennungen bleiben dieselben, und damit bleibt jede Referenz aus
+// Turnieren, Clips und Spielwahl gueltig.
+//
+// Gepflegt wird der Katalog unter «Was spielen wir?». Das ist eine Zustaendigkeit
+// und keine Zugehoerigkeit - der Service dahinter (`packages/modules/src/games`)
+// kennt keine Spielwahl.
+// ---------------------------------------------------------------------------
+
+model Game {
+  id      String @id @default(cuid())
+  name    String
   /// Kleingeschriebener Name - macht die Eindeutigkeit unabhaengig von
   /// Gross-/Kleinschreibung (der alte Bot nutzte dafuer COLLATE NOCASE).
-  nameKey            String                @unique
-  /// Rolle, die beim Start einer Suche erwaehnt wird.
-  roleId             String
-  bannerUrl          String?
-  /// Maximale Gruppengroesse. NULL = unbegrenzt.
-  maxSquadSize       Int?
-  enabled            Boolean               @default(true)
-  sortOrder          Int                   @default(0)
+  nameKey String @unique
+
+  /// Kurzform fuer enge Stellen: Kartenraster, Radbeschriftung, Embeds.
+  /// Leer heisst: der volle Name wird verwendet.
+  shortName   String?
+  description String?
+  genre       String?
+
+  /// Auf welchen Plattformen es laeuft. Freie Liste statt Aufzaehlungstyp:
+  /// eine neue Konsole soll keine Migration brauchen.
+  platforms String[] @default([])
+
+  /// Das Cover - hochgeladen oder verlinkt.
+  ///
+  /// Zwei Spalten und ein Vorrang, wie beim Kartenhintergrund des
+  /// Levelsystems: `coverPath` ist eine Datei im Upload-Verzeichnis und gilt
+  /// zuerst, `coverUrl` eine fremde Adresse. Ein Feld fuer beides hiesse,
+  /// jedes Mal raten zu muessen, was drinsteht.
+  coverPath String?
+  coverUrl  String?
+
+  /// Uebliche Gruppengroesse. NULL = unbegrenzt.
+  maxPlayers Int?
+
+  /// Steht dieses Spiel fuer Neues zur Verfuegung?
+  ///
+  /// Betrifft ausschliesslich die Zukunft: laufende Runden und alles, was
+  /// bereits geschehen ist, bleiben unberuehrt.
+  enabled Boolean @default(true)
+
+  /// Aus dem Katalog genommen, aber nicht geloescht.
+  ///
+  /// Loeschen waere der einfache Weg und der falsche: an einem Spiel haengen
+  /// Turniere, Clips und vergangene Runden. Ein archiviertes Spiel
+  /// verschwindet aus der Verwaltung und aus jeder Auswahl, bleibt aber dort
+  /// lesbar, wo es einmal gespielt wurde.
+  archivedAt DateTime?
+
+  sortOrder Int  @default(0)
   /// `games.id` aus der Altdatenbank - macht den Import wiederholbar.
-  legacyId           Int?                  @unique
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
+  legacyId  Int? @unique
+
+  /// Altbestand aus der Spielersuche: die Rolle, die beim Start einer Suche
+  /// erwaehnt wurde. Seit dem Wegfall des Moduls ohne Verwendung; die Spalte
+  /// faellt mit `deploy/sql/spielersuche-altbestand.sql` weg, sobald eine
+  /// gepruefte Sicherung vorliegt.
+  roleId String?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
   createdByDiscordId String?
-  matches            SpielersucheMatch[]
-  rolePing           SpielersucheRolePing?
 
   /// Turniere, die dieses Spiel verwenden.
   tournaments Tournament[]
@@ -1344,12 +1394,14 @@ model SpielersucheGame {
   clips Clip[]
 
   /// Vorschlaege in einer gemeinsamen Spielauswahl.
-  spielwahlKandidaten SpielwahlCandidate[]
+  spielwahlKandidaten  SpielwahlCandidate[]
+  spielersucheMatches  SpielersucheMatch[]
+  spielersucheRolePing SpielersucheRolePing?
 
   @@index([enabled, name])
+  @@index([archivedAt])
 }
 
-/// Eine Spielersuche.
 model SpielersucheMatch {
   id                 String                     @id @default(cuid())
   creatorDiscordId   String
@@ -1357,7 +1409,7 @@ model SpielersucheMatch {
   creatorDisplayName String?
   creatorAvatarHash  String?
   gameId             String?
-  game               SpielersucheGame?          @relation(fields: [gameId], references: [id])
+  game               Game?                      @relation(fields: [gameId], references: [id])
   /// Name zum Zeitpunkt der Suche - bleibt lesbar, auch wenn das Spiel
   /// spaeter umbenannt oder geloescht wird.
   gameName           String
@@ -1424,9 +1476,9 @@ model SpielersucheParticipant {
 
 /// Letzter Rollen-Ping je Spiel - Grundlage des Ping-Cooldowns.
 model SpielersucheRolePing {
-  id       String           @id @default(cuid())
-  gameId   String           @unique
-  game     SpielersucheGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  id       String   @id @default(cuid())
+  gameId   String   @unique
+  game     Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
   roleId   String
   pingedAt DateTime
 
@@ -3349,7 +3401,7 @@ model Tournament {
   /// Spielersuche - eine zweite Spieleverwaltung braucht es nicht.
   gameName String
   gameId   String?
-  game     SpielersucheGame? @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  game     Game?   @relation(fields: [gameId], references: [id], onDelete: SetNull)
 
   description  String? @db.Text
   /// Regelwerk als Markdown. Die Web-Fassung ist die verbindliche.
@@ -4077,6 +4129,9 @@ model TournamentBlockEntry {
 /// darf.
 enum TemporaryVoiceSource {
   VOICE_HUB
+  /// Altbestand: Gruppenkanaele der Spielersuche. Seit dem Wegfall des Moduls
+  /// entsteht kein neuer Kanal mehr mit dieser Quelle; der Wert bleibt, weil
+  /// abgeschlossene Zeilen ihn tragen.
   PLAYER_SEARCH
   TOURNAMENT
   EVENT
@@ -6747,13 +6802,31 @@ model SpielwahlCandidate {
   session   SpielwahlSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   gameId String?
-  game   SpielersucheGame? @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  /**
+   * `SetNull` und nicht `Cascade`.
+   * Vorher nahm ein geloeschtes Spiel die Vorschlaege mit - und damit die
+   * Stimmen, die darauf entfielen, und den Gewinner, der einmal feststand.
+   * Eine Verwaltungsaktion von heute haette eine Runde von vor drei Monaten
+   * umgeschrieben. Jetzt bleibt die Zeile stehen und verliert nur ihren
+   * Verweis; gelesen wird dann der Schnappschuss unten.
+   */
+  game   Game?   @relation(fields: [gameId], references: [id], onDelete: SetNull)
 
   /// Ein Vorschlag ausserhalb des Katalogs.
   freierName String?
+
+  /// Wie das Spiel hiess, als es vorgeschlagen wurde.
+  ///
+  /// Der Name stand vorher nur im Katalog. Wurde ein Spiel spaeter
+  /// umbenannt, hiess es rueckwirkend auch in abgeschlossenen Runden anders -
+  /// und wurde es archiviert oder geloescht, war der Name ganz weg. Ein
+  /// Ergebnis, das sich nachtraeglich aendert, ist kein Ergebnis.
+  nameSnapshot  String
+  /// Dasselbe fuer das Cover; leer heisst, es gab keines.
+  coverSnapshot String?
   /// Kleingeschrieben und normalisiert - macht die Eindeutigkeit
   /// unabhaengig von Gross-/Kleinschreibung und doppelten Leerzeichen.
-  namensKey  String
+  namensKey     String
 
   createdAt DateTime @default(now())
 

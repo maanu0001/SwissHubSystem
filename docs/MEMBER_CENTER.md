@@ -2,7 +2,7 @@
 
 Die Mitgliederakte des SwissHub Systems. Ein Staff-Mitglied sucht eine Person
 und sieht an einem Ort, was sonst über ein Dutzend Seiten verteilt liegt –
-Level, Tickets, Turniere, Premium, Spielersuche, Moderation.
+Level, Tickets, Turniere, Premium, Moderation.
 
 Und zwar genau so viel, wie seine über Discord-Rollen konfigurierten
 Berechtigungen erlauben. Keinen Datensatz mehr.
@@ -10,7 +10,7 @@ Berechtigungen erlauben. Keinen Datensatz mehr.
 ```
                     ┌─ Discord ......... Identität, Rollen, Beitritt
                     ├─ Level .......... XP, Rang, Nachrichten, Voice-Minuten
-Mitglied suchen ──► ├─ Spielersuche ... Suchen, Voice-Zeit
+Mitglied suchen ──► │
       │             ├─ Turniere ....... Teilnahmen, Team, Platzierung
       ▼             ├─ Tickets ........ über den Sichtbarkeitsfilter des Moduls
 Mitgliedsakte ─────►├─ Premium ........ Plan, Laufzeit (ohne Zahlungsdaten)
@@ -100,18 +100,17 @@ Sensible Bereiche sind dadurch **von sich aus gesperrt**.
 
 ### Die Abschnitte
 
-| Abschnitt      | Bereiche             | Anmerkung                                                  |
-| -------------- | -------------------- | ---------------------------------------------------------- |
-| `basic`        | own · all            |                                                            |
-| `roles`        | own · all            |                                                            |
-| `activity`     | own · all            |                                                            |
-| `level`        | own · all            |                                                            |
-| `spielersuche` | own · all            |                                                            |
-| `tournaments`  | own · all            |                                                            |
-| `tickets`      | own · assigned · all | `assigned`, weil das Ticketmodul echte Zuständigkeit führt |
-| `premium`      | own · all            | ohne Zahlungsdaten                                         |
-| `moderation`   | **nur all**          | siehe unten                                                |
-| `notes`        | **nur all**          | siehe unten                                                |
+| Abschnitt     | Bereiche             | Anmerkung                                                  |
+| ------------- | -------------------- | ---------------------------------------------------------- |
+| `basic`       | own · all            |                                                            |
+| `roles`       | own · all            |                                                            |
+| `activity`    | own · all            |                                                            |
+| `level`       | own · all            |                                                            |
+| `tournaments` | own · all            |                                                            |
+| `tickets`     | own · assigned · all | `assigned`, weil das Ticketmodul echte Zuständigkeit führt |
+| `premium`     | own · all            | ohne Zahlungsdaten                                         |
+| `moderation`  | **nur all**          | siehe unten                                                |
+| `notes`       | **nur all**          | siehe unten                                                |
 
 **Moderation kennt kein `own`.** Die eigene Moderationsakte einsehen zu dürfen
 klingt harmlos, verrät aber, was intern vermerkt ist, und beeinflusst, wie
@@ -180,8 +179,8 @@ auch die Oberfläche: «Vorlagen werden sofort gespeichert und ersetzen die
 bisherige Auswahl.»
 
 Deshalb steht in «Mitglied» alles, was ein gewöhnliches Mitglied täglich
-braucht, und nicht nur der Member-Center-Teil: Dashboard, Spielersuche
-(eröffnen, beitreten, eigene schliessen), eigene Tickets, Level und
+braucht, und nicht nur den Member-Center-Teil: Dashboard, «Was spielen wir?»
+(mitmachen und eine Runde eröffnen), eigene Tickets, Level und
 XP-Spiele, Turnierteilnahme, eigener Talk im Voice Hub, eigene Musik-Session
 – dazu die acht `members.view.*.own`.
 
@@ -269,7 +268,7 @@ Gezeigt wird, was ohnehin gespeichert ist:
 - **Gesamtzahlen** aus dem Level-Profil: Nachrichten, Voice-Minuten, letzte
   Aktivität.
 - **Zeitfenster** (7 / 30 / 90 Tage) für alles, was Zeitstempel hat:
-  XP-Buchungen, Spielersuchen, eröffnete Talks, Turnieranmeldungen.
+  XP-Buchungen, Spielrunden, eröffnete Talks, Turnieranmeldungen.
 
 Für Nachrichten und Voice-Zeit führt das Level-Modul **nur Gesamtzahlen**.
 Dafür eine Erfassung einzuführen, nur damit hier ein Balken mehr steht, wäre

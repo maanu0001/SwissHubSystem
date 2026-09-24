@@ -122,7 +122,7 @@ export interface WrappedWettkampf {
 export interface WrappedSpiel {
   gameId: string;
   name: string;
-  /** Wie oft die Person bei einer Spielersuche dieses Spiels dabei war. */
+  /** Wie oft die Person dieses Spiel in einer Runde mitgetragen hat. */
   sessions: number;
 }
 
@@ -130,13 +130,20 @@ export interface WrappedSpiele {
   /**
    * Die Spiele, nach Haeufigkeit.
    *
-   * **Die Quelle ist die Spielersuche**, nicht Discords Aktivitaetsstatus:
-   * was jemand tatsaechlich gespielt hat, weiss dieses System nicht. Die
-   * Szene sagt deshalb «am haeufigsten gesucht» und nicht «am meisten
-   * gespielt» - die Formulierung haengt an dieser Einschraenkung.
+   * **Die Quelle sind die gemeinsamen Spielauswahlen**, nicht Discords
+   * Aktivitaetsstatus: was jemand tatsaechlich gespielt hat, weiss dieses
+   * System nicht. Gezaehlt wird, wofuer jemand in einer Runde gestimmt oder
+   * was er vorgeschlagen hat. Die Szene sagt deshalb «am haeufigsten dabei»
+   * und nicht «am meisten gespielt» - die Formulierung haengt an dieser
+   * Einschraenkung.
+   *
+   * Bis zum Wegfall des Moduls war die Quelle die Spielersuche. Der
+   * Bezeichner unten bleibt trotzdem stehen, weil er in eingefrorenen
+   * Rueckblicken vergangener Jahre steht - dort war es die Spielersuche, und
+   * das soll er weiterhin sagen.
    */
   top: WrappedSpiel[];
-  quelle: 'spielersuche';
+  quelle: 'spielersuche' | 'spielwahl';
 }
 
 export interface WrappedAktivitaet {

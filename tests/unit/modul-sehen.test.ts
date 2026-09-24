@@ -232,7 +232,7 @@ describe('«Modul sehen» - bestehende Rollen', () => {
   it('gibt der Vorlage «Mitglied» dieselben Bereiche wie zuvor', () => {
     const rechte = resolvePreset(PERMISSION_PRESETS.find((v) => v.id === 'mitglied')!);
     const module = new Set(buildNavigation(rechte, ALLE_MODULE).map((e) => e.moduleId));
-    for (const erwartet of ['dashboard', 'spielersuche', 'level', 'tournaments', 'voiceHub']) {
+    for (const erwartet of ['dashboard', 'spielwahl', 'level', 'tournaments', 'voiceHub']) {
       expect(module.has(erwartet), `«Mitglied» sieht ${erwartet} nicht mehr`).toBe(true);
     }
     // Und weiterhin nichts aus der Moderation.

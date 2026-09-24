@@ -6,7 +6,6 @@ import './communication/config';
 import './premium/config';
 import './music/config';
 import './tickets/config';
-import './spielersuche/config';
 import './level/config';
 import './tournaments/config';
 import './voice-hub/config';
@@ -52,7 +51,7 @@ export * as communication from './communication';
 export * as premium from './premium';
 export * as music from './music';
 export * as tickets from './tickets';
-export * as spielersuche from './spielersuche';
+export * as games from './games';
 export * as level from './level';
 export * as tournaments from './tournaments';
 // Die gemeinsame Engine fuer temporaere Sprachkanaele - modulunabhaengig.
