@@ -157,7 +157,7 @@ const spielwahlSettingsFields: SettingsField[] = [
  *
  * Die eine Voraussetzung ist der Spielekatalog. Ohne Spiele gibt es nichts
  * auszuwaehlen, und das Modul waere eine Buehne ohne Stuecke - gepflegt wird
- * die Liste hier, unter «Games verwalten», und zwar genau einmal fuer alle
+ * die Liste hier, unter «Spielekatalog», und zwar genau einmal fuer alle
  * Module.
  */
 async function spielwahlHealthChecks(kontext?: ModuleHealthContext): Promise<ModuleHealthCheck[]> {
@@ -172,7 +172,7 @@ async function spielwahlHealthChecks(kontext?: ModuleHealthContext): Promise<Mod
       label: 'Spielekatalog',
       status: 'error',
       detail:
-        'Kein aktives Spiel im Katalog. Ohne Spiele laesst sich nichts auswaehlen - die Liste wird unter «Games verwalten» gepflegt, dieselbe, die Turniere und Clips verwenden.',
+        'Kein aktives Spiel im Katalog. Ohne Spiele laesst sich nichts auswaehlen - die Liste wird unter «Spielekatalog» gepflegt, dieselbe, die Turniere, Clips und Profile verwenden.',
       fixHref: '/was-spielen-wir/games',
     });
   } else if (spiele < 4) {
