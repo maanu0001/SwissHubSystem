@@ -47,6 +47,17 @@ const CLIENT_SAFE = [
   '@swisshub/modules/wrapped/vorlage',
   '@swisshub/modules/wrapped/szenen',
   '@swisshub/modules/wrapped/fixtures',
+  /*
+   * Die Form des Turnierbaums.
+   *
+   * Die Buehne von «Was spielen wir?» zeichnet ihn und muss dafuer wissen,
+   * welches Duell gerade laeuft - dieselbe Antwort, die auch der Server
+   * gibt. Eine zweite Fassung davon waere die Stelle, an der die Anzeige auf
+   * ein anderes Duell zeigt als die Abstimmung.
+   *
+   * Die Datei importiert nichts. Dass das so bleibt, prueft der Test unten.
+   */
+  '@swisshub/modules/spielwahl/baum',
 ];
 
 /**
@@ -112,6 +123,7 @@ const EXPORTE: Record<string, string> = {
   '@swisshub/modules/wrapped/vorlage': 'packages/modules/src/wrapped/vorlage.ts',
   '@swisshub/modules/wrapped/szenen': 'packages/modules/src/wrapped/szenen.ts',
   '@swisshub/modules/wrapped/fixtures': 'packages/modules/src/wrapped/fixtures.ts',
+  '@swisshub/modules/spielwahl/baum': 'packages/modules/src/spielwahl/baum.ts',
 };
 
 /** Alle Wert-Importe einer Datei - auch die relativen. */

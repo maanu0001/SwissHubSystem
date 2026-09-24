@@ -26,6 +26,7 @@ import {
   verification,
   voiceHub,
   wrapped,
+  spielwahl,
   getModuleSettings,
 } from '@swisshub/modules';
 
@@ -560,6 +561,48 @@ export function createJobRunner(
         const ergebnis = await wrapped.runWrappedTick();
         if (ergebnis.stapel > 0 || ergebnis.angekuendigt) {
           log.info('Wrapped verarbeitet', { ...ergebnis });
+        }
+      },
+    },
+    {
+      name: 'spielwahl-tick',
+      /*
+       * Der Rueckhalt fuer «Was spielen wir?».
+       *
+       * Im Normalfall braucht ihn niemand: eine laufende Runde wird von den
+       * offenen Live-Stroemen abgeschlossen, und die gibt es, solange
+       * jemand zusieht. Der Fall, um den es hier geht, ist der andere -
+       * die Gruppe stellt die Abstimmung an und geht Pizza holen, der
+       * letzte Browser schliesst das Fenster, und die Runde stuende ohne
+       * diesen Job fuer immer in «laeuft».
+       *
+       * Zwanzig Sekunden, weil eine Abstimmung nach fuenfundvierzig Sekunden
+       * endet und eine halbe Minute Verzoegerung bei einem verwaisten
+       * Fenster niemandem auffaellt.
+       *
+       * Derselbe Takt raeumt verfallene Runden ab und frischt die
+       * Discord-Beitraege auf. Beides koennte auch stuendlich laufen; es
+       * hier mitzunehmen spart einen weiteren Job, und beide Abfragen
+       * finden meistens nichts.
+       */
+      intervalMs: 20 * 1000,
+      runOnStart: false,
+      async run() {
+        const { isModuleEnabled } = await import('@swisshub/modules');
+        if (!(await isModuleEnabled(spielwahl.SPIELWAHL_MODULE_ID))) {
+          return;
+        }
+
+        const faellig = await spielwahl.faelligeRunden();
+        for (const sessionId of faellig) {
+          await spielwahl.pruefe(sessionId);
+        }
+
+        const verfallen = await spielwahl.raeumeAuf();
+        const aufgefrischt = await spielwahl.frischeBeitraegeAuf();
+
+        if (faellig.length > 0 || verfallen > 0) {
+          log.info('Spielwahl verarbeitet', { faellig: faellig.length, verfallen, aufgefrischt });
         }
       },
     },

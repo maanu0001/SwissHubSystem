@@ -15,6 +15,11 @@ import {
   isCommunicationModal,
 } from './communication-commands';
 import {
+  SPIELWAHL_COMMAND_DEFINITIONS,
+  SPIELWAHL_COMMAND_NAMES,
+  handleSpielwahlCommand,
+} from './spielwahl-commands';
+import {
   AUTOMATION_COMMAND_DEFINITIONS,
   AUTOMATION_COMMAND_NAMES,
   handleAutomationAutocomplete,
@@ -30,6 +35,7 @@ const ALL_COMMANDS = [
   ...LEVEL_COMMAND_DEFINITIONS,
   ...COMMUNICATION_COMMAND_DEFINITIONS,
   ...AUTOMATION_COMMAND_DEFINITIONS,
+  ...SPIELWAHL_COMMAND_DEFINITIONS,
 ];
 
 const SPIELERSUCHE_COMMANDS = new Set(
@@ -112,6 +118,10 @@ export function registerCommandHandler(client: Client): void {
     }
     if (AUTOMATION_COMMAND_NAMES.has(interaction.commandName)) {
       void handleAutomationCommand(interaction);
+      return;
+    }
+    if (SPIELWAHL_COMMAND_NAMES.has(interaction.commandName as 'was-spielen-wir')) {
+      void handleSpielwahlCommand(interaction);
       return;
     }
     void handleJailCommand(interaction);

@@ -47,6 +47,7 @@ const MITGLIED_BASIS: string[] = [
   'premium.module.view',
   'voiceHub.module.view',
   'wrapped.module.view',
+  'spielwahl.module.view',
 
   'dashboard.view',
 
@@ -59,6 +60,11 @@ const MITGLIED_BASIS: string[] = [
   'members.view.tournaments.own',
   'members.view.tickets.own',
   'members.view.premium.own',
+
+  // Was spielen wir?: mitmachen und selbst eine Runde eroeffnen. Beides
+  // gehoert dem Abend und nicht der Verwaltung.
+  'spielwahl.view',
+  'spielwahl.create',
 
   // Spielersuche: eine eroeffnen, einer beitreten, die eigene schliessen.
   'spielersuche.view',

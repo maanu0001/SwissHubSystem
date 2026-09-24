@@ -24,6 +24,8 @@ import './appeals/events';
 import './clips/config';
 // SwissHub Wrapped - der Jahresrueckblick.
 import './wrapped/config';
+// Was spielen wir? - die gemeinsame Spielauswahl.
+import './spielwahl/config';
 import { registerGuildResolver } from './guild/config';
 
 // Ab hier löst jeder Discord-Aufruf die Guild aus der Datenbank auf.
@@ -74,3 +76,12 @@ export * as migration from './migration';
 export * as appeals from './appeals';
 export * as clips from './clips';
 export * as wrapped from './wrapped';
+export * as spielwahl from './spielwahl';
+/*
+ * Die Ziehung - allgemein, nicht modulgebunden.
+ *
+ * Sie lag frueher im XP-Gluecksrad. Seit «Was spielen wir?» dieselben Regeln
+ * verwendet, steht sie daneben statt darin: zwei Ziehungen mit zwei
+ * Vorstellungen von Fairness waeren eine zu viel.
+ */
+export * from './zufall';

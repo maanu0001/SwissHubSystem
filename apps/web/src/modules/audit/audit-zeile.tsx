@@ -10,6 +10,7 @@ import {
   FileCog,
   Gamepad2,
   Gift,
+  Dices,
   KeyRound,
   LifeBuoy,
   Megaphone,
@@ -70,6 +71,7 @@ const SYMBOL: Record<AuditKategorieId, typeof Users> = {
   mitglieder: Users,
   clips: Clapperboard,
   wrapped: Gift,
+  spielwahl: Dices,
   system: Server,
 };
 

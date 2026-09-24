@@ -299,6 +299,11 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   WRAPPED_ARCHIVED: 'Rückblick archiviert',
   WRAPPED_SNAPSHOT_REBUILT: 'Momentaufnahme neu erzeugt',
 
+  SPIELWAHL_SESSION_CREATED: 'Spielwahl eröffnet',
+  SPIELWAHL_SESSION_CLOSED: 'Spielwahl beendet',
+  SPIELWAHL_PARTICIPANT_REMOVED: 'Aus der Spielwahl entfernt',
+  SPIELWAHL_HOST_TRANSFERRED: 'Spielwahl übergeben',
+
   // --- Statistik -------------------------------------------------------------
   ANALYTICS_EXPORT: 'Statistik exportiert',
   ANALYTICS_MEDIA_DOWNLOAD: 'Datei aus dem Archiv geladen',

@@ -46,6 +46,7 @@ export type AuditKategorieId =
   | 'mitglieder'
   | 'clips'
   | 'wrapped'
+  | 'spielwahl'
   | 'system';
 
 export interface AuditKategorie {
@@ -64,6 +65,7 @@ const BEREICH: ReadonlyArray<readonly [RegExp, AuditKategorie]> = [
   [/^(MODERATION|JAIL|VOTE_JAIL|APPEAL)/u, { id: 'moderation', label: 'Moderation' }],
   [/^CLIP/u, { id: 'clips', label: 'Clips' }],
   [/^WRAPPED/u, { id: 'wrapped', label: 'Wrapped' }],
+  [/^SPIELWAHL/u, { id: 'spielwahl', label: 'Was spielen wir?' }],
   [/^TICKET/u, { id: 'tickets', label: 'Tickets' }],
   [/^VERIFICATION/u, { id: 'verifikation', label: 'Verifikation' }],
   [/^(LEVEL|XP_RAFFLE)/u, { id: 'level', label: 'Level' }],
@@ -146,6 +148,7 @@ const ZIELE: ReadonlyArray<{
 const BEREICHS_ZIEL: ReadonlyArray<readonly [RegExp, AuditLink]> = [
   [/^CLIP/u, { label: 'Clip of the Week', href: systemRoutes.clips() }],
   [/^WRAPPED/u, { label: 'Wrapped Studio', href: systemRoutes.wrappedStudio() }],
+  [/^SPIELWAHL/u, { label: 'Was spielen wir?', href: systemRoutes.spielwahl() }],
   [/^VERIFICATION/u, { label: 'Verifikation öffnen', href: systemRoutes.verifikation() }],
   [/^(INTEGRATION|PREMIUM)/u, { label: 'Integrationen öffnen', href: systemRoutes.integrationen() }],
   [/^MIGRATION/u, { label: 'Migration öffnen', href: systemRoutes.migration() }],

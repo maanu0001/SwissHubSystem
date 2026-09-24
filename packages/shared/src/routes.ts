@@ -43,6 +43,16 @@ export const systemRoutes = {
   /** Die Akte eines Mitglieds. */
   mitglied: (discordId: string): SystemRoute => `/members/${id(discordId)}`,
 
+  /*
+   * Was spielen wir? - die gemeinsame Spielauswahl.
+   *
+   * Die Session wird ueber ihren Einladungswert adressiert und nicht ueber
+   * ihre Kennung: der Wert steht in Discord-Nachrichten und Adresszeilen,
+   * die interne Kennung soll das nicht.
+   */
+  spielwahl: (): SystemRoute => '/was-spielen-wir',
+  spielwahlSession: (inviteToken: string): SystemRoute => `/was-spielen-wir/${id(inviteToken)}`,
+
   /** Clip of the Week - der Wettbewerb der Community. */
   clips: (): SystemRoute => '/clips',
   clipEinreichen: (): SystemRoute => '/clips/einreichen',

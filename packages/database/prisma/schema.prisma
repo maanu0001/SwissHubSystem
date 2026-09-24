@@ -1343,6 +1343,9 @@ model SpielersucheGame {
   /// Clips, die diesem Spiel zugeordnet sind.
   clips Clip[]
 
+  /// Vorschlaege in einer gemeinsamen Spielauswahl.
+  spielwahlKandidaten SpielwahlCandidate[]
+
   @@index([enabled, name])
 }
 
@@ -6567,4 +6570,310 @@ model WrappedView {
 
   @@unique([campaignId, discordId])
   @@index([campaignId, completedAt])
+}
+
+// ============================================================================
+// Was spielen wir? - die gemeinsame Spielauswahl
+// ============================================================================
+
+/// Der Lebenslauf einer Auswahlrunde.
+///
+/// `LOBBY` ist beides zugleich - beitreten und vorschlagen. Die Trennung in
+/// zwei Zustaende waere ehrlicher zum Ablaufdiagramm, aber falsch zur Sache:
+/// wer als Vierter dazukommt, waehrend die anderen schon Spiele eintragen,
+/// soll seines noch dazulegen duerfen.
+enum SpielwahlStatus {
+  /// Beitreten und vorschlagen.
+  LOBBY
+  /// Vorschlaege geschlossen, die Kandidaten stehen, die Runde kann starten.
+  BEREIT
+  /// Eine Entscheidungsrunde laeuft.
+  ENTSCHEIDUNG
+  /// Es gibt ein Ergebnis - annehmen, neu auslosen oder neue Runde.
+  ERGEBNIS
+  /// Angenommen. Die Gruppe spielt.
+  ABGESCHLOSSEN
+  /// Abgebrochen oder abgelaufen.
+  ABGEBROCHEN
+}
+
+enum SpielwahlModus {
+  ROULETTE
+  VOTING
+  ELIMINATION
+}
+
+enum SpielwahlRundeStatus {
+  LAEUFT
+  FERTIG
+  ABGEBROCHEN
+}
+
+/// Was jemand in **dieser Session** darf - unabhaengig von seinen Rechten im
+/// System. Ein Moderator ist hier nicht automatisch Host; wer die Runde
+/// eroeffnet hat, fuehrt sie.
+enum SpielwahlRolle {
+  HOST
+  COHOST
+  GAST
+}
+
+/// Was bei Gleichstand geschieht.
+enum SpielwahlGleichstand {
+  /// Eine weitere Runde nur unter den Gleichauf-Kandidaten.
+  STICHWAHL
+  /// Serverseitige Ziehung unter den Gleichauf-Kandidaten.
+  ZUFALL
+}
+
+/// Eine gemeinsame Spielauswahl.
+model SpielwahlSession {
+  id      String @id @default(cuid())
+  guildId String
+
+  /// Der Wert im Einladungslink.
+  ///
+  /// Nicht die `id`: eine cuid ist zwar nicht zu raten, wandert aber durch
+  /// Logs, Adresszeilen und Discord-Nachrichten. Der Einladungswert ist
+  /// davon getrennt und laesst sich dadurch spaeter erneuern, ohne dass die
+  /// Session eine andere wird.
+  inviteToken String @unique
+
+  hostDiscordId String
+  status        SpielwahlStatus @default(LOBBY)
+  modus         SpielwahlModus  @default(ROULETTE)
+
+  // --- Einstellungen der Session, vom Host gewaehlt -------------------------
+
+  /// Wie viele Spiele eine Person vorschlagen darf.
+  vorschlaegeProPerson Int @default(3)
+  /// Hoechstzahl Teilnehmer. Schuetzt die Buehne davor, unlesbar zu werden.
+  maxTeilnehmer        Int @default(12)
+  /// Freie Vorschlaege ausserhalb des Katalogs zulassen.
+  freieVorschlaege     Boolean @default(true)
+  /// Wie lange eine Abstimmung laeuft (Sekunden).
+  abstimmdauerSek      Int @default(45)
+  /// Stimmen je Person je Abstimmung.
+  stimmenProPerson     Int @default(1)
+  /// Stimmen erst beim Reveal zeigen.
+  geheimeStimmen       Boolean @default(true)
+  gleichstand          SpielwahlGleichstand @default(STICHWAHL)
+  /// Beim Roulette nach Zahl der Unterstuetzer gewichten.
+  ///
+  /// Standardmaessig **aus**: sonst gewaenne stillschweigend, wer die
+  /// lautesten Freunde hat. Wer es will, waehlt es bewusst - und die Buehne
+  /// sagt dann, dass gewichtet wird.
+  rouletteGewichtet    Boolean @default(false)
+  /// Beitritt waehrend einer laufenden Runde.
+  beitrittWaehrendRunde Boolean @default(true)
+
+  /// Einmal neu auslosen - das Zugestaendnis an die enttaeuschte Gruppe.
+  nachlosenErlaubt Boolean @default(true)
+  nachgelostAm     DateTime?
+
+  currentRoundId String?               @unique
+  currentRound   SpielwahlRound?       @relation("AktuelleRunde", fields: [currentRoundId], references: [id], onDelete: SetNull)
+
+  /// Das angenommene Ergebnis.
+  ergebnisCandidateId String?
+  ergebnisAm          DateTime?
+
+  /// Wohin die Einladung auf Discord ging - und dass sie ging.
+  announcementChannelId String?
+  announcementMessageId String?
+
+  /// Monoton steigend, bei jeder Aenderung. Der Wert, an dem ein Client
+  /// erkennt, ob eine Nachricht neuer ist als sein Stand.
+  revision Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  closedAt  DateTime?
+  /// Ab wann die Session als verfallen gilt und aufgeraeumt werden darf.
+  expiresAt DateTime
+
+  participants SpielwahlParticipant[]
+  candidates   SpielwahlCandidate[]
+  rounds       SpielwahlRound[]       @relation("SessionRunden")
+  commands     SpielwahlCommand[]
+
+  @@index([guildId, status])
+  @@index([guildId, hostDiscordId])
+  @@index([status, expiresAt])
+}
+
+/// Wer mitmacht.
+model SpielwahlParticipant {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   SpielwahlSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  discordId String
+  rolle     SpielwahlRolle @default(GAST)
+
+  joinedAt DateTime  @default(now())
+  /// Gesetzt, wenn jemand die Session verlassen hat oder entfernt wurde.
+  /// Die Zeile bleibt - sonst verlieren abgegebene Stimmen ihren Absender.
+  leftAt   DateTime?
+  /// Letztes Lebenszeichen. Grundlage fuer «ist noch da» und fuer die
+  /// Uebergabe der Hostrolle an jemanden, der tatsaechlich anwesend ist.
+  lastSeenAt DateTime @default(now())
+
+  @@unique([sessionId, discordId])
+  @@index([sessionId, leftAt])
+}
+
+/// Ein Spiel im Rennen.
+///
+/// Entweder aus dem Katalog (`gameId`) oder ein freier Vorschlag
+/// (`freierName`). Nie beides, nie keines - eine Pruefung im Code haelt das,
+/// weil Prisma keine CHECK-Constraints kennt.
+model SpielwahlCandidate {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   SpielwahlSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  gameId String?
+  game   SpielersucheGame? @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  /// Ein Vorschlag ausserhalb des Katalogs.
+  freierName String?
+  /// Kleingeschrieben und normalisiert - macht die Eindeutigkeit
+  /// unabhaengig von Gross-/Kleinschreibung und doppelten Leerzeichen.
+  namensKey  String
+
+  createdAt DateTime @default(now())
+
+  supporters SpielwahlSupport[]
+  votes      SpielwahlVote[]
+  gewonnen   SpielwahlRound[]   @relation("RundenGewinner")
+
+  @@unique([sessionId, namensKey])
+  @@index([sessionId])
+}
+
+/// Wer einen Kandidaten vorgeschlagen oder mitgetragen hat.
+///
+/// Der Grund fuer eine eigene Tabelle statt eines Zaehlers: derselbe Titel,
+/// von drei Leuten genannt, soll **ein** Kandidat sein - aber man soll sehen,
+/// dass ihn drei wollen. Ein Zaehler verloere, wer dahintersteht, und damit
+/// die Moeglichkeit, den eigenen Vorschlag wieder zurueckzunehmen.
+model SpielwahlSupport {
+  id          String             @id @default(cuid())
+  candidateId String
+  candidate   SpielwahlCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  discordId String
+  /// Die Person, die den Kandidaten ins Rennen gebracht hat.
+  erster    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([candidateId, discordId])
+  @@index([discordId])
+}
+
+/// Eine Entscheidungsrunde.
+///
+/// Auch das Roulette ist eine Runde - dann mit genau einem Durchgang. Dadurch
+/// haben alle drei Modi denselben Lebenslauf, und «nochmal auslosen» ist
+/// nichts Besonderes, sondern die naechste Runde.
+model SpielwahlRound {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   SpielwahlSession @relation("SessionRunden", fields: [sessionId], references: [id], onDelete: Cascade)
+
+  /// Fortlaufend ab 1 - die Nummer, die auf der Buehne steht.
+  nummer Int
+  modus  SpielwahlModus
+  status SpielwahlRundeStatus @default(LAEUFT)
+
+  /// Woraus diese Runde entscheidet - Kandidatenkennungen in fester
+  /// Reihenfolge. Eingefroren beim Start: wer danach etwas vorschlaegt,
+  /// aendert die laufende Runde nicht mehr.
+  kandidaten String[]
+
+  /// Der Zufallswert dieser Runde, hexadezimal.
+  ///
+  /// Beim Roulette bestimmt er den Gewinner, bei der Elimination die
+  /// Mischung des Turnierbaums. Festgehalten, damit sich eine Ziehung
+  /// nachvollziehen laesst, statt geglaubt werden zu muessen.
+  seed String
+
+  /// Der gezogene Punkt auf der Gewichtsachse und die Gesamtsumme.
+  /// Nur beim Roulette gesetzt - zusammen mit `seed` die vollstaendige
+  /// Herleitung des Ergebnisses.
+  losPunkt  Int?
+  losGesamt Int?
+
+  /// Der Turnierbaum bzw. der Stand der Duelle. Form siehe `modi/elimination`.
+  baum Json?
+
+  /// Welches Duell gerade laeuft (Index in den Paarungen der aktuellen Stufe).
+  duellIndex Int @default(0)
+
+  startedAt  DateTime  @default(now())
+  /// Wann der Server diese Runde beendet - **nicht** die Uhr im Browser.
+  endsAt     DateTime?
+  finishedAt DateTime?
+
+  gewinnerCandidateId String?
+  gewinner            SpielwahlCandidate? @relation("RundenGewinner", fields: [gewinnerCandidateId], references: [id], onDelete: SetNull)
+
+  /// Wie der Gewinner zustande kam - fuer die Buehne und fuer das Protokoll.
+  entscheidungsart String?
+
+  votes SpielwahlVote[]
+
+  aktuellIn SpielwahlSession? @relation("AktuelleRunde")
+
+  @@unique([sessionId, nummer])
+  @@index([status, endsAt])
+}
+
+/// Eine Stimme.
+///
+/// Die Eindeutigkeit sitzt auf `(roundId, duell, discordId, candidateId)`:
+/// beim Voting ist `duell` immer 0, bei der Elimination die Nummer des
+/// Duells. Damit gilt dieselbe Tabelle fuer beide Modi, ohne dass ein Modus
+/// die Eindeutigkeit des anderen aufweicht.
+model SpielwahlVote {
+  id      String         @id @default(cuid())
+  roundId String
+  round   SpielwahlRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  duell Int @default(0)
+
+  discordId   String
+  candidateId String
+  candidate   SpielwahlCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([roundId, duell, discordId, candidateId])
+  @@index([roundId, duell])
+}
+
+/// Der Riegel gegen den zweiten Klick.
+///
+/// Jeder schreibende Befehl bringt einen Schluessel mit, den der Browser
+/// erzeugt. Kommt er ein zweites Mal an - Doppelklick, Wiederholung nach
+/// einem Verbindungsabbruch, zwei offene Tabs -, wird nicht noch einmal
+/// gehandelt, sondern die erste Antwort zurueckgegeben.
+model SpielwahlCommand {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   SpielwahlSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  /// Vom Aufrufer erzeugt, je Session eindeutig.
+  schluessel String
+  befehl     String
+  discordId  String
+
+  /// Was beim ersten Mal herauskam.
+  ergebnis Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([sessionId, schluessel])
+  @@index([sessionId, createdAt])
 }

@@ -274,6 +274,42 @@ export const RATE_LIMITS = {
 
   /** Den eigenen Fortschritt im Rueckblick merken. */
   wrappedFortschritt: { limit: 240, windowMs: 10 * 60 * 1000 },
+
+  /**
+   * Eine Runde eroeffnen.
+   *
+   * Eng: eine Session ist ein Einladungslink, ein Discord-Beitrag und eine
+   * Zeile, die zwoelf Stunden steht. Wer in zehn Minuten fuenf eroeffnet,
+   * probiert etwas aus - mehr braucht dafuer niemand.
+   */
+  spielwahlEroeffnen: { limit: 5, windowMs: 10 * 60 * 1000 },
+
+  /**
+   * Beitreten, vorschlagen, zuruecknehmen, Ready.
+   *
+   * Grosszuegig: waehrend der Lobby tippt und klickt eine Gruppe viel, und
+   * jeder Vorschlag ist eine Zeile. Die fachlichen Grenzen (Vorschlaege je
+   * Person, Teilnehmerzahl) sitzen ohnehin daneben.
+   */
+  spielwahlMitmachen: { limit: 180, windowMs: 5 * 60 * 1000 },
+
+  /**
+   * Abstimmen.
+   *
+   * Eine Stimme laesst sich zuruecknehmen und umsetzen; bei einem
+   * Ausscheidungsturnier mit fuenfzehn Duellen sind das schnell dreissig
+   * Klicks. Die Eindeutigkeit sitzt in der Datenbank, nicht hier.
+   */
+  spielwahlStimme: { limit: 240, windowMs: 5 * 60 * 1000 },
+
+  /**
+   * Was nur der Host tut - Phase schliessen, Runde starten, nachlosen,
+   * Ergebnis annehmen, jemanden entfernen.
+   *
+   * Enger als das Mitmachen, weil jede dieser Handlungen den Zustand fuer
+   * alle aendert.
+   */
+  spielwahlFuehrung: { limit: 60, windowMs: 5 * 60 * 1000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

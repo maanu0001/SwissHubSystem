@@ -1,0 +1,251 @@
+/**
+ * Die Bühne von «Was spielen wir?».
+ *
+ * ## Warum eigene Regeln und keine Kartensammlung
+ *
+ * Weil das hier kein Formular ist. Eine Gruppe schaut gemeinsam auf einen
+ * Bildschirm und wartet darauf, dass etwas passiert - dieselbe Situation wie
+ * vor einem Spielshow-Studio. Was diese Situation trägt, sind grosse Zahlen,
+ * ruhige Flächen und Bewegung, die eine Richtung hat.
+ *
+ * Die Farben kommen aus denselben Tokens wie der Rest der Anwendung; was
+ * hier dazukommt, sind Abläufe, nicht ein zweites Design.
+ */
+
+.spielwahl {
+  /* Der Bewegungsapparat. */
+  --sp-schnell: 160ms;
+  --sp-normal: 320ms;
+  --sp-langsam: 640ms;
+
+  /* Weich ausbremsen - alles, was ankommt. */
+  --sp-aus: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Leicht überschiessen - nur Dinge, die einrasten. */
+  --sp-rast: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  --sp-rot: 358 91% 27%;
+  --sp-rot-hell: 358 79% 52%;
+  --sp-glut: 358 79% 52%;
+}
+
+/* ---------------------------------------------------------------------------
+ * Die Bühne
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Der dunkle Grund, auf dem alles steht.
+ *
+ * Zwei sehr weiche Lichtkegel statt eines Verlaufs über die ganze Fläche:
+ * ein Verlauf sieht auf einem schlechten Panel nach Streifen aus, zwei
+ * Kegel bleiben ruhig.
+ */
+.sp-buehne {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 1.5rem;
+  background:
+    radial-gradient(80rem 40rem at 15% -10%, hsl(var(--sp-rot) / 0.28), transparent 60%),
+    radial-gradient(60rem 36rem at 95% 110%, hsl(var(--sp-rot) / 0.18), transparent 62%),
+    hsl(var(--background));
+}
+
+/** Ein feines Raster, das der Fläche Tiefe gibt, ohne sie zu beschäftigen. */
+.sp-buehne::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(hsl(var(--sp-rot) / 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--sp-rot) / 0.07) 1px, transparent 1px);
+  background-size: 3.5rem 3.5rem;
+  mask-image: radial-gradient(70% 60% at 50% 40%, #000, transparent 100%);
+}
+
+/* ---------------------------------------------------------------------------
+ * Bewegung
+ * ------------------------------------------------------------------------ */
+
+.sp-auf {
+  opacity: 0;
+  animation: sp-auf var(--sp-langsam) var(--sp-aus) forwards;
+  animation-delay: var(--verzug, 0ms);
+}
+
+@keyframes sp-auf {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.sp-rast {
+  opacity: 0;
+  animation: sp-rast var(--sp-langsam) var(--sp-rast) forwards;
+  animation-delay: var(--verzug, 0ms);
+}
+
+@keyframes sp-rast {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/**
+ * Das Glimmen des Gewinners.
+ *
+ * Kein Blinken: ein pulsierender Rand zieht den Blick und lässt ihn wieder
+ * los. Blinken zwingt ihn, und nach fünf Sekunden schaut man weg.
+ *
+ * **Nicht mit `sp-auf` oder `sp-rast` auf demselben Element.** Alle drei
+ * setzen die Kurzschreibweise `animation`; die zuletzt notierte gewinnt, und
+ * die andere fällt ersatzlos aus - beim Einblenden heisst das: das Element
+ * bleibt bei `opacity: 0` und ist unsichtbar. Wer beides will, nimmt zwei
+ * ineinandergeschachtelte Elemente.
+ */
+.sp-glut {
+  animation: sp-glut 2600ms ease-in-out infinite;
+}
+
+@keyframes sp-glut {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px hsl(var(--sp-glut) / 0.5),
+      0 0 2.5rem hsl(var(--sp-glut) / 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px hsl(var(--sp-glut) / 0.9),
+      0 0 4.5rem hsl(var(--sp-glut) / 0.45);
+  }
+}
+
+/** Der Balken, der eine Abstimmung ablaufen lässt. */
+.sp-frist {
+  transform-origin: left;
+  animation: sp-frist linear forwards;
+  animation-duration: var(--dauer, 1s);
+  animation-delay: var(--versatz, 0s);
+}
+
+@keyframes sp-frist {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Das Rad
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Der Lauf des Rads.
+ *
+ * Die Drehung steht in `--dreh` und kommt vom Server - genauer: sie wird aus
+ * dem Ergebnis des Servers berechnet. Die Kurve hat einen langen Schwanz;
+ * die letzten Grade vergehen spürbar langsamer als die ersten, und genau
+ * daraus entsteht die Spannung kurz vor dem Stillstand.
+ */
+.sp-rad-lauf {
+  animation: sp-rad var(--dauer, 10s) cubic-bezier(0.12, 0.72, 0.06, 1) forwards;
+  animation-delay: var(--versatz, 0s);
+}
+
+@keyframes sp-rad {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(var(--dreh, 1080deg));
+  }
+}
+
+/** Der Zeiger über dem Rad - er zuckt, wenn ein Feld vorbeizieht. */
+.sp-zeiger {
+  filter: drop-shadow(0 0 0.75rem hsl(var(--sp-glut) / 0.6));
+}
+
+/* ---------------------------------------------------------------------------
+ * Das Duell
+ * ------------------------------------------------------------------------ */
+
+.sp-duell-links {
+  animation: sp-von-links var(--sp-langsam) var(--sp-aus) forwards;
+}
+
+.sp-duell-rechts {
+  animation: sp-von-rechts var(--sp-langsam) var(--sp-aus) forwards;
+}
+
+@keyframes sp-von-links {
+  from {
+    opacity: 0;
+    transform: translate3d(-8%, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sp-von-rechts {
+  from {
+    opacity: 0;
+    transform: translate3d(8%, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Weniger Bewegung
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Was bei «reduzierte Bewegung» geschieht.
+ *
+ * Alles steht sofort da, wo es hingehört - und zwar **vollständig**. Wer
+ * Animationen abschaltet, bekommt nicht weniger Information, sondern
+ * dieselbe ohne Weg dorthin.
+ *
+ * Beim Rad genügt das allerdings nicht, und der erste Versuch hat es
+ * bewiesen: eine Drehung auf 1 ms springt sofort auf das Ergebnis, und
+ * dieser Zuschauer wüsste den Gewinner zehn Sekunden vor allen anderen.
+ * Deshalb bekommt er hier gar kein Rad - siehe `useRuhig` und `RadRuhig`.
+ * Diese Regeln gelten allem übrigen.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .spielwahl *,
+  .spielwahl *::before,
+  .spielwahl *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+.spielwahl-ruhig *,
+.spielwahl-ruhig *::before,
+.spielwahl-ruhig *::after {
+  animation-duration: 1ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+}
