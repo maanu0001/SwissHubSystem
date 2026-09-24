@@ -88,9 +88,32 @@ export async function GET(
   const eintraege: Array<{ name: string; daten: Uint8Array }> = [];
 
   for (const folie of folien) {
+    /*
+     * Das Bild eines Community Moments als Bytes, nicht als Adresse.
+     *
+     * Die Zeichenmaschine laeuft hier im Server. Eine relative Adresse
+     * liess frueher den **ganzen** Export mit einer 500 abbrechen, und in
+     * der Editor-Vorschau war davon nichts zu sehen - dort zeichnet ein
+     * Browser, dem eine relative Adresse genuegt.
+     *
+     * Faellt das Lesen aus, wird die Folie ohne Bild gezeichnet. Ein
+     * Archiv mit einer schlichteren Folie ist besser als kein Archiv.
+     */
+    const bildQuelle = folie.momentId
+      ? await wrapped.momentBildDatenUri(folie.momentId).catch((fehler: unknown) => {
+          log.warn('Bild eines Community Moments nicht lesbar', { momentId: folie.momentId, fehler });
+          return null;
+        })
+      : null;
+
     const bild = new ImageResponse(
       zeichneAusgabeFolie({
-        folie: { templateKey: folie.templateKey, daten: folie.daten, editorial: folie.editorial },
+        folie: {
+          templateKey: folie.templateKey,
+          daten: folie.daten,
+          editorial: folie.editorial,
+          bildQuelle,
+        },
         format,
         variante: ausgabe.variant as WrappedVariante,
         titel: ausgabe.title,

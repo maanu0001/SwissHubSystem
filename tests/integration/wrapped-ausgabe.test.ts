@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 import { describeWithDatabase, pushSchema, useTestSchema } from '../helpers/database';
+import { crc32, deflateSync } from 'node:zlib';
 
 useTestSchema('test_wrapped_ausgabe');
 
@@ -391,6 +392,42 @@ describeWithDatabase('Wrapped-Ausgaben', () => {
     expect(ansichtJuli?.folien.some((folie) => folie.storyKey === 'community_moment')).toBe(false);
   });
 
+  it('reicht das Bild eines Moments als Bytes heraus, nicht als Adresse', async () => {
+    /*
+     * Der Befund aus dem Betrieb: im Schnappschuss steht
+     * `/api/wrapped/moment/<id>`. Der Browser der Editor-Vorschau kommt
+     * damit zurecht, die Zeichenmaschine des Exports nicht - sie wirft bei
+     * einer relativen Adresse, und zwar fuer das ganze Archiv.
+     *
+     * Deshalb loest `momentBildDatenUri` die Bytes von der Platte auf.
+     * Dieser Test haelt fest, dass dabei etwas herauskommt, das sich
+     * zeichnen laesst.
+     */
+    const moment = await wrapped.erstelleMoment(
+      GUILD,
+      {
+        title: 'GameNight',
+        description: null,
+        happenedOn: '2026-08-09',
+        includeMonthly: true,
+        includeYearly: false,
+        priority: 0,
+      },
+      AKTEUR,
+    );
+
+    // Ohne Bild gibt es nichts aufzuloesen - und das ist kein Fehler.
+    expect(await wrapped.momentBildDatenUri(moment.id)).toBeNull();
+
+    await wrapped.speichereMomentBild(moment.id, einPng(), 'image/png');
+    const uri = await wrapped.momentBildDatenUri(moment.id);
+    expect(uri?.startsWith('data:image/png;base64,')).toBe(true);
+    expect((uri ?? '').length).toBeGreaterThan(100);
+
+    // Und ein Moment, den es nicht gibt, ergibt null statt eines Fehlers.
+    expect(await wrapped.momentBildDatenUri('gibt-es-nicht')).toBeNull();
+  });
+
   it('laesst einen Moment nicht loeschen, solange er in einer eingefrorenen Ausgabe steht', async () => {
     await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
     const moment = await wrapped.erstelleMoment(
@@ -441,3 +478,46 @@ describeWithDatabase('Wrapped-Ausgaben', () => {
     expect(await prisma.wrappedEdition.count()).toBe(1);
   });
 });
+
+/**
+ * Ein winziges, echtes PNG.
+ *
+ * Erzeugt statt eingecheckt: `speichereMomentBild` erkennt das Format an der
+ * Signatur der Datei und prueft die Abmessungen, ein Platzhalter aus Nullen
+ * kaeme also gar nicht erst durch.
+ */
+function einPng(): Uint8Array {
+  const breite = 480;
+  const hoehe = 480;
+  const roh = Buffer.alloc((breite * 3 + 1) * hoehe);
+  for (let y = 0; y < hoehe; y += 1) {
+    const zeile = y * (breite * 3 + 1);
+    roh[zeile] = 0;
+    for (let x = 0; x < breite; x += 1) {
+      roh[zeile + 1 + x * 3] = (x * 255) / breite;
+      roh[zeile + 2 + x * 3] = (y * 255) / hoehe;
+      roh[zeile + 3 + x * 3] = 128;
+    }
+  }
+  const teil = (typ: string, inhalt: Buffer): Buffer => {
+    const koerper = Buffer.concat([Buffer.from(typ, 'ascii'), inhalt]);
+    const laenge = Buffer.alloc(4);
+    laenge.writeUInt32BE(inhalt.length, 0);
+    const summe = Buffer.alloc(4);
+    summe.writeUInt32BE(crc32(koerper) >>> 0, 0);
+    return Buffer.concat([laenge, koerper, summe]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(breite, 0);
+  ihdr.writeUInt32BE(hoehe, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  return new Uint8Array(
+    Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      teil('IHDR', ihdr),
+      teil('IDAT', deflateSync(roh)),
+      teil('IEND', Buffer.alloc(0)),
+    ]),
+  );
+}

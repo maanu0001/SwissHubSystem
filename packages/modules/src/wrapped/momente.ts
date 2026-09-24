@@ -197,6 +197,38 @@ export async function speichereMomentBild(
 }
 
 /** Das Bild eines Moments - ueber eine Route, nicht als Datei im Web. */
+/**
+ * Das Bild eines Moments als `data:`-URI.
+ *
+ * ## Warum das noetig ist
+ *
+ * Im Schnappschuss einer Folie steht eine Adresse - `/api/wrapped/moment/…`.
+ * Fuer den Browser ist das richtig: er ruft sie mit der Sitzung des
+ * Betrachters ab. Fuer die Zeichenmaschine des Exports ist es unbrauchbar,
+ * und zwar doppelt. Sie laeuft im Server und **wirft** bei einer relativen
+ * Adresse - nicht fuer die eine Folie, sondern fuer das ganze Archiv. Und
+ * selbst mit absoluter Adresse rief sie die Route ohne Sitzung auf und
+ * bekaeme eine 401.
+ *
+ * Genau das ist im Betrieb passiert: eine Ausgabe mit einem bebilderten
+ * Community Moment liess sich nicht exportieren, waehrend die Vorschau im
+ * Editor das Bild anstandslos zeigte - dort zeichnet ein Browser.
+ *
+ * Die Bytes liegen ohnehin auf der Platte. Sie hier zu lesen und als
+ * `data:`-URI weiterzureichen ist ein Dateizugriff statt eines HTTP-Aufrufs
+ * auf den eigenen Server - kuerzer, sicherer und ohne Sitzungsfrage.
+ *
+ * `null` heisst: kein Bild, nicht lesbar, oder es gibt den Moment nicht.
+ * Die Folie wird dann ohne Bild gezeichnet.
+ */
+export async function momentBildDatenUri(momentId: string): Promise<string | null> {
+  const datei = await leseMomentBild(momentId);
+  if (!datei) {
+    return null;
+  }
+  return `data:${datei.contentType};base64,${datei.data.toString('base64')}`;
+}
+
 export async function leseMomentBild(
   momentId: string,
 ): Promise<{ data: Buffer; contentType: string } | null> {

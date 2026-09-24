@@ -48,9 +48,16 @@ import type {
  * `nichts_passiert` heisst: gemessen wurde, aber es gab nichts. Das ist ein
  * Unterschied, den ein Rueckblick kennen muss: das eine ist eine Luecke,
  * das andere ein ruhiger Monat.
+ *
+ * `kein_platz` ist der dritte Fall und kam spaeter dazu: die Story hatte
+ * sehr wohl etwas zu sagen, nur stand eine andere hoeher im Rang und die
+ * Ausgabe war voll. Vorher trug dieser Fall die Marke `nichts_passiert`,
+ * und im Editor stand «nichts passiert» neben einer Story, zu der es sehr
+ * wohl Zahlen gab - eine Falschauskunft an genau der Stelle, an der jemand
+ * nachsieht, ob eine Datenquelle klemmt.
  */
 export type WrappedDatenlage =
-  'nicht_erhoben' | 'nur_teilweise_erhoben' | 'nichts_passiert' | 'zu_wenig_vergleich';
+  'nicht_erhoben' | 'nur_teilweise_erhoben' | 'nichts_passiert' | 'zu_wenig_vergleich' | 'kein_platz';
 
 export interface StoryKontext {
   guildId: string;
@@ -689,7 +696,7 @@ export function waehleFolien(kontext: StoryKontext): AuswahlErgebnis {
     gruende.push({
       storyKey: uebrig.storyKey,
       label: story?.label ?? uebrig.storyKey,
-      lage: 'nichts_passiert',
+      lage: 'kein_platz',
       erklaerung: `Nicht aufgenommen - die Ausgabe fasst höchstens ${FOLIEN_OBERGRENZE[kontext.periode.art]} Folien, und andere Folien waren in diesem Zeitraum aussagekräftiger.`,
     });
   }

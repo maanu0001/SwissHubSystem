@@ -142,6 +142,50 @@ describe('Share Card', () => {
     }
   });
 
+  describe('ohne bekannten Namen', () => {
+    /*
+     * Der Discord-Spiegel kennt nicht zu jedem einen Namen - wer den Server
+     * verlassen hat, zum Beispiel. Frueher stand dann «Du» im Namensfeld,
+     * und drei der vier Saetze dieser Karte setzen den Namen in die dritte
+     * Person. Heraus kam: «Das war das Jahr von Du.», «Alleine war Du
+     * selten.», «Du war».
+     *
+     * Die Karte geht nach draussen. Ein Satz, der so aussieht, sieht nach
+     * einem kaputten Programm aus - und zwar fuer jeden, der ihn sieht.
+     */
+    const ohneNamen = (): WrappedDaten => {
+      const daten = persona(WRAPPED_PERSONAS[0]!.key);
+      return { ...daten, person: { ...daten.person, displayName: null, username: null } };
+    };
+
+    it.each(formate.flatMap((format) => seiten.map((seite) => [format, seite] as const)))(
+      '%s/%s schreibt keinen Satz mit «Du» in der dritten Person',
+      (format, seite) => {
+        const text = alsText(ohneNamen(), format, seite);
+        for (const kaputt of ['von Du', 'war Du', 'Du war ', 'von Du.']) {
+          expect(text, `«${kaputt}» steht auf der Karte`).not.toContain(kaputt);
+        }
+      },
+    );
+
+    it('sagt dasselbe in der zweiten Person', () => {
+      expect(alsText(ohneNamen(), 'uebersicht', 'story')).toContain('Das war dein Jahr.');
+      expect(alsText(ohneNamen(), 'archetyp', 'story')).toContain('Du warst');
+      expect(alsText(ohneNamen(), 'mates', 'story')).toContain('Alleine warst du selten.');
+    });
+
+    it('erfindet auch in der Fusszeile keinen Namen', () => {
+      // Lieber nichts als ein Platzhalter, der wie ein Name aussieht.
+      expect(alsText(ohneNamen(), 'uebersicht', 'story')).not.toContain('>Du<');
+    });
+
+    it('nimmt den Namen, sobald es einen gibt', () => {
+      const daten = persona(WRAPPED_PERSONAS[0]!.key);
+      const mit = { ...daten, person: { ...daten.person, displayName: 'Silvan', username: 'silvan' } };
+      expect(alsText(mit, 'uebersicht', 'story')).toContain('Das war das Jahr von Silvan.');
+    });
+  });
+
   it('hält sich an die beiden zugesagten Bildgrössen', () => {
     expect(KARTEN_MASSE.story).toEqual({ breite: 1080, hoehe: 1920 });
     expect(KARTEN_MASSE.quadrat).toEqual({ breite: 1080, hoehe: 1080 });

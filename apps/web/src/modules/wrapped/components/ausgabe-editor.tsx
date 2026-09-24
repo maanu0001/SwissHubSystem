@@ -67,6 +67,10 @@ const LAGE_TEXT: Record<string, string> = {
   nur_teilweise_erhoben: 'nur teilweise erhoben',
   nichts_passiert: 'nichts passiert',
   zu_wenig_vergleich: 'zu wenig Vergleich',
+  // Nicht «nichts passiert»: zu dieser Story gab es Zahlen, sie hat nur den
+  // Platz nicht bekommen. Wer im Editor nachsieht, warum eine Folie fehlt,
+  // soll die beiden Fälle unterscheiden können.
+  kein_platz: 'kein Platz mehr',
 };
 
 export function AusgabeEditor({

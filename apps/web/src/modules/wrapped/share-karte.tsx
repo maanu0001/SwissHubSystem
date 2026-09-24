@@ -145,7 +145,20 @@ export function zeichneKarte({
   // herauslaeuft und die Karte nicht leer wirkt.
   const eng = seite === 'quadrat';
   const rand = eng ? 80 : 104;
-  const name = kuerze(daten.person.displayName ?? daten.person.username ?? 'Du', 24);
+  /*
+   * Der Name - oder `null`, wenn es keinen gibt.
+   *
+   * Frueher stand hier `?? 'Du'`. Das las sich in den Saetzen dieser Karte
+   * so: «Das war das Jahr von Du.», «Alleine war Du selten.», «Du war».
+   * Drei von vier Stellen setzen den Namen naemlich in die dritte Person,
+   * und «Du» passt dort nicht.
+   *
+   * Betroffen ist jeder, zu dem der Discord-Spiegel keinen Namen (mehr)
+   * hat - wer den Server verlassen hat, zum Beispiel. Statt einen Namen zu
+   * erfinden, sagen die Saetze unten dasselbe in der zweiten Person.
+   */
+  const name = daten.person.displayName ?? daten.person.username;
+  const kurzerName = name ? kuerze(name, 24) : null;
 
   return (
     <div
@@ -185,8 +198,8 @@ export function zeichneKarte({
       </div>
 
       <Kopf jahr={jahr} eng={eng} />
-      <Rumpf daten={daten} format={format} eng={eng} name={name} innen={mass.breite - rand * 2} />
-      <Fuss host={host} name={name} breite={mass.breite} rand={rand} eng={eng} />
+      <Rumpf daten={daten} format={format} eng={eng} name={kurzerName} innen={mass.breite - rand * 2} />
+      <Fuss host={host} name={kurzerName} breite={mass.breite} rand={rand} eng={eng} />
     </div>
   );
 }
@@ -219,7 +232,8 @@ function Rumpf({
   daten: WrappedDaten;
   format: KartenFormat;
   eng: boolean;
-  name: string;
+  /** `null`, wenn der Spiegel keinen Namen kennt - siehe `zeichneKarte`. */
+  name: string | null;
   /** Die nutzbare Breite - Grundlage fuer `passendeGroesse`. */
   innen: number;
 }): React.JSX.Element {
@@ -228,7 +242,7 @@ function Rumpf({
     const etikett = (typ?.label ?? 'The Regular').toUpperCase();
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: eng ? 26 : 40 }}>
-        <div style={{ fontSize: eng ? 38 : 48, color: GEDAEMPFT }}>{`${name} war`}</div>
+        <div style={{ fontSize: eng ? 38 : 48, color: GEDAEMPFT }}>{name ? `${name} war` : 'Du warst'}</div>
         <div
           style={{
             display: 'flex',
@@ -257,7 +271,9 @@ function Rumpf({
     const mates = daten.voice.mates.slice(0, eng ? 4 : 5);
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: eng ? 28 : 44 }}>
-        <div style={{ display: 'flex', fontSize: eng ? 52 : 68 }}>{`Alleine war ${name} selten.`}</div>
+        <div style={{ display: 'flex', fontSize: eng ? 52 : 68 }}>
+          {name ? `Alleine war ${name} selten.` : 'Alleine warst du selten.'}
+        </div>
         {mates.length === 0 ? (
           <div style={{ display: 'flex', fontSize: eng ? 38 : 48, color: GEDAEMPFT }}>
             Dieses Jahr vor allem für sich.
@@ -313,7 +329,9 @@ function Rumpf({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: eng ? 34 : 56 }}>
-      <div style={{ display: 'flex', fontSize: eng ? 52 : 68 }}>{`Das war das Jahr von ${name}.`}</div>
+      <div style={{ display: 'flex', fontSize: eng ? 52 : 68 }}>
+        {name ? `Das war das Jahr von ${name}.` : 'Das war dein Jahr.'}
+      </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: eng ? 28 : 52 }}>
         {zahlen.map((eintrag) => (
           <div
@@ -360,7 +378,8 @@ function Fuss({
   eng,
 }: {
   host: string;
-  name: string;
+  /** `null`, wenn kein Name bekannt ist - dann steht dort nichts. */
+  name: string | null;
   breite: number;
   rand: number;
   eng: boolean;
@@ -378,7 +397,9 @@ function Fuss({
         }}
       />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', fontSize: eng ? 34 : 40 }}>{name}</div>
+        {/* Ohne Namen bleibt die Zeile leer - ein Platzhalter waere ein
+            erfundener Name auf einem Bild, das jemand teilt. */}
+        <div style={{ display: 'flex', fontSize: eng ? 34 : 40 }}>{name ?? ''}</div>
         <div style={{ display: 'flex', fontSize: eng ? 28 : 32, color: LEISE }}>{host}</div>
       </div>
     </div>

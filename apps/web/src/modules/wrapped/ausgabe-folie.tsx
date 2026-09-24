@@ -27,6 +27,20 @@ import { kuerze, passendeGroesse } from './share-karte';
  * zwanzig kleine Zahlen darauf sind zwanzig ungelesene Zahlen.
  */
 
+/**
+ * Zeichnet gerade ein Browser?
+ *
+ * Der Unterschied betrifft genau eine Stelle: das Bild eines Community
+ * Moments. Im Browser genuegt die relative Adresse aus dem Schnappschuss -
+ * er ruft sie mit der Sitzung des Betrachters ab. Im Server nicht, und
+ * zwar aus zwei Gruenden: `ImageResponse` verlangt eine absolute Adresse,
+ * und er haette keine Sitzung mitzuschicken.
+ *
+ * Ueber `globalThis` und nicht ueber `window`: diese Datei wird auch vom
+ * Server-Projekt uebersetzt, und dort gibt es den Namen `window` nicht.
+ */
+const imBrowser = typeof (globalThis as { document?: unknown }).document !== 'undefined';
+
 export type AusgabeFormat = 'story' | 'feed';
 
 export const AUSGABE_MASSE: Record<AusgabeFormat, { breite: number; hoehe: number }> = {
@@ -237,6 +251,39 @@ export interface FolienEingabe {
   templateKey: WrappedVorlage;
   daten: unknown;
   editorial: { ueberschrift: string; text: string };
+  /**
+   * Das Bild eines Community Moments - als `data:`-URI.
+   *
+   * Nur fuer `IMAGE_MOMENT`, und nur serverseitig gesetzt. Im Schnappschuss
+   * steht eine **Adresse** (`/api/wrapped/moment/…`), und die ist fuer den
+   * Browser richtig und fuer die Zeichenmaschine unbrauchbar: `ImageResponse`
+   * laeuft im Server und verlangt eine absolute Adresse - er wuerde sie
+   * ausserdem ohne Sitzung abrufen und eine 401 bekommen.
+   *
+   * Deshalb loest die Route die Bytes selbst auf und reicht sie hier
+   * herein. Der Browser (Editor-Vorschau) laesst das Feld leer und nimmt
+   * weiterhin die Adresse.
+   */
+  bildQuelle?: string | null;
+}
+
+/**
+ * Taugt diese Zeichenkette als Bildquelle fuer die Zeichenmaschine?
+ *
+ * `ImageResponse` wirft bei einer relativen Adresse - und zwar so, dass der
+ * **ganze** Export abbricht, nicht nur die eine Folie. Genau das ist
+ * passiert: ein Community Moment mit Bild ergab eine 500, und in der
+ * Vorschau war davon nichts zu sehen, weil dort ein Browser zeichnet, dem
+ * eine relative Adresse voellig genuegt.
+ *
+ * Diese Pruefung ist der Riegel davor. Was sie nicht durchlaesst, wird
+ * weggelassen - eine Folie ohne Bild ist besser als kein Archiv.
+ */
+export function istZeichenbareBildquelle(quelle: string | null | undefined): quelle is string {
+  if (!quelle) {
+    return false;
+  }
+  return quelle.startsWith('data:image/') || quelle.startsWith('https://') || quelle.startsWith('http://');
 }
 
 /**
@@ -503,9 +550,20 @@ function Rumpf({
 
     case 'IMAGE_MOMENT': {
       const daten = folie.daten as VorlagenDaten<'IMAGE_MOMENT'>;
+      /*
+       * Erst die eingereichte Quelle, dann die aus dem Schnappschuss - und
+       * beide nur, wenn sie sich zeichnen lassen. Im Browser ist das die
+       * relative Adresse (die faellt durch die Pruefung, deshalb der
+       * ausdrueckliche Zweig darunter), im Server die `data:`-URI.
+       */
+      const bild = istZeichenbareBildquelle(folie.bildQuelle)
+        ? folie.bildQuelle
+        : imBrowser && daten.bild
+          ? daten.bild
+          : null;
       return (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {daten.bild ? (
+          {bild ? (
             <div
               style={{
                 display: 'flex',
@@ -517,7 +575,7 @@ function Rumpf({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={daten.bild}
+                src={bild}
                 alt=""
                 width={innen}
                 height={klein ? 620 : 860}
@@ -528,7 +586,7 @@ function Rumpf({
           <div
             style={{
               display: 'flex',
-              marginTop: daten.bild ? (klein ? 34 : 46) : 0,
+              marginTop: bild ? (klein ? 34 : 46) : 0,
               fontSize: passendeGroesse(daten.titel, innen, klein ? 72 : 88),
               lineHeight: 1.08,
               letterSpacing: -2,

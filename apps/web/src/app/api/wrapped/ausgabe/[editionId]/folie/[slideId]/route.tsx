@@ -68,9 +68,20 @@ export async function GET(
   }
 
   const mass = AUSGABE_MASSE[format as AusgabeFormat];
+  // Dieselbe Aufloesung wie im Archiv - siehe dort. Eine relative Adresse
+  // waere hier ebenfalls ein Fehlschlag statt eines Bildes.
+  const bildQuelle = folie.momentId
+    ? await wrapped.momentBildDatenUri(folie.momentId).catch(() => null)
+    : null;
+
   const bild = new ImageResponse(
     zeichneAusgabeFolie({
-      folie: { templateKey: folie.templateKey, daten: folie.daten, editorial: folie.editorial },
+      folie: {
+        templateKey: folie.templateKey,
+        daten: folie.daten,
+        editorial: folie.editorial,
+        bildQuelle,
+      },
       format: format as AusgabeFormat,
       variante: ausgabe.variant as WrappedVariante,
       titel: ausgabe.title,
