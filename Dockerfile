@@ -81,7 +81,24 @@ ENV NODE_OPTIONS=--max-old-space-size=1536
 # eine Stufe frueher und mit einer deutlicheren Meldung.
 RUN npm run lint
 RUN npx tsc -p tsconfig.json --noEmit
-RUN npx tsc -p apps/web/tsconfig.json --noEmit
+
+# Die Typpruefung der WebApp laeuft **nicht** hier, sondern in der Pipeline.
+#
+# Sie braucht zwischen 1536 und 1700 MB Heap - gemessen, nicht geschaetzt -
+# und passt damit nicht mehr unter die Grenze oben. Die Grenze anzuheben
+# waere keine Loesung: der Server hat 2 GB, waehrend des Baus laufen
+# Postgres, Web und Bot weiter, und das Programm waechst mit jedem Modul.
+# Beim naechsten stuenden wir wieder hier.
+#
+# Geprueft wird sie trotzdem, und zwar vollstaendig: `.github/workflows/
+# deploy.yml` fuehrt im Job «Validate» `npm run typecheck` aus - dieselben
+# zwei Aufrufe, auf demselben Commit, auf einer Maschine mit genug
+# Speicher. Der Deploy-Job haengt mit `needs: validate` daran; ohne gruene
+# Typpruefung gibt es kein Abbild.
+#
+# `tests/unit/build-pruefungen.test.ts` haelt die drei Dateien zusammen:
+# wer die Pruefung aus der Pipeline nimmt, bekommt einen roten Test und
+# nicht ein stilles Loch.
 
 # Sagt `next.config.ts`, dass die Pruefung schon gelaufen ist.
 ENV SWISSHUB_SPLIT_BUILD_CHECKS=1

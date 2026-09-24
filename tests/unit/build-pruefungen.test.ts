@@ -13,7 +13,13 @@ import { describe, expect, it } from 'vitest';
  * erfolgreicher Uebersetzung.
  *
  * Das Abbild setzt deshalb `SWISSHUB_SPLIT_BUILD_CHECKS=1` und fuehrt Lint
- * und Typpruefung **vorher** aus, jede in einem eigenen Prozess.
+ * und die Typpruefung des Monorepos **vorher** aus, jede in einem eigenen
+ * Prozess.
+ *
+ * Die Typpruefung der **WebApp** passt auch so nicht mehr: sie braucht
+ * zwischen 1536 und 1700 MB, und daran ist ein zweites Deployment
+ * gescheitert. Sie laeuft deshalb in der Pipeline, wo genug Speicher ist -
+ * auf demselben Commit, und der Deploy haengt daran.
  *
  * ## Warum das ein Test ist
  *
@@ -29,6 +35,8 @@ const lies = (pfad: string): string =>
 
 const dockerfile = lies('Dockerfile');
 const nextConfig = lies('apps/web/next.config.ts');
+const workflow = lies('.github/workflows/deploy.yml');
+const paket = JSON.parse(lies('package.json')) as { scripts: Record<string, string> };
 
 describe('Pruefungen im Docker-Abbild', () => {
   it('schaltet die Pruefung in `next build` nur hinter einer Variablen ab', () => {
@@ -50,19 +58,55 @@ describe('Pruefungen im Docker-Abbild', () => {
   it('prueft im Abbild ausdruecklich, bevor es die Pruefung im Build abschaltet', () => {
     const lintZeile = dockerfile.indexOf('RUN npm run lint');
     const tscWurzel = dockerfile.indexOf('RUN npx tsc -p tsconfig.json --noEmit');
-    const tscWeb = dockerfile.indexOf('RUN npx tsc -p apps/web/tsconfig.json --noEmit');
     const variable = dockerfile.indexOf('ENV SWISSHUB_SPLIT_BUILD_CHECKS=1');
     const build = dockerfile.indexOf('RUN npm run build --workspace @swisshub/web');
 
-    for (const [name, stelle] of Object.entries({ lintZeile, tscWurzel, tscWeb, variable, build })) {
+    for (const [name, stelle] of Object.entries({ lintZeile, tscWurzel, variable, build })) {
       expect(stelle, `${name} fehlt im Dockerfile`).toBeGreaterThan(-1);
     }
 
     // Reihenfolge: erst pruefen, dann abschalten, dann bauen.
     expect(lintZeile).toBeLessThan(variable);
     expect(tscWurzel).toBeLessThan(variable);
-    expect(tscWeb).toBeLessThan(variable);
     expect(variable).toBeLessThan(build);
+  });
+
+  it('laesst die Typpruefung der WebApp aus dem Abbild heraus', () => {
+    /*
+     * Sie braucht zwischen 1536 und 1700 MB - gemessen an dem Deployment,
+     * an dem sie gescheitert ist. Auf dem Server mit 2 GB, neben laufendem
+     * Postgres, Web und Bot, passt sie nicht mehr unter die Grenze; und die
+     * Grenze anzuheben verschoebe das Problem nur bis zum naechsten Modul.
+     *
+     * Wer sie hier wieder einbaut, soll auf diese Zeilen stossen und wissen,
+     * warum sie nicht da ist.
+     */
+    expect(dockerfile).not.toContain('RUN npx tsc -p apps/web/tsconfig.json --noEmit');
+  });
+
+  it('prueft die Typen der WebApp dafuer in der Pipeline - vor dem Deploy', () => {
+    /*
+     * Die Abmachung besteht jetzt aus drei Dateien. Faellt eine weg, ist die
+     * Typpruefung der WebApp still verschwunden:
+     *
+     *   - das Skript muss beide Projekte pruefen,
+     *   - der Validierungsjob muss es aufrufen,
+     *   - der Deploy-Job muss davon abhaengen.
+     *
+     * Deshalb stehen hier alle drei.
+     */
+    expect(paket.scripts.typecheck).toContain('tsc -p apps/web/tsconfig.json --noEmit');
+    expect(paket.scripts.typecheck).toContain('tsc -p tsconfig.json --noEmit');
+
+    expect(workflow).toMatch(/run:\s*npm run typecheck/u);
+
+    // Der Deploy laeuft erst, wenn die Validierung gruen ist.
+    const deployAb = workflow.indexOf('  deploy:');
+    expect(deployAb).toBeGreaterThan(-1);
+    expect(workflow.slice(deployAb, deployAb + 400)).toMatch(/needs:\s*validate/u);
+
+    // Und die Validierung steht vor dem Deploy in derselben Datei.
+    expect(workflow.indexOf('  validate:')).toBeLessThan(deployAb);
   });
 
   it('behaelt die Heap-Grenze - sie ist der Grund fuer die Aufteilung', () => {
