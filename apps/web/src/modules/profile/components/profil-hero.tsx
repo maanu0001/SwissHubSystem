@@ -56,15 +56,26 @@ export function ProfilHero({ ansicht }: { ansicht: profile.ProfilAnsicht }): Rea
         {/* Nach unten abdunkeln: der Name darunter bleibt lesbar, egal wie
             hell das Bild an dieser Stelle ist. */}
         <div className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--profil-flaeche))] via-[hsl(var(--profil-flaeche)/0.35)] to-transparent" />
-        <div
-          className="absolute inset-x-0 bottom-0 h-px"
-          style={{
-            background: 'linear-gradient(90deg, transparent, hsl(var(--profil-akzent) / 0.7), transparent)',
-          }}
-        />
+        {/*
+         * Hier stand eine Akzentlinie an der Bannerkante. Sie ist weg: der
+         * Name ragt durch den negativen Rand genau dorthin, und die Linie lief
+         * mitten durch die Schrift wie ein Durchstreichen. Der Verlauf des
+         * Banners blendet ohnehin in die Fläche darunter über - die Kante
+         * braucht keine zweite Markierung.
+         */}
       </div>
 
-      <div className="px-4 pb-5 sm:px-6 sm:pb-6">
+      {/*
+       * `relative` ist hier keine Kosmetik, sondern Malreihenfolge.
+       *
+       * Der Bannerkasten darüber ist positioniert und wird deshalb *nach*
+       * allen nicht positionierten Geschwistern gezeichnet. Ohne `relative`
+       * verschwindet genau der Teil des Namens hinter dem Banner, den der
+       * negative Rand dort hineinzieht - und weil der Avatar intern selbst
+       * positioniert ist, blieb er sichtbar und der Fehler sah nach einem
+       * fehlenden Namen aus.
+       */}
+      <div className="relative px-4 pb-5 sm:px-6 sm:pb-6">
         <div className="-mt-10 flex flex-col gap-4 sm:-mt-14 sm:flex-row sm:items-end sm:gap-5">
           <div className="flex items-end gap-4">
             <div
@@ -95,7 +106,14 @@ export function ProfilHero({ ansicht }: { ansicht: profile.ProfilAnsicht }): Rea
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               {/* `h2` und nicht `h1`: das einzige `h1` der Anwendung steht in
                   `AppHeader`. Ein zweites wäre für Screenreader ein Fehler. */}
-              <h2 className="min-w-0 break-words text-2xl font-bold leading-tight sm:text-3xl lg:text-4xl">
+              {/*
+               * Bis `text-3xl` und nicht weiter: ein Discord-Name darf 32
+               * Zeichen haben, und bei `text-4xl` bricht er auf zwei Zeilen,
+               * von denen die zweite aus einem einzelnen Buchstaben besteht.
+               * Zwei Zeilen sind die Obergrenze - was danach käme, schöbe den
+               * Kopf immer weiter ins Banner hinein.
+               */}
+              <h2 className="line-clamp-2 min-w-0 break-words text-2xl font-bold leading-tight sm:text-3xl">
                 {identitaet.discordName}
               </h2>
               {identitaet.profilname ? (
