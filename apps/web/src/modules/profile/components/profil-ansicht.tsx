@@ -31,6 +31,11 @@ import { ProfilVitrine } from './profil-vitrine';
  * und sie liest eine Liste, keine Eingabe.
  */
 export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): React.JSX.Element {
+  const seitenspalte =
+    hatSteckbrief(ansicht.angaben, ansicht.socials) ||
+    (ansicht.turniere?.teilnahmen ?? 0) > 0 ||
+    ansicht.auszeichnungen.length > 0;
+
   const leer =
     (ansicht.spiele?.length ?? 0) === 0 &&
     ansicht.vitrine.length === 0 &&
@@ -45,8 +50,15 @@ export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): 
 
       <ProfilVitrine karten={ansicht.vitrine} verzug={60} />
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+      {/*
+       * Die Seitenspalte bekommt nur Platz, wenn sie etwas trägt.
+       *
+       * Sonst blieb der linke Teil bei zwei Dritteln stehen und rechts
+       * daneben lag ein Drittel Leere - ein leeres Profil sah dadurch nicht
+       * schlicht aus, sondern kaputt.
+       */}
+      <div className={`grid gap-6 ${seitenspalte ? 'lg:grid-cols-3' : ''}`}>
+        <div className={`space-y-6 ${seitenspalte ? 'lg:col-span-2' : ''}`}>
           {ansicht.spiele ? (
             <Abschnitt
               titel="Spiele"
@@ -66,7 +78,7 @@ export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): 
           ) : null}
         </div>
 
-        <div className="space-y-6">
+        <div className={`space-y-6 ${seitenspalte ? '' : 'hidden'}`}>
           {hatSteckbrief(ansicht.angaben, ansicht.socials) ? (
             <Abschnitt titel="Über" verzug={140}>
               <ProfilSteckbrief angaben={ansicht.angaben} socials={ansicht.socials} />

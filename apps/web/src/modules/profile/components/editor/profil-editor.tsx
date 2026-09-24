@@ -211,7 +211,10 @@ function VorschauKopf({
         <div className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--profil-flaeche))] to-transparent" />
       </div>
 
-      <div className="-mt-7 flex items-end gap-3 px-4 pb-4">
+      {/* `relative` aus demselben Grund wie im Profilkopf: der Bannerkasten
+          darüber ist positioniert und würde sonst über den Namen gezeichnet,
+          den der negative Rand dort hineinzieht. */}
+      <div className="relative -mt-7 flex items-end gap-3 px-4 pb-4">
         <span
           className="rounded-full p-1 ring-2 ring-[hsl(var(--profil-akzent)/0.65)]"
           style={{ backgroundColor: 'hsl(var(--profil-flaeche))' }}
