@@ -121,6 +121,10 @@ registerModule({
       href: '/entdecken',
       label: 'Mitglieder entdecken',
       description: 'Mitglieder nach Spiel, Plattform und Spielzeit finden',
+      // Das Profil eines anderen liegt unter `/spieler/<id>` und gehoert
+      // hierher: von hier kommt man, und «Mein Profil» darf nicht ueber dem
+      // Profil eines anderen stehen.
+      titlePrefix: '/spieler',
       /*
        * Auch `baseline`: die Community soll sich finden koennen. Haenge das
        * an eine Verwaltungsberechtigung, und ein gewoehnliches Mitglied

@@ -16,6 +16,30 @@ import type { profile } from '@swisshub/modules';
  * Adressen entstehen in `profil/socials.ts` aus der Kennung; hier steht
  * keine einzige URL-Zusammensetzung.
  */
+/**
+ * Hat dieser Abschnitt ueberhaupt Inhalt?
+ *
+ * Exportiert, weil die Ueberschrift eine Ebene hoeher gesetzt wird: ohne
+ * diese Frage stand ueber einem leeren Profil ein «ÜBER» ohne alles
+ * darunter. Die Antwort muss dieselbe sein wie die Abbruchbedingung unten -
+ * deshalb eine Funktion und nicht zweimal dieselbe Bedingung.
+ */
+export function hatSteckbrief(angaben?: profile.ProfilAngaben, socials?: profile.SocialAnzeige[]): boolean {
+  if (socials !== undefined && socials.length > 0) {
+    return true;
+  }
+  if (!angaben) {
+    return false;
+  }
+  return Boolean(
+    angaben.bio ||
+    angaben.sprachen.length ||
+    angaben.plattformen.length ||
+    angaben.spielzeiten.length ||
+    angaben.absprache.length,
+  );
+}
+
 export function ProfilSteckbrief({
   angaben,
   socials,
@@ -23,6 +47,10 @@ export function ProfilSteckbrief({
   angaben?: profile.ProfilAngaben;
   socials?: profile.SocialAnzeige[];
 }): React.JSX.Element | null {
+  if (!hatSteckbrief(angaben, socials)) {
+    return null;
+  }
+
   const listen: Array<{ titel: string; werte: string[] }> = angaben
     ? [
         { titel: 'Sprachen', werte: angaben.sprachen },
@@ -33,10 +61,6 @@ export function ProfilSteckbrief({
     : [];
 
   const hatKonten = socials !== undefined && socials.length > 0;
-
-  if (!angaben?.bio && listen.length === 0 && !hatKonten) {
-    return null;
-  }
 
   return (
     <div className="space-y-5 rounded-xl border border-[hsl(var(--profil-rand))] bg-[hsl(var(--profil-flaeche))] p-4 sm:p-5">

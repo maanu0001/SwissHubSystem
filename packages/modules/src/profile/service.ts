@@ -253,12 +253,23 @@ export async function ladeProfil(discordId: string, betrachterId: string): Promi
     clipSieg: clipBilanz.letzterSieg,
   });
 
+  /*
+   * «Teile dieses Profils sind privat» - aber nur, wenn jemand das auch
+   * entschieden hat.
+   *
+   * Ohne gespeicherte Zeile gelten die Standardwerte, und darunter ist
+   * `visibilitySocials` auf `PRIVATE`. Ein nagelneues Profil haette sonst
+   * einen Hinweis auf verborgene Inhalte getragen, die es gar nicht gibt -
+   * eine Auskunft ueber eine Entscheidung, die nie jemand getroffen hat.
+   */
   const verborgen: Abschnitt[] = [];
-  if (profil.visibilityProfile === 'PRIVATE') verborgen.push('profil');
-  if (profil.visibilityGames === 'PRIVATE') verborgen.push('games');
-  if (profil.visibilitySocials === 'PRIVATE') verborgen.push('socials');
-  if (profil.visibilityCareer === 'PRIVATE') verborgen.push('karriere');
-  if (profil.visibilityActivity === 'PRIVATE') verborgen.push('aktivitaet');
+  if (zeile) {
+    if (profil.visibilityProfile === 'PRIVATE') verborgen.push('profil');
+    if (profil.visibilityGames === 'PRIVATE') verborgen.push('games');
+    if (profil.visibilitySocials === 'PRIVATE') verborgen.push('socials');
+    if (profil.visibilityCareer === 'PRIVATE') verborgen.push('karriere');
+    if (profil.visibilityActivity === 'PRIVATE') verborgen.push('aktivitaet');
+  }
 
   const vorlage = gestaltung.bannervorlage(profil.bannerPreset);
 

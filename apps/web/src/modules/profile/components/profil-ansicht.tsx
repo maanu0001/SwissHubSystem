@@ -7,7 +7,7 @@ import { ProfilAuszeichnungen } from './profil-auszeichnungen';
 import { ProfilHero } from './profil-hero';
 import { ProfilKarriere } from './profil-karriere';
 import { ProfilSpiele } from './profil-spiele';
-import { ProfilSteckbrief } from './profil-steckbrief';
+import { ProfilSteckbrief, hatSteckbrief } from './profil-steckbrief';
 import { ProfilVitrine } from './profil-vitrine';
 
 /**
@@ -67,7 +67,7 @@ export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): 
         </div>
 
         <div className="space-y-6">
-          {ansicht.angaben || ansicht.socials ? (
+          {hatSteckbrief(ansicht.angaben, ansicht.socials) ? (
             <Abschnitt titel="Über" verzug={140}>
               <ProfilSteckbrief angaben={ansicht.angaben} socials={ansicht.socials} />
             </Abschnitt>

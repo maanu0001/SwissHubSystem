@@ -53,7 +53,16 @@ export const systemRoutes = {
    * `profil()` ohne Kennung ist das eigene - und es kommt aus der Sitzung,
    * nicht aus der Adresszeile.
    */
-  profil: (discordId?: string): SystemRoute => (discordId ? `/profil/${id(discordId)}` : '/profil'),
+  /*
+   * Das eigene Profil liegt unter `/profil`, ein fremdes unter `/spieler`.
+   *
+   * Zwei Wurzeln und nicht eine, weil die Kopfzeile ihren Titel ueber den
+   * laengsten passenden Praefix sucht: unter `/profil/<id>` stuende sonst
+   * «Mein Profil» ueber dem Profil eines anderen. `/spieler` gehoert
+   * stattdessen zu «Mitglieder entdecken» - dort kommt man her, und dort
+   * leuchtet dann auch die Seitenleiste.
+   */
+  profil: (discordId?: string): SystemRoute => (discordId ? `/spieler/${id(discordId)}` : '/profil'),
   profilBearbeiten: (): SystemRoute => '/profil/bearbeiten',
   entdecken: (): SystemRoute => '/entdecken',
 
