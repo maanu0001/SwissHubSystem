@@ -13,6 +13,16 @@
  *   momentaufnahme   einmal rechnen, dann festschreiben
  *   fixtures         erfundene Personen zum Testen - ausdruecklich erfunden
  *   vorlage          Platzhalter in Texten, mit Erlaubnisliste
+ *
+ * Daneben der Rueckblick **ueber die Community** - monatlich und jaehrlich,
+ * als Folge von Bildern fuer Social Media:
+ *
+ *   perioden         Monate und Jahre in Zuercher Zeit, DST-sicher
+ *   gemeinschaft     was der Server in einem Zeitraum getan hat
+ *   stories          welche Folien es geben kann - und wann nicht
+ *   vorlagen         wie eine Folie aussieht, mit Schema je Vorlage
+ *   ausgabe          erzeugen, bearbeiten, einfrieren, veroeffentlichen
+ *   momente          die Community-Momente, von Hand gepflegt
  */
 import './config';
 
@@ -29,3 +39,8 @@ export * from './fixtures';
 export * from './vorlage';
 export * from './tick';
 export * from './ankuendigung';
+export * from './perioden';
+export * from './gemeinschaft';
+export * from './stories';
+export * from './vorlagen';
+export * from './ausgabe';

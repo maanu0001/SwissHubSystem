@@ -328,6 +328,26 @@ export const AUDIT_ACTIONS = {
   WRAPPED_UNPUBLISHED: 'WRAPPED_UNPUBLISHED',
   WRAPPED_ARCHIVED: 'WRAPPED_ARCHIVED',
   WRAPPED_SNAPSHOT_REBUILT: 'WRAPPED_SNAPSHOT_REBUILT',
+  /*
+   * Periodische Ausgaben - Monat und Jahr.
+   *
+   * Bewusst nur die Handlungen, die jemand verantwortet: erzeugt, neu
+   * erhoben, eine Folie geschaltet, eingefroren, entsperrt, veroeffentlicht,
+   * ein Moment gepflegt. **Nicht** protokolliert wird, dass der Job jede
+   * Minute nachgesehen hat und nichts zu tun war - das waere ein
+   * Protokolleintrag je Minute und je Server, und nach einer Woche faende
+   * niemand mehr die Zeilen, auf die es ankommt.
+   */
+  WRAPPED_EDITION_CREATED: 'WRAPPED_EDITION_CREATED',
+  WRAPPED_EDITION_REGENERATED: 'WRAPPED_EDITION_REGENERATED',
+  WRAPPED_EDITION_FINALIZED: 'WRAPPED_EDITION_FINALIZED',
+  WRAPPED_EDITION_UNLOCKED: 'WRAPPED_EDITION_UNLOCKED',
+  WRAPPED_EDITION_PUBLISHED: 'WRAPPED_EDITION_PUBLISHED',
+  WRAPPED_SLIDE_ENABLED: 'WRAPPED_SLIDE_ENABLED',
+  WRAPPED_SLIDE_DISABLED: 'WRAPPED_SLIDE_DISABLED',
+  WRAPPED_MOMENT_CREATED: 'WRAPPED_MOMENT_CREATED',
+  WRAPPED_MOMENT_UPDATED: 'WRAPPED_MOMENT_UPDATED',
+  WRAPPED_MOMENT_DELETED: 'WRAPPED_MOMENT_DELETED',
 
   SPIELWAHL_SESSION_CREATED: 'SPIELWAHL_SESSION_CREATED',
   SPIELWAHL_SESSION_CLOSED: 'SPIELWAHL_SESSION_CLOSED',

@@ -6641,6 +6641,227 @@ model WrappedView {
   @@index([campaignId, completedAt])
 }
 
+// ---------------------------------------------------------------------------
+// Periodische Wrappeds - der Rueckblick ueber die Community
+// ---------------------------------------------------------------------------
+//
+// Die Tabellen darueber beschreiben den Rueckblick **einer Person**: eine
+// Momentaufnahme je Mitglied, vierzehn Kapitel, am Ende eine Share Card.
+//
+// Hier geht es um etwas anderes: einen Rueckblick **ueber den Server** -
+// einmal je abgeschlossenem Monat und einmal je abgeschlossenem Jahr, als
+// Folge von Bildern fuer Social Media. Keine Person im Mittelpunkt, sondern
+// die Gemeinschaft.
+//
+// ## Warum eigene Tabellen und kein `type` an `WrappedCampaign`
+//
+// Weil es zwei verschiedene Dinge sind und nicht zwei Auspraegungen
+// desselben. Eine Kampagne hat Schwellen je Mitglied, Szenen je Person und
+// eine Lesefortschrittstabelle; eine Ausgabe hat einen Zeitraum, Folien und
+// zwei Exportformate. Haenge beides an dieselbe Tabelle, und jede bestehende
+// Abfrage braucht ab sofort einen Filter auf `type` - wer ihn einmal
+// vergisst, mischt den Jahresrueckblick eines Mitglieds unter die
+// Monatsausgaben.
+//
+// Geteilt wird trotzdem, was zu teilen ist: die Datenlage-Logik, der
+// Zeichner, der Job im Bot, die Berechtigungen und das Protokoll.
+
+/// Monatlich oder jaehrlich. Beides hat denselben Ablauf und eine andere
+/// Tonlage - siehe `wrapped/perioden.ts`.
+enum WrappedEditionType {
+  MONTHLY
+  YEARLY
+}
+
+enum WrappedEditionStatus {
+  /// Erzeugt, bearbeitbar, neu erzeugbar.
+  DRAFT
+  /// Eingefroren. Daten und Folien aendern sich nicht mehr von selbst.
+  FINALIZED
+  /// Vom Team als veroeffentlicht markiert - die Bilder sind draussen.
+  PUBLISHED
+  /// Abgeschlossen und aus der Uebersicht genommen. Weiterhin lesbar.
+  ARCHIVED
+}
+
+/// Eine Ausgabe - ein Monat oder ein Jahr.
+///
+/// `periodKey` ist der fachliche Schluessel: `2026-09` oder `2026`. Zusammen
+/// mit `guildId` und `type` ist er eindeutig, **auf Datenbankebene**. Das ist
+/// die ganze Absicherung gegen zwei September-Ausgaben: zwei Arbeiter, die
+/// im selben Augenblick beschliessen, den Monat zu erzeugen, kommen beide
+/// bis zum `INSERT`, und genau einer davon kommt durch.
+model WrappedEdition {
+  id      String @id @default(cuid())
+  guildId String
+
+  type      WrappedEditionType
+  /// `2026-09` bei Monatsausgaben, `2026` bei Jahresausgaben.
+  periodKey String
+
+  /// Der Zeitraum in UTC - die Grenzen sind Zuercher Mitternacht, siehe
+  /// `wrapped/perioden.ts`. Mitgeschrieben statt jedes Mal neu gerechnet:
+  /// eine Ausgabe soll auch dann noch denselben Zeitraum meinen, wenn die
+  /// Rechnung sich eines Tages aendert.
+  periodStart DateTime
+  periodEnd   DateTime
+
+  status WrappedEditionStatus @default(DRAFT)
+
+  title    String
+  subtitle String?
+
+  /// Die Gestaltungsvariante.
+  ///
+  /// Im Datensatz und nicht bei jedem Zeichnen neu gewuerfelt: eine Ausgabe
+  /// muss beim zweiten Abruf genauso aussehen wie beim ersten, sonst passen
+  /// die Bilder eines Karussells nicht mehr zusammen.
+  variant String @default("standard")
+
+  /// Die Datenlage des Zeitraums, eingefroren - Aufbau `WrappedQuellen`.
+  sources Json
+
+  /// Warum eine moegliche Folie nicht entstanden ist.
+  ///
+  /// Je nicht verwendetem Story-Schluessel eine Zeile mit Grund. Ohne das
+  /// steht das Team vor einer Ausgabe mit fuenf Folien und weiss nicht, ob
+  /// die sechste fehlt, weil nichts passiert ist, oder weil etwas kaputt
+  /// ist.
+  diagnostics Json?
+
+  /// Fassung des Aufbaus von `WrappedSlide.snapshotData`.
+  schemaVersion Int @default(1)
+
+  generatedAt DateTime?
+  finalizedAt DateTime?
+  publishedAt DateTime?
+
+  /// Ein gescheiterter Durchgang - festgehalten statt verschwiegen.
+  ///
+  /// Eine halb erzeugte Ausgabe darf nicht als fertig dastehen. Scheitert
+  /// die Erzeugung, bleibt der Grund hier stehen, und der naechste Versuch
+  /// sieht, woran es lag.
+  failedAt      DateTime?
+  failureReason String?
+
+  createdByDiscordId String?
+  updatedByDiscordId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  slides WrappedSlide[]
+
+  /// Der Riegel gegen zwei Ausgaben desselben Zeitraums.
+  @@unique([guildId, type, periodKey])
+  @@index([guildId, type, periodStart])
+  @@index([guildId, status])
+}
+
+/// Eine Folie.
+///
+/// ## Die Trennung, auf der alles beruht
+///
+/// `snapshotData` ist **erhoben**: «2846 Stunden im Sprachkanal». Es entsteht
+/// aus einer Datenquelle und wird nie ueber ein Textfeld bearbeitet.
+///
+/// `editorialData` ist **geschrieben**: «Ihr habt definitiv zu viel geredet.»
+/// Das darf jeder aendern, der die Ausgabe bearbeiten darf.
+///
+/// Waeren beide dasselbe Feld, koennte ein Tippfehler im Begleitsatz eine
+/// Statistik verfaelschen - und niemand wuesste hinterher, welche Zahl je
+/// gemessen wurde.
+model WrappedSlide {
+  id        String         @id @default(cuid())
+  editionId String
+  edition   WrappedEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+
+  /// Der Schluessel aus der Story-Registry: `voice_total`, `tournament_winner`, …
+  storyKey    String
+  /// Wie die Folie aussieht: `HERO_NUMBER`, `WINNER`, `IMAGE_MOMENT`, …
+  templateKey String
+
+  position Int
+  enabled  Boolean @default(true)
+
+  /// Die erhobenen Werte. Aufbau je Vorlage - siehe `wrapped/vorlagen.ts`.
+  snapshotData  Json
+  /// Ueberschrift und Begleittext. Frei bearbeitbar.
+  editorialData Json
+
+  /// Wie bemerkenswert diese Folie war, als die Ausgabe entstand.
+  ///
+  /// Mitgeschrieben, damit die Reihenfolge nachvollziehbar bleibt: sonst
+  /// stuende im Dezember eine andere Folge da als im Oktober, ohne dass
+  /// jemand etwas geaendert haette.
+  score Int @default(0)
+
+  /// Der verknuepfte Community-Moment, falls es einer ist.
+  ///
+  /// `SetNull` und nicht `Cascade`: Titel, Text und Bildpfad stehen ohnehin
+  /// in `snapshotData`. Verschwindet der Moment, bleibt die Folie lesbar -
+  /// nur der Weg zurueck in die Verwaltung fehlt dann.
+  momentId String?
+  moment   WrappedMoment? @relation(fields: [momentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([editionId, storyKey])
+  @@index([editionId, position])
+  @@index([momentId])
+}
+
+/// Ein besonderer Moment auf dem SwissHub.
+///
+/// Das, was in keiner Statistik steht: die GameNight, an der zweiunddreissig
+/// Leute waren, der Screenshot aus dem Turnierfinale, das Meme, ueber das
+/// eine Woche lang geredet wurde. Ein Rueckblick nur aus Zahlen ist ein
+/// Bericht; das hier macht ihn zu einer Erinnerung.
+///
+/// Wird **nie** automatisch veroeffentlicht - ein Moment landet erst in einer
+/// Ausgabe, wenn jemand ihn dort haben will.
+model WrappedMoment {
+  id      String @id @default(cuid())
+  guildId String
+
+  title       String
+  description String?
+
+  /// Dateiname im Upload-Verzeichnis - wie ueberall sonst auch.
+  ///
+  /// Nur der Name, nicht der Pfad: die Datei liegt ausserhalb des statisch
+  /// bedienten Bereichs und wird ueber eine Route ausgeliefert, die die
+  /// Berechtigung prueft.
+  imagePath String?
+
+  /// Wann es passiert ist - entscheidet, in welche Ausgabe der Moment faellt.
+  happenedAt DateTime
+
+  /// Lose Verweise auf Termin und Turnier. Kein Fremdschluessel: ein
+  /// archiviertes Turnier soll den Moment nicht mitnehmen.
+  eventId      String?
+  tournamentId String?
+
+  includeMonthly Boolean @default(true)
+  includeYearly  Boolean @default(false)
+
+  /// Hoeher heisst: bei mehreren Momenten im selben Zeitraum bevorzugt.
+  priority Int @default(0)
+
+  createdByDiscordId String?
+  updatedByDiscordId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  slides WrappedSlide[]
+
+  @@index([guildId, happenedAt])
+  @@index([guildId, includeMonthly, happenedAt])
+  @@index([guildId, includeYearly, happenedAt])
+}
+
 // ============================================================================
 // Was spielen wir? - die gemeinsame Spielauswahl
 // ============================================================================
