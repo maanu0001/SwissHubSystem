@@ -1,5 +1,6 @@
 export { prisma, disconnectDatabase, checkDatabase } from './client';
 export * from './audit';
+export * from './audit-relevanz';
 export * from './security-events';
 export * from './rate-limit';
 export * from './idempotency';

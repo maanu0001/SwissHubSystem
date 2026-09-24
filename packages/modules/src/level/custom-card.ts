@@ -9,6 +9,7 @@ import {
   type LogoFormat,
 } from '../branding/storage';
 import { LEVEL_MODULE_ID, LEVEL_PERMISSIONS } from './config';
+import { normalisiereTextfarbe, pruefeKartenkontrast } from './kartenfarbe';
 import type { LevelActor } from './admin';
 
 const log = createLogger('level.custom-card');
@@ -151,6 +152,85 @@ export async function clearCustomCard(
     targetDiscordId,
     metadata: { removed: true, fremd: !eigen },
   });
+}
+
+/**
+ * Die Textfarbe der eigenen Karte setzen oder zuruecksetzen.
+ *
+ * ## Warum das nicht am Bild haengt
+ *
+ * Farbe und Hintergrundbild sind zwei Einstellungen und keine. Wer ein Bild
+ * hochlaedt, soll nicht seine Farbe verlieren, und wer nur eine Farbe waehlt,
+ * soll dafuer kein Bild hochladen muessen: auch vor der Akzentfarbe des
+ * Servers wirkt eine eigene Schriftfarbe.
+ *
+ * ## Die Farbe wird nicht korrigiert
+ *
+ * Geprueft wird, ob es ueberhaupt eine Farbe ist - `#RRGGBB`, nichts
+ * anderes. Ob sie gut lesbar ist, wird gemessen und zurueckgemeldet, aber
+ * nicht erzwungen: eine Oberflaeche, die eine bewusst gewaehlte Farbe
+ * stillschweigend durch eine andere ersetzt, ist schlimmer als eine schlecht
+ * lesbare Karte.
+ *
+ * `null` setzt zurueck - dann gilt wieder die Standardfarbe der Karte.
+ */
+export async function setCustomCardTextColor(
+  viewer: CustomCardViewer,
+  actor: LevelActor,
+  farbe: string | null,
+): Promise<{ farbe: string | null; kontrast: ReturnType<typeof pruefeKartenkontrast> | null }> {
+  if (!viewer.can(LEVEL_PERMISSIONS.cardCustom)) {
+    throw new AppError('FORBIDDEN', {
+      userMessage: 'Du darfst keine eigene Levelkarte hinterlegen.',
+    });
+  }
+
+  let normalisiert: string | null = null;
+  if (farbe !== null) {
+    normalisiert = normalisiereTextfarbe(farbe);
+    if (!normalisiert) {
+      throw new AppError('VALIDATION_FAILED', {
+        userMessage: 'Das ist keine gültige Farbe. Erwartet wird ein Hex-Wert wie #FF9F1C.',
+      });
+    }
+  }
+
+  // Das Profil kann fehlen, wenn jemand noch nie XP gesammelt hat - die Farbe
+  // soll er trotzdem waehlen koennen.
+  await prisma.levelProfile.upsert({
+    where: { discordId: viewer.discordId },
+    create: { discordId: viewer.discordId, customCardTextColor: normalisiert },
+    update: { customCardTextColor: normalisiert },
+  });
+
+  await safeRecordAudit({
+    action: AUDIT_ACTIONS.LEVEL_CUSTOM_CARD_CHANGED,
+    module: LEVEL_MODULE_ID,
+    actorDiscordId: actor.discordId,
+    actorUsername: actor.username,
+    targetDiscordId: viewer.discordId,
+    metadata: normalisiert ? { textfarbe: normalisiert } : { textfarbe: null, zurueckgesetzt: true },
+  });
+
+  return {
+    farbe: normalisiert,
+    kontrast: normalisiert ? pruefeKartenkontrast(normalisiert) : null,
+  };
+}
+
+/**
+ * Die gewaehlte Textfarbe - oder `null`.
+ *
+ * Auch das Lesen normalisiert noch einmal. Die Spalte ist aelter als der
+ * naechste Stand des Codes: waere dort je etwas anderes gelandet als
+ * `#RRGGBB`, ginge es von hier aus direkt in ein SVG-Attribut.
+ */
+export async function readCustomCardTextColor(discordId: string): Promise<string | null> {
+  const profil = await prisma.levelProfile.findUnique({
+    where: { discordId },
+    select: { customCardTextColor: true },
+  });
+  return normalisiereTextfarbe(profil?.customCardTextColor);
 }
 
 /** Hat diese Person eine eigene Karte hinterlegt? */

@@ -69,6 +69,8 @@ export interface MemberLevelView {
   rang: number | null;
   /** Hat diese Person eine eigene Levelkarte hinterlegt? */
   eigeneKarte: boolean;
+  /** Selbst gewaehlte Textfarbe der Karte - `null` heisst Standardfarbe. */
+  kartenTextfarbe: string | null;
   /** Fortschritt im aktuellen Level, 0 bis 1. */
   fortschritt: number;
   naechstesLevelXp: number;
@@ -202,6 +204,7 @@ async function abschnitt<T>(
 async function ladeLevel(discordId: string): Promise<MemberLevelView | null> {
   const { getProfile, getRank } = await import('../level/service');
   const { levelProgress } = await import('../level/curve');
+  const { normalisiereTextfarbe } = await import('../level/kartenfarbe');
   const profil = await getProfile(discordId);
   if (!profil) {
     return null;
@@ -212,6 +215,7 @@ async function ladeLevel(discordId: string): Promise<MemberLevelView | null> {
     xp: profil.xp,
     rang,
     eigeneKarte: profil.customCardPath !== null,
+    kartenTextfarbe: normalisiereTextfarbe(profil.customCardTextColor),
     fortschritt: fortschritt.progress,
     naechstesLevelXp: fortschritt.nextLevelXp,
     fehlendeXp: fortschritt.remainingXp,

@@ -97,6 +97,100 @@ describe('Austritt während eines Jails', () => {
     expect(await jail.markMemberLeftDuringJail(TARGET)).toBe(false);
   });
 
+  it('schreibt den Austritt genau einmal auf, auch bei wiederholten Ereignissen', async () => {
+    /*
+     * Discord liefert `guildMemberRemove` nach einem Verbindungsabriss
+     * gelegentlich erneut, und der Bot startet ohnehin regelmaessig neu.
+     * Ein Protokoll, das jedes dieser Ereignisse aufzeichnet, beschreibt
+     * nicht mehr den Vorgang, sondern die Zuverlaessigkeit der Verbindung.
+     */
+    await jailTarget();
+
+    expect(await jail.markMemberLeftDuringJail(TARGET)).toBe(true);
+    expect(await jail.markMemberLeftDuringJail(TARGET)).toBe(false);
+    expect(await jail.markMemberLeftDuringJail(TARGET)).toBe(false);
+
+    const eintraege = state.audits.filter((row) => row.action === 'JAIL_PENDING_REJOIN');
+    expect(eintraege).toHaveLength(1);
+  });
+
+  it('schreibt beim Abgleich keinen weiteren Eintrag über denselben Wartezustand', async () => {
+    /*
+     * Der eigentliche Grund fuer den Spam.
+     *
+     * Die Reconciliation lief alle fuenfzehn Minuten, fand die wartenden
+     * Jails erneut - das Mitglied ist ja weiterhin weg -, meldete sie als
+     * `MEMBER_LEFT` und liess `releaseJail` laufen. Dort schrieb der Zweig
+     * fuer den ausstehenden Wiedereintritt jedes Mal einen Eintrag. Nach
+     * einem Tag waren das sechsundneunzig je wartendem Jail.
+     *
+     * Hier laufen drei Durchgaenge. Danach darf genau ein Eintrag stehen -
+     * der vom tatsaechlichen Austritt.
+     */
+    const id = await jailTarget();
+    await jail.markMemberLeftDuringJail(TARGET);
+    // Das Mitglied ist weg - so sieht es der Abgleich auch.
+    gateway.members.get = (async () => null) as typeof gateway.members.get;
+
+    await jail.reconcileJails({ mode: 'AUTOMATIC', repair: true, gateway });
+    await jail.reconcileJails({ mode: 'AUTOMATIC', repair: true, gateway });
+    await jail.reconcileJails({ mode: 'AUTOMATIC', repair: true, gateway });
+
+    const eintraege = state.audits.filter((row) => row.action === 'JAIL_PENDING_REJOIN');
+    expect(eintraege).toHaveLength(1);
+
+    // Und der Jail wartet weiterhin - der Abgleich hat ihn nicht beendet.
+    const entry = state.jails.find((row) => row.id === id);
+    expect(entry?.lifecycle).toBe('PENDING_REJOIN');
+    expect(entry?.releasedAt).toBeNull();
+    expect(entry?.activeKey).toBe(TARGET);
+  });
+
+  it('schreibt auch bei einem direkten Freilassungsversuch nichts Zweites', async () => {
+    /*
+     * Der Riegel an der Quelle, unabhaengig vom Aufrufer.
+     *
+     * Der Filter im Abgleich sorgt dafuer, dass `releaseJail` fuer einen
+     * wartenden Jail gar nicht mehr aufgerufen wird. Das genuegt heute - und
+     * genuegt nicht als Zusage: es gibt mehrere Aufrufer (Scheduler,
+     * Abgleich, Verwaltung), und ein kuenftiger vierter wuesste von dem
+     * Filter nichts.
+     *
+     * Deshalb wird hier direkt aufgerufen, so wie es ein solcher Aufrufer
+     * taete. Der Uebergang hat bereits stattgefunden; ein zweiter Eintrag
+     * waere die Wiederholung derselben Nachricht.
+     */
+    const id = await jailTarget();
+    await jail.markMemberLeftDuringJail(TARGET);
+    gateway.members.get = (async () => null) as typeof gateway.members.get;
+
+    await jail.releaseJail(id, { releaseType: 'RECONCILED', gateway });
+    await jail.releaseJail(id, { releaseType: 'AUTOMATIC', gateway });
+
+    const eintraege = state.audits.filter((row) => row.action === 'JAIL_PENDING_REJOIN');
+    expect(eintraege).toHaveLength(1);
+
+    // Und der Jail wartet unveraendert weiter.
+    const entry = state.jails.find((row) => row.id === id);
+    expect(entry?.lifecycle).toBe('PENDING_REJOIN');
+    expect(entry?.releasedAt).toBeNull();
+  });
+
+  it('meldet einen wartenden Jail gar nicht erst als Abweichung', async () => {
+    /*
+     * Nicht nur kein Audit-Eintrag: er soll auch nicht als «Drift» in der
+     * Auswertung stehen. Wer sich den Bericht ansieht, soll dort echte
+     * Abweichungen finden und nicht die Liste aller Leute, die den Server
+     * waehrend einer Strafe verlassen haben.
+     */
+    await jailTarget();
+    await jail.markMemberLeftDuringJail(TARGET);
+    gateway.members.get = (async () => null) as typeof gateway.members.get;
+
+    const bericht = await jail.reconcileJails({ mode: 'AUTOMATIC', repair: true, gateway });
+    expect(bericht.drift.filter((eintrag) => eintrag.type === 'MEMBER_LEFT')).toHaveLength(0);
+  });
+
   it('lässt einen offenen Jail vom Sweep in Ruhe', async () => {
     const id = await jailTarget(60);
     await jail.markMemberLeftDuringJail(TARGET);

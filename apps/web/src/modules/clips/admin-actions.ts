@@ -151,6 +151,47 @@ export const clipRundeAbbrechenAction = defineAction(
 );
 
 /**
+ * Eine abgebrochene Runde wieder aktivieren.
+ *
+ * Dieselbe Berechtigung wie das Abbrechen: wer eine Runde beenden darf, darf
+ * den Irrtum auch zuruecknehmen. Was erlaubt ist, entscheidet nicht diese
+ * Datei, sondern `clips.reaktivierungsLage` - dieselbe Funktion, nach der
+ * sich auch der Knopf richtet. Hier steht nur, was der Benutzer zu lesen
+ * bekommt, wenn es nicht geht.
+ */
+const HINDERNIS_TEXT: Record<clips.ReaktivierungsHindernis, string> = {
+  NICHT_ABGEBROCHEN:
+    'Nur ausdrücklich abgebrochene Runden lassen sich wieder aktivieren. Diese Runde ist es nicht mehr.',
+  ANDERE_WOCHE:
+    'Die Wettbewerbswoche dieser Runde ist vorbei. Eine Runde lässt sich nur innerhalb ihrer eigenen Woche wieder aktivieren.',
+  FRISTEN_ABGELAUFEN:
+    'Alle Fristen dieser Runde sind abgelaufen. Sie jetzt zu öffnen würde eine Einreichungs- oder Votingphase erfinden, die es nie gab.',
+};
+
+export const clipRundeReaktivierenAction = defineAction(
+  {
+    name: 'clips.reopen',
+    module: clips.CLIPS_MODULE_ID,
+    permission: clips.CLIPS_PERMISSIONS.manage,
+    schema: z.object({ competitionId: z.string().cuid() }),
+    rateLimit: 'clipModerate',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const ergebnis = await clips.reaktiviere(input.competitionId, handelnder(ctx));
+    if (!ergebnis.ok) {
+      throw new AppError('CONFLICT', { userMessage: HINDERNIS_TEXT[ergebnis.hindernis] });
+    }
+    neuLaden();
+    return {
+      ziel: ergebnis.ziel,
+      phaseEndetAm: ergebnis.phaseEndetAm.toISOString(),
+      nummer: ergebnis.nummer,
+    };
+  },
+);
+
+/**
  * Die Runde dieser Woche von Hand anlegen.
  *
  * Fuer den Fall, dass die selbsttaetige Eroeffnung ausgeschaltet ist. Legt

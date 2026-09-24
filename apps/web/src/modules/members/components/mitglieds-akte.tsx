@@ -32,6 +32,7 @@ import { RoleManager } from '@/modules/members/components/role-manager';
 import { XpPanel } from '@/modules/members/components/xp-panel';
 import { ClipBilanzBlock } from '@/modules/clips/components/clip-bilanz';
 import { CustomCardPanel } from '@/modules/level/components/custom-card-panel';
+import { KartenfarbeWaehler } from '@/modules/level/components/kartenfarbe-waehler';
 import { RemoveCustomCardButton } from '@/modules/level/components/remove-custom-card-button';
 import { csrfTokenFor, requireMember } from '@/server/auth';
 import { memberViewer } from '@/server/members';
@@ -185,6 +186,14 @@ export async function MitgliedsAkte({
   // ab, und eine Schaltflaeche, die immer scheitert, ist keine Schaltflaeche.
   const massnahmen = selbst ? null : moderationAbilities(context);
   const darfEigeneKarte = can(context, level.LEVEL_PERMISSIONS.cardCustom);
+  /*
+   * Die Akzentfarbe des Servers - nur fuer die Vorschau der eigenen Karte.
+   *
+   * Die Vorschau soll den Hintergrund zeigen, den die Karte tatsaechlich
+   * bekommt, und der kommt aus den Moduleinstellungen. Geladen wird sie
+   * deshalb nur dort, wo der Waehler ueberhaupt erscheint.
+   */
+  const kartenAkzent = selbst && darfEigeneKarte ? (await level.readLevelSettings()).accentColor : null;
 
   // Die Rollenliste braucht Discord und ist nur fuer die Verwaltung da.
   const rollenAngebot = capabilities.canManageRoles
@@ -451,13 +460,23 @@ export async function MitgliedsAkte({
                       darf sie ausschliesslich die Person selbst.
                     */}
                     {selbst && darfEigeneKarte ? (
-                      <CustomCardPanel
-                        csrfToken={csrfToken}
-                        discordId={basic.discordId}
-                        vorhanden={profil.level?.eigeneKarte ?? false}
-                        empfohlen={level.CUSTOM_CARD_SIZE}
-                        maxBytes={level.MAX_CUSTOM_CARD_BYTES}
-                      />
+                      <>
+                        <CustomCardPanel
+                          csrfToken={csrfToken}
+                          discordId={basic.discordId}
+                          vorhanden={profil.level?.eigeneKarte ?? false}
+                          empfohlen={level.CUSTOM_CARD_SIZE}
+                          maxBytes={level.MAX_CUSTOM_CARD_BYTES}
+                        />
+                        <KartenfarbeWaehler
+                          csrfToken={csrfToken}
+                          anzeigename={basic.displayName ?? basic.username}
+                          xp={profil.level?.xp ?? 0}
+                          rang={profil.level?.rang ?? 1}
+                          akzentfarbe={kartenAkzent ?? '#83060A'}
+                          gespeichert={profil.level?.kartenTextfarbe ?? null}
+                        />
+                      </>
                     ) : null}
                     {!selbst && profil.level?.eigeneKarte && capabilities.canManageXp ? (
                       <FremdeKarte discordId={basic.discordId} csrfToken={csrfToken} />

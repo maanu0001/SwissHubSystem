@@ -404,14 +404,205 @@ export async function brichAb(
   if (count === 0) {
     return false;
   }
+
+  // Nach dem Wechsel gelesen, damit im Protokoll steht, *welche* Runde es
+  // war - ohne das stand auf dem Dashboard nur «hat die Clip-Runde
+  // abgebrochen», und welche, musste man im Metadatenfeld nachsehen.
+  const runde = await prisma.clipCompetition.findUnique({
+    where: { id: competitionId },
+    select: { number: true, key: true },
+  });
+
   await recordAudit({
     action: AUDIT_ACTIONS.CLIP_COMPETITION_CANCELLED,
     module: CLIPS_MODULE_ID,
     actorDiscordId: actor.discordId,
     actorUsername: actor.username ?? null,
-    metadata: { competitionId, ...(grund ? { grund } : {}) },
+    targetLabel: runde ? `Clip of the Week #${runde.number}` : null,
+    metadata: {
+      competitionId,
+      ...(runde ? { key: runde.key, nummer: runde.number } : {}),
+      ...(grund ? { grund } : {}),
+    },
   });
   return true;
+}
+
+/** Die Phasen, in die eine abgebrochene Runde zurueckkehren kann. */
+export type ReaktivierungsZiel = Extract<ClipCompetitionStatus, 'DRAFT' | 'SUBMISSION' | 'VOTING'>;
+
+/** Warum eine Runde sich nicht wieder aktivieren laesst. */
+export type ReaktivierungsHindernis = 'NICHT_ABGEBROCHEN' | 'ANDERE_WOCHE' | 'FRISTEN_ABGELAUFEN';
+
+export interface ReaktivierungsLage {
+  moeglich: boolean;
+  hindernis?: ReaktivierungsHindernis;
+  /** In welchen Zustand die Runde zurueckkehrt - aus dem Zeitplan, nicht geraten. */
+  ziel?: ReaktivierungsZiel;
+  /** Wann diese Phase endet. Unveraendert aus dem urspruenglichen Plan. */
+  phaseEndetAm?: Date;
+}
+
+/** Was `reaktivierungsLage` von einer Runde wissen muss. */
+export type ReaktivierbareRunde = Pick<
+  ClipCompetition,
+  | 'key'
+  | 'status'
+  | 'cancelledAt'
+  | 'finalizedAt'
+  | 'winnerEntryId'
+  | 'submissionStartsAt'
+  | 'votingStartsAt'
+  | 'votingEndsAt'
+>;
+
+/**
+ * Darf diese Runde wieder aktiviert werden - und als was?
+ *
+ * Eine reine Funktion, und zwar mit Absicht: dieselbe Antwort entscheidet, ob
+ * der Knopf ueberhaupt erscheint, was im Bestaetigungsdialog steht und ob die
+ * Aktion durchgeht. Zwei Regeln waeren zwei Gelegenheiten, auseinanderzulaufen -
+ * und die unangenehme Variante davon ist ein Knopf, der sichtbar ist und dann
+ * nicht funktioniert.
+ *
+ * ## Drei Bedingungen
+ *
+ * **Abgebrochen, ausdruecklich.** Geprueft wird der gespeicherte Zustand und
+ * nicht das Etikett in der Tabelle: `CANCELLED` **und** ein gesetztes
+ * `cancelledAt` - so schreibt es `brichAb`. Zusaetzlich muessen `finalizedAt`
+ * und `winnerEntryId` leer sein. Eine normal beendete Runde hat beides und
+ * kommt hier deshalb unter keinen Umstaenden durch; ein Gewinner, der einmal
+ * feststand, darf nicht wieder zur Disposition stehen.
+ *
+ * **In ihrer eigenen Woche.** Der Schluessel der Runde traegt die
+ * Kalenderwoche samt ISO-Jahr. Er wird mit der Woche des Augenblicks
+ * verglichen - beides in Zuercher Zeit, nach ISO 8601. Damit stimmt auch der
+ * Jahreswechsel: der 31. Dezember 2025 gehoert zu `2026-W01`, und eine Runde
+ * mit diesem Schluessel laesst sich an diesem Tag wieder aktivieren, an
+ * Silvester des Vorjahres dagegen nicht.
+ *
+ * **Es ist noch etwas offen.** Das Ziel ergibt sich aus dem urspruenglichen
+ * Zeitplan, nicht aus dem Zustand vor dem Abbruch und nicht aus der Gegenwart:
+ * es sind dieselben Schwellen, die auch `fuehreUebergaengeAus` verwendet. Die
+ * Fristen werden dabei nicht verschoben - eine am Samstag wieder aktivierte
+ * Runde endet am Sonntag, so wie sie es ohne den Abbruch getan haette.
+ *
+ * Sind alle Fristen abgelaufen, bleibt es beim Abbruch. Die Runde als offene
+ * Einreichungsphase neu zu starten, hiesse eine Frist zu erfinden, die es nie
+ * gab; sie in die Auswertung zu schieben, hiesse einen Gewinner aus einem
+ * Wettbewerb zu kueren, den jemand abgesagt hat.
+ */
+export function reaktivierungsLage(runde: ReaktivierbareRunde, jetzt = new Date()): ReaktivierungsLage {
+  if (
+    runde.status !== 'CANCELLED' ||
+    runde.cancelledAt === null ||
+    runde.finalizedAt !== null ||
+    runde.winnerEntryId !== null
+  ) {
+    return { moeglich: false, hindernis: 'NICHT_ABGEBROCHEN' };
+  }
+
+  if (kalenderwoche(jetzt).key !== runde.key) {
+    return { moeglich: false, hindernis: 'ANDERE_WOCHE' };
+  }
+
+  if (jetzt < runde.submissionStartsAt) {
+    return { moeglich: true, ziel: 'DRAFT', phaseEndetAm: runde.submissionStartsAt };
+  }
+  if (jetzt < runde.votingStartsAt) {
+    return { moeglich: true, ziel: 'SUBMISSION', phaseEndetAm: runde.votingStartsAt };
+  }
+  if (jetzt < runde.votingEndsAt) {
+    return { moeglich: true, ziel: 'VOTING', phaseEndetAm: runde.votingEndsAt };
+  }
+  return { moeglich: false, hindernis: 'FRISTEN_ABGELAUFEN' };
+}
+
+export type ReaktivierungsErgebnis =
+  | { ok: true; ziel: ReaktivierungsZiel; phaseEndetAm: Date; nummer: number; key: string }
+  | { ok: false; hindernis: ReaktivierungsHindernis };
+
+/**
+ * Eine abgebrochene Runde wieder aktivieren.
+ *
+ * ## Atomar
+ *
+ * Der Zustandswechsel ist ein bedingtes `updateMany` auf genau die Merkmale,
+ * die `reaktivierungsLage` geprueft hat. Zwischen dem Lesen und dem Schreiben
+ * kann sich die Runde noch bewegen - jemand anderes drueckt denselben Knopf,
+ * ein zweiter Tab war langsamer. Wer die Zeile als Erster aus `CANCELLED`
+ * herausbewegt, hat den Zuschlag; der Zweite sieht null geaenderte Zeilen.
+ *
+ * Der Zeitplan steht in unveraenderlichen Spalten, deshalb darf das Ziel aus
+ * dem vorher gelesenen Stand kommen: es kann sich dazwischen nicht aendern.
+ *
+ * ## Idempotent
+ *
+ * Ein zweiter Aufruf trifft auf eine Runde, die nicht mehr `CANCELLED` ist,
+ * aendert nichts und schreibt nichts ins Protokoll. Es entstehen dadurch
+ * weder ein zweiter Wettbewerbseintrag - den verhindert ohnehin der
+ * eindeutige Wochenschluessel - noch doppelte Ankuendigungen: die haengen an
+ * `startMessageId` und `votingMessageId`, und die bleiben stehen.
+ *
+ * Stimmen und Gewinner bleiben unberuehrt. Die Runde kehrt in ihre Phase
+ * zurueck, mit allem, was bis zum Abbruch geschehen war.
+ */
+export async function reaktiviere(
+  competitionId: string,
+  actor: { discordId: string; username?: string | null },
+  jetzt = new Date(),
+): Promise<ReaktivierungsErgebnis> {
+  const runde = await prisma.clipCompetition.findUnique({ where: { id: competitionId } });
+  if (!runde) {
+    return { ok: false, hindernis: 'NICHT_ABGEBROCHEN' };
+  }
+
+  const lage = reaktivierungsLage(runde, jetzt);
+  if (!lage.moeglich || !lage.ziel || !lage.phaseEndetAm) {
+    return { ok: false, hindernis: lage.hindernis ?? 'NICHT_ABGEBROCHEN' };
+  }
+
+  const { count } = await prisma.clipCompetition.updateMany({
+    where: {
+      id: competitionId,
+      status: 'CANCELLED',
+      cancelledAt: { not: null },
+      finalizedAt: null,
+      winnerEntryId: null,
+    },
+    /*
+     * Der Abbruch wird geloescht, nicht behalten.
+     *
+     * Ein `cancelledAt` an einer laufenden Runde waere eine Angabe, die
+     * nicht mehr stimmt - und der naechste, der darauf prueft, laege falsch.
+     * Was war, steht im Protokoll: der Abbruch als eigener Eintrag und
+     * darunter dieser hier, samt Zeitpunkt und Urheber des Abbruchs.
+     */
+    data: { status: lage.ziel, cancelledAt: null, cancelledByDiscordId: null },
+  });
+  if (count === 0) {
+    return { ok: false, hindernis: 'NICHT_ABGEBROCHEN' };
+  }
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.CLIP_COMPETITION_REOPENED,
+    module: CLIPS_MODULE_ID,
+    actorDiscordId: actor.discordId,
+    actorUsername: actor.username ?? null,
+    targetLabel: `Clip of the Week #${runde.number}`,
+    metadata: {
+      competitionId,
+      key: runde.key,
+      nummer: runde.number,
+      ziel: lage.ziel,
+      phaseEndetAm: lage.phaseEndetAm.toISOString(),
+      abgebrochenAm: runde.cancelledAt?.toISOString() ?? null,
+      abgebrochenVon: runde.cancelledByDiscordId,
+    },
+  });
+
+  log.info('Clip-Runde wieder aktiviert', { competitionId, key: runde.key, ziel: lage.ziel });
+  return { ok: true, ziel: lage.ziel, phaseEndetAm: lage.phaseEndetAm, nummer: runde.number, key: runde.key };
 }
 
 /** Die Runde, um die es gerade geht - oder `null`. */

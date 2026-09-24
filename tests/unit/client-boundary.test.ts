@@ -58,6 +58,20 @@ const CLIENT_SAFE = [
    * Die Datei importiert nichts. Dass das so bleibt, prueft der Test unten.
    */
   '@swisshub/modules/spielwahl/baum',
+  /*
+   * Der Bauplan der Levelkarte.
+   *
+   * Die Vorschau im Browser soll nicht *aehnlich* aussehen wie die Karte auf
+   * Discord, sondern dieselbe sein. Sie entsteht deshalb aus derselben
+   * Funktion, die der Bot vor dem Rastern aufruft - eine nachgebaute
+   * Vorschau in CSS waere die Stelle, an der gewaehlte Farbe und
+   * ausgelieferte Karte auseinanderlaufen.
+   *
+   * Der Baum darunter ist Rechnung: die XP-Kurve, die Schriftmasse von
+   * DejaVu Sans und die Farbpruefung. Kein Prisma, kein Discord, keine
+   * Umgebung.
+   */
+  '@swisshub/modules/level/karte',
 ];
 
 /**
@@ -124,6 +138,7 @@ const EXPORTE: Record<string, string> = {
   '@swisshub/modules/wrapped/szenen': 'packages/modules/src/wrapped/szenen.ts',
   '@swisshub/modules/wrapped/fixtures': 'packages/modules/src/wrapped/fixtures.ts',
   '@swisshub/modules/spielwahl/baum': 'packages/modules/src/spielwahl/baum.ts',
+  '@swisshub/modules/level/karte': 'packages/modules/src/level/card.ts',
 };
 
 /** Alle Wert-Importe einer Datei - auch die relativen. */

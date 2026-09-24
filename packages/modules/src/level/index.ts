@@ -5,6 +5,7 @@ export * from './config';
 export * from './context';
 export * from './activity';
 export * from './card';
+export * from './dejavu-metriken';
 export * from './embed';
 export * from './service';
 export * from './milestones';

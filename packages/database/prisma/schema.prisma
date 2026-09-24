@@ -1596,15 +1596,15 @@ enum LevelImportAction {
 
 /// XP-Stand einer Person.
 model LevelProfile {
-  id               String    @id @default(cuid())
-  discordId        String    @unique
-  username         String?
-  displayName      String?
-  avatarHash       String?
+  id                  String    @id @default(cuid())
+  discordId           String    @unique
+  username            String?
+  displayName         String?
+  avatarHash          String?
   /// Nie negativ - der alte Bot klemmte mit `MAX(0, xp + delta)`.
-  xp               Int       @default(0)
-  messages         Int       @default(0)
-  voiceMinutes     Int       @default(0)
+  xp                  Int       @default(0)
+  messages            Int       @default(0)
+  voiceMinutes        Int       @default(0)
   /// Dateiname einer selbst hochgeladenen Levelkarte.
   ///
   /// Nur der Name, nicht der Pfad: die Datei liegt im Upload-Verzeichnis
@@ -1613,19 +1613,32 @@ model LevelProfile {
   /// Datenbank waere eine Einladung, ihn zu manipulieren.
   ///
   /// Leer bedeutet: es gilt der Hintergrund aus den Moduleinstellungen.
-  customCardPath   String?
+  customCardPath      String?
+  /// Textfarbe der eigenen Levelkarte, als `#RRGGBB` in Grossbuchstaben.
+  ///
+  /// Leer heisst: es gilt die Standardfarbe der Karte - Weiss, im
+  /// Hoechstlevel Gold. Das ist die Vorgabe fuer alle Karten, die es vor
+  /// dieser Spalte schon gab, und deshalb ist die Spalte nullbar und hat
+  /// keinen Standardwert: «nichts gewaehlt» und «Weiss gewaehlt» sollen
+  /// unterscheidbar bleiben.
+  ///
+  /// Normalisiert und geprueft wird serverseitig in `custom-card.ts`. Was
+  /// hier steht, geht unveraendert in das SVG der Karte - eine Zeichenkette,
+  /// die dort etwas anderes bedeuten koennte als eine Farbe, darf gar nicht
+  /// erst hereinkommen.
+  customCardTextColor String?
   /// Setzt die Nachlassfrist zurueck (Nachricht oder Voice).
-  lastActivityAt   DateTime?
+  lastActivityAt      DateTime?
   /// Bis hierhin wurde Inaktivitaets-Abzug bereits verrechnet.
-  lastDecayAt      DateTime?
-  lastMessageAt    DateTime?
-  lastVoiceAt      DateTime?
+  lastDecayAt         DateTime?
+  lastMessageAt       DateTime?
+  lastVoiceAt         DateTime?
   /// SHA-256 der `levels.db`, aus der dieser Stand uebernommen wurde.
   /// Verhindert, dass dieselbe Datei zweimal XP setzt.
-  legacyImportSha  String?
-  legacyImportedAt DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  legacyImportSha     String?
+  legacyImportedAt    DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   transactions XpTransaction[]
   gameStats    LevelGameStats[]
@@ -6646,33 +6659,33 @@ model SpielwahlSession {
   // --- Einstellungen der Session, vom Host gewaehlt -------------------------
 
   /// Wie viele Spiele eine Person vorschlagen darf.
-  vorschlaegeProPerson Int @default(3)
+  vorschlaegeProPerson  Int                  @default(3)
   /// Hoechstzahl Teilnehmer. Schuetzt die Buehne davor, unlesbar zu werden.
-  maxTeilnehmer        Int @default(12)
+  maxTeilnehmer         Int                  @default(12)
   /// Freie Vorschlaege ausserhalb des Katalogs zulassen.
-  freieVorschlaege     Boolean @default(true)
+  freieVorschlaege      Boolean              @default(true)
   /// Wie lange eine Abstimmung laeuft (Sekunden).
-  abstimmdauerSek      Int @default(45)
+  abstimmdauerSek       Int                  @default(45)
   /// Stimmen je Person je Abstimmung.
-  stimmenProPerson     Int @default(1)
+  stimmenProPerson      Int                  @default(1)
   /// Stimmen erst beim Reveal zeigen.
-  geheimeStimmen       Boolean @default(true)
-  gleichstand          SpielwahlGleichstand @default(STICHWAHL)
+  geheimeStimmen        Boolean              @default(true)
+  gleichstand           SpielwahlGleichstand @default(STICHWAHL)
   /// Beim Roulette nach Zahl der Unterstuetzer gewichten.
   ///
   /// Standardmaessig **aus**: sonst gewaenne stillschweigend, wer die
   /// lautesten Freunde hat. Wer es will, waehlt es bewusst - und die Buehne
   /// sagt dann, dass gewichtet wird.
-  rouletteGewichtet    Boolean @default(false)
+  rouletteGewichtet     Boolean              @default(false)
   /// Beitritt waehrend einer laufenden Runde.
-  beitrittWaehrendRunde Boolean @default(true)
+  beitrittWaehrendRunde Boolean              @default(true)
 
   /// Einmal neu auslosen - das Zugestaendnis an die enttaeuschte Gruppe.
-  nachlosenErlaubt Boolean @default(true)
+  nachlosenErlaubt Boolean   @default(true)
   nachgelostAm     DateTime?
 
-  currentRoundId String?               @unique
-  currentRound   SpielwahlRound?       @relation("AktuelleRunde", fields: [currentRoundId], references: [id], onDelete: SetNull)
+  currentRoundId String?         @unique
+  currentRound   SpielwahlRound? @relation("AktuelleRunde", fields: [currentRoundId], references: [id], onDelete: SetNull)
 
   /// Das angenommene Ergebnis.
   ergebnisCandidateId String?
@@ -6711,13 +6724,13 @@ model SpielwahlParticipant {
   discordId String
   rolle     SpielwahlRolle @default(GAST)
 
-  joinedAt DateTime  @default(now())
+  joinedAt   DateTime  @default(now())
   /// Gesetzt, wenn jemand die Session verlassen hat oder entfernt wurde.
   /// Die Zeile bleibt - sonst verlieren abgegebene Stimmen ihren Absender.
-  leftAt   DateTime?
+  leftAt     DateTime?
   /// Letztes Lebenszeichen. Grundlage fuer «ist noch da» und fuer die
   /// Uebergabe der Hostrolle an jemanden, der tatsaechlich anwesend ist.
-  lastSeenAt DateTime @default(now())
+  lastSeenAt DateTime  @default(now())
 
   @@unique([sessionId, discordId])
   @@index([sessionId, leftAt])

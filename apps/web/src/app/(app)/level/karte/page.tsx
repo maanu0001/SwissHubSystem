@@ -36,7 +36,9 @@ export default async function LevelCardPage(): Promise<React.JSX.Element> {
     {
       key: 'normal',
       title: 'Normale Karte',
-      xp: 12_580,
+      // Ein Stand mitten im Level - bei einem Wert genau auf der Schwelle
+      // stuende in der Vorschau ein leerer Balken und «0 %».
+      xp: 20_000,
       src: normalSrc,
     },
     {
@@ -99,7 +101,8 @@ export default async function LevelCardPage(): Promise<React.JSX.Element> {
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          Der Avatar fehlt in der Vorschau - auf Discord steht dort das Bild der jeweiligen Person.
+          Der Avatar fehlt in der Vorschau - auf Discord steht dort das Bild der jeweiligen Person. Die
+          Textfarbe wählt jede Person selbst im eigenen Profil unter «Level»; hier steht die Standardfarbe.
         </p>
       </section>
     </>

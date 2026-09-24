@@ -280,6 +280,7 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   CLIP_COMPETITION_CREATED: 'Clip-Runde eröffnet',
   CLIP_COMPETITION_FINALIZED: 'Clip-Runde abgeschlossen',
   CLIP_COMPETITION_CANCELLED: 'Clip-Runde abgebrochen',
+  CLIP_COMPETITION_REOPENED: 'Clip-Runde wieder aktiviert',
   CLIP_COMPETITION_UPDATED: 'Clip-Runde geändert',
   CLIP_SUBMITTED: 'Clip eingereicht',
   CLIP_APPROVED: 'Clip freigegeben',

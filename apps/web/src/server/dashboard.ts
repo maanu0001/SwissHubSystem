@@ -1,5 +1,5 @@
 import 'server-only';
-import { prisma } from '@swisshub/database';
+import { DASHBOARD_ACTIVITY_ACTIONS, prisma } from '@swisshub/database';
 import { jail, loadAvatarHashes, readBotStatus, type BotStatusView } from '@swisshub/modules';
 import { currentGuild } from '@/server/guild';
 import type { AuditLog, JailEntry } from '@swisshub/database';
@@ -93,7 +93,25 @@ export async function loadDashboardData(scope: DashboardScope): Promise<Dashboar
           })
         : Promise.resolve([]),
       scope.canViewAudit
-        ? prisma.auditLog.findMany({ orderBy: { sequence: 'desc' }, take: 6 })
+        ? prisma.auditLog.findMany({
+            /*
+             * Die Auswahl gehoert in die Abfrage.
+             *
+             * Vorher standen hier die letzten sechs Eintraege, ungefiltert -
+             * und weil ein Hintergrunddurchgang alle fuenfzehn Minuten
+             * schreibt, waren es sechsmal derselbe. Nachtraeglich zu filtern
+             * loest das nicht: dann blieben von sechs geholten Zeilen null
+             * uebrig, und das Dashboard waere leer statt voll.
+             *
+             * Welche Ereignisse relevant sind, steht in
+             * `DASHBOARD_ACTIVITY_ACTIONS` - einmal, typisiert, mit
+             * Begruendung. Das Protokoll selbst bleibt davon unberuehrt: es
+             * zeigt weiterhin alles.
+             */
+            where: { action: { in: [...DASHBOARD_ACTIVITY_ACTIONS] } },
+            orderBy: { sequence: 'desc' },
+            take: 6,
+          })
         : Promise.resolve([]),
       // Ueber `currentGuild`, damit Grundlayout und Dashboard sich im selben
       // Aufruf eine Antwort teilen statt zweimal zu warten.

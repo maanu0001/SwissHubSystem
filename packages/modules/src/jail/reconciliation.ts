@@ -70,7 +70,26 @@ export async function reconcileJails(options: ReconcileOptions = {}): Promise<Re
     }
 
     const activeJails = await prisma.jailEntry.findMany({
-      where: { releasedAt: null, status: { in: ['COMPLETED', 'PARTIAL'] } },
+      where: {
+        releasedAt: null,
+        status: { in: ['COMPLETED', 'PARTIAL'] },
+        /*
+         * Wer den Server verlassen hat, ist keine Abweichung mehr.
+         *
+         * `PENDING_REJOIN` heisst: das wissen wir, und genau so soll es
+         * sein - der Jail wartet auf den Wiedereintritt. Ohne diesen Filter
+         * fand jeder Durchgang dieselben Eintraege wieder, meldete sie als
+         * `MEMBER_LEFT` und liess `releaseJail` erneut laufen. Dort schrieb
+         * der Zweig fuer den ausstehenden Wiedereintritt jedes Mal einen
+         * Audit-Eintrag: alle fuenfzehn Minuten einen, je wartendem Jail.
+         * Das Protokoll bestand danach zu weiten Teilen aus «Jail wartet auf
+         * Wiedereintritt».
+         *
+         * Derselbe Filter steht im Scheduler (`releaseExpiredJails`), und
+         * aus demselben Grund - er hatte ihn von Anfang an, hier fehlte er.
+         */
+        lifecycle: { notIn: ['PENDING_REJOIN'] },
+      },
       orderBy: { startedAt: 'asc' },
       take: 500,
     });

@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { can } from '@swisshub/auth';
 import { level } from '@swisshub/modules';
 import { AppError } from '@swisshub/shared';
 import { createLogger } from '@swisshub/logger';
@@ -257,6 +258,54 @@ export const resetLevelsAction = defineAction(
     revalidateLevel();
     revalidatePath('/level/rollen');
 
+    return ergebnis;
+  },
+);
+
+/**
+ * Die Textfarbe der eigenen Levelkarte.
+ *
+ * Server Action und nicht Route Handler: hier wird keine Datei uebertragen,
+ * sondern eine Zeichenkette - und `defineAction` bringt Anmeldung,
+ * Mitgliedschaft, CSRF, Ratengrenze, Eingabepruefung und Berechtigung ohne
+ * eine zweite Umsetzung derselben Kette mit.
+ *
+ * Ausdruecklich nur die eigene Karte: ein Ziel aus der Eingabe gibt es
+ * nicht. `farbe: null` setzt auf die Standardfarbe zurueck.
+ *
+ * Die Berechtigung prueft der Dienst noch einmal selbst - er wird auch von
+ * anderen Stellen aufgerufen und darf sich nicht darauf verlassen, dass
+ * jemand vorher nachgesehen hat.
+ */
+export const setCustomCardTextColorAction = defineAction(
+  {
+    name: 'level.customCard.textColor',
+    module: MODULE_ID,
+    permission: PERMISSIONS.cardCustom,
+    schema: level.customCardTextColorSchema,
+    rateLimit: 'levelWrite',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    /*
+     * Ohne `assertModuleEnabled`, und zwar mit Absicht.
+     *
+     * Die Farbe sitzt im selben Bereich wie das eigene Kartenbild, unter
+     * derselben Berechtigung - und dessen Route fragt das Modul ebenfalls
+     * nicht. Beides unterschiedlich zu behandeln hiesse: ein ausgeschaltetes
+     * Levelmodul, in dem sich das Bild noch tauschen laesst, die Farbe
+     * daneben aber mit einer Fehlermeldung antwortet.
+     *
+     * Was bleibt, ist der Riegel, auf den es ankommt: `level.card.custom`.
+     */
+    const ergebnis = await level.setCustomCardTextColor(
+      { discordId: ctx.user.discordId, can: (permission: string) => can(ctx, permission) },
+      { discordId: ctx.user.discordId, username: ctx.user.username },
+      input.farbe,
+    );
+
+    revalidateLevel();
+    revalidatePath('/mitglieder');
     return ergebnis;
   },
 );

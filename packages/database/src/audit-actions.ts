@@ -228,6 +228,7 @@ export const AUDIT_ACTIONS = {
   CLIP_COMPETITION_CREATED: 'CLIP_COMPETITION_CREATED',
   CLIP_COMPETITION_FINALIZED: 'CLIP_COMPETITION_FINALIZED',
   CLIP_COMPETITION_CANCELLED: 'CLIP_COMPETITION_CANCELLED',
+  CLIP_COMPETITION_REOPENED: 'CLIP_COMPETITION_REOPENED',
   CLIP_COMPETITION_UPDATED: 'CLIP_COMPETITION_UPDATED',
   CLIP_SUBMITTED: 'CLIP_SUBMITTED',
   CLIP_APPROVED: 'CLIP_APPROVED',
@@ -320,3 +321,13 @@ export const AUDIT_ACTIONS = {
   SPIELWAHL_PARTICIPANT_REMOVED: 'SPIELWAHL_PARTICIPANT_REMOVED',
   SPIELWAHL_HOST_TRANSFERRED: 'SPIELWAHL_HOST_TRANSFERRED',
 } as const;
+
+/**
+ * Genau die Namen dieser Liste - und keine anderen.
+ *
+ * `AuditAction` in `audit.ts` laesst bewusst jede Zeichenkette zu: ein Modul
+ * soll ein Ereignis aufschreiben koennen, das hier noch nicht steht. Fuer
+ * eine Liste, die aus diesen Namen **auswaehlt**, ist das zu weit - dort
+ * waere ein Tippfehler eine Zeile, die stillschweigend nie zutrifft.
+ */
+export type AuditActionName = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

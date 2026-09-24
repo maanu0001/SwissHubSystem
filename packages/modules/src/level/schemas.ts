@@ -96,3 +96,20 @@ export const envImportSchema = z.object({
   /** Nur Namen von der Positivliste - der Dienst prüft das erneut. */
   keys: z.array(z.string().max(64)).max(50),
 });
+
+/**
+ * Die Textfarbe der eigenen Levelkarte.
+ *
+ * `null` heisst zuruecksetzen. Die Form wird hier grob geprueft, damit
+ * offensichtlicher Unsinn gar nicht erst ankommt; verbindlich ist
+ * `normalisiereTextfarbe` im Modul - dort entsteht die Zeichenkette, die
+ * spaeter im SVG steht, und nur was dort durchkommt, gilt.
+ */
+export const customCardTextColorSchema = z.object({
+  farbe: z
+    .string()
+    .trim()
+    .max(7)
+    .regex(/^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/u, 'Erwartet wird ein Hex-Wert wie #FF9F1C.')
+    .nullable(),
+});

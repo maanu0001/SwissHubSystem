@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./jail": "./src/jail/index.ts",
     "./level": "./src/level/index.ts",
+    "./level/karte": "./src/level/card.ts",
     "./appeals": "./src/appeals/index.ts",
     "./clips": "./src/clips/index.ts",
     "./clips/provider": "./src/clips/provider.ts",

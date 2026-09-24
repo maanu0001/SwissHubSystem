@@ -602,20 +602,53 @@ export async function releaseJail(jailId: string, options: ReleaseJailOptions): 
   // Wiedereintritt. Das entspricht dem alten Bot, der solche Einträge als
   // `expired_pending_restore` stehen liess, statt sie zu löschen.
   if (!member && context.settings.reapplyOnRejoin && options.releaseType !== 'MANUAL') {
-    const pending = await prisma.jailEntry.update({
-      where: { id: jail.id },
+    /*
+     * Der Wechsel in den Wartezustand - und das Protokoll nur dazu.
+     *
+     * Bedingt auf den Vorzustand: `lifecycle` muss noch **nicht**
+     * `PENDING_REJOIN` sein. Wer hier durchkommt, hat den Uebergang
+     * tatsaechlich vollzogen und schreibt ihn auf; wer nicht durchkommt,
+     * sieht denselben Zustand ein zweites Mal und schweigt.
+     *
+     * Ohne diese Bedingung schrieb jede erneute Pruefung denselben Eintrag:
+     * eine Wiederholung ist keine Statusaenderung, und ein Audit-Protokoll,
+     * das Wiederholungen aufzeichnet, ist nach einem Tag keines mehr.
+     *
+     * Die Bedingung sitzt hier und nicht beim Aufrufer, weil es mehrere
+     * gibt - Scheduler, Reconciliation, Verwaltung. Eine Regel je Aufrufer
+     * waere drei Gelegenheiten, sie zu vergessen.
+     */
+    const { count } = await prisma.jailEntry.updateMany({
+      where: { id: jail.id, lifecycle: { not: 'PENDING_REJOIN' } },
       data: { lifecycle: 'PENDING_REJOIN', leftGuildAt: jail.leftGuildAt ?? new Date(), releaseStatus: null },
     });
-    await safeRecordAudit({
-      action: AUDIT_ACTIONS.JAIL_PENDING_REJOIN,
-      module: JAIL_MODULE_ID,
-      actorDiscordId: actor?.discordId ?? null,
-      actorUsername: actor?.username ?? 'system',
-      targetDiscordId: jail.targetDiscordId,
-      targetLabel: jail.targetUsername,
-      success: true,
-      metadata: { jailId: jail.id, releaseType: options.releaseType },
-    });
+
+    if (count === 1) {
+      await safeRecordAudit({
+        action: AUDIT_ACTIONS.JAIL_PENDING_REJOIN,
+        module: JAIL_MODULE_ID,
+        actorDiscordId: actor?.discordId ?? null,
+        actorUsername: actor?.username ?? 'system',
+        targetDiscordId: jail.targetDiscordId,
+        targetLabel: jail.targetUsername,
+        success: true,
+        metadata: { jailId: jail.id, releaseType: options.releaseType },
+      });
+    } else {
+      // Schon im Wartezustand - der Belegungsversuch oben hat ihn nur noch
+      // einmal bestaetigt. `releaseStatus` bleibt dabei stehen, wo er war.
+      await prisma.jailEntry.updateMany({
+        where: { id: jail.id, releaseStatus: { not: null } },
+        data: { releaseStatus: null },
+      });
+    }
+
+    /*
+     * Frisch lesen statt das Ergebnis des Schreibvorgangs zu nehmen: nur so
+     * bekommt auch der Aufruf, der den Uebergang **nicht** vollzogen hat,
+     * den tatsaechlichen Stand zurueck statt eines erfundenen.
+     */
+    const pending = (await prisma.jailEntry.findUnique({ where: { id: jail.id } })) ?? jail;
     return {
       jail: pending,
       restoredRoleIds: [],
@@ -1007,10 +1040,21 @@ export async function markMemberLeftDuringJail(discordId: string): Promise<boole
     return false;
   }
 
-  await prisma.jailEntry.update({
-    where: { id: active.id },
+  /*
+   * Auch hier nur beim echten Uebergang.
+   *
+   * Discord liefert `guildMemberRemove` nach einem Verbindungsabriss
+   * gelegentlich erneut, und der Bot startet ohnehin regelmaessig neu. Ohne
+   * die Bedingung waere jedes dieser Ereignisse ein weiterer Eintrag ueber
+   * denselben Vorgang.
+   */
+  const { count } = await prisma.jailEntry.updateMany({
+    where: { id: active.id, lifecycle: { not: 'PENDING_REJOIN' } },
     data: { lifecycle: 'PENDING_REJOIN', leftGuildAt: new Date() },
   });
+  if (count === 0) {
+    return false;
+  }
 
   await safeRecordAudit({
     action: AUDIT_ACTIONS.JAIL_PENDING_REJOIN,

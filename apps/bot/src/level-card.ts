@@ -125,6 +125,10 @@ export async function renderLevelCard(request: LevelCardRequest): Promise<Buffer
   // die Vorlagen des Servers bleiben unberuehrt.
   const eigene = request.discordId ? await level.readCustomCard(request.discordId) : null;
 
+  // Die Textfarbe haengt nicht am Bild: wer nur eine Farbe gewaehlt hat,
+  // soll sie auch vor dem Serverhintergrund bekommen.
+  const textColor = request.discordId ? await level.readCustomCardTextColor(request.discordId) : null;
+
   const [avatarSrc, bannerSrc] = await Promise.all([
     request.avatarUrl ? fetchAsDataUri(request.avatarUrl) : Promise.resolve(null),
     eigene
@@ -141,6 +145,7 @@ export async function renderLevelCard(request: LevelCardRequest): Promise<Buffer
     xp: request.xp,
     rank: request.rank,
     accentColor: settings.accentColor,
+    textColor,
     avatarSrc,
     bannerSrc,
     maxLevelTotalXp: settings.maxLevelTotalXp,
