@@ -101,8 +101,40 @@ registerModule({
       order: 20,
     },
     {
-      href: '/profile',
+      /*
+       * Das Community-Profil.
+       *
+       * Steht vor «Meine Daten», weil es fuer die meisten Mitglieder das
+       * ist, was sie mit «mein Profil» meinen: was andere von ihnen sehen.
+       * Die Akte darunter bleibt, sie beantwortet eine andere Frage.
+       */
+      href: '/profil',
       label: 'Mein Profil',
+      description: 'Dein Gaming-Profil - Spiele, Vitrine, Auszeichnungen',
+      permission: 'members.view.basic.own',
+      baseline: true,
+      icon: 'UserRound',
+      group: 'overview',
+      order: 18,
+    },
+    {
+      href: '/entdecken',
+      label: 'Mitglieder entdecken',
+      description: 'Mitglieder nach Spiel, Plattform und Spielzeit finden',
+      /*
+       * Auch `baseline`: die Community soll sich finden koennen. Haenge das
+       * an eine Verwaltungsberechtigung, und ein gewoehnliches Mitglied
+       * sieht die anderen nicht - dann braucht niemand ein Profil.
+       */
+      permission: 'members.view.basic.own',
+      baseline: true,
+      icon: 'UserSearch',
+      group: 'overview',
+      order: 19,
+    },
+    {
+      href: '/profile',
+      label: 'Meine Daten',
       description: 'Die eigenen Daten im SwissHub System',
       /*
        * Das eigene Profil haengt an der Anmeldung, nicht an einer Zuteilung.

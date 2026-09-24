@@ -148,7 +148,7 @@ export interface StoredUpload {
  * geprüft. Dadurch lässt sich ein Logo nicht als Levelkarten-Hintergrund
  * ausliefern und umgekehrt.
  */
-export const UPLOAD_KINDS = ['logo', 'levelcard', 'usercard', 'gamecover'] as const;
+export const UPLOAD_KINDS = ['logo', 'levelcard', 'usercard', 'gamecover', 'profilbanner'] as const;
 export type UploadKind = (typeof UPLOAD_KINDS)[number];
 
 /**

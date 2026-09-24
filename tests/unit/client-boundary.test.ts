@@ -84,6 +84,26 @@ const CLIENT_SAFE = [
    * unten.
    */
   '@swisshub/modules/games/schemas',
+  /*
+   * Die reinen Teile der Mitgliederprofile.
+   *
+   * Registries und Eingabepruefungen - Listen, Muster und Zod-Schemas, sonst
+   * nichts. Der Profil-Editor braucht sie im Browser, und zwar genau
+   * dieselben, nach denen der Server danach prueft. Eine zweite Liste
+   * erlaubter Akzentfarben im Browser waere die Stelle, an der Auswahl und
+   * Wirkung auseinanderlaufen.
+   *
+   * `profile/service`, `profile/bearbeiten` und `profile/entdecken` stehen
+   * bewusst **nicht** hier: die lesen und schreiben.
+   */
+  '@swisshub/modules/profil/angaben',
+  '@swisshub/modules/profil/auszeichnungen',
+  '@swisshub/modules/profil/gestaltung',
+  '@swisshub/modules/profil/karriere',
+  '@swisshub/modules/profil/schemas',
+  '@swisshub/modules/profil/showcase',
+  '@swisshub/modules/profil/socials',
+  '@swisshub/modules/profil/spielfelder',
 ];
 
 /**
@@ -152,6 +172,14 @@ const EXPORTE: Record<string, string> = {
   '@swisshub/modules/spielwahl/baum': 'packages/modules/src/spielwahl/baum.ts',
   '@swisshub/modules/level/karte': 'packages/modules/src/level/card.ts',
   '@swisshub/modules/games/schemas': 'packages/modules/src/games/schemas.ts',
+  '@swisshub/modules/profil/angaben': 'packages/modules/src/profile/angaben.ts',
+  '@swisshub/modules/profil/auszeichnungen': 'packages/modules/src/profile/auszeichnungen.ts',
+  '@swisshub/modules/profil/gestaltung': 'packages/modules/src/profile/gestaltung.ts',
+  '@swisshub/modules/profil/karriere': 'packages/modules/src/profile/karriere.ts',
+  '@swisshub/modules/profil/schemas': 'packages/modules/src/profile/schemas.ts',
+  '@swisshub/modules/profil/showcase': 'packages/modules/src/profile/showcase.ts',
+  '@swisshub/modules/profil/socials': 'packages/modules/src/profile/socials.ts',
+  '@swisshub/modules/profil/spielfelder': 'packages/modules/src/profile/spielfelder.ts',
 };
 
 /** Alle Wert-Importe einer Datei - auch die relativen. */

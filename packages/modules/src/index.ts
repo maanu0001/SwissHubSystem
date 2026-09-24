@@ -76,6 +76,8 @@ export * as appeals from './appeals';
 export * as clips from './clips';
 export * as wrapped from './wrapped';
 export * as spielwahl from './spielwahl';
+// Mitgliederprofile - kein Modul mit Schalter, siehe profile/index.ts.
+export * as profile from './profile';
 /*
  * Die Ziehung - allgemein, nicht modulgebunden.
  *

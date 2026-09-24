@@ -40,8 +40,22 @@ export const systemRoutes = {
   tickets: (): SystemRoute => '/tickets',
   offeneTickets: (): SystemRoute => '/tickets/offen',
 
-  /** Die Akte eines Mitglieds. */
+  /** Die Akte eines Mitglieds - die Sicht der Moderation. */
   mitglied: (discordId: string): SystemRoute => `/members/${id(discordId)}`,
+
+  /*
+   * Das Community-Profil - die Sicht der Mitglieder aufeinander.
+   *
+   * Bewusst eine andere Adresse als `mitglied`: hinter `/members` steht die
+   * Akte mit Tickets, Jails und Notizen, hier steht, was jemand ueber sich
+   * selbst erzaehlt. Zwei Sichten, zwei Adressen, zwei Berechtigungen.
+   *
+   * `profil()` ohne Kennung ist das eigene - und es kommt aus der Sitzung,
+   * nicht aus der Adresszeile.
+   */
+  profil: (discordId?: string): SystemRoute => (discordId ? `/profil/${id(discordId)}` : '/profil'),
+  profilBearbeiten: (): SystemRoute => '/profil/bearbeiten',
+  entdecken: (): SystemRoute => '/entdecken',
 
   /*
    * Was spielen wir? - die gemeinsame Spielauswahl.

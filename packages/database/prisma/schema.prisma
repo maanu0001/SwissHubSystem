@@ -1397,6 +1397,7 @@ model Game {
   spielwahlKandidaten  SpielwahlCandidate[]
   spielersucheMatches  SpielersucheMatch[]
   spielersucheRolePing SpielersucheRolePing?
+  memberGameProfiles   MemberGameProfile[]
 
   @@index([enabled, name])
   @@index([archivedAt])
@@ -6962,4 +6963,234 @@ model SpielwahlCommand {
 
   @@unique([sessionId, schluessel])
   @@index([sessionId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Mitgliederprofile
+//
+// Die Gaming-Identität eines Mitglieds innerhalb von SwissHub: was es spielt,
+// wie es spielt, und was es hier erlebt hat.
+//
+// ## Was hier NICHT steht
+//
+// Name, Avatar und Rollen stehen in `DiscordMemberCache` - Discord ist dafuer
+// die Quelle, und eine zweite Kopie liefe auseinander. XP und Level stehen in
+// `LevelProfile`. Turniere, Events und Clips stehen in ihren eigenen Modulen.
+//
+// Hier steht ausschliesslich, was ein Mitglied **selbst** ueber sich sagt.
+// Deshalb ist jede Zeile freiwillig, und deshalb gibt es keine Zeile fuer
+// jemanden, der nichts eingetragen hat.
+//
+// ## Warum keine Auszeichnungstabelle
+//
+// Auszeichnungen werden abgeleitet, nicht gespeichert - dieselbe Begruendung
+// wie bei der Clip-Bilanz: eine Kopie waere eine zweite Wahrheit darueber, wer
+// was erreicht hat, und sie liefe beim ersten nachtraeglich korrigierten
+// Turnierergebnis auseinander. Gezaehlt wird, was ohnehin dasteht. Ein
+// Abgleichlauf entfaellt damit, und die Vergabe ist idempotent, weil sie gar
+// nichts schreibt.
+//
+// Was gespeichert wird, ist die **Auswahl**: welche Auszeichnung jemand
+// hervorheben moechte. Das steht in `MemberShowcase` als Verweis, nicht als
+// Abschrift.
+// ---------------------------------------------------------------------------
+
+/// Wer eine freiwillige Angabe sehen darf.
+enum ProfileVisibility {
+  /// Jedes angemeldete Mitglied des Servers.
+  MEMBERS
+  /// Nur die Person selbst.
+  PRIVATE
+}
+
+/// Wie ernst es jemandem ist.
+enum PlayStyle {
+  CASUAL
+  COMPETITIVE
+  BOTH
+}
+
+/// Ob jemand gerade Anschluss sucht.
+enum Availability {
+  /// Keine Angabe - der Standard, und im Profil unsichtbar.
+  UNSET
+  LOOKING
+  OPEN
+  BUSY
+}
+
+/// Das SwissHub-Profil eines Mitglieds.
+///
+/// Angelegt wird die Zeile erst, wenn jemand etwas eintraegt. Ein Profil ohne
+/// Zeile ist kein Fehler, sondern der Normalfall fuer alle, die noch nichts
+/// gesagt haben - und die Ansicht muss damit umgehen koennen.
+model MemberProfile {
+  id        String @id @default(cuid())
+  discordId String @unique
+
+  /// Ein selbst gewaehlter Anzeigename **zusaetzlich** zum Discord-Namen.
+  /// Er ersetzt ihn nicht: der Discord-Name steht immer daneben, sonst waere
+  /// nicht mehr erkennbar, wer jemand auf dem Server ist.
+  displayName String?
+  /// Ein Satz. Mehr passt in den Kopfbereich nicht, und mehr braucht es dort
+  /// auch nicht.
+  tagline     String?
+  bio         String?
+
+  /// Sprachen als ISO-639-1-Kuerzel, Plattformen und Spielzeiten als
+  /// Schluessel aus der Registry. Freie Listen statt Aufzaehlungstypen: eine
+  /// neue Sprache soll keine Migration brauchen. Geprueft wird beim
+  /// Schreiben.
+  languages String[] @default([])
+  platforms String[] @default([])
+  playtimes String[] @default([])
+  /// Wie jemand am liebsten spricht - Schluessel aus der Registry.
+  comms     String[] @default([])
+
+  playStyle    PlayStyle    @default(BOTH)
+  availability Availability @default(UNSET)
+
+  /// Das Profilbanner: hochgeladen oder aus der freigegebenen Auswahl.
+  ///
+  /// Zwei Spalten und ein Vorrang, wie beim Kartenhintergrund des
+  /// Levelsystems: `bannerPath` ist eine Datei im Upload-Verzeichnis und gilt
+  /// zuerst, `bannerPreset` ein Schluessel aus der Registry.
+  bannerPath   String?
+  bannerPreset String?
+
+  /// Gestaltung - beides Schluessel aus einer kuratierten Auswahl, nie freier
+  /// Text. Eine Farbe aus einer Eingabe stuende sonst in einem
+  /// `style`-Attribut, und dort bedeutet sie mehr als eine Farbe.
+  theme  String @default("swisshub")
+  accent String @default("rot")
+
+  // --- Privatsphaere ---------------------------------------------------------
+  // Je Abschnitt und nicht pauschal: wer seine Spiele zeigen will, muss dafuer
+  // nicht auch seine Socials zeigen. Voreinstellung ist zurueckhaltend - was
+  // jemand nie bewusst freigegeben hat, ist nicht oeffentlich.
+  visibilityProfile  ProfileVisibility @default(MEMBERS)
+  visibilityGames    ProfileVisibility @default(MEMBERS)
+  visibilitySocials  ProfileVisibility @default(PRIVATE)
+  visibilityCareer   ProfileVisibility @default(MEMBERS)
+  visibilityActivity ProfileVisibility @default(MEMBERS)
+
+  /// In «Mitglieder entdecken» auffindbar sein.
+  ///
+  /// Getrennt von der Sichtbarkeit: ein Profil kann offen sein, ohne dass
+  /// seine Besitzerin in einer Suchliste stehen moechte.
+  discoverable Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  games     MemberGameProfile[]
+  socials   MemberSocialLink[]
+  showcases MemberShowcase[]
+
+  /// Die Entdecken-Liste filtert darueber.
+  @@index([discoverable, availability])
+  @@index([playStyle])
+}
+
+/// Was ein Mitglied zu einem bestimmten Spiel sagt.
+model MemberGameProfile {
+  id        String        @id @default(cuid())
+  profileId String
+  profile   MemberProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// Der zentrale Katalog, derselbe wie bei Turnieren und Clips.
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  /// Auf welcher Plattform diese Person dieses Spiel spielt.
+  platform  String?
+  /// Eigener Text: «Suche Team fuer Premier», «nur am Wochenende».
+  note      String?
+  /// Im Kopfbereich hervorgehoben.
+  favorite  Boolean @default(false)
+  /// Reihenfolge, vom Mitglied bestimmt.
+  sortOrder Int     @default(0)
+
+  /// Die spielabhaengigen Felder - Rang, Rolle, Maps, Agents.
+  ///
+  /// JSON, aber nicht beliebig: was hier stehen darf, legt die Registry in
+  /// `packages/modules/src/profile/spielfelder.ts` je Spiel fest, und
+  /// geschrieben wird nur, was ihr Schema annimmt. Die Spalte ist der
+  /// Speicher, nicht die Regel.
+  ///
+  /// `fieldsVersion` haelt fest, gegen welche Fassung der Registry der Inhalt
+  /// geschrieben wurde. Aendert sich ein Feld, laesst sich am Wert erkennen,
+  /// was noch zu lesen ist - statt es zu raten.
+  fields        Json @default("{}")
+  fieldsVersion Int  @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Ein Spiel steht einmal im Profil. Zweimal dasselbe waere kein Profil,
+  /// sondern ein Fehler bei der Eingabe.
+  @@unique([profileId, gameId])
+  @@index([profileId, sortOrder])
+  /// «Wer spielt dieses Spiel» - die Entdecken-Suche.
+  @@index([gameId])
+}
+
+/// Ein angegebenes Konto auf einer anderen Plattform.
+model MemberSocialLink {
+  id        String        @id @default(cuid())
+  profileId String
+  profile   MemberProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// Schluessel aus der Registry: `twitch`, `steam`, `faceit`, ...
+  platform String
+  /// Was die Person angegeben hat - ein Benutzername oder eine Kennung, nie
+  /// eine vollstaendige Adresse. Die Adresse baut die Registry daraus; so kann
+  /// aus einer Eingabe kein fremdes Ziel werden.
+  handle   String
+
+  /// **Selbst angegeben ist nicht verifiziert.**
+  ///
+  /// Dieses Feld ist heute immer `false`: es gibt keinen Weg, ein fremdes
+  /// Konto zu bestaetigen, und ein eingetippter Name ist kein Nachweis. Die
+  /// Spalte steht trotzdem hier, damit die Anzeige von Anfang an zwischen
+  /// beidem unterscheidet - sonst hiesse es spaeter, alle bisherigen Angaben
+  /// seien geprueft gewesen.
+  verified   Boolean   @default(false)
+  verifiedAt DateTime?
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, platform])
+  @@index([profileId, sortOrder])
+}
+
+/// Ein hervorgehobener Platz im Profil.
+model MemberShowcase {
+  id        String        @id @default(cuid())
+  profileId String
+  profile   MemberProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// Welcher Platz - 0, 1, 2. Die Zahl der Plaetze legt die Registry fest.
+  slot Int
+
+  /// Was dort steht: `game`, `achievement`, `tournament`, `event`, `level`,
+  /// `social`. Schluessel aus der Registry.
+  kind  String
+  /// Worauf es zeigt - eine Spielkennung, eine Turnierkennung, der Schluessel
+  /// einer Auszeichnung. Bedeutung je nach `kind`.
+  ///
+  /// **Ein Verweis, keine Abschrift.** Ein Turniererfolg, der hier stuende,
+  /// waere beim naechsten korrigierten Ergebnis falsch. Zeigt der Verweis ins
+  /// Leere - archiviertes Turnier, geloeschtes Spiel -, wird der Platz still
+  /// uebersprungen statt einen Fehler zu zeigen.
+  refId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, slot])
+  @@index([profileId, slot])
 }

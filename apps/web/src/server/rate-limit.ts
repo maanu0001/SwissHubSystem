@@ -88,6 +88,16 @@ export const RATE_LIMITS = {
   ticketAdmin: { limit: 40, windowMs: 10 * 60 * 1000 },
   /** Anmelden, Team gruenden, einchecken - selten und folgenreich. */
   tournamentParticipate: { limit: 20, windowMs: 10 * 60 * 1000 },
+  /**
+   * Das eigene Profil pflegen.
+   *
+   * Grosszuegig: der Editor speichert je Abschnitt, und wer sein Profil
+   * einrichtet, speichert in zehn Minuten leicht zwanzigmal. Die Grenze
+   * bremst Automatisierung, nicht das Einrichten.
+   */
+  profilWrite: { limit: 90, windowMs: 10 * 60 * 1000 },
+  /** Ein Profilbanner hochladen - jedes Mal ein paar Megabyte. */
+  profilUpload: { limit: 10, windowMs: 30 * 60 * 1000 },
   /** Einladungen: eng, damit die Teamsuche nicht zum Rundmail wird. */
   tournamentInvite: { limit: 30, windowMs: 10 * 60 * 1000 },
   /** Resultate melden und bestaetigen - waehrend eines Turniers zuegig. */
