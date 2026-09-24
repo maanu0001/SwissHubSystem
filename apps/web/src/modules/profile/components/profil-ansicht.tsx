@@ -32,6 +32,18 @@ import { ProfilVitrine } from './profil-vitrine';
 export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): React.JSX.Element {
   const seitenspalte = hatSteckbrief(ansicht.angaben, ansicht.socials) || ansicht.auszeichnungen.length > 0;
 
+  /*
+   * Und dasselbe fuer die Hauptspalte.
+   *
+   * Der Kommentar unten erklaert, warum die Seitenspalte nur Platz bekommt,
+   * wenn sie etwas traegt. Umgekehrt gilt es genauso: hat jemand eine Bio
+   * und Auszeichnungen, aber keine Spiele eingetragen, stuenden links zwei
+   * Drittel Leere und rechts ein schmaler Streifen. Traegt nur eine Seite
+   * etwas, bekommt sie die ganze Breite.
+   */
+  const hauptspalte = (ansicht.spiele?.length ?? 0) > 0 || ansicht.eigenes;
+  const zweispaltig = seitenspalte && hauptspalte;
+
   const leer =
     (ansicht.spiele?.length ?? 0) === 0 &&
     ansicht.vitrine.length === 0 &&
@@ -53,9 +65,16 @@ export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): 
        * daneben lag ein Drittel Leere - ein leeres Profil sah dadurch nicht
        * schlicht aus, sondern kaputt.
        */}
-      <div className={`grid gap-6 ${seitenspalte ? 'lg:grid-cols-3' : ''}`}>
-        <div className={`space-y-6 ${seitenspalte ? 'lg:col-span-2' : ''}`}>
-          {ansicht.spiele ? (
+      <div className={`grid gap-6 ${zweispaltig ? 'lg:grid-cols-3' : ''}`}>
+        <div className={`space-y-6 ${zweispaltig ? 'lg:col-span-2' : ''} ${hauptspalte ? '' : 'hidden'}`}>
+          {/*
+           * Der Leerzustand gehoert nur ins eigene Profil.
+           *
+           * «Noch keine Spiele eingetragen» ist fuer die Besitzerin ein
+           * Hinweis und fuer jeden anderen eine leere Flaeche mit einem
+           * Vorwurf darin - dieselbe Ueberlegung wie oben bei den Turnieren.
+           */}
+          {ansicht.spiele && (ansicht.spiele.length > 0 || ansicht.eigenes) ? (
             <Abschnitt
               titel="Spiele"
               verzug={120}

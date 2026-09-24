@@ -28,10 +28,28 @@ import { defineAction } from '@/server/action';
  * jeder anderen Aktion.
  */
 
-function neuLaden(): void {
+/**
+ * Nach jeder Aenderung: die Seiten neu laden lassen, auf denen sie steht.
+ *
+ * Die oeffentliche Seite ist dabei, und zwar ueber ihren Slug: sie hat
+ * `revalidate = 60` und zeigte eine Aenderung sonst bis zu einer Minute
+ * lang nicht. Wer sein Profil bearbeitet und dann den eigenen Link oeffnet,
+ * soll nicht den alten Stand sehen und sich fragen, ob das Speichern
+ * ueberhaupt geklappt hat.
+ *
+ * Auch die Vorschaukarte - sonst stuende in einer frisch geteilten
+ * Nachricht der alte Name.
+ */
+async function neuLaden(discordId: string): Promise<void> {
   revalidatePath(systemRoutes.profil());
   revalidatePath(systemRoutes.profilBearbeiten());
   revalidatePath(systemRoutes.entdecken());
+
+  const slug = await profile.slugVon(discordId).catch(() => null);
+  if (slug) {
+    revalidatePath(`/u/${slug}`);
+    revalidatePath(`/u/${slug}/karte`);
+  }
 }
 
 export const allgemeinSpeichernAction = defineAction(
@@ -43,7 +61,7 @@ export const allgemeinSpeichernAction = defineAction(
   },
   async ({ ctx, input }) => {
     await profile.speichereAllgemein(ctx.user.discordId, input);
-    neuLaden();
+    await neuLaden(ctx.user.discordId);
     return { ok: true };
   },
 );
@@ -57,7 +75,7 @@ export const gestaltungSpeichernAction = defineAction(
   },
   async ({ ctx, input }) => {
     await profile.speichereGestaltung(ctx.user.discordId, input);
-    neuLaden();
+    await neuLaden(ctx.user.discordId);
     return { ok: true };
   },
 );
@@ -71,7 +89,7 @@ export const socialsSpeichernAction = defineAction(
   },
   async ({ ctx, input }) => {
     await profile.speichereSocials(ctx.user.discordId, input);
-    neuLaden();
+    await neuLaden(ctx.user.discordId);
     return { ok: true };
   },
 );
@@ -85,7 +103,7 @@ export const privatsphaereSpeichernAction = defineAction(
   },
   async ({ ctx, input }) => {
     await profile.speicherePrivatsphaere(ctx.user.discordId, input);
-    neuLaden();
+    await neuLaden(ctx.user.discordId);
     return { ok: true };
   },
 );
@@ -112,7 +130,7 @@ export const spielSpeichernAction = defineAction(
   },
   async ({ ctx, input }) => {
     await profile.speichereSpiel(ctx.user.discordId, input);
-    neuLaden();
+    await neuLaden(ctx.user.discordId);
     return { ok: true };
   },
 );
@@ -126,7 +144,7 @@ export const spielEntfernenAction = defineAction(
   },
   async ({ ctx, input }) => {
     await profile.entferneSpiel(ctx.user.discordId, input.gameId);
-    neuLaden();
+    await neuLaden(ctx.user.discordId);
     return { ok: true };
   },
 );
@@ -140,7 +158,7 @@ export const spieleOrdnenAction = defineAction(
   },
   async ({ ctx, input }) => {
     await profile.ordneSpiele(ctx.user.discordId, input.gameIds);
-    neuLaden();
+    await neuLaden(ctx.user.discordId);
     return { ok: true };
   },
 );
@@ -154,7 +172,7 @@ export const showcaseSpeichernAction = defineAction(
   },
   async ({ ctx, input }) => {
     await profile.speichereShowcase(ctx.user.discordId, input);
-    neuLaden();
+    await neuLaden(ctx.user.discordId);
     return { ok: true };
   },
 );
@@ -163,7 +181,7 @@ export const bannerEntfernenAction = defineAction(
   { name: 'profil.banner.entfernen', selfService: true, rateLimit: 'profilWrite' },
   async ({ ctx }) => {
     await profile.entferneBanner(ctx.user.discordId);
-    neuLaden();
+    await neuLaden(ctx.user.discordId);
     return { ok: true };
   },
 );

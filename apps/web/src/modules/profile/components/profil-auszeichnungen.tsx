@@ -31,7 +31,20 @@ export function ProfilAuszeichnungen({
   }
 
   return (
-    <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+    /*
+     * Das Raster richtet sich nach der Spalte, nicht nach dem Fenster.
+     *
+     * Vorher stand hier `sm:grid-cols-2 xl:grid-cols-3`. Breakpoints messen
+     * aber das Fenster, und diese Liste steht in einer Seitenspalte von rund
+     * 460 Pixeln: bei 1440 griff `xl`, drei Spalten teilten sich die 460 -
+     * und «Fünf Jahre dabei» brach mitten im Wort um. Auf der oeffentlichen
+     * Profilseite, die schmaler ist als das Dashboard, fiel es zuerst auf.
+     *
+     * `auto-fill` mit einer Mindestbreite braucht keine Breakpoints: es
+     * entstehen so viele Spalten, wie mit 13rem hineinpassen - in der
+     * Seitenspalte eine, im breiten Raster drei.
+     */
+    <ul className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-2">
       {auszeichnungen.map((eintrag) => (
         <li
           key={eintrag.key}

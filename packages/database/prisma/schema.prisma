@@ -7268,6 +7268,13 @@ model SpielwahlCommand {
 
 /// Wer eine freiwillige Angabe sehen darf.
 enum ProfileVisibility {
+  /// Auch ohne Anmeldung - ueber den oeffentlichen Profil-Link.
+  ///
+  /// Nachtraeglich dazugekommen und deshalb **nie** eine Voreinstellung:
+  /// wer `MEMBERS` gewaehlt hat, hat fuer angemeldete Mitglieder
+  /// freigegeben und nicht fuer das offene Netz. Diese Stufe entsteht nur,
+  /// wenn jemand sie selbst einstellt.
+  PUBLIC
   /// Jedes angemeldete Mitglied des Servers.
   MEMBERS
   /// Nur die Person selbst.
@@ -7344,6 +7351,17 @@ model MemberProfile {
   visibilitySocials  ProfileVisibility @default(PRIVATE)
   visibilityCareer   ProfileVisibility @default(MEMBERS)
   visibilityActivity ProfileVisibility @default(MEMBERS)
+
+  /// Die stabile Adresse des oeffentlichen Profils: `/u/<slug>`.
+  ///
+  /// Nicht der Discord-Name: der aendert sich, und ein geteilter Link soll
+  /// das ueberleben. Der Slug entsteht aus dem Namen, bleibt danach aber
+  /// stehen, bis jemand ihn selbst aendert.
+  ///
+  /// Nullbar, damit bestehende Profile nicht in einer Migration einen
+  /// geratenen Slug bekommen. Er entsteht, sobald jemand sein Profil
+  /// oeffentlich stellt - dann ist auch klar, dass er gewollt ist.
+  publicSlug String? @unique
 
   /// In «Mitglieder entdecken» auffindbar sein.
   ///

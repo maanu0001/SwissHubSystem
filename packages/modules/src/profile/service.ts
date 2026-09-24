@@ -148,14 +148,45 @@ export interface ProfilAnsicht {
   socials?: socials.SocialAnzeige[];
   vitrine: showcase.ShowcaseKarte[];
   auszeichnungen: auszeichnungen.Auszeichnung[];
+  /**
+   * Die oeffentliche Adresse - nur im eigenen Profil und nur, wenn es
+   * oeffentlich steht. Sie traegt den Teilen-Knopf.
+   */
+  oeffentlicherSlug?: string | null;
   /** Sieht der Betrachter sein eigenes Profil? */
   eigenes: boolean;
   /** Abschnitte, die dieses Mitglied vor anderen verbirgt. */
   verborgen: Abschnitt[];
 }
 
-function sichtbar(stufe: string, eigenes: boolean): boolean {
-  return eigenes || stufe === 'MEMBERS';
+/**
+ * Wer schaut zu.
+ *
+ * `'eigen'` sieht alles - `PRIVATE` verbirgt etwas vor anderen, nicht vor
+ * einem selbst. `'mitglied'` ist jemand Angemeldetes. `'oeffentlich'` ist
+ * niemand: der Aufruf kommt ohne Sitzung ueber `/u/<slug>`.
+ */
+export type Betrachter = 'eigen' | 'mitglied' | 'oeffentlich';
+
+/**
+ * Die eine Stelle, die ueber Sichtbarkeit entscheidet.
+ *
+ * Drei Stufen, drei Betrachter - und die Regel steht genau hier. Verteilte
+ * Pruefungen in den Komponenten waeren die naheliegende Alternative und die
+ * gefaehrlichere: eine Komponente, die eine davon vergisst, zeigt etwas,
+ * das niemand freigegeben hat, und niemandem faellt es auf.
+ *
+ * `PUBLIC` schliesst `MEMBERS` ein: wer es der ganzen Welt zeigt, zeigt es
+ * auch den Angemeldeten.
+ */
+function sichtbar(stufe: string, betrachter: Betrachter): boolean {
+  if (betrachter === 'eigen') {
+    return true;
+  }
+  if (betrachter === 'mitglied') {
+    return stufe === 'MEMBERS' || stufe === 'PUBLIC';
+  }
+  return stufe === 'PUBLIC';
 }
 
 /**
@@ -178,7 +209,21 @@ export async function ladeProfilZeile(discordId: string) {
  * und kein Profil.
  */
 export async function ladeProfil(discordId: string, betrachterId: string): Promise<ProfilAnsicht | null> {
-  const eigenes = discordId === betrachterId;
+  return ladeProfilFuer(discordId, discordId === betrachterId ? 'eigen' : 'mitglied');
+}
+
+/**
+ * Dasselbe Profil, aber fuer einen ausdruecklich benannten Betrachter.
+ *
+ * Gedacht fuer den oeffentlichen Weg, wo es keine Sitzung gibt, aus der
+ * sich «eigen oder nicht» ableiten liesse. `ladeProfil` bleibt der Weg fuer
+ * alles Angemeldete und leitet hierher.
+ */
+export async function ladeProfilFuer(
+  discordId: string,
+  betrachter: Betrachter,
+): Promise<ProfilAnsicht | null> {
+  const eigenes = betrachter === 'eigen';
 
   const [spiegel, zeile] = await Promise.all([
     prisma.discordMemberCache.findUnique({ where: { discordId } }),
@@ -191,9 +236,9 @@ export async function ladeProfil(discordId: string, betrachterId: string): Promi
 
   const profil = zeile ?? { id: null, discordId, ...STANDARD };
 
-  const zeigeAngaben = sichtbar(profil.visibilityProfile, eigenes);
-  const zeigeSpiele = sichtbar(profil.visibilityGames, eigenes);
-  const zeigeSocials = sichtbar(profil.visibilitySocials, eigenes);
+  const zeigeAngaben = sichtbar(profil.visibilityProfile, betrachter);
+  const zeigeSpiele = sichtbar(profil.visibilityGames, betrachter);
+  const zeigeSocials = sichtbar(profil.visibilitySocials, betrachter);
 
   /*
    * Was geladen wird, haengt an der Sichtbarkeit - siehe oben. Was immer
@@ -305,6 +350,9 @@ export async function ladeProfil(discordId: string, betrachterId: string): Promi
     ...(zeigeSocials ? { socials: socialAnzeigen } : {}),
     vitrine,
     auszeichnungen: eigenes ? auszeichnungen.bewerte(grundlage) : erreichte,
+    ...(eigenes && profil.visibilityProfile === 'PUBLIC' && zeile?.publicSlug
+      ? { oeffentlicherSlug: zeile.publicSlug }
+      : {}),
     eigenes,
     verborgen,
   };

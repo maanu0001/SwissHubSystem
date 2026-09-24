@@ -4,6 +4,7 @@ import { systemRoutes } from '@swisshub/shared';
 import type { profile } from '@swisshub/modules';
 import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { LevelRing } from './level-ring';
+import { TeilenKnopf } from './teilen-knopf';
 
 /**
  * Der Profilkopf.
@@ -152,6 +153,9 @@ export function ProfilHero({ ansicht }: { ansicht: profile.ProfilAnsicht }): Rea
                   hoechstlevel={level.hoechstlevel}
                 />
               </div>
+            ) : null}
+            {ansicht.eigenes && ansicht.oeffentlicherSlug ? (
+              <TeilenKnopf slug={ansicht.oeffentlicherSlug} name={identitaet.discordName} />
             ) : null}
             {ansicht.eigenes ? (
               <Link

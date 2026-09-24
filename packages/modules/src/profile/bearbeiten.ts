@@ -12,6 +12,7 @@ import {
   type SocialsEingabe,
 } from './schemas';
 import { SPIELFELDER_VERSION } from './spielfelder';
+import { findeFreienSlug, slugVorschlag } from './slug';
 
 /**
  * Das eigene Profil aendern.
@@ -63,15 +64,82 @@ export async function speichereGestaltung(discordId: string, eingabe: Gestaltung
   });
 }
 
+/**
+ * Die Sichtbarkeit speichern - und beim ersten Mal die oeffentliche Adresse
+ * vergeben.
+ *
+ * Der Slug entsteht hier und nicht in einer Migration: erst wenn jemand
+ * sein Profil oeffentlich stellt, ist klar, dass er eine oeffentliche
+ * Adresse will. Ein in der Migration geratener Slug waere eine Adresse, die
+ * niemand gewaehlt hat - fuer Profile, die gar nicht oeffentlich sind.
+ *
+ * Einmal vergeben, bleibt er stehen. Auch wenn jemand sein Profil wieder
+ * auf «Mitglieder» stellt und spaeter zurueck: ein Link, den er in der
+ * Zwischenzeit verteilt hat, soll danach wieder auf ihn zeigen und nicht
+ * auf jemanden, der sich den frei gewordenen Slug genommen hat.
+ */
 export async function speicherePrivatsphaere(
   discordId: string,
   eingabe: PrivatsphaereEingabe,
 ): Promise<void> {
+  const wirdOeffentlich = eingabe.visibilityProfile === 'PUBLIC';
+
+  const vorhanden = await prisma.memberProfile.findUnique({
+    where: { discordId },
+    select: { publicSlug: true },
+  });
+
+  let slug: string | null = vorhanden?.publicSlug ?? null;
+  if (wirdOeffentlich && !slug) {
+    slug = await vergebeSlug(discordId);
+  }
+
+  const daten = { ...eingabe, ...(slug && !vorhanden?.publicSlug ? { publicSlug: slug } : {}) };
+
   await prisma.memberProfile.upsert({
     where: { discordId },
-    create: { discordId, ...eingabe },
-    update: eingabe,
+    create: { discordId, ...daten },
+    update: daten,
   });
+}
+
+/**
+ * Eine freie oeffentliche Adresse finden.
+ *
+ * Ausgangspunkt ist der selbst gewaehlte Profilname, sonst der
+ * Discord-Name. Taugt keiner von beiden - ein Name aus lauter Zeichen, die
+ * keine Adresse ergeben -, steht am Ende `mitglied-<zufall>`: keine schoene
+ * Adresse, aber eine, und besser als ein Profil, das sich nicht oeffentlich
+ * stellen laesst, weil der Name aus Emoji besteht.
+ */
+async function vergebeSlug(discordId: string): Promise<string | null> {
+  const [zeile, spiegel] = await Promise.all([
+    prisma.memberProfile.findUnique({ where: { discordId }, select: { displayName: true } }),
+    prisma.discordMemberCache.findUnique({ where: { discordId }, select: { displayName: true } }),
+  ]);
+
+  const istFrei = async (kandidat: string): Promise<boolean> =>
+    (await prisma.memberProfile.count({ where: { publicSlug: kandidat } })) === 0;
+
+  for (const name of [zeile?.displayName, spiegel?.displayName]) {
+    const vorschlag = name ? slugVorschlag(name) : null;
+    if (vorschlag) {
+      const frei = await findeFreienSlug(vorschlag, istFrei);
+      if (frei) {
+        return frei;
+      }
+    }
+  }
+
+  // Der Rueckfall. `slice(-6)` der Kennung waere vorhersagbar und liesse
+  // sich durchprobieren - Zufall nicht.
+  for (let versuch = 0; versuch < 5; versuch += 1) {
+    const kandidat = `mitglied-${Math.random().toString(36).slice(2, 8)}`;
+    if (await istFrei(kandidat)) {
+      return kandidat;
+    }
+  }
+  return null;
 }
 
 /**

@@ -19,5 +19,7 @@ export * from './gestaltung';
 export * from './schemas';
 export * from './service';
 export * from './showcase';
+export * from './oeffentlich';
+export * from './slug';
 export * from './socials';
 export * from './spielfelder';

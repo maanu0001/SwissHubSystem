@@ -200,7 +200,7 @@ export const showcaseSchema = z.object({
 
 export type ShowcaseEingabe = z.infer<typeof showcaseSchema>;
 
-const sichtbarkeit = z.enum(['MEMBERS', 'PRIVATE']);
+const sichtbarkeit = z.enum(['PUBLIC', 'MEMBERS', 'PRIVATE']);
 
 export const privatsphaereSchema = z.object({
   visibilityProfile: sichtbarkeit,
