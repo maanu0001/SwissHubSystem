@@ -603,3 +603,88 @@ describe('Die Skripte sagen, was sie meinen', () => {
     }
   });
 });
+
+/**
+ * Was ein Pull Request ausloest - und was niemals.
+ *
+ * Die Validierung lief frueher erst beim Push auf `production`, also nach dem
+ * Zusammenfuehren. Ein fehlerhafter Stand lag dann schon im produktiven
+ * Branch; nur `needs: validate` hat verhindert, dass er auch auf den Server
+ * kam. Repariert werden musste er trotzdem dort.
+ */
+describe('Die Pipeline prueft, bevor zusammengefuehrt wird', () => {
+  const workflow = lese(process.cwd(), '.github/workflows/deploy.yml');
+
+  it('laeuft auch fuer Pull Requests auf den produktiven Branch', () => {
+    expect(workflow).toMatch(/pull_request:\s*\n\s*branches:\s*\n\s*- production/u);
+  });
+
+  it('rollt bei einem Pull Request NICHT aus', () => {
+    // Die eine Zeile, an der das haengt. Ohne sie wuerde jeder geoeffnete
+    // Pull Request `git reset --hard origin/production` auf dem Server
+    // ausfuehren.
+    const deployAb = workflow.indexOf('  deploy:');
+    expect(deployAb).toBeGreaterThan(0);
+    const deploy = workflow.slice(deployAb);
+    expect(deploy).toContain("if: github.event_name == 'push'");
+    expect(deploy).toContain('needs: validate');
+    // Die Bedingung muss VOR den Schritten stehen, also zum Job gehoeren und
+    // nicht zu einem einzelnen Schritt.
+    expect(deploy.indexOf("if: github.event_name == 'push'")).toBeLessThan(deploy.indexOf('steps:'));
+  });
+
+  it('benutzt kein pull_request_target', () => {
+    // `pull_request_target` laeuft mit den Rechten und Geheimnissen des
+    // Zielbranches, fuehrt aber den Code des Pull Requests aus. Das ist die
+    // Uebergabe der Deployment-Schluessel an jeden, der einen PR oeffnen kann.
+    //
+    // Ohne Kommentarzeilen geprueft: der Workflow ERKLAERT in einem Kommentar,
+    // weshalb er es nicht benutzt, und ein Treffer darin waere kein Befund.
+    const ohneKommentare = workflow
+      .split('\n')
+      .filter((zeile) => !zeile.trimStart().startsWith('#'))
+      .join('\n');
+    expect(ohneKommentare).not.toContain('pull_request_target');
+  });
+
+  it('gibt dem Workflow nur Leserechte', () => {
+    expect(workflow).toMatch(/permissions:\s*\n\s*contents: read/u);
+  });
+
+  it('haelt PR-Pruefungen aus der Deployment-Warteschlange heraus', () => {
+    // Eine gemeinsame Gruppe liesse jede PR-Pruefung hinter einem laufenden
+    // Deployment warten.
+    expect(workflow).toContain("format('swisshub-pr-{0}', github.event.number)");
+    expect(workflow).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+  });
+
+  it('vergleicht die Migrationen mit der richtigen Basis', () => {
+    // Im Pull Request gibt es kein `github.event.before`. Ohne Unterscheidung
+    // fiele die Bewertung auf «alle Migrationen» zurueck und verlangte bei
+    // jedem PR einen Wiederherstellungspunkt.
+    expect(workflow).toContain('github.event.pull_request.base.sha');
+    expect(workflow).toContain('github.event.before');
+  });
+
+  it('prueft dasselbe wie `npm run check`', () => {
+    // format:check fehlte. Ein Stand, der lokal an `npm run check` scheitert,
+    // kam damit durch die Pipeline.
+    for (const schritt of ['npm run format:check', 'npm run lint', 'npm run typecheck', 'npm test']) {
+      expect(workflow, `${schritt} fehlt im Workflow`).toContain(schritt);
+    }
+    expect(workflow).toContain('npm run build');
+  });
+
+  it('prueft gegen ein echtes PostgreSQL', () => {
+    expect(workflow).toContain('postgres:16-alpine');
+    expect(workflow).toContain('SWISSHUB_TEST_DATABASE_URL');
+    expect(workflow).toContain('npm run db:deploy');
+  });
+
+  it('gibt dem Validierungsjob keine Deployment-Zugangsdaten', () => {
+    // Der validate-Job laeuft auch fuer Pull Requests. Kaeme ein
+    // Deployment-Secret darin vor, laege es im Zugriff von PR-Code.
+    const validate = workflow.slice(workflow.indexOf('  validate:'), workflow.indexOf('  deploy:'));
+    expect(validate).not.toMatch(/secrets\.DEPLOY_/u);
+  });
+});

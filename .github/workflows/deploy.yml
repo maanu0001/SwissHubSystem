@@ -1,13 +1,40 @@
-name: Deploy SwissHub Production
+name: SwissHub CI und Production Deploy
 
+# Ein Workflow, zwei Anlaesse - und nur einer davon rollt aus.
+#
+# `pull_request` prueft, BEVOR zusammengefuehrt wird. Vorher lief die
+# Validierung erst beim Push auf `production`, also nach dem Merge: ein
+# fehlerhafter Stand lag dann bereits im produktiven Branch, und nur der
+# `needs: validate` im Deploy-Job hat verhindert, dass er auch auf den Server
+# kommt. Repariert werden musste er trotzdem auf `production`.
+#
+# `pull_request` und ausdruecklich NICHT `pull_request_target`: letzteres
+# liefe mit den Rechten und Geheimnissen des Zielbranches, waehrend es den
+# Code des Pull Requests ausfuehrt. Bei einem Fork waere das die Uebergabe
+# der Deployment-Schluessel an jeden, der einen PR oeffnen kann.
 on:
   push:
     branches:
       - production
+  pull_request:
+    branches:
+      - production
+
+# Nur Lesen. Der Deploy-Job braucht kein Schreibrecht am Repository - er
+# spricht ueber SSH mit dem Server. Was nicht vergeben ist, kann auch nicht
+# missbraucht werden.
+permissions:
+  contents: read
 
 concurrency:
-  group: swisshub-production
-  cancel-in-progress: false
+  # Produktion: eines nach dem anderen, und kein laufendes Deployment wird
+  # abgebrochen - ein halb ausgerollter Stand ist schlimmer als ein spaeter.
+  #
+  # Pull Request: eine Gruppe je PR. Ohne die Trennung warteten
+  # PR-Pruefungen hinter Deployments, und ein neuer Commit im PR liesse die
+  # Pruefung des alten weiterlaufen.
+  group: ${{ github.event_name == 'pull_request' && format('swisshub-pr-{0}', github.event.number) || 'swisshub-production' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
@@ -99,13 +126,25 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Migrationen bewerten
         id: migrationen
+        env:
+          # Der Stand, gegen den verglichen wird - je nach Anlass ein anderer.
+          #
+          # Beim Push auf `production`: der Stand davor. Beim Pull Request:
+          # die Basis des Pull Requests. Ohne diese Unterscheidung waere
+          # `github.event.before` im PR leer, die Bewertung fiele auf «alle
+          # Migrationen» zurueck und meldete bei jedem PR einen noetigen
+          # Wiederherstellungspunkt.
+          #
+          # Ueber `env` und nicht direkt in das Skript hinein: ein Ausdruck,
+          # der in eine Shell-Zeile eingesetzt wird, ist eine Einfallstelle.
+          # Hier sind es Commit-Kennungen, aber die Gewohnheit gehoert richtig.
+          VORHER: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -uo pipefail
 
-          # `github.event.before` ist der Stand von `production` vor diesem
-          # Push. Bei einem neuen Branch oder einem erzwungenen Push steht dort
-          # eine Nullkennung - dann wird ohne Vergleich bewertet.
-          vorher='${{ github.event.before }}'
+          # Bei einem neuen Branch oder einem erzwungenen Push steht dort eine
+          # Nullkennung - dann wird ohne Vergleich bewertet.
+          vorher="$VORHER"
           if [ -z "$vorher" ] || [ "$vorher" = '0000000000000000000000000000000000000000' ] \
              || ! git cat-file -e "$vorher^{commit}" 2>/dev/null; then
             echo "Kein vergleichbarer Vorgaengerstand - es werden alle Migrationen bewertet."
@@ -167,6 +206,13 @@ jobs:
       - name: Apply migrations
         run: npm run db:deploy
 
+      # `npm run check` ist format:check && lint && typecheck && test. Die
+      # Formatpruefung fehlte hier - ein Stand, der lokal an `npm run check`
+      # scheitert, kam damit durch die Pipeline. Die vier Schritte bleiben
+      # einzeln, damit im Lauf sichtbar ist, welcher gescheitert ist.
+      - name: Format check
+        run: npm run format:check
+
       - name: Lint
         run: npm run lint
 
@@ -199,6 +245,15 @@ jobs:
     # Ohne `needs` liefe das Deployment parallel zur Prüfung. Erst wenn Lint,
     # Typecheck, Tests und Build durch sind, darf etwas auf den Server.
     needs: validate
+
+    # Und nur nach einem Push auf `production`.
+    #
+    # Der Workflow laeuft jetzt auch fuer Pull Requests. Ohne diese Bedingung
+    # wuerde jeder geoeffnete Pull Request ausrollen - er wuerde `git reset
+    # --hard origin/production` auf dem Server ausfuehren und damit nicht
+    # einmal seinen eigenen Stand, sondern den produktiven neu starten. Die
+    # Bedingung ist die eine Zeile, an der das haengt.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     steps:
