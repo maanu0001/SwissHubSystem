@@ -7531,6 +7531,56 @@ model AwardDefinition {
   @@index([archivedAt, sortOrder])
 }
 
+/// Die Verwaltungsschicht ueber einer **gerechneten** Auszeichnung.
+///
+/// ## Warum eine Schicht und keine Tabelle
+///
+/// Die gerechneten Auszeichnungen haengen an Code: welcher Messwert
+/// gezaehlt wird, ist eine Aussage ueber die Datenquellen dieses Systems.
+/// Sie vollstaendig in die Datenbank zu legen hiesse, den Bauplan dorthin zu
+/// legen - und ein fehlender Schluessel waere dann eine Auszeichnung, die
+/// niemand mehr rechnen kann.
+///
+/// Was sich verwalten laesst, ist die Darstellung und **eine Zahl**:
+/// Beschriftung, Beschreibung, Symbol, Stufe, Schwellenwert, aktiv. Der
+/// Messwert selbst bleibt im Code. Damit gibt es kein Feld, ueber das ein
+/// Ausdruck in die Auswertung gelangen koennte.
+///
+/// Ein fehlender Eintrag heisst «unveraendert». Nur wer etwas aendert,
+/// bekommt eine Zeile - die Vorgaben stehen weiterhin im Code, und ein
+/// spaeter geaenderter Vorgabetext erreicht alle, die ihn nie angefasst
+/// haben.
+model ComputedAwardOverride {
+  /// Der Schluessel der gerechneten Art - `turnier-sieg`, `level-10`.
+  ///
+  /// Kein Fremdschluessel: die Arten stehen im Code. Ein Eintrag zu einem
+  /// Schluessel, den es nicht mehr gibt, wird beim Lesen uebergangen.
+  key String @id
+
+  label       String?
+  description String?
+  /// Name eines Lucide-Symbols aus der festen Liste.
+  symbol      String?
+  /// `bronze`, `silber` oder `gold`.
+  tier        String?
+  /// Der Schwellenwert. Nur bei Bedingungen mit Schwelle wirksam.
+  threshold   Int?
+
+  /// Wird sie noch gerechnet? `false` = sie erscheint in keinem Profil mehr.
+  ///
+  /// Das ist die Antwort auf «loeschen»: eine gerechnete Auszeichnung laesst
+  /// sich nicht loeschen, ohne die Regel zu loeschen, die sie erzeugt. Sie
+  /// laesst sich abschalten - und wieder einschalten, mit demselben Ergebnis
+  /// wie vorher, weil nichts gespeichert war, das verloren gehen koennte.
+  enabled    Boolean   @default(true)
+  /// Aus der Verwaltungsliste genommen. Wirkt wie `enabled = false`.
+  archivedAt DateTime?
+
+  updatedByDiscordId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
 model MemberAward {
   id String @id @default(cuid())
 

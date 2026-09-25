@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import { members, profile } from '@swisshub/modules';
 import { can } from '@swisshub/auth';
-import { NavIcon } from '@/components/layout/nav-icon';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { ArtenVerwaltung } from '@/modules/members/components/auszeichnungs-arten-verwaltung';
+import { BerechneteArtenVerwaltung } from '@/modules/members/components/berechnete-arten-verwaltung';
 
 export const metadata: Metadata = { title: 'Auszeichnungen' };
 export const dynamic = 'force-dynamic';
@@ -18,13 +18,14 @@ export const dynamic = 'force-dynamic';
  * aenderbar. Genau deshalb war im Betrieb keine Verwaltung auffindbar - es
  * gab keine.
  *
- * ## Und warum die gerechneten hier nur dastehen
+ * ## Und was mit den gerechneten geht
  *
  * Turniersiege, Clip-Siege, Level und Zugehoerigkeit entstehen aus echten
- * Daten. Sie lassen sich nicht anlegen, nicht umbenennen und nicht
- * vergeben - sonst zeigte ein Profil Erfolge, die die Daten nicht
- * hergeben. Sie stehen unten trotzdem, weil die zweite Frage nach «wo lege
- * ich eine an» immer «warum finde ich Turniersieg nicht» ist.
+ * Daten. **Vergeben** lassen sie sich deshalb nicht - sonst zeigte ein
+ * Profil Erfolge, die die Daten nicht hergeben. **Pflegen** lassen sie sich
+ * sehr wohl: Beschriftung, Beschreibung, Symbol, Stufe, Schwellenwert und
+ * der Schalter «aktiv». Was gezaehlt wird, bleibt im Code; verwaltbar ist
+ * die Darstellung und eine Zahl.
  */
 export default async function AuszeichnungenPage(): Promise<React.JSX.Element> {
   const context = await requirePagePermission(members.MEMBER_PERMISSIONS.awardsDefine);
@@ -35,7 +36,7 @@ export default async function AuszeichnungenPage(): Promise<React.JSX.Element> {
     mitArchivierten: true,
   });
 
-  const gerechnet = profile.alleAuszeichnungsArten();
+  const gerechnet = await profile.berechneteArtenZurVerwaltung();
 
   return (
     <>
@@ -57,33 +58,11 @@ export default async function AuszeichnungenPage(): Promise<React.JSX.Element> {
         }))}
       />
 
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold">Gerechnete Auszeichnungen</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Diese {gerechnet.length} entstehen aus echten Daten - Turnieren, Clip-Runden, dem Level, dem
-            Beitrittsdatum. Sie lassen sich weder anlegen noch von Hand vergeben, und genau das ist ihr Wert:
-            sie stimmen.
-          </p>
-        </div>
-
-        <ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2">
-          {gerechnet.map((art) => (
-            <li
-              key={art.key}
-              className="flex items-start gap-2.5 rounded-lg border border-dashed border-border px-3 py-2.5"
-            >
-              <span className="grid size-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground [&_svg]:size-3.5">
-                <NavIcon name={art.symbol} />
-              </span>
-              <div className="min-w-0">
-                <p className="truncate text-xs font-medium">{art.label}</p>
-                <p className="mt-0.5 text-[0.7rem] leading-snug text-muted-foreground">{art.beschreibung}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <BerechneteArtenVerwaltung
+        csrfToken={csrfToken}
+        symbole={[...profile.AUSZEICHNUNGS_SYMBOLE]}
+        arten={gerechnet}
+      />
     </>
   );
 }

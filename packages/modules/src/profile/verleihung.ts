@@ -25,6 +25,7 @@
  */
 import { AUDIT_ACTIONS, prisma, safeRecordAudit, type Prisma } from '@swisshub/database';
 import { AppError } from '@swisshub/shared';
+import { auszeichnungsArt } from './auszeichnungen';
 import { vergebbareArt } from './auszeichnungs-arten';
 
 /** Wer verleiht - fuer das Protokoll. */
@@ -69,6 +70,28 @@ export async function verleihungenVon(discordId: string) {
  * sehen beide «hat sie noch nicht», und eine davon laeuft in P2002.
  */
 export async function verleihe(akteur: Verleiher, eingabe: VerleihEingabe): Promise<boolean> {
+  /*
+   * Der ausdrueckliche Riegel gegen gerechnete Auszeichnungen.
+   *
+   * Strukturell gab es ihn schon: in `AwardDefinition` kann kein gerechneter
+   * Schluessel stehen, weil `erstelleAuszeichnungsArt` jeden abweist, den
+   * `auszeichnungsArt` kennt. Das ist eine Pruefung beim **Anlegen** - und
+   * sie greift nicht rueckwirkend. Kaeme eine neue gerechnete Auszeichnung
+   * mit einem Schluessel dazu, den es als verleihbare Art laengst gibt,
+   * waere «Turniersieger» ploetzlich von Hand vergebbar.
+   *
+   * Deshalb hier noch einmal, beim **Vergeben**: kennt die Registry den
+   * Schluessel, ist Schluss. Eine manipulierte Anfrage kommt damit nicht
+   * weiter als eine ordentliche, und das ist der ganze Sinn.
+   */
+  if (auszeichnungsArt(eingabe.key)) {
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage:
+        'Diese Auszeichnung wird gerechnet und lässt sich nicht von Hand vergeben. Sie entsteht aus Turnieren, Clips und dem Level.',
+      internalMessage: `Versuch, die gerechnete Auszeichnung ${eingabe.key} zu verleihen`,
+    });
+  }
+
   const art = await vergebbareArt(eingabe.key);
   if (!art) {
     throw new AppError('VALIDATION_FAILED', {

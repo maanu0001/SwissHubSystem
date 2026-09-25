@@ -319,7 +319,20 @@ export async function ladeProfilFuer(
     jetzt: new Date(),
   };
 
-  const erreichte = auszeichnungen.erreichte(grundlage);
+  /*
+   * Die Arten kommen aus der Verwaltung, nicht direkt aus dem Code.
+   *
+   * `berechneteArten` legt die Anpassungen darueber - Beschriftung, Symbol,
+   * Stufe, Schwellenwert, abgeschaltet. Wer sie hier uebergeht, baut eine
+   * Verwaltung, die sich bedienen laesst und nichts bewirkt.
+   *
+   * Nachgezogen wird dabei nichts: gerechnete Auszeichnungen stehen in
+   * keiner Tabelle, sie entstehen bei jeder Anzeige neu. Ein geaenderter
+   * Schwellenwert wirkt deshalb sofort und ueberall.
+   */
+  const { berechneteArten } = await import('./berechnete-arten');
+  const arten = await berechneteArten();
+  const erreichte = auszeichnungen.erreichte(grundlage, arten);
   const socialAnzeigen = socialZeilen
     .map((zeile) => socials.zeigeSocial(zeile.platform, zeile.handle, zeile.verified))
     .filter((eintrag): eintrag is socials.SocialAnzeige => eintrag !== null);
@@ -432,7 +445,7 @@ export async function ladeProfilFuer(
      */
     auszeichnungen: [
       ...auszeichnungen.ausVerleihungen(verliehen, verliehenArten),
-      ...(eigenes ? auszeichnungen.bewerte(grundlage) : erreichte),
+      ...(eigenes ? auszeichnungen.bewerte(grundlage, arten) : erreichte),
     ],
     ...(eigenes
       ? {

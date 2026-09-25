@@ -263,6 +263,13 @@ export const AUDIT_ACTIONS = {
   // bezahlten Anspruchs, und bei einer Rueckfrage ist nachvollziehbar,
   // seit wann er genutzt wird.
   PROFILE_THEME_CHANGED: 'PROFILE_THEME_CHANGED',
+  /// Eine **gerechnete** Auszeichnung angepasst, abgeschaltet oder
+  /// zurueckgesetzt. Verliehen werden kann sie nie - dafuer gibt es keinen
+  /// Weg, und deshalb auch keine Aktion.
+  PROFILE_COMPUTED_AWARD_EDITED: 'PROFILE_COMPUTED_AWARD_EDITED',
+  PROFILE_COMPUTED_AWARD_ARCHIVED: 'PROFILE_COMPUTED_AWARD_ARCHIVED',
+  PROFILE_COMPUTED_AWARD_RESTORED: 'PROFILE_COMPUTED_AWARD_RESTORED',
+  PROFILE_COMPUTED_AWARD_RESET: 'PROFILE_COMPUTED_AWARD_RESET',
   CLIP_COMPETITION_FINALIZED: 'CLIP_COMPETITION_FINALIZED',
   CLIP_WINNER_REWARDED: 'CLIP_WINNER_REWARDED',
   CLIP_COMPETITION_CANCELLED: 'CLIP_COMPETITION_CANCELLED',

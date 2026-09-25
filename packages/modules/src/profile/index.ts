@@ -14,6 +14,7 @@
 export * from './angaben';
 export * from './auszeichnungen';
 export * from './auszeichnungs-arten';
+export * from './berechnete-arten';
 export * from './bearbeiten';
 export * from './entdecken';
 export * from './gestaltung';

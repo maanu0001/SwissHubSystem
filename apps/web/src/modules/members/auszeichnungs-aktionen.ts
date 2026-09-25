@@ -140,3 +140,123 @@ export const auszeichnungEntfernenAction = defineAction(
     return { entfernt: true };
   },
 );
+
+/**
+ * Die **gerechneten** Auszeichnungen pflegen.
+ *
+ * ## Was hier geht - und was nicht
+ *
+ * Geht: Beschriftung, Beschreibung, Symbol, Stufe, Schwellenwert, aktiv.
+ * Geht nicht: verleihen. Dafuer gibt es keine Aktion, und im Dienst steht
+ * ein ausdruecklicher Riegel - eine manipulierte Anfrage kommt damit nicht
+ * weiter als eine ordentliche.
+ *
+ * ## Warum dieselbe Berechtigung wie bei den verleihbaren
+ *
+ * `members.awards.define` beantwortet die Frage «wer legt fest, welche
+ * Auszeichnungen es gibt und wie sie heissen». Dieselbe Frage, dieselbe
+ * Antwort. Eine zweite Berechtigung daneben waere eine zweite Stelle, an der
+ * jemand dieselbe Zuteilung pflegen muesste.
+ */
+const berechnetSchema = z.object({
+  key: z.string().min(1).max(64),
+  label: z.string().trim().min(2).max(60),
+  beschreibung: z.string().trim().min(3).max(200),
+  symbol: z.string().min(1).max(40),
+  stufe: z.enum(['bronze', 'silber', 'gold']),
+  /**
+   * Der Schwellenwert.
+   *
+   * Eine ganze Zahl und nichts sonst - kein Ausdruck, keine Formel, kein
+   * Feld, in dem etwas anderes stehen koennte. Was gezaehlt wird, steht im
+   * Code und ist von hier aus nicht erreichbar.
+   */
+  schwelle: z.number().int().min(1).max(1_000_000).nullish(),
+  aktiv: z.boolean(),
+});
+
+const berechnetKeySchema = z.object({ key: z.string().min(1).max(64) });
+
+export const berechneteAuszeichnungBearbeitenAction = defineAction(
+  {
+    name: 'members.awards.computed.update',
+    module: 'members',
+    permission: members.MEMBER_PERMISSIONS.awardsDefine,
+    schema: berechnetSchema,
+    rateLimit: 'memberCenter',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await profile.aendereBerechneteArt(
+      input.key,
+      {
+        label: input.label,
+        beschreibung: input.beschreibung,
+        symbol: input.symbol,
+        stufe: input.stufe as profile.Stufe,
+        schwelle: input.schwelle ?? null,
+        aktiv: input.aktiv,
+      },
+      { discordId: ctx.user.discordId, username: ctx.user.username },
+    );
+    neuLaden();
+    return { key: input.key };
+  },
+);
+
+export const berechneteAuszeichnungAbschaltenAction = defineAction(
+  {
+    name: 'members.awards.computed.archive',
+    module: 'members',
+    permission: members.MEMBER_PERMISSIONS.awardsDefine,
+    schema: berechnetKeySchema,
+    rateLimit: 'memberCenter',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await profile.archiviereBerechneteArt(input.key, {
+      discordId: ctx.user.discordId,
+      username: ctx.user.username,
+    });
+    neuLaden();
+    return { key: input.key };
+  },
+);
+
+export const berechneteAuszeichnungZurueckholenAction = defineAction(
+  {
+    name: 'members.awards.computed.restore',
+    module: 'members',
+    permission: members.MEMBER_PERMISSIONS.awardsDefine,
+    schema: berechnetKeySchema,
+    rateLimit: 'memberCenter',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await profile.holeBerechneteArtZurueck(input.key, {
+      discordId: ctx.user.discordId,
+      username: ctx.user.username,
+    });
+    neuLaden();
+    return { key: input.key };
+  },
+);
+
+export const berechneteAuszeichnungZuruecksetzenAction = defineAction(
+  {
+    name: 'members.awards.computed.reset',
+    module: 'members',
+    permission: members.MEMBER_PERMISSIONS.awardsDefine,
+    schema: berechnetKeySchema,
+    rateLimit: 'memberCenter',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await profile.setzeBerechneteArtZurueck(input.key, {
+      discordId: ctx.user.discordId,
+      username: ctx.user.username,
+    });
+    neuLaden();
+    return { key: input.key };
+  },
+);

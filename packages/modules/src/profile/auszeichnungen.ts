@@ -67,6 +67,59 @@ export interface Grundlage {
   jetzt: Date;
 }
 
+/**
+ * Was eine Bedingung lesen darf - als geschlossene Liste.
+ *
+ * ## Warum das eine Liste ist und keine Funktion
+ *
+ * Damit sich Schwellenwerte verwalten lassen, ohne dass jemand Code
+ * eingibt. Eine Auszeichnung sagt «zaehle `turnierSiege` und vergleiche mit
+ * 3» - die Zahl ist eine Einstellung, der Messwert ein Schluessel aus dieser
+ * Liste. Ein frei eingegebener Ausdruck waere eine Ausfuehrungsumgebung in
+ * einem Textfeld, und daran ist nichts zu retten.
+ *
+ * `ganzzahlig` steuert, ob ein Fortschritt («3 von 5») angezeigt wird. Bei
+ * Jahren ergibt er keinen Sinn: «2.7 von 3 Jahren» liest niemand.
+ */
+export interface Messwert {
+  label: string;
+  einheit: string;
+  ganzzahlig: boolean;
+  lies: (g: Grundlage) => number;
+}
+
+export type MesswertKey =
+  | 'jahreDabei'
+  | 'level'
+  | 'turnierTeilnahmen'
+  | 'turnierPodeste'
+  | 'turnierSiege'
+  | 'clipsEingereicht'
+  | 'clipsTreppchen'
+  | 'clipsSiege'
+  | 'clipStimmen'
+  | 'events'
+  | 'spielprofile';
+
+/**
+ * Die Ja-Nein-Merkmale.
+ *
+ * Sie haben keine Schwelle - «Hoechstlevel» ist erreicht oder nicht. Ihr
+ * Schwellenfeld bleibt deshalb in der Verwaltung gesperrt; es gaebe nichts
+ * einzustellen.
+ */
+export type FlaggenKey = 'hoechstlevel' | 'boostet';
+
+export const FLAGGEN: Record<FlaggenKey, { label: string; lies: (g: Grundlage) => boolean }> = {
+  hoechstlevel: { label: 'Höchstlevel erreicht', lies: (g) => g.hoechstlevel },
+  boostet: { label: 'Boostet den Server', lies: (g) => g.boostet },
+};
+
+/** Die Bedingung einer gerechneten Auszeichnung - Daten, kein Code. */
+export type Bedingung =
+  | { art: 'schwelle'; messwert: MesswertKey; wert: number }
+  | { art: 'flagge'; flagge: FlaggenKey };
+
 export interface AuszeichnungsArt {
   key: string;
   label: string;
@@ -75,15 +128,22 @@ export interface AuszeichnungsArt {
   symbol: string;
   stufe: Stufe;
   /**
-   * Trifft zu oder nicht. Rein - keine Datenbank, keine Uhr, kein Zufall.
-   * Dieselbe Grundlage muss immer dasselbe ergeben.
+   * Wann sie erfuellt ist.
+   *
+   * Rein beschreibend: keine Datenbank, keine Uhr, kein Zufall. Dieselbe
+   * Grundlage muss immer dasselbe ergeben - das war schon so, als hier noch
+   * eine Funktion stand; jetzt steht es auch dann fest, wenn ein Admin den
+   * Schwellenwert aendert.
    */
-  erfuellt: (g: Grundlage) => boolean;
+  bedingung: Bedingung;
   /**
-   * Fortschritt als `[erreicht, noetig]`, falls sich das sinnvoll zaehlen
-   * laesst. Nur fuer die Anzeige «3 von 5».
+   * Ausgeschaltet.
+   *
+   * Nur ueber die Verwaltung gesetzt, nie hier in der Liste. Eine
+   * ausgeschaltete Auszeichnung wird nicht mehr gerechnet und erscheint in
+   * keinem Profil - geloescht wird nichts, denn sie kann zurueckkommen.
    */
-  fortschritt?: (g: Grundlage) => [number, number];
+  aus?: boolean;
 }
 
 const TAG = 24 * 60 * 60 * 1000;
@@ -95,6 +155,101 @@ function jahreDabei(g: Grundlage): number {
   return (g.jetzt.getTime() - g.beitrittAm.getTime()) / (365.25 * TAG);
 }
 
+export const MESSWERTE: Record<MesswertKey, Messwert> = {
+  jahreDabei: { label: 'Jahre auf dem Server', einheit: 'Jahre', ganzzahlig: false, lies: jahreDabei },
+  level: { label: 'Level', einheit: 'Level', ganzzahlig: true, lies: (g) => g.level },
+  turnierTeilnahmen: {
+    label: 'Turnierteilnahmen',
+    einheit: 'Turniere',
+    ganzzahlig: true,
+    lies: (g) => g.turniere.teilgenommen,
+  },
+  turnierPodeste: {
+    label: 'Turnier-Podestplätze',
+    einheit: 'Plätze',
+    ganzzahlig: true,
+    lies: (g) => g.turniere.podeste,
+  },
+  turnierSiege: { label: 'Turniersiege', einheit: 'Siege', ganzzahlig: true, lies: (g) => g.turniere.siege },
+  clipsEingereicht: {
+    label: 'Eingereichte Clips',
+    einheit: 'Clips',
+    ganzzahlig: true,
+    lies: (g) => g.clips.eingereicht,
+  },
+  clipsTreppchen: {
+    label: 'Clips auf dem Treppchen',
+    einheit: 'Clips',
+    ganzzahlig: true,
+    lies: (g) => g.clips.treppchen,
+  },
+  clipsSiege: { label: 'Clip-Siege', einheit: 'Siege', ganzzahlig: true, lies: (g) => g.clips.siege },
+  clipStimmen: {
+    label: 'Erhaltene Stimmen für Clips',
+    einheit: 'Stimmen',
+    ganzzahlig: true,
+    lies: (g) => g.clips.erhalteneStimmen,
+  },
+  events: { label: 'Event-Anmeldungen', einheit: 'Events', ganzzahlig: true, lies: (g) => g.events },
+  spielprofile: {
+    label: 'Gepflegte Spielprofile',
+    einheit: 'Spiele',
+    ganzzahlig: true,
+    lies: (g) => g.spielprofile,
+  },
+};
+
+/** Kurzform fuer eine Schwellenbedingung. */
+const ab = (messwert: MesswertKey, wert: number): Bedingung => ({ art: 'schwelle', messwert, wert });
+
+/** Kurzform fuer ein Ja-Nein-Merkmal. */
+const wenn = (flagge: FlaggenKey): Bedingung => ({ art: 'flagge', flagge });
+
+/**
+ * Ist die Bedingung erfuellt?
+ *
+ * Die einzige Stelle, an der aus einer Bedingung ein Ja oder Nein wird -
+ * und sie liest ausschliesslich aus `MESSWERTE` und `FLAGGEN`. Ein
+ * veraenderter Schwellenwert wirkt hier und nirgends sonst.
+ */
+export function bedingungErfuellt(bedingung: Bedingung, g: Grundlage): boolean {
+  return bedingung.art === 'flagge'
+    ? FLAGGEN[bedingung.flagge].lies(g)
+    : MESSWERTE[bedingung.messwert].lies(g) >= bedingung.wert;
+}
+
+/**
+ * Der Fortschritt - oder `null`.
+ *
+ * Gezeigt wird er nur dort, wo er etwas sagt: bei einer Schwelle ueber eins
+ * und einem ganzzahligen Messwert. «0 von 1 Turniersiegen» ist keine
+ * Auskunft, und «2.7 von 3 Jahren» liest niemand.
+ */
+export function bedingungFortschritt(
+  bedingung: Bedingung,
+  g: Grundlage,
+): { erreicht: number; noetig: number } | null {
+  if (bedingung.art !== 'schwelle' || bedingung.wert <= 1) {
+    return null;
+  }
+  const messwert = MESSWERTE[bedingung.messwert];
+  if (!messwert.ganzzahlig) {
+    return null;
+  }
+  return { erreicht: Math.min(messwert.lies(g), bedingung.wert), noetig: bedingung.wert };
+}
+
+/**
+ * Die gerechneten Auszeichnungen.
+ *
+ * ## Warum sie hier stehen und nicht in der Datenbank
+ *
+ * Weil sie an Code haengen: welcher Messwert gezaehlt wird, ist eine
+ * Aussage ueber die Datenquellen dieses Systems. Was sich **verwalten**
+ * laesst, sind Beschriftung, Symbol, Stufe, Schwellenwert und der Schalter
+ * «aktiv» - die Liste selbst bleibt der Bauplan. Die Verwaltung legt eine
+ * Schicht darueber; siehe `berechnete-arten.ts`.
+ */
 const ARTEN: readonly AuszeichnungsArt[] = [
   // --- Zugehoerigkeit -----------------------------------------------------
   // Das Beitrittsdatum kommt aus dem Discord-Spiegel. Fehlt es, gibt es die
@@ -106,7 +261,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Seit über einem Jahr auf dem SwissHub.',
     symbol: 'CalendarCheck',
     stufe: 'bronze',
-    erfuellt: (g) => jahreDabei(g) >= 1,
+    bedingung: ab('jahreDabei', 1),
   },
   {
     key: 'dabei-3',
@@ -114,7 +269,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Seit über drei Jahren auf dem SwissHub.',
     symbol: 'CalendarCheck',
     stufe: 'silber',
-    erfuellt: (g) => jahreDabei(g) >= 3,
+    bedingung: ab('jahreDabei', 3),
   },
   {
     key: 'dabei-5',
@@ -122,7 +277,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Seit über fünf Jahren auf dem SwissHub.',
     symbol: 'CalendarCheck',
     stufe: 'gold',
-    erfuellt: (g) => jahreDabei(g) >= 5,
+    bedingung: ab('jahreDabei', 5),
   },
 
   // --- Level --------------------------------------------------------------
@@ -134,8 +289,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Level 10 erreicht.',
     symbol: 'Sparkles',
     stufe: 'bronze',
-    erfuellt: (g) => g.level >= 10,
-    fortschritt: (g) => [Math.min(g.level, 10), 10],
+    bedingung: ab('level', 10),
   },
   {
     key: 'level-20',
@@ -143,8 +297,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Level 20 erreicht.',
     symbol: 'Sparkles',
     stufe: 'silber',
-    erfuellt: (g) => g.level >= 20,
-    fortschritt: (g) => [Math.min(g.level, 20), 20],
+    bedingung: ab('level', 20),
   },
   {
     key: 'level-max',
@@ -152,7 +305,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Das höchste Level erreicht.',
     symbol: 'Crown',
     stufe: 'gold',
-    erfuellt: (g) => g.hoechstlevel,
+    bedingung: wenn('hoechstlevel'),
   },
 
   // --- Turniere -----------------------------------------------------------
@@ -164,7 +317,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'An einem SwissHub-Turnier teilgenommen.',
     symbol: 'Swords',
     stufe: 'bronze',
-    erfuellt: (g) => g.turniere.teilgenommen >= 1,
+    bedingung: ab('turnierTeilnahmen', 1),
   },
   {
     key: 'turnier-stammgast',
@@ -172,8 +325,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'An fünf Turnieren teilgenommen.',
     symbol: 'Swords',
     stufe: 'silber',
-    erfuellt: (g) => g.turniere.teilgenommen >= 5,
-    fortschritt: (g) => [Math.min(g.turniere.teilgenommen, 5), 5],
+    bedingung: ab('turnierTeilnahmen', 5),
   },
   {
     key: 'turnier-podest',
@@ -181,7 +333,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'In einem Turnier unter die ersten drei gekommen.',
     symbol: 'Medal',
     stufe: 'silber',
-    erfuellt: (g) => g.turniere.podeste >= 1,
+    bedingung: ab('turnierPodeste', 1),
   },
   {
     key: 'turnier-sieg',
@@ -189,7 +341,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Ein SwissHub-Turnier gewonnen.',
     symbol: 'Trophy',
     stufe: 'gold',
-    erfuellt: (g) => g.turniere.siege >= 1,
+    bedingung: ab('turnierSiege', 1),
   },
   {
     key: 'turnier-seriensieger',
@@ -197,8 +349,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Drei Turniere gewonnen.',
     symbol: 'Trophy',
     stufe: 'gold',
-    erfuellt: (g) => g.turniere.siege >= 3,
-    fortschritt: (g) => [Math.min(g.turniere.siege, 3), 3],
+    bedingung: ab('turnierSiege', 3),
   },
 
   // --- Clip of the Week ---------------------------------------------------
@@ -208,7 +359,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Einen Clip für Clip of the Week eingereicht.',
     symbol: 'Clapperboard',
     stufe: 'bronze',
-    erfuellt: (g) => g.clips.eingereicht >= 1,
+    bedingung: ab('clipsEingereicht', 1),
   },
   {
     key: 'clip-treppchen',
@@ -216,7 +367,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Mit einem Clip unter die ersten drei gekommen.',
     symbol: 'Medal',
     stufe: 'silber',
-    erfuellt: (g) => g.clips.treppchen >= 1,
+    bedingung: ab('clipsTreppchen', 1),
   },
   {
     key: 'clip-sieg',
@@ -224,7 +375,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Eine Runde Clip of the Week gewonnen.',
     symbol: 'Clapperboard',
     stufe: 'gold',
-    erfuellt: (g) => g.clips.siege >= 1,
+    bedingung: ab('clipsSiege', 1),
   },
   {
     // Die Stimmen anderer - nicht die eigene Aktivitaet. Deshalb steht hier
@@ -234,8 +385,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Insgesamt 100 Stimmen für eigene Clips erhalten.',
     symbol: 'Heart',
     stufe: 'silber',
-    erfuellt: (g) => g.clips.erhalteneStimmen >= 100,
-    fortschritt: (g) => [Math.min(g.clips.erhalteneStimmen, 100), 100],
+    bedingung: ab('clipStimmen', 100),
   },
 
   // --- Events -------------------------------------------------------------
@@ -247,7 +397,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Für ein SwissHub-Event angemeldet gewesen.',
     symbol: 'CalendarDays',
     stufe: 'bronze',
-    erfuellt: (g) => g.events >= 1,
+    bedingung: ab('events', 1),
   },
   {
     key: 'event-stammgast',
@@ -255,8 +405,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Für zehn Events angemeldet gewesen.',
     symbol: 'CalendarDays',
     stufe: 'silber',
-    erfuellt: (g) => g.events >= 10,
-    fortschritt: (g) => [Math.min(g.events, 10), 10],
+    bedingung: ab('events', 10),
   },
 
   // --- Profil -------------------------------------------------------------
@@ -266,8 +415,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Fünf Spiele im eigenen Profil gepflegt.',
     symbol: 'Gamepad2',
     stufe: 'bronze',
-    erfuellt: (g) => g.spielprofile >= 5,
-    fortschritt: (g) => [Math.min(g.spielprofile, 5), 5],
+    bedingung: ab('spielprofile', 5),
   },
   {
     key: 'booster',
@@ -275,7 +423,7 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     beschreibung: 'Boostet den SwissHub-Server.',
     symbol: 'Rocket',
     stufe: 'gold',
-    erfuellt: (g) => g.boostet,
+    bedingung: wenn('boostet'),
   },
 ];
 
@@ -439,21 +587,21 @@ export function ausVerleihungen(
  * Gold vor Silber vor Bronze, erreichte vor offenen - damit die Reihenfolge
  * nicht von der Reihenfolge der Registry abhaengt.
  */
-export function bewerte(g: Grundlage): Auszeichnung[] {
+export function bewerte(g: Grundlage, arten: readonly AuszeichnungsArt[] = ARTEN): Auszeichnung[] {
   const rang: Record<Stufe, number> = { gold: 0, silber: 1, bronze: 2 };
 
-  return ARTEN.map((art) => {
-    const teil = art.fortschritt?.(g);
-    return {
+  return arten
+    .filter((art) => !art.aus)
+    .map((art) => ({
       key: art.key,
       label: art.label,
       beschreibung: art.beschreibung,
       symbol: art.symbol,
       stufe: art.stufe,
-      erreicht: art.erfuellt(g),
-      fortschritt: teil ? { erreicht: teil[0], noetig: teil[1] } : null,
-    };
-  }).sort((a, b) => {
+      erreicht: bedingungErfuellt(art.bedingung, g),
+      fortschritt: bedingungFortschritt(art.bedingung, g),
+    }))
+    .sort((a, b) => {
     if (a.erreicht !== b.erreicht) {
       return a.erreicht ? -1 : 1;
     }
@@ -462,6 +610,6 @@ export function bewerte(g: Grundlage): Auszeichnung[] {
 }
 
 /** Nur die erreichten - fuer Profilkopf und Vitrine. */
-export function erreichte(g: Grundlage): Auszeichnung[] {
-  return bewerte(g).filter((a) => a.erreicht);
+export function erreichte(g: Grundlage, arten?: readonly AuszeichnungsArt[]): Auszeichnung[] {
+  return bewerte(g, arten).filter((a) => a.erreicht);
 }
