@@ -1,36 +1,44 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
-import { profile } from '@swisshub/modules';
-import { ProfilAnsicht } from '@/modules/profile/components/profil-ansicht';
+import { MitgliedsAkte } from '@/modules/members/components/mitglieds-akte';
 import { requireMember } from '@/server/auth';
 
 export const metadata: Metadata = { title: 'Mein Profil' };
 export const dynamic = 'force-dynamic';
 
 /**
- * Das eigene Community-Profil.
+ * Mein Profil - dieselbe Akte wie bei jedem anderen Mitglied.
  *
- * **Die Kennung kommt aus der Sitzung**, nie aus der Adresszeile - es gibt
- * hier kein Ziel, das sich manipulieren liesse.
+ * ## Warum das hier keine eigene Darstellung mehr ist
  *
- * `requireMember()` und nicht `requirePagePermission(...)`: das eigene Profil
- * haengt an der Anmeldung, nicht an einer Zuteilung. Wer sein Profil sehen
- * will, soll dafuer nicht erst Zugang zur Mitgliederverwaltung brauchen -
- * derselbe Grund, aus dem der Navigationseintrag `baseline` traegt.
+ * Es gab zwei interne Profilansichten: die Akte unter `/members/<id>` und
+ * eine zweite, aufwendig gestaltete unter dieser Adresse. Zwei Layouts fuer
+ * dieselbe Frage - und die Berechtigungen mussten an beiden Stellen richtig
+ * stehen. Auffaellig wird so etwas erst, wenn sie es an einer Stelle nicht
+ * mehr tun.
  *
- * Die Akte unter `/profile` bleibt daneben bestehen: dort steht die
- * Selbstauskunft (Aktivitaet, Tickets, Premium), hier steht, was jemand
- * ueber sich erzaehlt. Zwei Fragen, zwei Seiten.
+ * Die aufwendige Darstellung ist nicht verschwunden, sie hat nur einen Ort:
+ * die **oeffentliche** Profilseite unter `/u/<slug>`. Dorthin fuehrt der
+ * Knopf oben in der Akte - und was dort steht, entscheidet weiterhin die
+ * Privatsphaere-Einstellung und nicht diese Seite.
+ *
+ * ## Was die Akte im eigenen Profil zeigt
+ *
+ * Nur, was dieses Mitglied sehen darf. Der Aggregator entscheidet das
+ * anhand der Sitzung, nicht anhand der Adresse - es gibt hier kein Ziel,
+ * das sich manipulieren liesse, und keine Moderationsdaten, die erst in der
+ * Anzeige ausgeblendet wuerden.
+ *
+ * `requireMember()` und nicht `requirePagePermission(...)`: das eigene
+ * Profil haengt an der Anmeldung, nicht an einer Zuteilung. Wer es sehen
+ * will, soll dafuer nicht erst Zugang zur Mitgliederverwaltung brauchen.
  */
-export default async function MeinProfilPage(): Promise<React.JSX.Element> {
+export default async function MeinProfilPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}): Promise<React.JSX.Element> {
   const context = await requireMember();
-  const ansicht = await profile.ladeProfil(context.user.discordId, context.user.discordId);
+  const { tab } = await searchParams;
 
-  if (!ansicht) {
-    // Ohne Eintrag im Discord-Spiegel gibt es keinen Namen und kein Profil.
-    // Das passiert nur, solange die erste Synchronisierung laeuft.
-    notFound();
-  }
-
-  return <ProfilAnsicht ansicht={ansicht} />;
+  return <MitgliedsAkte discordId={context.user.discordId} tab={tab} basisPfad="/profil" />;
 }

@@ -66,6 +66,39 @@ export const STATUS_LABEL: Record<PremiumSubscriptionStatus, string> = {
   EXPIRED: 'Abgelaufen',
 };
 
+/**
+ * Die Ansprueche, die ein Abonnement gerade gewaehrt.
+ *
+ * ## Warum das hier steht und nicht in jedem Aufrufer
+ *
+ * Die Regel ist zweiteilig - das Abonnement muss das offene sein, und sein
+ * Zustand muss Ansprueche gewaehren - und sie entscheidet darueber, wer die
+ * Premium-Rolle auf Discord bekommt, wer ein Stuebli hat und (seit den
+ * Profil-Themes) wer sein Profil gestalten darf.
+ *
+ * Drei Aufrufer, die das je fuer sich zusammensetzen, geben spaetestens beim
+ * vierten Zustand drei verschiedene Antworten. Einer davon laesst dann
+ * jemanden ein Premium-Merkmal behalten, das er nicht mehr bezahlt.
+ *
+ * Rein: die Frage «welches Abonnement ist das offene» beantwortet der
+ * Aufrufer, weil er sie unterschiedlich stellt - mal ueber die Benutzer-,
+ * mal ueber die Discord-Kennung.
+ */
+export function anspruecheVon(
+  subscription: {
+    status: PremiumSubscriptionStatus;
+    product: { entitlements: PremiumEntitlement[] };
+  } | null,
+): Set<PremiumEntitlement> {
+  const menge = new Set<PremiumEntitlement>();
+  if (subscription && grantsEntitlements(subscription.status)) {
+    for (const anspruch of subscription.product.entitlements) {
+      menge.add(anspruch);
+    }
+  }
+  return menge;
+}
+
 /** Hat das Abonnement diesen Anspruch - und gilt er gerade? */
 export function hasEntitlement(
   subscription: { status: PremiumSubscriptionStatus; product: { entitlements: PremiumEntitlement[] } },

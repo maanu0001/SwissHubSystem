@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Bot, ExternalLink, Lock, ShieldAlert, UserX } from 'lucide-react';
+import { ArrowLeft, Bot, ExternalLink, Lock, Pencil, ShieldAlert, UserX } from 'lucide-react';
 import { can } from '@swisshub/auth';
 import {
   clips,
@@ -9,10 +9,11 @@ import {
   jail,
   level,
   members,
+  profile,
   verification,
 } from '@swisshub/modules';
 import { resolveGuildId } from '@swisshub/discord';
-import { formatDate, formatDateTime, snowflakeSchema } from '@swisshub/shared';
+import { formatDate, formatDateTime, snowflakeSchema, systemRoutes } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,6 +30,7 @@ import { SourceBadge } from '@/modules/moderation/components/source-badge';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { ReleaseJailButton } from '@/modules/jail/components/release-jail-button';
 import { NotesPanel } from '@/modules/members/components/notes-panel';
+import { ProfilFreigebenKnopf, TeilenKnopf } from '@/modules/profile/components/teilen-knopf';
 import { RoleManager } from '@/modules/members/components/role-manager';
 import { XpPanel } from '@/modules/members/components/xp-panel';
 import { ClipBilanzBlock } from '@/modules/clips/components/clip-bilanz';
@@ -218,6 +220,19 @@ export async function MitgliedsAkte({
    */
   const kartenAkzent = selbst && darfEigeneKarte ? (await level.readLevelSettings()).accentColor : null;
 
+  /*
+   * Der eigene oeffentliche Schluessel - oder `null`.
+   *
+   * `slugVon` gibt ihn nur heraus, wenn das Profil tatsaechlich oeffentlich
+   * steht; ein Slug allein genuegt nicht. Daraus ergibt sich oben die
+   * Entscheidung zwischen «Teilen» und «Freigeben», ohne dass diese
+   * Komponente die Sichtbarkeitsregel ein zweites Mal kennt.
+   *
+   * Nur im eigenen Profil geladen - in einer fremden Akte fuehrt der Weg
+   * zum oeffentlichen Profil ueber den Reiter «Community-Profil».
+   */
+  const eigenerSlug = selbst ? await profile.slugVon(basic.discordId).catch(() => null) : null;
+
   // Die Rollenliste braucht Discord und ist nur fuer die Verwaltung da.
   const rollenAngebot = capabilities.canManageRoles
     ? await members
@@ -234,6 +249,42 @@ export async function MitgliedsAkte({
         description={`@${basic.username}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {/*
+             * Die eigenen Wege.
+             *
+             * Sie standen frueher in der zweiten, aufwendigen Profilansicht
+             * unter «Mein Profil». Die gibt es intern nicht mehr - also
+             * stehen sie hier, wo man sein Profil jetzt nachschlaegt.
+             * Andernfalls waere mit der alten Ansicht auch der Teilen-Knopf
+             * verschwunden.
+             */}
+            {selbst ? (
+              <>
+                <Link
+                  href={systemRoutes.profilBearbeiten()}
+                  className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+                >
+                  <Pencil aria-hidden="true" />
+                  Profil bearbeiten
+                </Link>
+                {eigenerSlug ? (
+                  <>
+                    <a
+                      href={`/u/${eigenerSlug}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+                    >
+                      <ExternalLink aria-hidden="true" />
+                      Öffentliche Seite
+                    </a>
+                    <TeilenKnopf slug={eigenerSlug} name={basic.displayName} variante="dezent" />
+                  </>
+                ) : (
+                  <ProfilFreigebenKnopf />
+                )}
+              </>
+            ) : null}
             {can(context, 'members.view') ? (
               <Link href="/members" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
                 <ArrowLeft aria-hidden="true" />

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, EyeOff, FileText, UserSearch } from 'lucide-react';
+import { ArrowRight, EyeOff } from 'lucide-react';
 import { systemRoutes } from '@swisshub/shared';
 import type { profile } from '@swisshub/modules';
 import { Abschnitt } from './abschnitt';
@@ -8,6 +8,7 @@ import { ProfilHero } from './profil-hero';
 import { ProfilSpiele } from './profil-spiele';
 import { ProfilSteckbrief, hatSteckbrief } from './profil-steckbrief';
 import { ProfilVitrine } from './profil-vitrine';
+import '../profil-themes.css';
 
 /**
  * Die ganze Profilseite.
@@ -52,6 +53,24 @@ export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): 
 
   return (
     <div className="space-y-6" style={ansicht.gestaltung.variablen as React.CSSProperties}>
+      {/*
+       * Die Kulisse des Themes.
+       *
+       * Drei leere Lagen - was sie zeigen und wie sie sich bewegen, steht
+       * in `profil-themes.css`, ausgewaehlt ueber den Klassennamen. Hier
+       * gibt es bewusst kein `style` mit Farben: die Kulisse kommt aus
+       * einer Datei, die Klasse aus der Registry, und aus der Datenbank
+       * kommt nur ein Schluessel.
+       *
+       * `aria-hidden`, weil sie nichts erzaehlt. Ein Screenreader soll
+       * drei leere Kaesten nicht vorlesen.
+       */}
+      <div className={`pt-kulisse ${ansicht.gestaltung.kulisse}`} aria-hidden="true">
+        <div className="pt-lage pt-lage-1" />
+        <div className="pt-lage pt-lage-2" />
+        <div className="pt-lage pt-lage-3" />
+      </div>
+
       <ProfilHero ansicht={ansicht} />
 
       {leer && ansicht.eigenes ? <Einladung /> : null}
@@ -114,42 +133,7 @@ export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): 
           Teile dieses Profils sind privat.
         </p>
       ) : null}
-
-      {ansicht.eigenes ? <EigeneWege /> : null}
     </div>
-  );
-}
-
-/**
- * Die beiden Seiten, die neben dem Profil liegen.
- *
- * Sie standen frueher als eigene Eintraege in der Seitenleiste - drei
- * Profil-Eintraege nebeneinander fuer eine Person, von denen man zwei im
- * Jahr einmal oeffnet. Hier stehen sie richtig: die Suchliste dort, wo man
- * einstellt, ob man in ihr auftaucht, und die Selbstauskunft dort, wo man
- * ohnehin nach den eigenen Daten sieht.
- *
- * Nur im eigenen Profil - im fremden waeren es zwei Verweise auf Seiten
- * ueber jemand anderen.
- */
-function EigeneWege(): React.JSX.Element {
-  return (
-    <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-[hsl(var(--profil-rand))] pt-5 text-sm">
-      <Link
-        href={systemRoutes.entdecken()}
-        className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <UserSearch className="size-4" aria-hidden="true" />
-        Mitglieder entdecken
-      </Link>
-      <Link
-        href={systemRoutes.meineDaten()}
-        className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <FileText className="size-4" aria-hidden="true" />
-        Meine Daten
-      </Link>
-    </nav>
   );
 }
 

@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
-import { profile } from '@swisshub/modules';
+import { members, profile } from '@swisshub/modules';
 import { PageHeader } from '@/components/shared/page-header';
 import { Pagination } from '@/components/shared/pagination';
 import { EntdeckenFilter } from '@/modules/profile/components/entdecken-filter';
 import { EntdeckenKarte } from '@/modules/profile/components/entdecken-karte';
-import { requireMember } from '@/server/auth';
+import { requirePagePermission } from '@/server/auth';
 
 export const metadata: Metadata = { title: 'Mitglieder entdecken' };
 export const dynamic = 'force-dynamic';
@@ -19,11 +19,13 @@ export const dynamic = 'force-dynamic';
  * «Mitglieder» - mit der passenden Berechtigung. Hier geht es um die Frage
  * «mit wem koennte ich spielen».
  *
- * ## Warum `requireMember()` und keine Berechtigung
+ * ## Wer die Seite sieht
  *
- * Die Community soll sich finden koennen. Eine Berechtigung dafuer hiesse,
- * dass ein gewoehnliches Mitglied die anderen nicht sieht - und dann
- * braeuchte niemand ein Profil.
+ * Wer `members.view` hat. Frueher jedes angemeldete Mitglied - die Liste
+ * war als Weg gedacht, wie die Community sich findet. Diese Funktion gibt
+ * es in der Anwendung nicht mehr; Mitglieder finden einander ueber geteilte
+ * Profil-Links, und die brauchen keine Anmeldung. Die Begruendung steht
+ * unten an der Pruefung.
  *
  * Gesucht, gefiltert und geteilt wird in der Datenbank ueber den
  * vollstaendigen Mitgliederbestand; siehe `profil/entdecken.ts`. Diese Seite
@@ -34,7 +36,38 @@ export default async function EntdeckenPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }): Promise<React.JSX.Element> {
-  await requireMember();
+  /*
+   * Nicht mehr `requireMember()`.
+   *
+   * ## Was hier vorher offen stand
+   *
+   * Jedes angemeldete Mitglied konnte diese Liste aufrufen und darin nach
+   * Sprache, Plattform, Spielzeit und Spielen suchen. Das war die Absicht
+   * hinter «Mitglieder entdecken» - und es ist die Absicht, die jetzt
+   * nicht mehr gilt: Mitglieder sollen einander hier nicht mehr
+   * durchblaettern.
+   *
+   * ## Warum `members.view` und keine neue Berechtigung
+   *
+   * Weil es dieselbe Frage ist wie in der Mitgliederverwaltung - «wer ist
+   * auf diesem Server» -, nur mit weniger Daten. Ein eigener Schluessel
+   * waere eine zweite Stelle, an der jemand dieselbe Zuteilung pflegen
+   * muesste, und die Beschriftungen wuerden auseinanderlaufen.
+   *
+   * ## Warum die Seite nicht geloescht wurde
+   *
+   * Sie ist nicht redundant: `/members` beantwortet «wer ist das» mit
+   * Rollen, Jails und Verlauf. Diese Seite beantwortet «wer spielt abends
+   * Valheim auf dem PC» - eine Frage, die die Mitgliederverwaltung nicht
+   * stellt. Fuer die Moderation bleibt das nuetzlich, und der
+   * Privatsphaere-Schalter «in der Suchliste auftauchen» behaelt damit
+   * seine Bedeutung.
+   *
+   * Ausgeblendet wird ausserdem nicht nur die Navigation: wer die Adresse
+   * kennt und die Berechtigung nicht hat, wird hier weggeschickt, bevor
+   * eine Zeile geladen ist.
+   */
+  await requirePagePermission(members.MEMBER_PERMISSIONS.view);
   const roh = await searchParams;
 
   const einzeln = (key: string): string | null => {

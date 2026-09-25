@@ -251,6 +251,11 @@ export const AUDIT_ACTIONS = {
   PROFILE_AWARD_TYPE_RESTORED: 'PROFILE_AWARD_TYPE_RESTORED',
   PROFILE_AWARD_TYPE_DELETED: 'PROFILE_AWARD_TYPE_DELETED',
   PROFILE_ADMIN_EDITED: 'PROFILE_ADMIN_EDITED',
+  // Ein Premium-Theme aktiviert oder abgelegt. Nicht jede Profilaenderung
+  // gehoert ins Protokoll - diese schon: sie ist der sichtbare Teil eines
+  // bezahlten Anspruchs, und bei einer Rueckfrage ist nachvollziehbar,
+  // seit wann er genutzt wird.
+  PROFILE_THEME_CHANGED: 'PROFILE_THEME_CHANGED',
   CLIP_COMPETITION_FINALIZED: 'CLIP_COMPETITION_FINALIZED',
   CLIP_WINNER_REWARDED: 'CLIP_WINNER_REWARDED',
   CLIP_COMPETITION_CANCELLED: 'CLIP_COMPETITION_CANCELLED',

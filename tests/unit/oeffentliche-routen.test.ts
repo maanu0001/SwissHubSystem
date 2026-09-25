@@ -93,8 +93,16 @@ describe('Oeffentliche Routen', () => {
      * Geprueft wird deshalb beides: dass der Knopf nicht mehr an einem Slug
      * haengt, und dass es den Weg zur Einstellung gibt.
      */
-    const hero = readFileSync(
-      join(process.cwd(), 'apps/web/src/modules/profile/components/profil-hero.tsx'),
+    /*
+     * Der Knopf ist umgezogen.
+     *
+     * «Mein Profil» zeigt intern die Mitgliedsakte und nicht mehr die
+     * gestaltete Profilansicht - also steht er dort. Die Bedingung bleibt
+     * dieselbe: ein Slug entscheidet zwischen «Teilen» und «Freigeben»,
+     * aber nicht darueber, ob es den Weg ueberhaupt gibt.
+     */
+    const akte = readFileSync(
+      join(process.cwd(), 'apps/web/src/modules/members/components/mitglieds-akte.tsx'),
       'utf8',
     );
     const knopf = readFileSync(
@@ -102,11 +110,44 @@ describe('Oeffentliche Routen', () => {
       'utf8',
     );
 
-    expect(hero, 'Der Knopf haengt wieder am Slug').not.toMatch(
-      /ansicht\.eigenes && ansicht\.oeffentlicherSlug/u,
-    );
-    expect(hero).toContain('ProfilFreigebenKnopf');
+    expect(akte, 'Im eigenen Profil fehlt der Weg zum Teilen').toContain('TeilenKnopf');
+    expect(akte, 'Ohne oeffentliches Profil fehlt der Weg zur Einstellung').toContain('ProfilFreigebenKnopf');
     expect(knopf).toContain('abschnitt=privatsphaere');
+
+    // Und die gestaltete Ansicht traegt ihn nicht mehr - sonst gaebe es ihn
+    // an zwei Stellen, und eine davon zeigt fremde Profile.
+    const hero = readFileSync(
+      join(process.cwd(), 'apps/web/src/modules/profile/components/profil-hero.tsx'),
+      'utf8',
+    );
+    expect(hero, 'Der Teilen-Knopf steht wieder im Profilkopf').not.toContain('TeilenKnopf');
+  });
+
+  it('zeigt «Mein Profil» als Akte und nicht als zweite Profilansicht', () => {
+    /*
+     * Es gab zwei interne Profilansichten - `/profil` mit der gestalteten
+     * und `/profile` mit der Akte, beide mit dem Titel «Mein Profil». Zwei
+     * Layouts fuer dieselbe Frage heisst: Berechtigungen muessen an zwei
+     * Stellen richtig stehen.
+     */
+    const mein = readFileSync(join(APP, '(app)/profil/page.tsx'), 'utf8');
+    expect(mein, '«Mein Profil» rendert wieder eine eigene Ansicht').toContain('MitgliedsAkte');
+    expect(mein).not.toContain('ProfilAnsicht');
+
+    const alt = readFileSync(join(APP, '(app)/profile/page.tsx'), 'utf8');
+    expect(alt, 'Die alte Adresse fuehrt nicht mehr weiter').toContain('permanentRedirect');
+  });
+
+  it('sperrt «Mitglieder entdecken» serverseitig', () => {
+    /*
+     * Eine versteckte Navigation ist keine Sperre: wer die Adresse kennt,
+     * tippt sie ein. Geprueft wird deshalb, dass die Seite eine
+     * Berechtigung verlangt und nicht nur eine Anmeldung.
+     */
+    const seite = readFileSync(join(APP, '(app)/entdecken/page.tsx'), 'utf8');
+    expect(seite, 'Die Seite steht wieder jedem Mitglied offen').not.toMatch(/await requireMember\(\)/u);
+    expect(seite).toContain('requirePagePermission');
+    expect(seite).toContain('MEMBER_PERMISSIONS.view');
   });
 
   it('laesst die oeffentliche Profilseite nicht ewig alt werden', () => {

@@ -7,7 +7,8 @@ import { ErrorState } from '@/components/shared/states';
 import { ZurueckLink } from '@/components/shared/zurueck-link';
 import { MomenteVerwaltung } from '@/modules/wrapped/components/momente-verwaltung';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
-import { ladeWrappedStand } from '@/server/wrapped';
+import { ModulNavigation } from '@/components/shared/modul-navigation';
+import { ladeWrappedStand, wrappedBereiche } from '@/server/wrapped';
 
 export const metadata: Metadata = { title: 'Community Moments' };
 export const dynamic = 'force-dynamic';
@@ -37,7 +38,16 @@ export default async function WrappedMomentePage({
 
   return (
     <div className="space-y-5">
+      {/* Der Rückweg bleibt: wer aus einer Ausgabe hierherkam, will dorthin
+          zurück. Die Leiste darunter ist etwas anderes - sie zeigt, wo man
+          im Modul überhaupt ist. */}
       <ZurueckLink von={von} fallback={systemRoutes.wrappedAusgaben()} fallbackLabel="Ausgaben" />
+
+      <ModulNavigation
+        eintraege={wrappedBereiche(context)}
+        aktiv="momente"
+        label="Bereiche in SwissHub Wrapped"
+      />
 
       <PageHeader
         title="Community Moments"

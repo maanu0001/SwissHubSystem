@@ -7342,6 +7342,19 @@ model MemberProfile {
   theme  String @default("swisshub")
   accent String @default("rot")
 
+  /// Das Premium-Theme der **oeffentlichen** Profilseite.
+  ///
+  /// `null` heisst «SwissHub Classic» - dann gelten `theme` und `accent`
+  /// oben unveraendert. Ein Schluessel aus `profil/profil-themes.ts`, nie
+  /// eine Farbe und nie CSS.
+  ///
+  /// Die Spalte bleibt gefuellt, wenn ein Abonnement auslaeuft. Ob sie
+  /// wirkt, entscheidet beim Zeichnen `wirksamesTheme` anhand der
+  /// Ansprueche - so bekommt jemand nach der Rueckkehr seine Wahl zurueck,
+  /// ohne sie erneut treffen zu muessen, und es braucht keinen Zeitgeber,
+  /// der beim Ablaufen aufraeumt.
+  premiumTheme String?
+
   // --- Privatsphaere ---------------------------------------------------------
   // Je Abschnitt und nicht pauschal: wer seine Spiele zeigen will, muss dafuer
   // nicht auch seine Socials zeigen. Voreinstellung ist zurueckhaltend - was

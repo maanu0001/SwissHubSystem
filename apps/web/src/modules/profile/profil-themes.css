@@ -1,0 +1,339 @@
+/*
+ * Die Kulissen der Profil-Themes.
+ *
+ * ## Warum CSS und kein JavaScript
+ *
+ * Jede Bewegung hier laeuft ueber `transform` und `opacity` - die beiden
+ * Eigenschaften, die der Browser auf der GPU animiert, ohne Layout oder
+ * Paint neu zu rechnen. Kein Zeitgeber, kein Zustand, kein Re-Render. Eine
+ * Profilseite, die offen liegen bleibt, kostet damit nichts ausser ein paar
+ * Prozent GPU.
+ *
+ * `will-change` steht bewusst nirgends: es zwingt den Browser zu einer
+ * eigenen Ebene je Element, und bei sechs Kulissenlagen ist das mehr
+ * Speicher als Gewinn.
+ *
+ * ## Warum die Kulisse hinter allem liegt
+ *
+ * `position: fixed` und `z-index: -1`: die Kulisse fuellt den Bildschirm,
+ * scrollt nicht mit und liegt hinter dem Inhalt. Damit bleibt sie beim
+ * Scrollen ruhig - eine mitscrollende Animation waere das Gegenteil von
+ * ruhig - und kann nie einen Klick abfangen (`pointer-events: none`).
+ *
+ * ## Lesbarkeit geht vor
+ *
+ * Alle Lagen liegen unter 0.5 Deckkraft und tragen keine Schrift. Ueber
+ * ihnen liegt ein Verlauf zur Flaechenfarbe, damit der Text seinen
+ * Kontrast behaelt, egal wo die Bewegung gerade steht.
+ */
+
+.pt-kulisse {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background-color: hsl(var(--profil-flaeche));
+}
+
+/*
+ * Die Kachel-Variante.
+ *
+ * In der Auswahl ist die Kulisse 112 Pixel hoch und trägt keinen Text -
+ * der Kontrastschleier hätte dort nichts zu schützen und wusch stattdessen
+ * jedes Theme zu demselben Dunkelgrau. Ohne ihn ist auf der Kachel zu
+ * sehen, was das Theme ausmacht.
+ */
+.pt-kulisse--kachel::after {
+  display: none;
+}
+
+/* Der Schleier über allen Kulissen: hält den Textkontrast konstant. */
+.pt-kulisse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    hsl(var(--profil-flaeche) / 0.25) 0%,
+    hsl(var(--profil-flaeche) / 0.82) 100%
+  );
+}
+
+.pt-lage {
+  position: absolute;
+  inset: -20%;
+}
+
+/* --- SwissHub Classic ----------------------------------------------------
+ * Keine Bewegung. Der Standard soll nicht wie ein abgeschaltetes Premium
+ * aussehen, sondern wie eine ruhige Entscheidung: ein weicher Schein in der
+ * Akzentfarbe des Mitglieds.
+ */
+.pt-classic .pt-lage-1 {
+  background:
+    radial-gradient(70% 55% at 50% 0%, hsl(var(--profil-akzent) / 0.16) 0%, transparent 65%),
+    linear-gradient(180deg, hsl(var(--profil-flaeche)) 0%, hsl(var(--profil-flaeche)) 100%);
+}
+
+/* --- Crimson Pulse -------------------------------------------------------
+ * Zwei Lichtlinien, die sich kreuzen, und ein Schein, der atmet. Die Linien
+ * sind schmale Verläufe, die langsam quer wandern - kein Blitzen, kein
+ * Blinken.
+ */
+.pt-crimson .pt-lage-1 {
+  background: radial-gradient(60% 50% at 30% 15%, hsl(358 85% 45% / 0.32) 0%, transparent 70%);
+  animation: pt-atmen 14s ease-in-out infinite;
+}
+.pt-crimson .pt-lage-2 {
+  background: repeating-linear-gradient(
+    105deg,
+    transparent 0 120px,
+    hsl(358 90% 60% / 0.07) 120px 122px,
+    transparent 122px 240px
+  );
+  animation: pt-schieben-x 26s linear infinite;
+}
+.pt-crimson .pt-lage-3 {
+  background: radial-gradient(45% 40% at 80% 85%, hsl(348 70% 40% / 0.26) 0%, transparent 70%);
+  animation: pt-atmen 18s ease-in-out infinite reverse;
+}
+
+/* --- Midnight Aurora -----------------------------------------------------
+ * Drei farbige Schleier mit sehr weichen Kanten, die unabhängig voneinander
+ * driften und dabei leicht kippen. Die Überlagerung ergibt die Farbwechsel -
+ * animiert wird keine einzige Farbe, nur Position und Neigung.
+ */
+.pt-aurora .pt-lage-1 {
+  background: radial-gradient(50% 32% at 30% 25%, hsl(168 75% 45% / 0.34) 0%, transparent 72%);
+  animation: pt-driften-a 24s ease-in-out infinite;
+}
+.pt-aurora .pt-lage-2 {
+  background: radial-gradient(46% 30% at 70% 35%, hsl(262 75% 60% / 0.3) 0%, transparent 72%);
+  animation: pt-driften-b 31s ease-in-out infinite;
+}
+.pt-aurora .pt-lage-3 {
+  background: radial-gradient(40% 26% at 50% 70%, hsl(198 80% 55% / 0.24) 0%, transparent 72%);
+  animation: pt-driften-a 38s ease-in-out infinite reverse;
+}
+
+/* --- Cyber Blue ----------------------------------------------------------
+ * Ein perspektivisches Raster, das nach hinten wandert, plus eine Scanlinie,
+ * die einmal je Durchlauf darüberläuft. Das Raster bewegt sich über
+ * `background-position` seines eigenen Musters - eine einzige Lage statt
+ * hundert Linienelemente.
+ */
+.pt-cyber .pt-lage-1 {
+  background:
+    linear-gradient(hsl(196 92% 58% / 0.09) 1px, transparent 1px) 0 0 / 100% 46px,
+    linear-gradient(90deg, hsl(196 92% 58% / 0.07) 1px, transparent 1px) 0 0 / 46px 100%;
+  animation: pt-raster 18s linear infinite;
+}
+.pt-cyber .pt-lage-2 {
+  background: radial-gradient(55% 45% at 50% 0%, hsl(196 95% 50% / 0.26) 0%, transparent 70%);
+  animation: pt-atmen 16s ease-in-out infinite;
+}
+.pt-cyber .pt-lage-3 {
+  background: linear-gradient(180deg, transparent 0%, hsl(190 100% 65% / 0.12) 50%, transparent 100%);
+  height: 30%;
+  inset: -30% 0 auto 0;
+  animation: pt-scan 11s linear infinite;
+}
+
+/* --- Emerald Matrix ------------------------------------------------------
+ * Partikel, die nach unten treiben: zwei Punktraster unterschiedlicher
+ * Dichte, die mit verschiedenem Tempo fallen. Das erzeugt Tiefe, ohne dass
+ * ein einziges Partikel als Element existiert.
+ */
+.pt-matrix .pt-lage-1 {
+  background-image: radial-gradient(hsl(150 76% 50% / 0.3) 1px, transparent 1.6px);
+  background-size: 54px 54px;
+  animation: pt-fallen 22s linear infinite;
+}
+.pt-matrix .pt-lage-2 {
+  background-image: radial-gradient(hsl(150 70% 60% / 0.17) 1px, transparent 1.4px);
+  background-size: 31px 31px;
+  animation: pt-fallen 13s linear infinite;
+}
+.pt-matrix .pt-lage-3 {
+  background: radial-gradient(60% 50% at 50% 10%, hsl(152 70% 30% / 0.3) 0%, transparent 72%);
+  animation: pt-atmen 20s ease-in-out infinite;
+}
+
+/* --- Violet Nebula -------------------------------------------------------
+ * Räumliche Tiefe aus zwei Ebenen: eine grosse, langsame Wolke und darüber
+ * ein feines Sternenfeld, das sich schneller und gegenläufig bewegt. Das ist
+ * Parallaxe ohne Scroll-Handler - beide Ebenen laufen einfach verschieden
+ * schnell.
+ */
+.pt-nebula .pt-lage-1 {
+  background:
+    radial-gradient(48% 40% at 35% 30%, hsl(276 82% 55% / 0.34) 0%, transparent 72%),
+    radial-gradient(42% 36% at 72% 62%, hsl(310 70% 52% / 0.24) 0%, transparent 72%);
+  animation: pt-driften-b 34s ease-in-out infinite;
+}
+.pt-nebula .pt-lage-2 {
+  background-image: radial-gradient(hsl(0 0% 100% / 0.5) 0.8px, transparent 1.2px);
+  background-size: 96px 96px;
+  opacity: 0.5;
+  animation: pt-driften-a 20s ease-in-out infinite reverse;
+}
+.pt-nebula .pt-lage-3 {
+  background: radial-gradient(38% 30% at 50% 95%, hsl(258 70% 40% / 0.32) 0%, transparent 70%);
+  animation: pt-atmen 26s ease-in-out infinite;
+}
+
+/* --- Golden Prestige -----------------------------------------------------
+ * Zurückhaltend: ein warmer Grundschein und ein einzelner, breiter
+ * Lichtreflex, der in langen Abständen einmal schräg darüberläuft. Kein
+ * Funkeln - der Effekt lebt davon, dass er selten passiert.
+ */
+.pt-prestige .pt-lage-1 {
+  background: radial-gradient(60% 48% at 50% 8%, hsl(42 80% 45% / 0.2) 0%, transparent 72%);
+  animation: pt-atmen 22s ease-in-out infinite;
+}
+.pt-prestige .pt-lage-2 {
+  background: linear-gradient(
+    100deg,
+    transparent 40%,
+    hsl(45 95% 70% / 0.14) 48%,
+    hsl(45 100% 80% / 0.2) 50%,
+    hsl(45 95% 70% / 0.14) 52%,
+    transparent 60%
+  );
+  animation: pt-reflex 17s ease-in-out infinite;
+}
+.pt-prestige .pt-lage-3 {
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 180px,
+    hsl(42 70% 55% / 0.05) 180px 181px,
+    transparent 181px 360px
+  );
+}
+
+/* --- Die Bewegungen ------------------------------------------------------
+ * Alle auf `transform` und `opacity`. Keine auf `top`, `left`, `width` oder
+ * einer Farbe - das wären Layout- und Paint-Durchläufe in jedem Bild.
+ */
+@keyframes pt-atmen {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes pt-schieben-x {
+  from {
+    transform: translate3d(-240px, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes pt-driften-a {
+  0%,
+  100% {
+    transform: translate3d(-4%, -2%, 0) rotate(-3deg);
+  }
+  50% {
+    transform: translate3d(5%, 3%, 0) rotate(4deg);
+  }
+}
+
+@keyframes pt-driften-b {
+  0%,
+  100% {
+    transform: translate3d(4%, 2%, 0) scale(1.05);
+  }
+  50% {
+    transform: translate3d(-5%, -3%, 0) scale(1.15);
+  }
+}
+
+@keyframes pt-raster {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 46px, 0);
+  }
+}
+
+@keyframes pt-scan {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 440%, 0);
+  }
+}
+
+@keyframes pt-fallen {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 54px, 0);
+  }
+}
+
+@keyframes pt-reflex {
+  0%,
+  72% {
+    transform: translate3d(-60%, 0, 0);
+    opacity: 0;
+  }
+  76% {
+    opacity: 1;
+  }
+  96%,
+  100% {
+    transform: translate3d(60%, 0, 0);
+    opacity: 0;
+  }
+}
+
+/* --- Weniger Bewegung ----------------------------------------------------
+ * Wer `prefers-reduced-motion` gesetzt hat, bekommt **dasselbe Bild ohne
+ * Bewegung** - nicht ein abgespecktes. Die Lagen bleiben, sie stehen still,
+ * und zwar in einem Zustand, der gut aussieht: die pulsierenden Lagen auf
+ * voller Deckkraft, der Reflex aus dem Bild geschoben.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .pt-kulisse .pt-lage {
+    animation: none !important;
+  }
+  .pt-kulisse .pt-lage[class*='pt-lage-'] {
+    opacity: 1;
+  }
+  .pt-prestige .pt-lage-2 {
+    opacity: 0;
+  }
+  .pt-cyber .pt-lage-3 {
+    opacity: 0;
+  }
+}
+
+/* --- Schmale Geräte ------------------------------------------------------
+ * Auf dem Telefon laufen die feinen Lagen nicht mit: ein 31-Pixel-Raster ist
+ * auf 375 Pixel Breite ohnehin kaum zu sehen, kostet aber jede Bildwiederholung.
+ * Der Charakter jedes Themes steckt in der ersten Lage - die bleibt.
+ */
+@media (max-width: 640px) {
+  .pt-kulisse .pt-lage-2,
+  .pt-kulisse .pt-lage-3 {
+    animation-duration: 40s;
+  }
+  .pt-matrix .pt-lage-2,
+  .pt-nebula .pt-lage-2,
+  .pt-cyber .pt-lage-3 {
+    display: none;
+  }
+}

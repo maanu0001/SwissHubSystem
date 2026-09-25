@@ -237,7 +237,16 @@ describe('Die Reiter im eigenen Profil', () => {
 
 // --- Route und Active State -------------------------------------------------
 
-const PROFIL_ROUTE = readFileSync(join(process.cwd(), 'apps/web/src/app/(app)/profile/page.tsx'), 'utf8');
+/*
+ * Die eigene Profilroute ist `/profil`.
+ *
+ * Es gab zwei: `/profil` mit einer eigenen, gestalteten Ansicht und
+ * `/profile` mit der Akte - beide mit dem Titel «Mein Profil». Geblieben
+ * ist die Akte, und sie liegt jetzt dort, wohin die Seitenleiste fuehrt.
+ * `/profile` leitet weiter, damit alte Links nicht ins Leere laufen.
+ */
+const PROFIL_ROUTE = readFileSync(join(process.cwd(), 'apps/web/src/app/(app)/profil/page.tsx'), 'utf8');
+const ALTE_ROUTE = readFileSync(join(process.cwd(), 'apps/web/src/app/(app)/profile/page.tsx'), 'utf8');
 
 describe('Die eigene Profilroute', () => {
   it('rendert das Profil, statt auf den Mitgliederbereich weiterzuleiten', () => {
@@ -246,6 +255,15 @@ describe('Die eigene Profilroute', () => {
     // gar nicht hat.
     expect(PROFIL_ROUTE).toContain('<MitgliedsAkte');
     expect(PROFIL_ROUTE).not.toContain('redirect(');
+  });
+
+  it('leitet die alte Adresse aufs eigene Profil, nicht in den Mitgliederbereich', () => {
+    // Der Fehler, den der Test darueber verhindert, gilt auch hier: eine
+    // Weiterleitung auf `/members/<id>` markierte in der Seitenleiste einen
+    // Eintrag, den ein gewoehnliches Mitglied gar nicht sieht.
+    expect(ALTE_ROUTE).toContain('permanentRedirect');
+    expect(ALTE_ROUTE).toContain('systemRoutes.profil()');
+    expect(ALTE_ROUTE).not.toContain('/members');
   });
 
   it('nimmt die Kennung aus der Sitzung, nicht aus der Adresszeile', () => {
@@ -265,7 +283,7 @@ describe('Die eigene Profilroute', () => {
 
   it('verlinkt die Reiter innerhalb des eigenen Profils', () => {
     // Sonst führte der erste Klick aus «Mein Profil» heraus.
-    expect(PROFIL_ROUTE).toContain('basisPfad="/profile"');
+    expect(PROFIL_ROUTE).toContain('basisPfad="/profil"');
     expect(AKTE).toContain('${basisPfad}?tab=');
   });
 });

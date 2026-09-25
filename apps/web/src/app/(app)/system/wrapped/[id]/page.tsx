@@ -17,7 +17,14 @@ import { KampagneEditor } from '@/modules/wrapped/components/kampagne-editor';
 import { SzenenEditor } from '@/modules/wrapped/components/szenen-editor';
 import { QuellenTafel } from '@/modules/wrapped/components/quellen-tafel';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
-import { WRAPPED_STATUS_FARBE, WRAPPED_STATUS_TEXT, ladeWrappedStand, wrappedZeit } from '@/server/wrapped';
+import { ModulNavigation } from '@/components/shared/modul-navigation';
+import {
+  WRAPPED_STATUS_FARBE,
+  WRAPPED_STATUS_TEXT,
+  ladeWrappedStand,
+  wrappedBereiche,
+  wrappedZeit,
+} from '@/server/wrapped';
 import { ladeQuellenlage } from '@/server/wrapped-vorschau';
 
 export const metadata: Metadata = { title: 'Rückblick' };
@@ -72,6 +79,15 @@ export default async function WrappedKampagnePage({
   return (
     <div className="space-y-6">
       <ZurueckLink fallback={systemRoutes.wrappedStudio()} fallbackLabel="Wrapped Studio" />
+
+      {/* Auch von einem einzelnen Rückblick aus: die übrigen Bereiche des
+          Moduls sollen von jeder Seite erreichbar sein, nicht nur von der
+          Übersicht. */}
+      <ModulNavigation
+        eintraege={wrappedBereiche(context)}
+        aktiv="studio"
+        label="Bereiche in SwissHub Wrapped"
+      />
 
       <PageHeader
         title={campaign.title}

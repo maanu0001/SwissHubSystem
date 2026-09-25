@@ -1,0 +1,127 @@
+'use client';
+
+import { Check, Lock, Sparkles } from 'lucide-react';
+import * as themes from '@swisshub/modules/profil/profil-themes';
+import '../../profil-themes.css';
+
+/**
+ * Die Auswahl der Profil-Designs.
+ *
+ * ## Warum jede Kachel ihre echte Kulisse zeigt
+ *
+ * Eine Vorschau aus zwei Farbflecken waere keine Vorschau. Jede Kachel
+ * traegt dieselben drei Lagen und denselben Klassennamen wie die
+ * oeffentliche Profilseite - dieselbe CSS-Datei, dieselben Animationen. Was
+ * hier laeuft, laeuft dort auch.
+ *
+ * Das kostet nichts Zusaetzliches: die Kulissen sind Verlaeufe auf
+ * `transform` und `opacity`, keine Bilder und kein JavaScript. Sieben
+ * Kacheln sind sieben Elemente mehr, nicht sieben Animationsschleifen im
+ * Hauptthread.
+ *
+ * ## Warum gesperrte Themes trotzdem laufen
+ *
+ * Wer ueberlegt, ob sich Premium lohnt, soll sehen, was er bekaeme. Ein
+ * graues Kaestchen mit einem Schloss darin verkauft nichts und erklaert
+ * nichts. Aktivieren laesst sich ein gesperrtes Theme nicht - und zwar
+ * nicht, weil dieser Knopf `disabled` ist, sondern weil der Dienst es
+ * ablehnt.
+ */
+export function ThemeGalerie({
+  gewaehlt,
+  darfPremium,
+  onWaehlen,
+}: {
+  gewaehlt: string | null;
+  darfPremium: boolean;
+  onWaehlen: (id: string | null) => void;
+}): React.JSX.Element {
+  const alle = themes.alleProfilThemes();
+
+  return (
+    <div>
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3">
+        {alle.map((theme) => {
+          const aktiv = (gewaehlt ?? 'classic') === theme.id;
+          const gesperrt = theme.premium && !darfPremium;
+
+          return (
+            <li key={theme.id}>
+              <button
+                type="button"
+                aria-pressed={aktiv}
+                /* Der Klick bleibt erlaubt: die Meldung des Dienstes sagt
+                   mehr als ein toter Knopf. Ein `disabled`-Element ist für
+                   Screenreader ausserdem gar nicht erst erreichbar. */
+                onClick={() => onWaehlen(theme.id === 'classic' ? null : theme.id)}
+                className={`group relative block w-full overflow-hidden rounded-xl border text-left transition-colors ${
+                  aktiv ? 'border-primary-bright' : 'border-border hover:border-foreground/30'
+                }`}
+              >
+                {/* Die Kulisse - absolut, damit der Text darüber liegt. Die
+                    Lagen sind dieselben wie auf der Profilseite; `absolute`
+                    statt `fixed` hält sie in der Kachel. */}
+                <span
+                  aria-hidden="true"
+                  className={`pt-kulisse pt-kulisse--kachel ${theme.kulisse} !absolute !inset-0 !z-0 block h-28`}
+                  style={
+                    {
+                      // Etwas heller als die Profilseite: auf 112 Pixel
+                      // Höhe braucht die Kulisse mehr Grundton, sonst
+                      // sieht jedes Theme gleich schwarz aus.
+                      '--profil-flaeche': '240 6% 12%',
+                      '--profil-akzent': '358 79% 52%',
+                    } as React.CSSProperties
+                  }
+                >
+                  <span className="pt-lage pt-lage-1" />
+                  <span className="pt-lage pt-lage-2" />
+                  <span className="pt-lage pt-lage-3" />
+                </span>
+
+                <span className="relative z-10 block h-28" />
+
+                <span className="relative z-10 flex items-start gap-2 border-t border-border bg-card p-3">
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold">
+                      {theme.label}
+                      {theme.premium ? (
+                        <Sparkles className="size-3.5 text-[#e0a83a]" aria-label="Premium-Design" />
+                      ) : null}
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                      {theme.beschreibung}
+                    </span>
+                    {gesperrt ? (
+                      <span className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
+                        <Lock className="size-3" aria-hidden="true" />
+                        Mit SwissHub Premium
+                      </span>
+                    ) : null}
+                  </span>
+                  {aktiv ? (
+                    <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-primary-bright text-background">
+                      <Check className="size-3.5" aria-hidden="true" />
+                      <span className="sr-only">Ausgewählt</span>
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      {!darfPremium ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Die Premium-Designs lassen sich ansehen und mit einem aktiven{' '}
+          <a href="/premium" className="text-primary-bright underline-offset-4 hover:underline">
+            SwissHub Premium
+          </a>{' '}
+          auswählen. Eine bereits getroffene Wahl bleibt gespeichert und wirkt wieder, sobald Premium aktiv
+          ist.
+        </p>
+      ) : null}
+    </div>
+  );
+}

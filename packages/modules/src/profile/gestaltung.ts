@@ -208,6 +208,19 @@ export function istThema(key: string): boolean {
 export function gestaltungsVariablen(
   themaKey: string | null | undefined,
   akzentKey: string | null | undefined,
+  /**
+   * Ein wirksames Profil-Theme, falls eines gilt.
+   *
+   * Es ueberschreibt die Werte darunter - vollstaendig, nicht teilweise:
+   * ein Theme ist eine Farbwelt, und eine halbe Farbwelt ergaebe eine
+   * Mischung, die niemand entworfen hat. Wer ein Theme waehlt, nimmt seine
+   * Akzentwahl damit bewusst zurueck.
+   *
+   * Uebergeben wird das **wirksame** Theme - ob es das gewaehlte ist,
+   * entscheidet `wirksamesTheme` anhand der Premium-Ansprueche, nicht diese
+   * Funktion.
+   */
+  themeTokens?: Record<string, string> | null,
 ): Record<string, string> {
   const t = thema(themaKey);
   const a = akzent(akzentKey);
@@ -216,5 +229,6 @@ export function gestaltungsVariablen(
     '--profil-rand': t.hslRand,
     '--profil-akzent': a.hsl,
     '--profil-akzent-gedaempft': a.hslGedaempft,
+    ...(themeTokens ?? {}),
   };
 }

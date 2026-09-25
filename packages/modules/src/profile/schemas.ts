@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AUSZEICHNUNGS_SYMBOLE } from './auszeichnungen';
 import { ABSPRACHE, PLATTFORMEN, SPIELZEITEN, SPRACHEN, mehrfachSchema } from './angaben';
 import { istAkzent, istBannervorlage, istThema } from './gestaltung';
+import { istProfilTheme } from './profil-themes';
 import { SHOWCASE_PLAETZE, istShowcaseArt, showcaseArt } from './showcase';
 import { socialPlattform } from './socials';
 import { schemaFuer } from './spielfelder';
@@ -71,6 +72,20 @@ export const gestaltungSchema = z.object({
   bannerPreset: z
     .string()
     .refine(istBannervorlage, 'Diese Bannervorlage gibt es nicht.')
+    .nullable()
+    .default(null),
+  /*
+   * Das Premium-Theme der oeffentlichen Seite.
+   *
+   * Hier wird nur geprueft, **ob es den Schluessel gibt** - nicht, ob die
+   * Person ihn verwenden darf. Das entscheidet `speichereGestaltung`
+   * anhand der Ansprueche, denn ein Schema kennt keine Abonnements.
+   *
+   * `null` ist «SwissHub Classic» und braucht keine Berechtigung.
+   */
+  premiumTheme: z
+    .string()
+    .refine(istProfilTheme, 'Dieses Profil-Design gibt es nicht.')
     .nullable()
     .default(null),
 });

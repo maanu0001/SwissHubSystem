@@ -1,16 +1,14 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import { Images, Sparkles } from 'lucide-react';
 import { prisma } from '@swisshub/database';
 import { resolveGuildId } from '@swisshub/discord';
 import { wrapped } from '@swisshub/modules';
-import { systemRoutes } from '@swisshub/shared';
 import { can } from '@swisshub/auth';
 import { PageHeader } from '@/components/shared/page-header';
 import { ErrorState } from '@/components/shared/states';
 import { AusgabeAnlegen, AusgabenListe } from '@/modules/wrapped/components/ausgaben-uebersicht';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
-import { ladeWrappedStand } from '@/server/wrapped';
+import { ModulNavigation } from '@/components/shared/modul-navigation';
+import { ladeWrappedStand, wrappedBereiche } from '@/server/wrapped';
 
 export const metadata: Metadata = { title: 'Wrapped Ausgaben' };
 export const dynamic = 'force-dynamic';
@@ -58,27 +56,18 @@ export default async function WrappedAusgabenPage(): Promise<React.JSX.Element> 
 
   return (
     <div className="space-y-6">
+      {/* Die beiden Knöpfe, die hier früher standen, sind in die
+          Modulleiste gewandert - sie gehören auf jede Wrapped-Seite und
+          nicht nur auf diese eine. */}
+      <ModulNavigation
+        eintraege={wrappedBereiche(context)}
+        aktiv="ausgaben"
+        label="Bereiche in SwissHub Wrapped"
+      />
+
       <PageHeader
         title="Ausgaben"
         description="Monats- und Jahresrückblicke über die Community - als fertige Bilder für Social Media."
-        actions={
-          <div className="flex gap-2">
-            <Link
-              href={systemRoutes.wrappedMomente()}
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm transition-colors hover:border-foreground/30"
-            >
-              <Images className="size-4" aria-hidden="true" />
-              Community Moments
-            </Link>
-            <Link
-              href={systemRoutes.wrappedStudio()}
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm transition-colors hover:border-foreground/30"
-            >
-              <Sparkles className="size-4" aria-hidden="true" />
-              Jahresrückblick je Mitglied
-            </Link>
-          </div>
-        }
       />
 
       {can(context, wrapped.WRAPPED_PERMISSIONS.generate) ? (

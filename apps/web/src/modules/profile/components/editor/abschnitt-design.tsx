@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ImageUp, Loader2, Trash2 } from 'lucide-react';
 import * as gestaltung from '@swisshub/modules/profil/gestaltung';
+import * as themes from '@swisshub/modules/profil/profil-themes';
 import type { profile } from '@swisshub/modules';
 import { bannerEntfernenAction, gestaltungSpeichernAction } from '@/modules/profile/profil-aktionen';
 import { Feldgruppe, SpeicherLeiste, unveraendert, useQuittung } from './felder';
+import { ThemeGalerie } from './theme-galerie';
 
 /**
  * Abschnitt «Design».
@@ -61,6 +63,7 @@ export function AbschnittDesign({
       theme: entwurf.theme,
       accent: entwurf.accent,
       bannerPreset: entwurf.bannerPreset,
+      premiumTheme: entwurf.premiumTheme,
     });
     setLaeuft(false);
     if (!antwort.ok) {
@@ -106,8 +109,36 @@ export function AbschnittDesign({
     router.refresh();
   };
 
+  const themeGewaehlt = themes.profilTheme(entwurf.premiumTheme);
+
   return (
     <div className="space-y-6">
+      <Feldgruppe
+        titel="Profil-Design"
+        hinweis="Bestimmt, wie deine öffentliche Profilseite aussieht - Farbwelt und Hintergrund. Intern und in der Mitgliederakte ändert sich nichts."
+      >
+        <ThemeGalerie
+          gewaehlt={entwurf.premiumTheme}
+          darfPremium={start.darfPremium}
+          onWaehlen={(id) => aendern({ premiumTheme: id })}
+        />
+      </Feldgruppe>
+
+      {/*
+       * Akzent und Flächenton wirken nur im Classic-Design.
+       *
+       * Ein Premium-Theme bringt eine vollständige Farbwelt mit und
+       * überschreibt beides. Die Auswahl darunter stehenzulassen, ohne das
+       * zu sagen, wäre eine Einstellung, die nichts tut - und niemand
+       * sucht den Grund dort, wo er ist.
+       */}
+      {themeGewaehlt.premium ? (
+        <p className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+          «{themeGewaehlt.label}» bringt eine eigene Farbwelt mit. Akzent und Flächenton unten wirken dann nur
+          noch dort, wo kein Theme gilt.
+        </p>
+      ) : null}
+
       <Feldgruppe
         titel="Banner"
         hinweis="Ein eigenes Bild gilt vor der Vorlage. Ohne Bild trägt die Vorlage den Kopf - beides sieht gut aus."

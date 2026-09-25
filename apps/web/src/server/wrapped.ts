@@ -3,6 +3,8 @@ import { can } from '@swisshub/auth';
 import { resolveGuildId } from '@swisshub/discord';
 import { getModuleSettings, isModuleEnabled, wrapped } from '@swisshub/modules';
 import { prisma } from '@swisshub/database';
+import { systemRoutes } from '@swisshub/shared';
+import type { ModulNavigationEintrag } from '@/components/shared/modul-navigation';
 import type { AuthContext } from '@swisshub/auth';
 import type { WrappedCampaign } from '@swisshub/database';
 
@@ -47,6 +49,59 @@ export async function ladeWrappedStand(context: AuthContext): Promise<WrappedSta
     darfErzeugen: can(context, wrapped.WRAPPED_PERMISSIONS.generate),
     darfVeroeffentlichen: can(context, wrapped.WRAPPED_PERMISSIONS.publish),
   };
+}
+
+/**
+ * Die Bereiche des Wrapped-Moduls.
+ *
+ * ## Warum das hier steht und nicht auf jeder Seite
+ *
+ * Drei Seiten, die ihre Geschwister selbst auflisten, sind drei Listen -
+ * und die vierte Seite vergisst eine davon. Genau so war es: die Ausgaben
+ * verlinkten Studio und Momente, das Studio verlinkte nichts, und die
+ * Momente kannten nur den Rueckweg. Wer ueber die Seitenleiste einstieg,
+ * landete im Studio und kam von dort nirgendwohin.
+ *
+ * ## Warum nach Berechtigung gefiltert wird
+ *
+ * Community Moments haengen an `moments.manage`, die beiden anderen an
+ * `studio.view`. Ein Link auf eine Seite, die einen danach wegschickt, ist
+ * kein Link, sondern eine Enttaeuschung. Gefiltert wird hier, gesperrt
+ * wird weiterhin in der Seite selbst - die Navigation ist kein Riegel.
+ */
+export function wrappedBereiche(context: AuthContext): ModulNavigationEintrag[] {
+  const bereiche: ModulNavigationEintrag[] = [];
+
+  if (can(context, wrapped.WRAPPED_PERMISSIONS.studioView)) {
+    bereiche.push(
+      {
+        key: 'studio',
+        label: 'Jahresrückblick je Mitglied',
+        href: systemRoutes.wrappedStudio(),
+        icon: 'Gift',
+        hinweis: 'Kampagnen und Momentaufnahmen',
+      },
+      {
+        key: 'ausgaben',
+        label: 'Ausgaben',
+        href: systemRoutes.wrappedAusgaben(),
+        icon: 'Images',
+        hinweis: 'Monat und Jahr für Social Media',
+      },
+    );
+  }
+
+  if (can(context, wrapped.WRAPPED_PERMISSIONS.momentsManage)) {
+    bereiche.push({
+      key: 'momente',
+      label: 'Community Moments',
+      href: systemRoutes.wrappedMomente(),
+      icon: 'Sparkles',
+      hinweis: 'Was in keiner Statistik steht',
+    });
+  }
+
+  return bereiche;
 }
 
 /**

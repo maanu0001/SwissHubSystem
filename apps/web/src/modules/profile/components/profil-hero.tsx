@@ -1,10 +1,7 @@
-import Link from 'next/link';
-import { CalendarDays, Pencil, Rocket, Sparkles } from 'lucide-react';
-import { systemRoutes } from '@swisshub/shared';
+import { CalendarDays, Rocket, Sparkles } from 'lucide-react';
 import type { profile } from '@swisshub/modules';
 import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { LevelRing } from './level-ring';
-import { ProfilFreigebenKnopf, TeilenKnopf } from './teilen-knopf';
 
 /**
  * Der Profilkopf.
@@ -155,29 +152,18 @@ export function ProfilHero({ ansicht }: { ansicht: profile.ProfilAnsicht }): Rea
               </div>
             ) : null}
             {/*
-             * Der Knopf steht immer da, wenn es das eigene Profil ist.
+             * Hier standen «Profil teilen» und «Profil bearbeiten».
              *
-             * Vorher hing er am Slug, den es nur bei einem bereits
-             * oeffentlichen Profil gibt - wer teilen wollte, musste also
-             * schon geteilt haben. Jetzt fuehrt er im einen Fall zum Link
-             * und im anderen zur Einstellung.
+             * Beide gab es nur im eigenen Profil - und das eigene Profil
+             * wird intern nicht mehr mit dieser Komponente gezeichnet,
+             * sondern als Mitgliedsakte. Uebrig blieben zwei Knoepfe, die
+             * nie erschienen, und eine zweite Stelle, an der «Teilen»
+             * haette richtig stehen muessen.
+             *
+             * Sie stehen jetzt in der Akte, wo man sein Profil nachschlaegt.
+             * Diese Komponente zeichnet nur noch fremde und oeffentliche
+             * Profile und braucht keine eigenen Aktionen mehr.
              */}
-            {ansicht.eigenes && ansicht.oeffentlich ? (
-              ansicht.oeffentlich.aktiv && ansicht.oeffentlich.slug ? (
-                <TeilenKnopf slug={ansicht.oeffentlich.slug} name={identitaet.discordName} />
-              ) : (
-                <ProfilFreigebenKnopf />
-              )
-            ) : null}
-            {ansicht.eigenes ? (
-              <Link
-                href={systemRoutes.profilBearbeiten()}
-                className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-[hsl(var(--profil-rand))] bg-card-elevated px-3 py-2 text-sm font-medium transition-colors hover:border-[hsl(var(--profil-akzent)/0.6)]"
-              >
-                <Pencil className="size-4" aria-hidden="true" />
-                Profil bearbeiten
-              </Link>
-            ) : null}
           </div>
         </div>
       </div>

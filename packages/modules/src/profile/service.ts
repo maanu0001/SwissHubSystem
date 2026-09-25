@@ -6,6 +6,9 @@ import { getProfile as getLevelProfile, getRank } from '../level/service';
 import * as angaben from './angaben';
 import * as auszeichnungen from './auszeichnungen';
 import * as gestaltung from './gestaltung';
+import * as profilThemes from './profil-themes';
+import { ENTITLEMENTS } from '../premium/entitlements';
+import { hatAnspruch } from '../premium/queries';
 import * as showcase from './showcase';
 import { verliehenAn } from './verleihung';
 import { auszeichnungsArtenNach } from './auszeichnungs-arten';
@@ -56,6 +59,9 @@ const STANDARD = {
   bannerPreset: null,
   theme: 'swisshub',
   accent: 'rot',
+  // Kein Premium-Theme: wer noch kein Profil angelegt hat, hat auch keines
+  // gewaehlt. `null` ist «SwissHub Classic».
+  premiumTheme: null as string | null,
   visibilityProfile: 'MEMBERS' as const,
   visibilityGames: 'MEMBERS' as const,
   visibilitySocials: 'PRIVATE' as const,
@@ -87,6 +93,17 @@ export interface ProfilGestaltung {
   /** Hochgeladenes Banner, falls vorhanden - gilt vor der Vorlage. */
   bannerBild: string | null;
   bannerVerlauf: string;
+  /**
+   * Das **wirksame** Profil-Theme.
+   *
+   * Nicht unbedingt das gewaehlte: ohne aktives Abonnement steht hier
+   * `classic`, auch wenn in der Datenbank etwas anderes gespeichert ist.
+   * Entschieden hat das `wirksamesTheme` - die Anzeige fragt nicht noch
+   * einmal nach.
+   */
+  theme: string;
+  /** Der Klassenname der Kulisse - siehe `profil-themes.css`. */
+  kulisse: string;
 }
 
 export interface ProfilAngaben {
@@ -335,6 +352,19 @@ export async function ladeProfilFuer(
 
   const vorlage = gestaltung.bannervorlage(profil.bannerPreset);
 
+  /*
+   * Das wirksame Theme.
+   *
+   * Die Abfrage nach den Anspruechen laeuft nur, wenn ueberhaupt ein
+   * Premium-Theme gespeichert ist - bei den allermeisten Profilen steht
+   * dort nichts, und dann gibt es nichts zu pruefen. Eine Abfrage je
+   * Profilaufruf fuer eine Frage, deren Antwort in 99 von 100 Faellen
+   * irrelevant ist, waere schlechter Tausch.
+   */
+  const gewaehltesTheme = profilThemes.profilTheme(profil.premiumTheme);
+  const hatPremium = gewaehltesTheme.premium && (await hatAnspruch(discordId, ENTITLEMENTS.premiumRole));
+  const theme = profilThemes.wirksamesTheme(profil.premiumTheme, hatPremium);
+
   return {
     identitaet: {
       discordId,
@@ -348,9 +378,19 @@ export async function ladeProfilFuer(
     gestaltung: {
       thema: gestaltung.thema(profil.theme).key,
       akzent: gestaltung.akzent(profil.accent).key,
-      variablen: gestaltung.gestaltungsVariablen(profil.theme, profil.accent),
+      variablen: gestaltung.gestaltungsVariablen(profil.theme, profil.accent, theme.tokens),
       bannerBild: profil.bannerPath ? bannerQuelle(discordId, profil.bannerPath) : null,
-      bannerVerlauf: vorlage.verlauf,
+      /*
+       * Der Verlauf des Themes gilt vor der Vorlage - aber nie vor einem
+       * hochgeladenen Bild. Das entscheidet die Anzeige eine Ebene
+       * hoeher: `bannerBild` gewinnt dort ohnehin.
+       *
+       * Die Vorlagenwahl bleibt gespeichert und kommt zurueck, sobald
+       * wieder Classic gilt.
+       */
+      bannerVerlauf: theme.bannerVerlauf ?? vorlage.verlauf,
+      theme: theme.id,
+      kulisse: theme.kulisse,
     },
     ...(zeigeAngaben
       ? {
@@ -654,6 +694,17 @@ export interface EditorDaten {
     accent: string;
     bannerPreset: string | null;
     bannerBild: string | null;
+    /** Die gespeicherte Wahl - auch dann, wenn sie gerade nicht wirkt. */
+    premiumTheme: string | null;
+    /**
+     * Darf diese Person ein Premium-Theme aktivieren?
+     *
+     * Die Auswahl zeigt alle Themes - auch die gesperrten, mit ihrer
+     * Animation. Wer sehen will, was er bekaeme, soll es sehen duerfen;
+     * verweigert wird das Aktivieren, und zwar serverseitig. Diese Angabe
+     * steuert nur, was die Oberflaeche dazu sagt.
+     */
+    darfPremium: boolean;
   };
   privatsphaere: {
     visibilityProfile: string;
@@ -715,6 +766,19 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
   const eigene = new Set(spielZeilen.map((zeile) => zeile.gameId));
   const werte = profil ?? { id: null, discordId, ...STANDARD };
 
+  /*
+   * Darf diese Person ein Premium-Theme aktivieren?
+   *
+   * Im Editor immer gefragt - anders als beim Anzeigen, wo die Frage nur
+   * bei gespeicherter Wahl aufkommt. Hier haengt die Antwort an der
+   * Oberflaeche: die Galerie zeigt alle Themes, beschriftet die gesperrten
+   * aber als solche. Eine Galerie, die erst beim Klick sagt, dass es nicht
+   * geht, waere die unfreundlichere Bauart.
+   *
+   * Sie ist kein Riegel - der sitzt in `speichereGestaltung`.
+   */
+  const darfPremium = await hatAnspruch(discordId, ENTITLEMENTS.premiumRole);
+
   // Die Auszeichnungen fuer die Vitrine: alle, die es gibt. Ob sie erreicht
   // sind, entscheidet die Anzeige - eine nicht erreichte faellt dort still
   // weg, statt hier eine Auswahl zu verbieten, die morgen zutrifft.
@@ -737,6 +801,8 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
       accent: werte.accent,
       bannerPreset: werte.bannerPreset,
       bannerBild: werte.bannerPath ? bannerQuelle(discordId, werte.bannerPath) : null,
+      premiumTheme: werte.premiumTheme,
+      darfPremium,
     },
     privatsphaere: {
       visibilityProfile: werte.visibilityProfile,

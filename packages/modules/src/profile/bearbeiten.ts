@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from '@swisshub/database';
+import { AUDIT_ACTIONS, prisma, safeRecordAudit, type Prisma } from '@swisshub/database';
 import { AppError } from '@swisshub/shared';
 import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload } from '../branding/storage';
 import { getGame } from '../games/katalog';
@@ -11,6 +11,9 @@ import {
   type ShowcaseEingabe,
   type SocialsEingabe,
 } from './schemas';
+import { profilTheme } from './profil-themes';
+import { ENTITLEMENTS } from '../premium/entitlements';
+import { hatAnspruch } from '../premium/queries';
 import { SPIELFELDER_VERSION } from './spielfelder';
 import { findeFreienSlug, slugVorschlag } from './slug';
 
@@ -56,12 +59,62 @@ export async function speichereAllgemein(discordId: string, eingabe: AllgemeinEi
   });
 }
 
+/**
+ * Gestaltung speichern - samt Premium-Pruefung.
+ *
+ * ## Warum die Pruefung hier steht und nicht nur in der Aktion
+ *
+ * Weil sie sonst an der Oberflaeche haengt. Die Server Action prueft
+ * ebenfalls - aber dieser Dienst hat mehr als einen Aufrufer, und jeder
+ * von ihnen darf sich darauf verlassen, dass ein Premium-Theme ohne
+ * Abonnement hier nicht durchkommt. Ein Schema kann das nicht leisten: es
+ * kennt Schluessel, keine Abonnements.
+ *
+ * Abgewiesen wird nur der **Wechsel** auf ein Premium-Theme. Wer eines
+ * gespeichert hat und sein Abonnement verliert, darf weiterhin speichern -
+ * seine Wahl bleibt stehen und wirkt einfach nicht mehr. Das ist die
+ * Gegenseite von `wirksamesTheme`: nichts wird geloescht, nur nichts
+ * angezeigt.
+ */
 export async function speichereGestaltung(discordId: string, eingabe: GestaltungEingabe): Promise<void> {
+  const gewaehlt = profilTheme(eingabe.premiumTheme);
+
+  const vorher = await prisma.memberProfile.findUnique({
+    where: { discordId },
+    select: { premiumTheme: true },
+  });
+
+  if (gewaehlt.premium && vorher?.premiumTheme !== eingabe.premiumTheme) {
+    if (!(await hatAnspruch(discordId, ENTITLEMENTS.premiumRole))) {
+      throw new AppError('FORBIDDEN', {
+        userMessage: `«${gewaehlt.label}» ist ein Premium-Design. Es lässt sich mit einem aktiven SwissHub Premium auswählen.`,
+        internalMessage: `Profil-Theme ${gewaehlt.id} ohne Anspruch ${ENTITLEMENTS.premiumRole}`,
+      });
+    }
+  }
+
   await prisma.memberProfile.upsert({
     where: { discordId },
     create: { discordId, ...eingabe },
     update: eingabe,
   });
+
+  /*
+   * Nur der Wechsel des Themes wird protokolliert, nicht jede
+   * Farbaenderung. Ein Protokoll, in dem jede Akzentwahl steht, ist eines,
+   * in dem man nichts mehr findet.
+   */
+  if ((vorher?.premiumTheme ?? null) !== (eingabe.premiumTheme ?? null)) {
+    await safeRecordAudit({
+      action: AUDIT_ACTIONS.PROFILE_THEME_CHANGED,
+      module: 'members',
+      actorDiscordId: discordId,
+      targetDiscordId: discordId,
+      targetLabel: gewaehlt.label,
+      success: true,
+      metadata: { vorher: vorher?.premiumTheme ?? null, nachher: eingabe.premiumTheme ?? null },
+    });
+  }
 }
 
 /**

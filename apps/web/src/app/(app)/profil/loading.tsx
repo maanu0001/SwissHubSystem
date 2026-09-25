@@ -4,6 +4,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 /**
  * Geruest des eigenen Profils.
  *
+ * Umgezogen von `/profile`: dort liegt jetzt nur noch eine Weiterleitung,
+ * und ein Ladegeruest davor haette sie in eine gestreamte 200 verwandelt -
+ * die Weiterleitung waere erst im Browser passiert.
+ *
  * Dieselbe Darstellung wie die Mitgliederakte, weil es dieselbe Seite ist -
  * und bewusst in denselben Massen wie der fertige Inhalt: ein Skelett, das
  * anders gross ist, laesst die Seite beim Erscheinen springen.

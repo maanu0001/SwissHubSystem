@@ -5,7 +5,7 @@ import { createLogger } from '@swisshub/logger';
 import { getModuleSettings } from '../module-state';
 import { getGuildConfig } from '../guild/config';
 import { PREMIUM_MODULE_ID, type PremiumSettings } from './config';
-import { grantsEntitlements } from './entitlements';
+import { anspruecheVon } from './entitlements';
 
 const logger = createLogger('premium:discord');
 
@@ -92,12 +92,8 @@ async function gewuenscht(userId: string): Promise<GewuenschterZustand> {
     include: { product: true },
   });
 
-  const entitlements = new Set<PremiumEntitlement>();
-  if (subscription && grantsEntitlements(subscription.status)) {
-    for (const entitlement of subscription.product.entitlements) {
-      entitlements.add(entitlement);
-    }
-  }
+  // Dieselbe Regel wie ueberall sonst - siehe `anspruecheVon`.
+  const entitlements = anspruecheVon(subscription);
 
   return {
     entitlements,

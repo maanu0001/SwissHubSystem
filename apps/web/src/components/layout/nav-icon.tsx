@@ -1,4 +1,5 @@
 import {
+  Images,
   Award,
   Star,
   Gem,
@@ -72,6 +73,7 @@ import {
  * `module-icons.test.ts` liest diesen Block als Text aus.
  */
 const ICONS: Record<string, LucideIcon> = {
+  Images,
   Award,
   Star,
   Gem,

@@ -207,7 +207,11 @@ describe('Kommunikation: der erste Klick wird sofort sichtbar', () => {
   it('löst das mit demselben Mechanismus wie die übrigen Bereiche', () => {
     // Kein Kunstgriff an der Navigation - dieselbe Ladegrenze, die Dashboard,
     // Mitglieder, Moderation, Audit, Analytics und Profil bereits haben.
-    for (const bereich of ['dashboard', 'members', 'moderation', 'audit', 'analytics', 'profile']) {
+    // `profil` und nicht mehr `profile`: das eigene Profil liegt jetzt
+    // dort, wohin die Seitenleiste fuehrt. Unter `/profile` steht nur noch
+    // eine Weiterleitung - die braucht kein Ladegeruest, und mit einem
+    // waere sie eine gestreamte 200 statt einer 308.
+    for (const bereich of ['dashboard', 'members', 'moderation', 'audit', 'analytics', 'profil']) {
       expect(() => lies(`apps/web/src/app/(app)/${bereich}/loading.tsx`), bereich).not.toThrow();
     }
   });

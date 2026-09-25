@@ -64,8 +64,14 @@ export const systemRoutes = {
   profil: (discordId?: string): SystemRoute => (discordId ? `/spieler/${id(discordId)}` : '/profil'),
   profilBearbeiten: (): SystemRoute => '/profil/bearbeiten',
   entdecken: (): SystemRoute => '/entdecken',
-  /** Die Selbstauskunft: welche Daten das System ueber einen selbst fuehrt. */
-  meineDaten: (): SystemRoute => '/profile',
+  /**
+   * Die Selbstauskunft.
+   *
+   * Zeigt auf dieselbe Adresse wie `profil()`: beides ist die eigene Akte,
+   * und es gibt sie nur einmal. Der Name bleibt, weil Aufrufer ihn
+   * verwenden - `/profile` leitet weiter.
+   */
+  meineDaten: (): SystemRoute => '/profil',
 
   /*
    * Was spielen wir? - die gemeinsame Spielauswahl.

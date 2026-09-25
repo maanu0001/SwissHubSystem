@@ -8,8 +8,15 @@ import { StatCard } from '@/components/shared/stat-card';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState, ErrorState } from '@/components/shared/states';
 import { KampagneAnlegen } from '@/modules/wrapped/components/kampagne-anlegen';
+import { ModulNavigation } from '@/components/shared/modul-navigation';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
-import { WRAPPED_STATUS_FARBE, WRAPPED_STATUS_TEXT, ladeWrappedStand, wrappedTag } from '@/server/wrapped';
+import {
+  WRAPPED_STATUS_FARBE,
+  WRAPPED_STATUS_TEXT,
+  ladeWrappedStand,
+  wrappedBereiche,
+  wrappedTag,
+} from '@/server/wrapped';
 
 export const metadata: Metadata = { title: 'Wrapped Studio' };
 export const dynamic = 'force-dynamic';
@@ -55,6 +62,19 @@ export default async function WrappedStudioPage(): Promise<React.JSX.Element> {
        * Die Aktion bleibt - sie gehoert zur Seite und nicht in die
        * Kopfzeile der Anwendung.
        */}
+      {/*
+       * Die Leiste, die hier gefehlt hat.
+       *
+       * Die Seitenleiste führt auf diese Seite, und von hier gab es keinen
+       * Weg zu den Ausgaben oder den Community Moments - nur umgekehrt. Wer
+       * den angebotenen Einstieg nahm, sass fest.
+       */}
+      <ModulNavigation
+        eintraege={wrappedBereiche(context)}
+        aktiv="studio"
+        label="Bereiche in SwissHub Wrapped"
+      />
+
       {stand.darfBearbeiten ? (
         <div className="flex justify-end">
           <KampagneAnlegen csrfToken={csrfToken} />

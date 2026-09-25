@@ -1,6 +1,6 @@
 import { prisma } from '@swisshub/database';
-import type { PremiumPayment, PremiumSubscriptionStatus } from '@swisshub/database';
-import { LIVE_STATUSES } from './entitlements';
+import type { PremiumEntitlement, PremiumPayment, PremiumSubscriptionStatus } from '@swisshub/database';
+import { LIVE_STATUSES, anspruecheVon } from './entitlements';
 import type { SubscriptionWithProduct } from './service';
 
 /** Kennzahlen der Uebersicht. */
@@ -265,4 +265,28 @@ export async function getMemberPremium(discordId: string): Promise<MemberPremium
       : null,
     payments,
   };
+}
+
+/**
+ * Die Ansprueche eines Mitglieds - ueber die Discord-Kennung.
+ *
+ * Dieselbe Regel, die auch die Discord-Rollen setzt: das offene Abonnement
+ * (`activeUserKey`) und ein Zustand, der Ansprueche gewaehrt. Wer kuendigt,
+ * behaelt sie bis zum Periodenende; wer in der Schonfrist ist, auch.
+ * Entschieden wird das in `anspruecheVon`, nicht hier.
+ *
+ * Eine Abfrage, ein Join. Aufrufer, die nur eine Ja-Nein-Antwort brauchen,
+ * nehmen `hatAnspruch`.
+ */
+export async function aktiveAnsprueche(discordId: string): Promise<Set<PremiumEntitlement>> {
+  const subscription = await prisma.premiumSubscription.findFirst({
+    where: { discordId, activeUserKey: { not: null } },
+    include: { product: true },
+  });
+  return anspruecheVon(subscription);
+}
+
+/** Hat dieses Mitglied den Anspruch gerade? */
+export async function hatAnspruch(discordId: string, anspruch: PremiumEntitlement): Promise<boolean> {
+  return (await aktiveAnsprueche(discordId)).has(anspruch);
 }
