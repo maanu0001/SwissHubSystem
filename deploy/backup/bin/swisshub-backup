@@ -1003,8 +1003,192 @@ befehl_status() {
 }
 
 # --------------------------------------------------------------------------
+# Vor einem Deployment
+# --------------------------------------------------------------------------
+
+# Das Tor, das eine Migration ohne Netz verhindert.
+#
+# ==========================================================================
+# WARUM NICHT VOR JEDEM DEPLOYMENT
+# ==========================================================================
+#
+# Die meisten Deployments aendern nur Quelltext. Ein Basis-Backup davor
+# schuetzt vor nichts und kostet Minuten - und ein Schritt, der jedes
+# Ausrollen verzoegert, wird irgendwann abgeschaltet. Eine Sicherung, die
+# abgeschaltet wird, weil sie im Weg ist, ist keine.
+#
+# Welche Deployments es brauchen, entscheidet
+# `scripts/migrationen-pruefen.ts`: es liest das SQL der neu hinzugekommenen
+# Migrationen und fragt, ob eine davon etwas WEGNIMMT oder etwas ERZWINGT.
+# Nur dann ist ein Git-Rollback nicht genug.
+#
+# ==========================================================================
+# WAS GEPRUEFT WIRD - UND WARUM IN DIESER REIHENFOLGE
+# ==========================================================================
+#
+#   1. Laeuft die WAL-Archivierung?   Ohne sie gibt es keinen Zeitpunkt
+#                                     zwischen den Basis-Backups.
+#   2. Gibt es ein aktuelles Basis-Backup?  Ohne eines ist die WAL-Kette
+#                                     wertlos.
+#   3. Ist die letzte Pruefung ohne Fehler?  Ein Backup, dessen Pruefsummen
+#                                     nicht stimmen, ist keines.
+#   4. Ein ZUSAETZLICHER Punkt, jetzt.  Damit der Stand unmittelbar vor der
+#                                     Migration ansteuerbar ist - nicht der
+#                                     von heute Nacht.
+#
+# Punkt 4 ist der eigentliche Zweck. Punkte 1 bis 3 sind die Voraussetzungen
+# dafuer, dass er etwas wert ist.
+# ==========================================================================
+befehl_vor_deployment() {
+  local nur_pruefen='nein'
+  [[ "${1:-}" == '--nur-pruefen' ]] && nur_pruefen='ja'
+
+  info 'Pruefe, ob dieses Deployment ein Netz hat.'
+  local fehler=0
+
+  # --- 1. WAL-Archivierung ------------------------------------------------
+  local modus
+  # `SHOW` und nicht `current_setting('...')`: der Aufruf steckt in zwei
+  # Ebenen Anfuehrungszeichen, und die einfachen darin zerlegten ihn. SHOW
+  # braucht keine.
+  modus=$(trimmen "$(pg_abfrage 'SHOW archive_mode')")
+  if [[ "$modus" != 'on' && "$modus" != 'always' ]]; then
+    fehler=$(( fehler + 1 ))
+    fehler "archive_mode steht auf «${modus:-unbekannt}». Es gibt keine Point-in-Time-Recovery - nach einer fehlerhaften Migration waere nur der Stand des letzten Basis-Backups erreichbar."
+  else
+    info "WAL-Archivierung: $modus."
+  fi
+
+  local gescheitert letzter_fehler
+  gescheitert=$(trimmen "$(pg_abfrage 'SELECT failed_count FROM pg_stat_archiver')")
+  letzter_fehler=$(trimmen "$(pg_abfrage 'SELECT COALESCE(last_failed_time::text, \'\') FROM pg_stat_archiver')")
+  if [[ -n "$letzter_fehler" ]]; then
+    local alter_minuten
+    alter_minuten=$(( ( $(date +%s) - $(date -d "$letzter_fehler" +%s 2>/dev/null || echo 0) ) / 60 ))
+    if [[ "$alter_minuten" -lt 60 ]]; then
+      fehler=$(( fehler + 1 ))
+      fehler "Die WAL-Archivierung ist vor ${alter_minuten} Minuten gescheitert (${gescheitert} Fehlschlaege insgesamt). Die Kette hat gerade eine Luecke."
+    fi
+  fi
+
+  # --- 2. Ein aktuelles Basis-Backup --------------------------------------
+  local jungstes
+  jungstes=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --output=json info 2>/dev/null \
+    | python3 -c '
+import json, sys
+try:
+    daten = json.load(sys.stdin)
+except Exception:
+    print(0)
+    raise SystemExit
+enden = [
+    sicherung.get("timestamp", {}).get("stop", 0)
+    for stanza in daten
+    for sicherung in stanza.get("backup", [])
+]
+print(max(enden) if enden else 0)' 2>/dev/null || echo 0)
+
+  if [[ "${jungstes:-0}" -eq 0 ]]; then
+    fehler=$(( fehler + 1 ))
+    fehler 'Es gibt kein Basis-Backup der Datenbank. Ohne eines ist kein Zeitpunkt erreichbar.'
+  else
+    local alter_stunden=$(( ( $(date +%s) - jungstes ) / 3600 ))
+    if [[ "$alter_stunden" -gt 26 ]]; then
+      fehler=$(( fehler + 1 ))
+      fehler "Das jungste Basis-Backup ist ${alter_stunden} Stunden alt. Bei taeglichen Laeufen darf es das nicht sein - es laeuft etwas nicht."
+    else
+      info "Jungstes Basis-Backup ist ${alter_stunden} Stunden alt."
+    fi
+  fi
+
+  # --- 3. Die letzte Pruefung ---------------------------------------------
+  local verify_gesamt
+  verify_gesamt=$(zustand_lesen 'verify' | python3 -c 'import json,sys; print(json.load(sys.stdin).get("gesamt",""))' 2>/dev/null)
+  if [[ "$verify_gesamt" == 'fehler' ]]; then
+    fehler=$(( fehler + 1 ))
+    fehler 'Die letzte Pruefung der Sicherungen hat Fehler gefunden. Ein Backup, dessen Pruefsummen nicht stimmen, ist keines.'
+  elif [[ -z "$verify_gesamt" ]]; then
+    warnung 'Die Sicherungen wurden nie geprueft. Das ist kein Abbruchgrund, aber der Wiederherstellungspunkt ist damit unbestaetigt.'
+  else
+    info "Letzte Pruefung: $verify_gesamt."
+  fi
+
+  if [[ "$fehler" -gt 0 ]]; then
+    fehler "$fehler Voraussetzung(en) nicht erfuellt. Es gibt kein verlaessliches Netz fuer diese Migration."
+    cat <<'HINWEIS'
+
+  Das Deployment sollte hier abbrechen.
+
+  Eine Migration, die etwas wegnimmt, ist nicht rueckgaengig zu machen: ein
+  Git-Rollback stellt kein altes Datenbankschema wieder her. Ohne
+  Wiederherstellungspunkt ist das ein Schreibvorgang ohne Netz.
+
+  Entweder die Ursache beheben:
+      swisshub-backup wal-pruefen
+      swisshub-backup db-diff
+      swisshub-backup-verify
+
+  Oder ausdruecklich uebergehen - und dann in dem Wissen, was fehlt:
+      SWISSHUB_DEPLOY_OHNE_NETZ=ich-weiss-was-ich-tue
+
+HINWEIS
+    zustand_schreiben 'vor-deployment' "$(printf '{"zeit":%s,"ergebnis":"fehler","fehler":%s}' \
+      "$(json_text "$(date --iso-8601=seconds)")" "$fehler")"
+    return 1
+  fi
+
+  if [[ "$nur_pruefen" == 'ja' ]]; then
+    info 'Voraussetzungen erfuellt. Es wurde kein zusaetzlicher Punkt angelegt (--nur-pruefen).'
+    return 0
+  fi
+
+  # --- 4. Der zusaetzliche Punkt -------------------------------------------
+  #
+  # Ein benannter Wiederherstellungspunkt UND ein differentielles Backup.
+  #
+  # Der benannte Punkt (`pg_create_restore_point`) ist billig und macht den
+  # Zeitpunkt in der WAL-Kette auffindbar: `--target-name` statt einer Uhrzeit,
+  # die man aus einem Log heraussuchen muesste. Das Backup danach stellt
+  # sicher, dass der Punkt nicht nur in der Kette steht, sondern von einer
+  # Basis aus erreichbar ist.
+  local marke_name
+  marke_name="vor_deploy_$(date +%Y%m%d_%H%M%S)"
+  local lsn
+  lsn=$(trimmen "$(pg_abfrage "SELECT pg_create_restore_point('$marke_name')")")
+  if [[ -n "$lsn" ]]; then
+    info "Benannter Wiederherstellungspunkt «$marke_name» bei LSN $lsn angelegt."
+  else
+    warnung "Der benannte Wiederherstellungspunkt liess sich nicht anlegen - dem Datenbankbenutzer fehlt vermutlich das Recht auf pg_create_restore_point. Der Zeitpunkt bleibt ueber die Uhrzeit ansteuerbar."
+  fi
+
+  # Das WAL-Segment mit der Marke muss archiviert sein, sonst ist die Marke
+  # nur lokal vorhanden - und lokal ist sie nach einem Serververlust nirgends.
+  pg_abfrage 'SELECT pg_switch_wal()' >/dev/null 2>&1 || true
+
+  if ! db_backup diff; then
+    fehler 'Das zusaetzliche Basis-Backup vor dem Deployment ist gescheitert.'
+    zustand_schreiben 'vor-deployment' "$(printf '{"zeit":%s,"ergebnis":"fehler","marke":%s}' \
+      "$(json_text "$(date --iso-8601=seconds)")" "$(json_text "$marke_name")")"
+    return 1
+  fi
+
+  # Und die Dateien dazu: eine Datenbank von jetzt mit Uploads von heute Nacht
+  # ergibt totverweisende Anhaenge.
+  befehl_dateien || warnung 'Die Dateisicherung vor dem Deployment ist gescheitert. Die Datenbank ist gesichert; bei einer Wiederherstellung koennten neuere Uploads fehlen.'
+
+  zustand_schreiben 'vor-deployment' "$(printf \
+    '{"zeit":%s,"ergebnis":"erfolg","marke":%s,"lsn":%s,"hinweis":%s}' \
+    "$(json_text "$(date --iso-8601=seconds)")" "$(json_text "$marke_name")" "$(json_text "$lsn")" \
+    "$(json_text "Wiederherstellung auf diesen Punkt: swisshub-recovery wiederherstellen --repo 1 (Zielzeitpunkt aus dem Zeitstempel oben) - oder mit pgbackrest --type=name --target=$marke_name")")"
+
+  info "Netz gespannt. Zurueck auf den Stand vor dieser Migration: Marke «$marke_name»."
+  return 0
+}
+
+# --------------------------------------------------------------------------
 
 case "$BEFEHL" in
+  vor-deployment) sperre_oder_raus 'backup' 900 && befehl_vor_deployment "$@" ;;
   konfiguration-schreiben) befehl_konfiguration_schreiben ;;
   einrichten) befehl_einrichten ;;
   db-voll) sperre_oder_raus 'backup' 60 && db_backup full ;;

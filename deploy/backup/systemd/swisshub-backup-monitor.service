@@ -15,6 +15,12 @@ ExecStart=/usr/local/lib/swisshub-backup/bin/swisshub-backup-monitor
 # Kurze Grenze: die Ueberwachung fragt nur ab. Bleibt sie haengen, ist das
 # selbst ein Befund - und der Totmannschalter meldet den ausbleibenden Ping.
 TimeoutStartSec=10min
+
+# Wie bei den uebrigen Diensten: hinter dem produktiven Betrieb zurueck.
+# Die Ueberwachung fragt nur ab - aber sie fragt PostgreSQL ab und liest
+# Zustandsdateien, und auch das ist I/O.
+IOWeight=50
+CPUWeight=50
 Nice=5
 
 NoNewPrivileges=true

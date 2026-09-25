@@ -143,7 +143,48 @@ chmod 2770 "$DATEN/spool/eingang"
 chmod 2750 "$DATEN/spool/ergebnis"
 ok "Verzeichnisse unter $DATEN angelegt."
 
-schritt '6. systemd'
+schritt '6. Das Deployment-Tor'
+# Der Deploy-Benutzer muss GENAU EINEN Befehl als root ausfuehren koennen:
+# `swisshub-backup vor-deployment`. Mehr nicht.
+#
+# Nicht der ganze Befehl mit beliebigen Argumenten, und kein NOPASSWD auf alles:
+# der SSH-Schluessel dieses Benutzers liegt als GitHub-Secret, und wer ihn
+# erlangt, soll damit nicht root auf diesem Host werden. Die Regel nennt den
+# vollstaendigen Pfad und den einen Unterbefehl.
+DEPLOY_BENUTZER="${SWISSHUB_DEPLOY_USER:-}"
+if [[ -z "$DEPLOY_BENUTZER" ]]; then
+  hinweis 'SWISSHUB_DEPLOY_USER ist nicht gesetzt - die sudo-Regel fuer das'
+  hinweis 'Deployment-Tor wird nicht angelegt. Nachtragen mit:'
+  printf '\n      sudo SWISSHUB_DEPLOY_USER=<benutzer> bash deploy/backup/install.sh\n'
+elif ! id -u "$DEPLOY_BENUTZER" >/dev/null 2>&1; then
+  hinweis "Der Benutzer «$DEPLOY_BENUTZER» existiert nicht - sudo-Regel uebersprungen."
+else
+  REGEL="/etc/sudoers.d/swisshub-backup-deploy"
+  cat > "$REGEL" <<REGELINHALT
+# SwissHub - das Deployment-Tor.
+#
+# Der Deploy-Benutzer darf GENAU diesen einen Befehl als root ausfuehren:
+# den Wiederherstellungspunkt vor einer Datenbankmigration anlegen.
+#
+# Bewusst mit vollstaendigem Pfad und festem Unterbefehl. Ein NOPASSWD auf
+# ALL waere bequemer und machte den SSH-Schluessel dieses Benutzers - er liegt
+# als GitHub-Secret - zu einem Weg nach root.
+$DEPLOY_BENUTZER ALL=(root) NOPASSWD: $ZIEL/bin/swisshub-backup vor-deployment
+$DEPLOY_BENUTZER ALL=(root) NOPASSWD: $ZIEL/bin/swisshub-backup vor-deployment --nur-pruefen
+REGELINHALT
+  chmod 0440 "$REGEL"
+  # Eine fehlerhafte sudoers-Datei sperrt sudo vollstaendig aus. `visudo -c`
+  # prueft sie, bevor sie wirken kann - und die Datei wird wieder entfernt,
+  # wenn sie nicht gueltig ist.
+  if visudo -c -f "$REGEL" >/dev/null 2>&1; then
+    ok "sudo-Regel fuer «$DEPLOY_BENUTZER» angelegt: nur swisshub-backup vor-deployment."
+  else
+    rm -f -- "$REGEL"
+    hinweis 'Die sudo-Regel war nicht gueltig und wurde wieder entfernt.'
+  fi
+fi
+
+schritt '7. systemd'
 install -m 0644 "$QUELLE"/systemd/* /etc/systemd/system/
 systemctl daemon-reload
 ok 'Units installiert.'
@@ -156,10 +197,10 @@ printf '      systemctl enable --now swisshub-restore-test.timer\n'
 printf '      systemctl enable --now swisshub-backup-monitor.timer\n'
 printf '      systemctl enable --now swisshub-backup-controller.path\n'
 printf '      systemctl enable --now swisshub-backup-controller.timer\n'
-printf '\n  Erst nach Schritt 8. Ein Zeitplan auf einer leeren Konfiguration\n'
+printf '\n  Erst nach Schritt 9. Ein Zeitplan auf einer leeren Konfiguration\n'
 printf '  erzeugt stuendlich einen Fehlschlag und sonst nichts.\n'
 
-schritt '7. Wenn PostgreSQL im Container laeuft'
+schritt '8. Wenn PostgreSQL im Container laeuft'
 cat <<'HINWEIS'
   Zwei Ergaenzungen in docker-compose.prod.yml, beim Dienst `postgres`:
 
@@ -187,7 +228,7 @@ cat <<'HINWEIS'
   sieht sie nie.
 HINWEIS
 
-schritt '8. Was jetzt noch zu tun ist'
+schritt '9. Was jetzt noch zu tun ist'
 cat <<HINWEIS
   1. Zwei Passwoerter erzeugen und in $KONF/swisshub-backup.env eintragen:
 
