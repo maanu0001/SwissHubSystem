@@ -15,6 +15,12 @@
 # Erfolg ueber den Rueckgabewert zurueck.
 set -uo pipefail
 
+# Wo diese Bibliothek liegt - fuer die Vorlagen daneben.
+#
+# `BASH_SOURCE[0]` und nicht `$0`: die Datei wird eingebunden, `$0` waere das
+# aufrufende Skript, und die Vorlagen lagen dann je nach Aufrufer anderswo.
+GEMEINSAM_HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # --------------------------------------------------------------------------
 # Konfiguration
 # --------------------------------------------------------------------------
@@ -602,6 +608,129 @@ pgbackrest_lauf() {
 # --------------------------------------------------------------------------
 # Restic
 # --------------------------------------------------------------------------
+
+# pgbackrest.conf aus der Konfiguration erzeugen.
+#
+# Steht hier und nicht in `swisshub-backup`, weil sie im Notfall gebraucht
+# wird: das versiegelte Wiederherstellungspaket enthaelt swisshub-backup.env,
+# aber KEINE pgbackrest.conf - sie enthielte das Repository-Passwort doppelt
+# und ist aus der .env vollstaendig herleitbar.
+#
+# Ohne sie scheitert auf einem neu aufgesetzten Server jeder pgBackRest-Aufruf
+# mit «unable to open missing file ... for read» - eine Meldung, die nach einem
+# zerstoerten Repository klingt und keines ist. Darum erzeugt auch
+# `swisshub-recovery` die Datei selbst.
+pgbackrest_konfiguration_schreiben() {
+  local vorlagen="${SWISSHUB_VORLAGEN_DIR:-$GEMEINSAM_HIER/../vorlagen}"
+  local haupt="$vorlagen/pgbackrest.conf.vorlage"
+  local s3="$vorlagen/pgbackrest-s3.vorlage"
+  [[ -r "$haupt" ]] || { fehler "Vorlage fehlt: $haupt"; return 1; }
+
+  if [[ -z "$SWISSHUB_PGBACKREST_CIPHER_PASS" ]]; then
+    fehler 'SWISSHUB_PGBACKREST_CIPHER_PASS ist leer. Erzeugen mit: openssl rand -base64 48'
+    return 1
+  fi
+
+  local s3_block=''
+  if hat_externes_ziel; then
+    s3_block=$(cat "$s3")
+    # pgBackRest will den Endpunkt ohne Protokoll.
+    local endpunkt_host="${SWISSHUB_S3_ENDPOINT#http://}"
+    endpunkt_host="${endpunkt_host#https://}"
+    endpunkt_host="${endpunkt_host%/}"
+
+    # Pfad- oder Host-Stil.
+    #
+    # Backblaze B2 und Wasabi verlangen den Host-Stil, MinIO und manche
+    # Selbstbetriebe den Pfad-Stil. Falsch geraten heisst: jeder Zugriff
+    # scheitert mit einer Meldung ueber einen nicht gefundenen Bucket, und die
+    # Ursache sucht man lange. Abgeleitet wird sie deshalb aus dem Endpunkt und
+    # laesst sich ueberschreiben.
+    local uri_stil="${SWISSHUB_S3_URI_STYLE:-}"
+    if [[ -z "$uri_stil" ]]; then
+      case "$endpunkt_host" in
+        *backblazeb2.com|*wasabisys.com|*amazonaws.com) uri_stil='host' ;;
+        *) uri_stil='path' ;;
+      esac
+    fi
+
+    s3_block="${s3_block//@S3_BUCKET@/$SWISSHUB_S3_BUCKET}"
+    s3_block="${s3_block//@S3_ENDPOINT_HOST@/$endpunkt_host}"
+    s3_block="${s3_block//@S3_REGION@/${SWISSHUB_S3_REGION:-us-east-1}}"
+    s3_block="${s3_block//@S3_WRITE_KEY_ID@/$SWISSHUB_S3_WRITE_KEY_ID}"
+    s3_block="${s3_block//@S3_WRITE_SECRET@/$SWISSHUB_S3_WRITE_SECRET}"
+    s3_block="${s3_block//@S3_URI_STYLE@/$uri_stil}"
+    s3_block="${s3_block//@PGBACKREST_CIPHER_PASS@/$SWISSHUB_PGBACKREST_CIPHER_PASS}"
+    # Extern doppelt so viele Vollbackups behalten wie lokal - spaet erkannte
+    # Schaeden sollen dort noch erreichbar sein.
+    s3_block="${s3_block//@RETENTION_FULL_EXTERN@/$(( SWISSHUB_RETENTION_FULL * 2 ))}"
+  else
+    s3_block='# Kein externes Repository konfiguriert - siehe SWISSHUB_S3_* in der .env.
+# ACHTUNG: Ohne externe Kopie schuetzt diese Sicherung nicht gegen den Verlust
+# des Servers. Das ist der haeufigste Ernstfall.'
+  fi
+
+  local inhalt
+  inhalt=$(cat "$haupt")
+  inhalt="${inhalt//@PGBACKREST_REPO@/$SWISSHUB_PGBACKREST_REPO}"
+  inhalt="${inhalt//@PGBACKREST_CIPHER_PASS@/$SWISSHUB_PGBACKREST_CIPHER_PASS}"
+  inhalt="${inhalt//@BACKUP_ROOT@/$SWISSHUB_BACKUP_ROOT}"
+  inhalt="${inhalt//@RETENTION_FULL@/$SWISSHUB_RETENTION_FULL}"
+  inhalt="${inhalt//@RETENTION_DIFF@/$SWISSHUB_RETENTION_DIFF}"
+  inhalt="${inhalt//@PGBACKREST_PROCESSES@/$SWISSHUB_PGBACKREST_PROCESSES}"
+  inhalt="${inhalt//@PG_DATA@/$SWISSHUB_PG_DATA}"
+  inhalt="${inhalt//@PG_PORT@/$SWISSHUB_PG_PORT}"
+  inhalt="${inhalt//@PG_USER@/$SWISSHUB_PG_USER}"
+  # Zuletzt, weil der Block selbst Platzhalter enthielt.
+  inhalt="${inhalt//@S3_BLOCK@/$s3_block}"
+
+  local ziel="${PGBACKREST_CONF}"
+  mkdir -p "$(dirname "$ziel")"
+  # 0640, nie 0644: die Datei enthaelt das Repository-Passwort und die
+  # S3-Zugangsdaten.
+  ( umask 027; printf '%s\n' "$inhalt" > "$ziel" )
+
+  # Und die Gruppe so, dass der Benutzer sie lesen kann, der pgBackRest
+  # WIRKLICH ausfuehrt.
+  #
+  # Im Host-Betrieb ist das der PostgreSQL-Systembenutzer: nur er kommt an das
+  # Datenverzeichnis, und ein physisches Backup kopiert Dateien. Bleibt die
+  # Datei root:root, scheitert jeder Aufruf mit «Permission denied» - und diese
+  # Meldung liest sich wie ein Problem des Repositories, nicht wie ein
+  # Rechteproblem. Der Fehler kostet eine halbe Stunde Suche.
+  local gruppe
+  if [[ "$SWISSHUB_PG_MODE" == 'host' ]]; then
+    gruppe=$(id -gn "${SWISSHUB_PG_SYSTEM_USER:-postgres}" 2>/dev/null)
+  else
+    gruppe="${SWISSHUB_SERVICE_GROUP:-swisshub-backup}"
+  fi
+  if [[ -n "$gruppe" ]] && chgrp "$gruppe" "$ziel" 2>/dev/null; then
+    info "pgbackrest.conf geschrieben: $ziel (Gruppe $gruppe, 0640)"
+  else
+    warnung "pgbackrest.conf geschrieben: $ziel - die Gruppe «${gruppe:-?}» liess sich nicht setzen. pgBackRest kann die Datei dann moeglicherweise nicht lesen; der Fehler lautet «unable to open file ... Permission denied»."
+  fi
+
+  if [[ "$SWISSHUB_PG_MODE" == 'docker' ]]; then
+    cat <<'HINWEIS'
+
+  Bei SWISSHUB_PG_MODE=docker muss der Datenbankcontainer diese Datei sehen
+  und pgBackRest enthalten. In docker-compose.prod.yml beim Dienst `postgres`:
+
+      volumes:
+        - swisshub-postgres:/var/lib/postgresql/data
+        - /etc/swisshub-backup:/etc/swisshub-backup:ro
+        - /var/lib/swisshub-backup:/var/lib/swisshub-backup
+
+  und als Abbild ein postgres:16-alpine mit pgBackRest - siehe
+  deploy/backup/vorlagen/Dockerfile.postgres.
+
+  Ohne diese beiden Ergaenzungen findet pgBackRest im Container weder seine
+  Konfiguration noch sein Repository, und `einrichten` scheitert mit einer
+  Meldung ueber eine fehlende Stanza.
+HINWEIS
+  fi
+  return 0
+}
 
 restic_umgebung() {
   export RESTIC_PASSWORD="$SWISSHUB_RESTIC_PASSWORD"

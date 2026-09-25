@@ -210,7 +210,10 @@ describe('Die pgBackRest-Vorlage', () => {
   });
 
   it('der Erzeuger ersetzt jeden Platzhalter der Vorlage', () => {
-    const erzeuger = lese(BIN, 'swisshub-backup');
+    // Der Erzeuger steht in der Bibliothek, nicht im Backup-Werkzeug: die
+    // Wiederherstellung braucht ihn auch, denn das versiegelte Paket enthaelt
+    // keine pgbackrest.conf.
+    const erzeuger = lese(LIB, 'gemeinsam.sh');
     const platzhalter = [...vorlage.matchAll(/@([A-Z0-9_]+)@/gu)].map((treffer) => treffer[0]);
     for (const einzeln of new Set(platzhalter)) {
       expect(erzeuger, `${einzeln} wird nicht ersetzt`).toContain(einzeln);
@@ -473,5 +476,130 @@ describe('Die Deployment-Pipeline verlangt ein Netz', () => {
 
   it('verlangt kein Backup, wenn keine Migration etwas wegnimmt', () => {
     expect(workflow).toMatch(/Nicht noetig: keine Migration/u);
+  });
+});
+
+/**
+ * Was die Katastrophenuebung zutage brachte.
+ *
+ * Jeder Punkt hier ist ein Fehler, der im Probelauf aufgetreten ist und den
+ * kein Testlauf zuvor bemerkt hatte - weil sie alle dieselbe Form haben: das
+ * Werkzeug endet mit einem Rueckgabewert ungleich null und einer Meldung, die
+ * in die falsche Richtung zeigt. Genau das ist im Ernstfall am teuersten.
+ */
+describe('Die Wiederherstellung, wie die Uebung sie gefunden hat', () => {
+  const recovery = lese(BIN, 'swisshub-recovery');
+  const gemeinsam = lese(LIB, 'gemeinsam.sh');
+  const backup = lese(BIN, 'swisshub-backup');
+
+  it('trennt die Restic-Zugangsdaten vom Pfad', () => {
+    // `repo=$(restic_repo_pfad)` laeuft in einer Subshell. Setzte die Funktion
+    // dort das Repository-Passwort, war es beim Zurueckkommen weg - und jeder
+    // restic-Aufruf scheiterte mitten in der Wiederherstellung.
+    const pfad = recovery.slice(
+      recovery.indexOf('restic_repo_pfad() {'),
+      recovery.indexOf('# Der Snapshot, der zum Zielzeitpunkt passt.'),
+    );
+    expect(pfad).not.toContain('export ');
+    expect(pfad).not.toContain('restic_umgebung');
+    expect(recovery).toContain('restic_zugang() {');
+  });
+
+  it('setzt die Zugangsdaten vor jedem Restic-Aufruf', () => {
+    // Jede Stelle, die einen Repository-Pfad holt, muss vorher `restic_zugang`
+    // gerufen haben - ausser der Funktion, die selbst in einer
+    // Befehlssubstitution laeuft und die Umgebung vom Aufrufer bekommt.
+    const zeilen = recovery.split('\n');
+    const treffer = zeilen
+      .map((zeile, i) => ({ zeile, i }))
+      .filter(({ zeile }) => /^\s*repo(_pfad)?=\$\(restic_repo_pfad\)/u.test(zeile));
+    expect(treffer.length).toBeGreaterThan(2);
+    for (const { i } of treffer) {
+      const davor = zeilen.slice(Math.max(0, i - 6), i).join('\n');
+      expect(/restic_zugang/u.test(davor) || /passender_datei_snapshot\(\) \{/u.test(davor)).toBe(true);
+    }
+  });
+
+  it('nimmt fuer die Uploads nicht den jungsten Snapshot ueberhaupt', () => {
+    // Im selben Repository liegen auch «konfiguration» und «recovery». War das
+    // Wiederherstellungspaket das Letzte, packte «latest» dieses aus.
+    const auswahl = recovery.slice(
+      recovery.indexOf('passender_datei_snapshot() {'),
+      recovery.indexOf('konfiguration_wiederherstellen() {'),
+    );
+    expect(auswahl).toContain('--tag uploads');
+    // Der blanke Rueckfall auf «latest» darf nicht der Normalfall sein.
+    expect(auswahl).toMatch(/\$\{jungster:-latest\}/u);
+  });
+
+  it('waehlt die Konfigurationssicherung nach Zeit, nicht nach Ausgabereihenfolge', () => {
+    const konf = recovery.slice(
+      recovery.indexOf('konfiguration_wiederherstellen() {'),
+      recovery.indexOf('konfiguration_wiederherstellen() {') + 1800,
+    );
+    expect(konf).toContain('daten.sort(key=lambda s: s.get("time") or "")');
+  });
+
+  it('weicht auf die lokale Kopie aus, wenn kein auswaertiges Ziel eingerichtet ist', () => {
+    // Die Vorgabe zeigt nach auswaerts - richtig, denn der haeufigste Ernstfall
+    // ist der Serververlust. Ohne S3 scheiterte aber jeder Aufruf mit «Bucket
+    // name cannot be empty»: im Notfall sieht das aus wie ein zerstoertes
+    // Backup und ist bloss eine leere Einstellung.
+    expect(recovery).toContain('repo_vorgabe_aufloesen() {');
+    expect(recovery).toContain('REPO_AUSDRUECKLICH');
+    expect(recovery).toMatch(/ueberlebt keinen Verlust dieses Servers/u);
+  });
+
+  it('meldet ein ausdruecklich verlangtes Repository 2 als Fehler statt still umzuleiten', () => {
+    const aufloesen = recovery.slice(
+      recovery.indexOf('repo_vorgabe_aufloesen() {'),
+      recovery.indexOf('# Die Zugangsdaten fuer Restic in die Umgebung.'),
+    );
+    expect(aufloesen).toMatch(/REPO_AUSDRUECKLICH.*==.*'1'/su);
+    expect(aufloesen).toContain("REPO='1'");
+  });
+
+  it('erzeugt eine fehlende pgbackrest.conf selbst', () => {
+    // Das versiegelte Paket enthaelt sie nicht - sie ist aus der .env
+    // herleitbar. Auf einem neuen Server fehlt sie also, und pgBackRest meldet
+    // «unable to open missing file»: das klingt nach einem zerstoerten
+    // Repository und ist eine fehlende Datei.
+    expect(gemeinsam).toContain('pgbackrest_konfiguration_schreiben() {');
+    expect(recovery).toContain('pgbackrest_konfiguration_schreiben');
+    expect(backup).toContain('pgbackrest_konfiguration_schreiben');
+  });
+
+  it('schreibt die Konfiguration, bevor `einrichten` sie braucht', () => {
+    const einrichten = backup.slice(
+      backup.indexOf('befehl_einrichten() {'),
+      backup.indexOf('befehl_einrichten() {') + 900,
+    );
+    expect(einrichten).toContain('pgbackrest_konfiguration_schreiben');
+  });
+
+  it('prueft, ob PostgreSQL auf den wiederhergestellten Dateien startet', () => {
+    // Ein nicht geprueftes `pg_ctl start` meldete Erfolg und liess die
+    // Validierung danach an einer Datenbank scheitern, die nie lief.
+    expect(recovery).toMatch(/pg_ctl.*-l "\$startprotokoll".*start/u);
+    expect(recovery).toMatch(/nicht gestartet/u);
+  });
+
+  it('bestaetigt eine Wiederherstellung nur auf ein getipptes Wort', () => {
+    // Kein «[j/N]» mit Vorgabe und kein Schalter, der die Rueckfrage abschaltet:
+    // nichts darf die Produktion auf einen Tastendruck ueberschreiben.
+    expect(recovery).toContain("'WIEDERHERSTELLEN'");
+    expect(recovery).not.toMatch(/--(ja|force|yes|unbeaufsichtigt)\)/u);
+  });
+});
+
+describe('Die Skripte sagen, was sie meinen', () => {
+  it('bricht keinen Apostroph falsch aus einfachen Anfuehrungszeichen heraus', () => {
+    // `'... Let\''s ...'` ergibt in bash «Let\s». Der Rueckschraegstrich bleibt
+    // stehen, weil er innerhalb einfacher Anfuehrungszeichen kein Zeichen
+    // schuetzt - er IST eins.
+    for (const werkzeug of WERKZEUGE) {
+      const inhalt = lese(BIN, werkzeug);
+      expect(inhalt, `${werkzeug} enthaelt \\'' in einfachen Anfuehrungszeichen`).not.toMatch(/\\''/u);
+    }
   });
 });

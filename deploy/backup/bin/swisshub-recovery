@@ -45,6 +45,25 @@ lade_falls_moeglich() {
   if lade_konfiguration 2>/dev/null; then
     KONFIGURATION_GELADEN='ja'
     protokoll_eroeffnen 'recovery' 2>/dev/null || true
+    # Die pgbackrest.conf notfalls selbst erzeugen.
+    #
+    # Das Paket enthaelt sie nicht - sie ist aus swisshub-backup.env herleitbar
+    # und enthielte das Repository-Passwort sonst ein zweites Mal. Auf einem neu
+    # aufgesetzten Server fehlt sie also, und ohne sie meldet pgBackRest
+    # «unable to open missing file ... for read»: das liest sich wie ein
+    # zerstoertes Repository und ist bloss eine fehlende Datei.
+    if [[ ! -r "$PGBACKREST_CONF" ]]; then
+      if pgbackrest_konfiguration_schreiben >/dev/null 2>&1; then
+        ok "pgbackrest.conf war nicht vorhanden und wurde aus der Konfiguration erzeugt: $PGBACKREST_CONF"
+      else
+        nein "pgbackrest.conf fehlt und liess sich nicht erzeugen: $PGBACKREST_CONF"
+        sage '  Meist fehlt SWISSHUB_PGBACKREST_CIPHER_PASS in swisshub-backup.env'
+        sage '  oder das Vorlagenverzeichnis deploy/backup/vorlagen ist nicht daneben.'
+        return 1
+      fi
+    fi
+    # Erst jetzt ist bekannt, ob es ein auswaertiges Repository gibt.
+    repo_vorgabe_aufloesen || return 1
     return 0
   fi
   return 1
@@ -74,7 +93,17 @@ bestaetige() {
 
 ARBEIT='/var/lib/swisshub-recovery'
 ZIEL_ZEIT=''
+
+# Vorgabe ist das AUSWAERTIGE Repository (2), nicht das lokale.
+#
+# Wer dieses Werkzeug braucht, hat im Regelfall den Server verloren - und damit
+# auch die lokale Kopie. Die Vorgabe zeigt deshalb dorthin, wo die Sicherung
+# einen Serververlust ueberlebt.
+#
+# Ist gar kein auswaertiges Ziel eingerichtet, wird daraus das lokale: siehe
+# `repo_vorgabe_aufloesen`.
 REPO='2'
+REPO_AUSDRUECKLICH=0
 # «entpackt» und nicht «paket»: das Archiv enthaelt selbst ein Verzeichnis
 # `paket/`, und der Pfad hiess sonst .../paket/paket/...
 PAKET_ZIEL="$ARBEIT/entpackt"
@@ -255,7 +284,12 @@ befehl_punkte() {
   titel "Wiederherstellungspunkte (Repository $REPO)"
 
   local pg_info
-  pg_info=$(pgbackrest --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>&1)
+  # `pgbackrest_lauf` und nicht `pgbackrest`: im Host-Betrieb laeuft
+  # pgBackRest als der PostgreSQL-Systembenutzer - nur der kommt an das
+  # Datenverzeichnis UND an die Konfigurationsdatei (0640, Gruppe postgres).
+  # Direkt als root aufgerufen scheiterte es mit «unable to open file ...
+  # Permission denied», und das liest sich wie ein Problem des Repositories.
+  pg_info=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>&1)
   if ! printf '%s' "$pg_info" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
     nein "Das Repository $REPO war nicht lesbar."
     printf '%s\n' "$pg_info" | tail -8 | sed 's/^/    /'
@@ -273,80 +307,14 @@ HINWEIS
     return 1
   fi
 
-  printf '%s' "$pg_info" | python3 - <<'PY'
-import datetime, json, sys
-
-daten = json.load(sys.stdin)
-if not daten:
-    print("  Keine Stanza im Repository gefunden.")
-    raise SystemExit
-
-def zeit(wert):
-    if not wert:
-        return "?"
-    return datetime.datetime.fromtimestamp(wert).strftime("%Y-%m-%d %H:%M:%S")
-
-def groesse(bytes_):
-    if not bytes_:
-        return "?"
-    einheiten = ["B", "KiB", "MiB", "GiB", "TiB"]
-    wert = float(bytes_)
-    for einheit in einheiten:
-        if wert < 1024 or einheit == einheiten[-1]:
-            return "%.1f %s" % (wert, einheit)
-        wert /= 1024
-
-for stanza in daten:
-    zustand = stanza.get("status", {})
-    print("  Stanza: %s   Zustand: %s" % (stanza.get("name"), zustand.get("message", "?")))
-    for datenbank in stanza.get("db", []):
-        print("  PostgreSQL-Version der Sicherung: %s  (System-ID %s)"
-              % (datenbank.get("version"), datenbank.get("system-id")))
-    print("  Verschluesselung des Repositories: %s" % stanza.get("cipher", "keine"))
-    print()
-
-    spanne = {
-        eintrag.get("database", {}).get("id"): (eintrag.get("min"), eintrag.get("max"))
-        for eintrag in stanza.get("archive", [])
-    }
-
-    print("  %-20s %-5s %-21s %-21s %-10s %s" % ("Sicherung", "Typ", "Beginn", "Ende", "Groesse", "WAL-Kette"))
-    print("  " + "-" * 100)
-    sicherungen = stanza.get("backup", [])
-    for sicherung in sicherungen:
-        stempel = sicherung.get("timestamp", {})
-        archiv = sicherung.get("archive", {})
-        von, bis = spanne.get(sicherung.get("database", {}).get("id"), (None, None))
-        start, stop = archiv.get("start"), archiv.get("stop")
-        if not start or von is None:
-            kette = "FEHLT"
-        elif start < (von or "") or (bis and stop > bis):
-            kette = "UNVOLLSTAENDIG"
-        else:
-            kette = "vollstaendig"
-        print("  %-20s %-5s %-21s %-21s %-10s %s" % (
-            sicherung.get("label", "?"),
-            sicherung.get("type", "?"),
-            zeit(stempel.get("start")),
-            zeit(stempel.get("stop")),
-            groesse(sicherung.get("info", {}).get("repository", {}).get("delta")),
-            kette,
-        ))
-
-    if sicherungen:
-        aeltestes_ende = min(s.get("timestamp", {}).get("stop", 0) for s in sicherungen)
-        print()
-        print("  ANSTEUERBARER ZEITRAUM")
-        print("  Ein Zeitpunkt ist erreichbar, wenn er NACH dem Ende des")
-        print("  aeltesten Basis-Backups liegt und die WAL-Kette bis dorthin")
-        print("  reicht:")
-        print()
-        print("      frueheste:  %s" % zeit(aeltestes_ende))
-        print("      spaeteste:  bis zum jungsten archivierten WAL-Segment")
-        print()
-        for kennung, (von, bis) in spanne.items():
-            print("      WAL-Archiv (Historie %s): %s .. %s" % (kennung, von, bis))
-PY
+  # Die Darstellung steht in lib/punkte-anzeigen.py.
+  #
+  # Nicht als Here-Dokument in einer Pipe: `printf | python3 - <<PY` hat ZWEI
+  # Quellen fuer die Standardeingabe, und die zweite gewinnt. Python liest
+  # dann sein Programm aus dem Here-Dokument und findet auf sys.stdin nichts
+  # mehr - der Aufruf scheitert mit einem JSONDecodeError, mitten in der
+  # Wiederherstellung, wenn man die Liste am dringendsten braucht.
+  printf '%s' "$pg_info" | python3 "$LIB/punkte-anzeigen.py"
 
   # Die Dateisicherungen daneben - ohne sie ist die Datenbank allein nutzlos.
   titel 'Dateisicherungen (Uploads und Konfiguration)'
@@ -387,7 +355,7 @@ preflight() {
   PREFLIGHT_FEHLER=0
 
   # --- 1. Ist das Repository lesbar? -------------------------------------
-  if pgbackrest --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" info >/dev/null 2>&1; then
+  if pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" info >/dev/null 2>&1; then
     ok "Repository $REPO ist lesbar (Passwort und Zugangsdaten stimmen)."
   else
     nein "Repository $REPO ist nicht lesbar."
@@ -395,7 +363,7 @@ preflight() {
   fi
 
   # --- 2. Integritaet ----------------------------------------------------
-  if pgbackrest --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" verify >/dev/null 2>&1; then
+  if pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" verify >/dev/null 2>&1; then
     ok 'Alle Pruefsummen im Repository stimmen.'
   else
     nein 'pgbackrest verify ist gescheitert - mindestens eine Sicherung im Repository ist beschaedigt.'
@@ -410,7 +378,7 @@ preflight() {
   # Datenverzeichnis von 15 nicht und umgekehrt. Es gibt keine Umgehung -
   # dafuer sind die logischen Exporte da.
   local sicherung_version installiert
-  sicherung_version=$(pgbackrest --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>/dev/null \
+  sicherung_version=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>/dev/null \
     | python3 -c '
 import json, sys
 daten = json.load(sys.stdin)
@@ -461,7 +429,7 @@ HINWEIS
       PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
     else
       local frueheste
-      frueheste=$(pgbackrest --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>/dev/null \
+      frueheste=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>/dev/null \
         | python3 -c '
 import json, sys
 daten = json.load(sys.stdin)
@@ -507,7 +475,7 @@ print(min(enden) if enden else 0)' 2>/dev/null)
 
   # --- 6. Platz ----------------------------------------------------------
   local benoetigt frei
-  benoetigt=$(pgbackrest --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>/dev/null \
+  benoetigt=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>/dev/null \
     | python3 -c '
 import json, sys
 daten = json.load(sys.stdin)
@@ -547,15 +515,9 @@ print(max(groessen) if groessen else 0)' 2>/dev/null)
   # Die Regel: eine Dateisicherung, die NICHT AELTER ist als der
   # Zielzeitpunkt, enthaelt jede Datei, auf die diese Datenbank verweist.
   if [[ -n "$ZIEL_ZEIT" ]]; then
-    restic_umgebung
+    restic_zugang
     local repo_pfad
-    if [[ "$REPO" == '2' ]]; then
-      export AWS_ACCESS_KEY_ID="$SWISSHUB_S3_WRITE_KEY_ID"
-      export AWS_SECRET_ACCESS_KEY="$SWISSHUB_S3_WRITE_SECRET"
-      repo_pfad="s3:${SWISSHUB_S3_ENDPOINT%/}/${SWISSHUB_S3_BUCKET}/restic"
-    else
-      repo_pfad="$SWISSHUB_RESTIC_REPO"
-    fi
+    repo_pfad=$(restic_repo_pfad)
     local passend
     passend=$(restic --repo "$repo_pfad" snapshots --json --no-lock --tag uploads 2>/dev/null \
       | python3 - "$ZIEL_ZEIT" <<'PY' 2>/dev/null
@@ -628,7 +590,7 @@ befehl_probelauf() {
   [[ -n "$ZIEL_ZEIT" ]] && ziel=(--type=time --target="$ZIEL_ZEIT" --target-action=promote)
 
   local ausgabe
-  ausgabe=$(pgbackrest --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" \
+  ausgabe=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" \
     --repo="$REPO" --pg1-path="$SWISSHUB_PG_DATA" --dry-run \
     --log-level-console=info "${ziel[@]}" restore 2>&1)
   local status=$?
@@ -683,6 +645,10 @@ befehl_wiederherstellen() {
 
   local START
   START=$(date +%s)
+  # Das Arbeitsverzeichnis muss es geben, bevor etwas darin erwartet wird -
+  # `vorbereiten` legt es an, aber niemand muss es vorher aufgerufen haben.
+  mkdir -p "$ARBEIT"
+  chmod 700 "$ARBEIT"
 
   # --- 1. Dienste anhalten -----------------------------------------------
   #
@@ -710,7 +676,7 @@ befehl_wiederherstellen() {
   # `--delta` vergleicht und ersetzt nur, was abweicht. Auf einem leeren
   # Verzeichnis ist es gleichwertig, auf einem teilweise gefuellten spart es
   # erheblich Zeit - etwa beim zweiten Versuch nach einem Abbruch.
-  if pgbackrest --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" \
+  if pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" \
       --repo="$REPO" --pg1-path="$SWISSHUB_PG_DATA" --delta \
       --log-level-console=info "${ziel[@]}" restore 2>&1 | verdecke | tail -20 | sed 's/^/    /'; then
     ok 'Die Dateien der Datenbank sind wiederhergestellt.'
@@ -722,9 +688,40 @@ befehl_wiederherstellen() {
   # --- 3. PostgreSQL starten und die WAL-Kette einspielen ---------------
   schritt_nr '3/8  WAL einspielen und den Zielzeitpunkt erreichen'
   if [[ "$SWISSHUB_PG_MODE" == 'docker' ]]; then
-    ( cd "$SWISSHUB_PROJECT_DIR" && docker compose -f docker-compose.prod.yml up -d postgres )
+    if ! ( cd "$SWISSHUB_PROJECT_DIR" && docker compose -f docker-compose.prod.yml up -d postgres ); then
+      nein 'Der Datenbankcontainer liess sich nicht starten.'
+      return 1
+    fi
   else
-    pg_werkzeug pg_ctl -D "$SWISSHUB_PG_DATA" -l "$ARBEIT/postgres.log" -w -t 600 start >/dev/null 2>&1
+    # Das Startprotokoll INS DATENVERZEICHNIS.
+    #
+    # Nicht in das Arbeitsverzeichnis dieses Werkzeugs: das gehoert root, und
+    # PostgreSQL laeuft als sein eigener Benutzer. `pg_ctl -l` auf einen Pfad,
+    # in den er nicht schreiben darf, scheitert - und zwar bevor PostgreSQL
+    # ueberhaupt anlaeuft. Das Datenverzeichnis gehoert ihm ohnehin.
+    local startprotokoll="$SWISSHUB_PG_DATA/start-nach-wiederherstellung.log"
+
+    # Und der Rueckgabewert wird GEPRUEFT.
+    #
+    # Ohne diese Pruefung wartete die Schleife unten dreissig Minuten auf einen
+    # Cluster, der nie angelaufen ist - und meldete danach eine Luecke in der
+    # WAL-Kette. Der Fehler saesse an einer voellig anderen Stelle als die
+    # Meldung. Genau so ist es in der ersten Uebung passiert.
+    if ! pg_werkzeug pg_ctl -D "$SWISSHUB_PG_DATA" -l "$startprotokoll" -w -t 600 start >/dev/null 2>&1; then
+      nein 'PostgreSQL ist auf den wiederhergestellten Dateien nicht gestartet.'
+      if [[ -r "$startprotokoll" ]]; then
+        sage ''
+        sage '  Die letzten Zeilen des Startprotokolls:'
+        tail -25 "$startprotokoll" | sed 's/^/      /'
+      else
+        achtung "Es wurde kein Startprotokoll geschrieben ($startprotokoll). Haeufigste Ursache: das Datenverzeichnis gehoert nicht dem PostgreSQL-Benutzer «${SWISSHUB_PG_SYSTEM_USER:-postgres}»."
+        sage ''
+        sage '  Beheben:'
+        sage "      chown -R ${SWISSHUB_PG_SYSTEM_USER:-postgres} $SWISSHUB_PG_DATA"
+        sage "      chmod 700 $SWISSHUB_PG_DATA"
+      fi
+      return 1
+    fi
   fi
 
   local grenze=$(( $(date +%s) + 1800 ))
@@ -746,6 +743,9 @@ befehl_wiederherstellen() {
     fi
     if [[ "$(date +%s)" -ge "$grenze" ]]; then
       nein 'Nach 30 Minuten war die Wiederherstellung nicht abgeschlossen.'
+      if [[ -z "$letzter" ]]; then
+        achtung 'Es wurde kein einziges WAL-Segment eingespielt. Das deutet nicht auf eine Luecke in der Kette, sondern darauf, dass PostgreSQL gar nicht antwortet.'
+      fi
       achtung 'Haeufigste Ursache: eine Luecke in der WAL-Kette. PostgreSQL wartet dann auf ein Segment, das es nicht gibt. Im Protokoll steht, auf welches.'
       achtung "Protokoll: $ARBEIT/postgres.log bzw. docker compose logs postgres"
       return 1
@@ -822,12 +822,56 @@ HINWEIS
 # Dateien
 # --------------------------------------------------------------------------
 
-restic_repo_pfad() {
+# Die Vorgabe «auswaertiges Repository» auf die Wirklichkeit abbilden.
+#
+# Ohne das scheiterte jeder Zugriff mit «Bucket name cannot be empty» und der
+# Frage, ob unter «s3://restic» ein Repository liege - was in einem Notfall
+# aussieht wie ein zerstoertes Backup, obwohl bloss kein S3 eingerichtet ist.
+#
+# Wer --repo ausdruecklich angegeben hat, bekommt keine stille Umleitung: dann
+# ist die Angabe eine Entscheidung, und ein fehlendes Ziel ist ein Fehler.
+repo_vorgabe_aufloesen() {
+  [[ "$REPO" == '2' ]] || return 0
+  hat_externes_ziel && return 0
+
+  if [[ "$REPO_AUSDRUECKLICH" == '1' ]]; then
+    nein 'Repository 2 ist verlangt, aber kein auswaertiges Ziel eingerichtet.'
+    sage '  In der Konfiguration fehlen SWISSHUB_S3_ENDPOINT, SWISSHUB_S3_BUCKET'
+    sage '  oder SWISSHUB_S3_WRITE_KEY_ID. Mit «--repo 1» aus der lokalen Kopie.'
+    return 1
+  fi
+
+  REPO='1'
+  achtung 'Kein auswaertiges Repository eingerichtet - es wird die lokale Kopie (Repository 1) verwendet.'
+  achtung 'Eine lokale Kopie ueberlebt keinen Verlust dieses Servers. Siehe docs/BACKUP.md.'
+  return 0
+}
+
+# Die Zugangsdaten fuer Restic in die Umgebung.
+#
+# GETRENNT von `restic_repo_pfad`, und das ist der ganze Punkt.
+#
+# Beides stand einmal in einer Funktion, die den Pfad AUSGIBT - und sie wurde
+# deshalb in einer Befehlssubstitution aufgerufen: `repo=$(restic_repo_pfad)`.
+# Darin laeuft eine Subshell, und jedes `export` darin ist beim Zurueckkommen
+# weg. Das Repository-Passwort war also nie gesetzt, wenn es gebraucht wurde,
+# und jeder restic-Aufruf scheiterte - mitten in der Wiederherstellung, mit der
+# Meldung «restic restore ist gescheitert» und ohne Grund.
+#
+# Diese Funktion setzt und gibt nichts aus. Sie muss VOR `restic_repo_pfad`
+# und ausserhalb einer Befehlssubstitution aufgerufen werden.
+restic_zugang() {
   restic_umgebung
   if [[ "$REPO" == '2' ]]; then
     export AWS_ACCESS_KEY_ID="$SWISSHUB_S3_WRITE_KEY_ID"
     export AWS_SECRET_ACCESS_KEY="$SWISSHUB_S3_WRITE_SECRET"
     [[ -n "$SWISSHUB_S3_REGION" ]] && export AWS_DEFAULT_REGION="$SWISSHUB_S3_REGION"
+  fi
+}
+
+# Nur der Pfad. Keine Nebenwirkung - siehe `restic_zugang` darueber.
+restic_repo_pfad() {
+  if [[ "$REPO" == '2' ]]; then
     printf '%s' "s3:${SWISSHUB_S3_ENDPOINT%/}/${SWISSHUB_S3_BUCKET}/restic"
   else
     printf '%s' "$SWISSHUB_RESTIC_REPO"
@@ -840,11 +884,27 @@ restic_repo_pfad() {
 # nicht der jungste. Der jungste enthaelt zwar auch alles Noetige, aber
 # zusaetzlich Dateien, die zum Zielzeitpunkt noch nicht existierten. Die sind
 # harmlos, aber unnoetig; der aelteste passende ist der genaueste Treffer.
+# Wird selbst in einer Befehlssubstitution aufgerufen und setzt deshalb
+# NICHTS: die Zugangsdaten muss der Aufrufer schon gesetzt haben
+# (`restic_zugang`).
 passender_datei_snapshot() {
   local repo
   repo=$(restic_repo_pfad)
+  # Ohne Zielzeitpunkt der jungste Snapshot MIT DER MARKE «uploads».
+  #
+  # Nicht «latest»: das ist der jungste Snapshot ueberhaupt, und im selben
+  # Repository liegen auch die Marken «konfiguration» und «recovery». Wurde
+  # zuletzt das Wiederherstellungspaket gesichert, packte «latest» dieses aus -
+  # und die Wiederherstellung brach mit «Im Snapshot war kein Verzeichnis zu
+  # /.../uploads zu finden» ab, obwohl die Uploads gesichert waren.
   if [[ -z "$ZIEL_ZEIT" ]]; then
-    printf 'latest'
+    local jungster
+    jungster=$(restic --repo "$repo" snapshots --json --no-lock --tag uploads 2>/dev/null \
+      | python3 -c 'import json,sys
+daten = json.load(sys.stdin)
+daten.sort(key=lambda s: s.get("time") or "")
+print(daten[-1]["short_id"] if daten else "")' 2>/dev/null)
+    printf '%s' "${jungster:-latest}"
     return 0
   fi
   local ziel_epoche
@@ -885,6 +945,7 @@ dateien_wiederherstellen() {
     achtung 'SWISSHUB_UPLOAD_DIR ist nicht gesetzt - es werden keine Uploads wiederhergestellt.'
     return 1
   fi
+  restic_zugang
   local repo snapshot
   repo=$(restic_repo_pfad)
   snapshot=$(passender_datei_snapshot)
@@ -898,8 +959,12 @@ dateien_wiederherstellen() {
   rm -rf -- "${zwischen:?}"
   mkdir -p "$zwischen"
 
-  if ! restic --repo "$repo" restore "$snapshot" --target "$zwischen" >/dev/null 2>&1; then
+  local restic_protokoll="$ARBEIT/restic-restore.log"
+  if ! restic --repo "$repo" restore "$snapshot" --target "$zwischen" >"$restic_protokoll" 2>&1; then
     nein 'restic restore ist gescheitert.'
+    # Der Grund gehoert hierher. Ohne ihn stand im Protokoll nur, DASS es
+    # gescheitert ist - und in einem Notfall ist das keine Hilfe.
+    sed 's/^/      /' "$restic_protokoll" | tail -12
     return 1
   fi
 
@@ -941,12 +1006,14 @@ dateien_wiederherstellen() {
 }
 
 konfiguration_wiederherstellen() {
+  restic_zugang
   local repo snapshot
   repo=$(restic_repo_pfad)
   snapshot=$(restic --repo "$repo" snapshots --json --no-lock --tag konfiguration 2>/dev/null \
     | python3 -c '
 import json, sys
 daten = json.load(sys.stdin)
+daten.sort(key=lambda s: s.get("time") or "")
 print(daten[-1]["short_id"] if daten else "")' 2>/dev/null)
 
   if [[ -z "$snapshot" ]]; then
@@ -1014,6 +1081,7 @@ befehl_datei() {
     return 64
   fi
 
+  restic_zugang
   local repo
   repo=$(restic_repo_pfad)
 
@@ -1029,29 +1097,7 @@ befehl_datei() {
     return 1
   fi
 
-  printf '%s' "$treffer" | python3 - <<'PY'
-import json, sys
-
-try:
-    daten = json.load(sys.stdin)
-except Exception:
-    print("  Die Antwort war nicht lesbar.")
-    raise SystemExit
-
-zeilen = []
-for eintrag in daten:
-    snapshot = (eintrag.get("snapshot") or "")[:8]
-    for treffer in eintrag.get("matches", []):
-        zeilen.append((treffer.get("mtime", ""), snapshot, treffer.get("path", ""), treffer.get("size", 0)))
-
-zeilen.sort(reverse=True)
-print("  %-10s %-21s %-10s %s" % ("Snapshot", "Geaendert", "Groesse", "Pfad"))
-print("  " + "-" * 96)
-for mtime, snapshot, pfad, groesse in zeilen[:25]:
-    print("  %-10s %-21s %-10s %s" % (snapshot, mtime[:19], groesse, pfad))
-if len(zeilen) > 25:
-    print("  ... und %d weitere" % (len(zeilen) - 25))
-PY
+  printf '%s' "$treffer" | python3 "$LIB/datei-suche-anzeigen.py"
 
   cat <<HINWEIS
 
@@ -1222,7 +1268,7 @@ befehl_validieren() {
       achtung 'Das TLS-Zertifikat laeuft innerhalb einer Woche ab oder ist abgelaufen - certbot renew.'
     fi
   else
-    achtung 'Es ist kein Let\''s-Encrypt-Zertifikat vorhanden - certbot --nginx.'
+    achtung "Es ist kein Let's-Encrypt-Zertifikat vorhanden - certbot --nginx."
   fi
 
   printf '\n'
@@ -1502,7 +1548,7 @@ ARGUMENTE=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --zeit) ZIEL_ZEIT="${2:-}"; shift 2 ;;
-    --repo) REPO="${2:-2}"; shift 2 ;;
+    --repo) REPO="${2:-2}"; REPO_AUSDRUECKLICH=1; shift 2 ;;
     *) ARGUMENTE+=("$1"); shift ;;
   esac
 done
