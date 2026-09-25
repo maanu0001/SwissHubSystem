@@ -25,3 +25,4 @@ export * from './slug';
 export * from './verleihung';
 export * from './socials';
 export * from './spielfelder';
+export * from './theme-zugang';

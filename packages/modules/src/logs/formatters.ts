@@ -73,6 +73,8 @@ const MASSNAHME: Record<ModerationActionType, MassnahmeDarstellung> = {
   JAIL_CREATE: { titel: '⛓️ Jail verhängt', farbe: FARBE.hart },
   JAIL_RELEASE: { titel: '🔓 Jail beendet', farbe: FARBE.gut },
   JAIL_EXTEND: { titel: '⛓️ Jail angepasst', farbe: FARBE.warnung },
+  PROFILE_LOCK: { titel: '🚫 Öffentliches Profil gesperrt', farbe: FARBE.warnung },
+  PROFILE_UNLOCK: { titel: '✅ Profilsperre aufgehoben', farbe: FARBE.gut },
   NOTE: { titel: '📝 Notiz zur Akte', farbe: FARBE.neutral },
 };
 

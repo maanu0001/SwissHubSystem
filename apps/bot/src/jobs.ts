@@ -160,6 +160,29 @@ export function createJobRunner(
     },
     {
       /**
+       * Befristete Profilsperren aufheben.
+       *
+       * Eine gesperrte Profilseite ist nicht dringend: ob sie um 14:00 oder
+       * um 14:05 wieder erreichbar ist, merkt niemand. Fuenf Minuten sind
+       * deshalb genau richtig - haeufig genug, dass eine Frist eingehalten
+       * wird, und selten genug, dass der Durchgang nicht auffaellt.
+       *
+       * Kein eigener Zeitgeber je Sperre: die Frage steht in der Datenbank
+       * («welche Sperren sind faellig»), und eine indizierte Abfrage
+       * beantwortet sie. Ein Neustart aendert daran nichts.
+       */
+      name: 'profilsperren-ablauf',
+      intervalMs: 5 * 60 * 1000,
+      runOnStart: true,
+      async run() {
+        const aufgehoben = await moderation.hebeFaelligeProfilsperrenAuf();
+        if (aufgehoben > 0) {
+          log.info('Profilsperren abgelaufen', { aufgehoben });
+        }
+      },
+    },
+    {
+      /**
        * Die eingereihten Discord-Logs zustellen.
        *
        * Getrennt vom Einreihen, weil die beiden verschiedene Anforderungen

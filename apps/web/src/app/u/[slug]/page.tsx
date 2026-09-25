@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { branding } from '@swisshub/config/client';
+import Link from 'next/link';
+import { ShieldOff } from 'lucide-react';
 import { profile } from '@swisshub/modules';
 import { ProfilAnsicht } from '@/modules/profile/components/profil-ansicht';
 import { TeilenKnopf } from '@/modules/profile/components/teilen-knopf';
@@ -34,15 +36,30 @@ export const revalidate = 60;
 
 async function lade(params: Promise<{ slug: string }>) {
   const { slug } = await params;
-  return profile.ladeOeffentlichesProfil(slug);
+  return profile.ladeOeffentlichesProfilOderSperre(slug);
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
-  const oeffentlich = await lade(params);
-  if (!oeffentlich) {
+  const antwort = await lade(params);
+  if (antwort.art === 'gesperrt') {
+    /*
+     * Kein Name, keine Beschreibung, kein Vorschaubild.
+     *
+     * Die Metadaten sind der Teil, der nach aussen geht, ohne dass jemand
+     * die Seite oeffnet - in eine Discord-Nachricht, in eine Suchmaschine,
+     * in eine Vorschau. Waeren sie hier vollstaendig, waere die Sperre
+     * genau dort wirkungslos, wo das Profil am weitesten reist.
+     */
+    return {
+      title: 'Profil nicht verfügbar',
+      robots: { index: false, follow: false },
+    };
+  }
+  if (antwort.art === 'keines') {
     // Auch die Metadaten verraten nichts: dieselbe Antwort wie die Seite.
     return { title: 'Profil nicht gefunden', robots: { index: false, follow: false } };
   }
+  const oeffentlich = antwort.profil;
 
   const name = oeffentlich.identitaet.profilname ?? oeffentlich.identitaet.name;
   const titel = `${name} · ${branding.name}`;
@@ -77,17 +94,53 @@ export default async function OeffentlichesProfilPage({
 }: {
   params: Promise<{ slug: string }>;
 }): Promise<React.JSX.Element> {
-  const oeffentlich = await lade(params);
-  if (!oeffentlich) {
+  const antwort = await lade(params);
+  if (antwort.art === 'gesperrt') {
+    return <Gesperrt />;
+  }
+  if (antwort.art === 'keines') {
     notFound();
   }
+  const oeffentlich = antwort.profil;
 
   return (
     <div className="space-y-6">
       <ProfilAnsicht ansicht={profile.alsAnsicht(oeffentlich)} />
       <div className="flex justify-center">
-        <TeilenKnopf slug={oeffentlich.slug} name={oeffentlich.identitaet.name} variante="dezent" />
+        <TeilenKnopf slug={oeffentlich.slug} variante="dezent" />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Die Seite, die ein Besucher bei einer Sperre sieht.
+ *
+ * ## Was hier bewusst nicht steht
+ *
+ * Kein Name, kein Datum, kein Grund. Der Grund der Moderation ist eine
+ * interne Angabe; er steht in der Akte und geht niemanden sonst etwas an -
+ * schon gar nicht jemanden, der zufaellig einem geteilten Link gefolgt ist.
+ *
+ * Und kein Hinweis darauf, dass hier moderiert wurde. «Derzeit nicht
+ * oeffentlich verfuegbar» deckt beides ab: eine Sperre und eine Seite, die
+ * gerade umgestellt wird. Ein «wurde gesperrt» waere eine Anschuldigung,
+ * die auf einer Seite steht, die jeder aufrufen kann.
+ */
+function Gesperrt(): React.JSX.Element {
+  return (
+    <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 px-6 text-center">
+      <ShieldOff className="size-10 text-muted-foreground" aria-hidden="true" />
+      <h1 className="text-xl font-semibold">Dieses Profil ist derzeit nicht öffentlich verfügbar.</h1>
+      <p className="max-w-md text-sm text-muted-foreground">
+        Schau später noch einmal vorbei.
+      </p>
+      <Link
+        href="/"
+        className="mt-2 inline-flex min-h-11 items-center rounded-lg border border-border px-4 text-sm transition-colors hover:border-foreground/30"
+      >
+        Zu {branding.name}
+      </Link>
     </div>
   );
 }

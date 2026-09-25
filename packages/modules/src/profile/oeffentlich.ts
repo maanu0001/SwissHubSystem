@@ -136,33 +136,89 @@ export function alsAnsicht(oeffentlich: OeffentlichesProfil): ProfilAnsicht {
  * noch, was auf ihr steht.
  */
 export async function ladeOeffentlichesProfil(slug: string): Promise<OeffentlichesProfil | null> {
+  const ergebnis = await ladeOeffentlichesProfilOderSperre(slug);
+  return ergebnis.art === 'profil' ? ergebnis.profil : null;
+}
+
+/**
+ * Was hinter einer oeffentlichen Adresse steckt - einschliesslich einer Sperre.
+ *
+ * Drei Ausgaenge, und die Unterscheidung ist Absicht:
+ *
+ * - `profil`   - es gibt eines, und es darf gezeigt werden.
+ * - `gesperrt` - es gibt eines, seine Besitzerin hat es oeffentlich
+ *   gestellt, und die Moderation hat es vom Netz genommen.
+ * - `keines`   - Adresse unbekannt, Person weg, oder das Profil steht nicht
+ *   oeffentlich.
+ *
+ * ## Warum «gesperrt» ueberhaupt sichtbar ist
+ *
+ * Fuer alles andere gilt weiterhin dieselbe 404, und zwar bewusst: wer die
+ * drei Faelle unterscheiden koennte, koennte Adressen durchprobieren und
+ * erfahren, wer ein Profil hat, das er nicht zeigt.
+ *
+ * Bei einer Sperre ist diese Ueberlegung erledigt. Die Besitzerin hat die
+ * Seite selbst veroeffentlicht - dass es sie gibt, ist bereits oeffentlich
+ * bekannt, oft mit einem geteilten Link, den Leute anklicken. Die einzige
+ * neue Auskunft ist «gerade nicht verfuegbar», und die ist freundlicher als
+ * ein «gibt es nicht» auf einen Link, den jemand von einem Freund hat.
+ *
+ * **Der Grund bleibt innen.** Was nach aussen geht, ist ein Satz ohne Namen,
+ * ohne Datum und ohne Anlass.
+ */
+export type OeffentlicheAntwort =
+  | { art: 'profil'; profil: OeffentlichesProfil }
+  | { art: 'gesperrt' }
+  | { art: 'keines' };
+
+export async function ladeOeffentlichesProfilOderSperre(slug: string): Promise<OeffentlicheAntwort> {
   if (!istGueltigerSlug(slug)) {
-    return null;
+    return { art: 'keines' };
   }
 
   const zeile = await prisma.memberProfile.findUnique({
     where: { publicSlug: slug },
-    select: { discordId: true, visibilityProfile: true },
+    select: { discordId: true, visibilityProfile: true, publicLockedAt: true },
   });
   if (!zeile || zeile.visibilityProfile !== 'PUBLIC') {
-    return null;
+    return { art: 'keines' };
+  }
+
+  /*
+   * Die Sperre steht vor dem Laden, nicht danach.
+   *
+   * Nach dem Laden auszublenden hiesse: die Daten sind bereits geholt, und
+   * ein Fehler in der Darstellung liesse sie ins HTML rutschen. Hier ist der
+   * Dienst fertig, ehe irgendetwas zusammengestellt wurde.
+   */
+  if (zeile.publicLockedAt !== null) {
+    return { art: 'gesperrt' };
   }
 
   const ansicht = await ladeProfilFuer(zeile.discordId, 'oeffentlich');
   if (!ansicht) {
-    return null;
+    return { art: 'keines' };
   }
 
-  return baueOeffentlichesProfil(ansicht, slug);
+  return { art: 'profil', profil: baueOeffentlichesProfil(ansicht, slug) };
 }
 
 /** Der Slug eines Mitglieds - fuer den Teilen-Knopf im eigenen Profil. */
 export async function slugVon(discordId: string): Promise<string | null> {
   const zeile = await prisma.memberProfile.findUnique({
     where: { discordId },
-    select: { publicSlug: true, visibilityProfile: true },
+    select: { publicSlug: true, visibilityProfile: true, publicLockedAt: true },
   });
   if (!zeile?.publicSlug || zeile.visibilityProfile !== 'PUBLIC') {
+    return null;
+  }
+  /*
+   * Kein Teilen-Knopf fuer eine gesperrte Seite.
+   *
+   * Er fuehrte sonst zu einer Adresse, an der nichts steht - und die Person
+   * verteilte einen Link, der bei jedem Empfaenger ins Leere laeuft.
+   */
+  if (zeile.publicLockedAt !== null) {
     return null;
   }
   return zeile.publicSlug;

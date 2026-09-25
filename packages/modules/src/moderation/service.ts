@@ -435,3 +435,232 @@ export async function addModerationNote(
     auditAction: AUDIT_ACTIONS.MODERATION_NOTE,
   });
 }
+
+// --- Oeffentliches Profil sperren ------------------------------------------
+
+/**
+ * Das oeffentliche Profil eines Mitglieds vom Netz nehmen.
+ *
+ * ## Was gesperrt wird - und was nicht
+ *
+ * **Gesperrt** ist die oeffentliche Seite: `/u/<slug>` liefert keine
+ * Profildaten mehr, auch nicht ueber einen geteilten Link, auch nicht in den
+ * Vorschaudaten fuer soziale Netze. Besucher sehen eine neutrale Seite ohne
+ * Namen und ohne Grund.
+ *
+ * **Nicht gesperrt** ist alles Uebrige. Das Mitglied bleibt intern
+ * verwaltbar, seine Akte bleibt vollstaendig, und es sieht sein eigenes
+ * Profil weiterhin - eine Sperre ist eine Massnahme gegen die Aussenwirkung,
+ * keine Loeschung. Gespeichert bleibt jedes Feld; nichts an den Daten des
+ * Mitglieds wird angefasst.
+ *
+ * ## Warum sie durch dieselbe Rangfolgepruefung laeuft
+ *
+ * Weil es eine Massnahme gegen ein Mitglied ist. Wer keinen Moderator bannen
+ * darf, soll ihm auch nicht das Profil abschalten koennen - sonst waere
+ * dieser Weg die Luecke in einer Regel, die ueberall sonst gilt.
+ *
+ * ## Befristung
+ *
+ * `bis` ist freiwillig. Ohne Angabe gilt die Sperre, bis jemand sie aufhebt.
+ * Mit Angabe hebt der bestehende Zeitsteuerungs-Durchgang sie auf - kein
+ * eigener Zeitgeber, und schon gar keiner im Arbeitsspeicher.
+ */
+export interface ProfilSperreEingabe extends MassnahmeEingabe {
+  /** Geplantes Ende. `null` = bis jemand aufhebt. */
+  bis?: Date | null;
+}
+
+export async function sperreOeffentlichesProfil(
+  eingabe: ProfilSperreEingabe,
+  options: ModerationOptions = {},
+): Promise<ModerationAction> {
+  const gateway = options.gateway ?? defaultDiscord;
+  if (!eingabe.actor.can(MODERATION_PERMISSIONS.profileLock)) {
+    throw new AppError('FORBIDDEN', { userMessage: 'Du darfst keine öffentlichen Profile sperren.' });
+  }
+  const grund = pruefeGrund(eingabe.reason);
+
+  if (eingabe.bis && eingabe.bis.getTime() <= Date.now()) {
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage: 'Das Ende der Sperre muss in der Zukunft liegen.',
+    });
+  }
+
+  /*
+   * Ein Nichtmitglied darf gesperrt werden.
+   *
+   * Der Fall ist nicht selten: jemand faellt auf, verlaesst den Server und
+   * sein Profil steht weiter im Netz. Genau dann braucht es diese Massnahme
+   * am dringendsten - der Weg ueber einen Kick ist dann naemlich zu.
+   */
+  const ziel = await ladeUndPruefe(eingabe, gateway, options, true);
+  const zielName = ziel.member?.displayName ?? 'Unbekannt';
+
+  /*
+   * `upsert`, weil nicht jedes Mitglied eine Profilzeile hat.
+   *
+   * Wer nie etwas eingetragen hat, hat keine - und genau den koennte man
+   * sonst nicht sperren. Die angelegte Zeile ist leer bis auf die Sperre;
+   * sichtbar wird dadurch nichts, denn die Voreinstellung der Sichtbarkeit
+   * ist zurueckhaltend.
+   */
+  await prisma.memberProfile.upsert({
+    where: { discordId: eingabe.targetDiscordId },
+    create: {
+      discordId: eingabe.targetDiscordId,
+      publicLockedAt: new Date(),
+      publicLockReason: grund,
+      publicLockedByDiscordId: eingabe.actor.discordId,
+      publicLockUntil: eingabe.bis ?? null,
+    },
+    update: {
+      publicLockedAt: new Date(),
+      publicLockReason: grund,
+      publicLockedByDiscordId: eingabe.actor.discordId,
+      publicLockUntil: eingabe.bis ?? null,
+    },
+  });
+
+  return vermerke({
+    type: 'PROFILE_LOCK',
+    actor: eingabe.actor,
+    target: { discordId: eingabe.targetDiscordId, username: zielName },
+    reason: grund,
+    status: 'COMPLETED',
+    expiresAt: eingabe.bis ?? null,
+    metadata: { note: eingabe.note ?? null, befristet: Boolean(eingabe.bis) },
+    auditAction: AUDIT_ACTIONS.MODERATION_PROFILE_LOCK,
+  });
+}
+
+/**
+ * Die Sperre aufheben.
+ *
+ * Eigene Berechtigung, aus demselben Grund wie bei der Bann-Aufhebung: hier
+ * wird die Entscheidung eines anderen zurueckgenommen.
+ */
+export async function entsperreOeffentlichesProfil(
+  eingabe: MassnahmeEingabe,
+  options: ModerationOptions = {},
+): Promise<ModerationAction> {
+  const gateway = options.gateway ?? defaultDiscord;
+  if (!eingabe.actor.can(MODERATION_PERMISSIONS.profileUnlock)) {
+    throw new AppError('FORBIDDEN', { userMessage: 'Du darfst keine Profilsperren aufheben.' });
+  }
+  const grund = pruefeGrund(eingabe.reason);
+
+  const { count } = await prisma.memberProfile.updateMany({
+    where: { discordId: eingabe.targetDiscordId, publicLockedAt: { not: null } },
+    data: { publicLockedAt: null, publicLockReason: null, publicLockUntil: null },
+  });
+  if (count === 0) {
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage: 'Dieses Profil ist nicht gesperrt.',
+    });
+  }
+
+  const ziel = await ladeZiel(eingabe.targetDiscordId, gateway);
+  return vermerke({
+    type: 'PROFILE_UNLOCK',
+    actor: eingabe.actor,
+    target: { discordId: eingabe.targetDiscordId, username: ziel.member?.displayName ?? 'Unbekannt' },
+    reason: grund,
+    status: 'COMPLETED',
+    metadata: { note: eingabe.note ?? null },
+    auditAction: AUDIT_ACTIONS.MODERATION_PROFILE_UNLOCK,
+  });
+}
+
+/**
+ * Faellige Profilsperren aufheben.
+ *
+ * Teil des bestehenden Zeitsteuerungs-Durchgangs, nicht eines eigenen: ein
+ * zweiter Zeitgeber fuer dieselbe Art Frage waere eine zweite Stelle, die
+ * nach einem Neustart vergessen werden kann.
+ *
+ * Handelnder ist ausdruecklich das System. Den Moderator von damals
+ * einzutragen waere falsch - er hat die Sperre gesetzt, nicht aufgehoben.
+ */
+export async function hebeFaelligeProfilsperrenAuf(jetzt = new Date()): Promise<number> {
+  const faellig = await prisma.memberProfile.findMany({
+    where: { publicLockedAt: { not: null }, publicLockUntil: { not: null, lte: jetzt } },
+    select: { discordId: true, publicLockReason: true },
+    take: 100,
+  });
+
+  let aufgehoben = 0;
+  for (const zeile of faellig) {
+    /*
+     * Bedingt: zwischen Lesen und Schreiben kann jemand von Hand entsperrt
+     * oder die Frist verlaengert haben. Dann geschieht hier nichts.
+     */
+    const { count } = await prisma.memberProfile.updateMany({
+      where: { discordId: zeile.discordId, publicLockUntil: { not: null, lte: jetzt } },
+      data: { publicLockedAt: null, publicLockReason: null, publicLockUntil: null },
+    });
+    if (count === 0) {
+      continue;
+    }
+    aufgehoben += 1;
+
+    await prisma.moderationAction.create({
+      data: {
+        type: 'PROFILE_UNLOCK',
+        module: 'moderation',
+        actorDiscordId: 'system',
+        actorUsername: 'Zeitsteuerung',
+        targetDiscordId: zeile.discordId,
+        targetUsername: 'Unbekannt',
+        reason: 'Die Frist der Profilsperre ist abgelaufen.',
+        status: 'COMPLETED',
+        source: 'SYSTEM',
+        actorType: 'SYSTEM',
+        metadata: { source: 'SYSTEM', vorherigerGrund: zeile.publicLockReason },
+      },
+    });
+    await safeRecordAudit({
+      action: AUDIT_ACTIONS.MODERATION_PROFILE_UNLOCK,
+      module: 'moderation',
+      actorDiscordId: 'system',
+      actorUsername: 'Zeitsteuerung',
+      targetDiscordId: zeile.discordId,
+      targetLabel: zeile.discordId,
+      success: true,
+      metadata: { grund: 'Frist abgelaufen' },
+    });
+  }
+
+  if (aufgehoben > 0) {
+    log.info('Profilsperren abgelaufen', { aufgehoben });
+  }
+  return aufgehoben;
+}
+
+/** Der Sperrzustand eines Mitglieds - fuer die Akte und die Masken. */
+export interface ProfilSperrStand {
+  gesperrt: boolean;
+  seit: Date | null;
+  grund: string | null;
+  vonDiscordId: string | null;
+  bis: Date | null;
+}
+
+export async function profilSperrStand(discordId: string): Promise<ProfilSperrStand> {
+  const zeile = await prisma.memberProfile.findUnique({
+    where: { discordId },
+    select: {
+      publicLockedAt: true,
+      publicLockReason: true,
+      publicLockedByDiscordId: true,
+      publicLockUntil: true,
+    },
+  });
+  return {
+    gesperrt: zeile?.publicLockedAt != null,
+    seit: zeile?.publicLockedAt ?? null,
+    grund: zeile?.publicLockReason ?? null,
+    vonDiscordId: zeile?.publicLockedByDiscordId ?? null,
+    bis: zeile?.publicLockUntil ?? null,
+  };
+}

@@ -128,6 +128,27 @@ export const MEMBER_PERMISSIONS = {
    * eine Umbenennung wirkt auf jedes Profil, das sie schon traegt.
    */
   awardsDefine: 'members.awards.define',
+
+  /**
+   * Alle Profildesigns verwenden, auch ohne Premium.
+   *
+   * ## Warum eine Berechtigung und keine Rollenausnahme
+   *
+   * Weil «Admin» und «Moderator» Rollennamen sind, und Rollennamen aendern
+   * sich. Eine Abfrage auf den Namen waere genau die Art von Regel, die
+   * lautlos falsch wird, sobald jemand eine Rolle umbenennt oder eine zweite
+   * Moderationsrolle einfuehrt. Was jemand darf, steht unter
+   * Server -> Berechtigungen - hier wie ueberall sonst.
+   *
+   * ## Was sie **nicht** ist
+   *
+   * Kein Premium. Sie oeffnet ausschliesslich die Designs der oeffentlichen
+   * Profilseite; jeder andere Premium-Anspruch haengt weiterhin am
+   * Abonnement und wird an derselben Stelle wie bisher geprueft. Ein
+   * Moderator mit dieser Berechtigung bekommt keine Discord-Rolle, keine
+   * Abzeichen und keine sonstigen Vorteile.
+   */
+  themesPremium: 'members.profile.themes.premium',
 } as const;
 
 const sicht = (
@@ -251,5 +272,10 @@ export const MEMBER_CENTER_PERMISSIONS: PermissionDefinition[] = [
     'Auszeichnungen verwalten',
     'Festlegen, welche verleihbaren Auszeichnungen es gibt - anlegen, umbenennen, Symbol und Stufe ändern, archivieren.',
     true,
+  ),
+  sicht(
+    MEMBER_PERMISSIONS.themesPremium,
+    'Alle Profildesigns verwenden',
+    'Die Premium-Designs der öffentlichen Profilseite auch ohne Abonnement wählen. Öffnet ausschliesslich die Designs - keine weiteren Premium-Vorteile.',
   ),
 ];

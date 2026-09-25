@@ -28,14 +28,24 @@ import type { ModerationAbilities } from '@/modules/moderation/abilities';
 import { createJailAction } from '@/modules/jail/actions';
 import {
   banMemberAction,
+  entsperreProfilAction,
   kickMemberAction,
   removeTimeoutAction,
+  sperreProfilAction,
   timeoutMemberAction,
   addModerationNoteAction,
 } from '@/modules/moderation/actions';
 
 /** Die Massnahmen, die diese Maske anbietet. */
-type Massnahme = 'BAN' | 'KICK' | 'TIMEOUT' | 'TIMEOUT_REMOVE' | 'JAIL' | 'NOTE';
+type Massnahme =
+  | 'BAN'
+  | 'KICK'
+  | 'TIMEOUT'
+  | 'TIMEOUT_REMOVE'
+  | 'JAIL'
+  | 'PROFILE_LOCK'
+  | 'PROFILE_UNLOCK'
+  | 'NOTE';
 
 interface MassnahmeBeschreibung {
   wert: Massnahme;
@@ -78,6 +88,19 @@ const MASSNAHMEN: MassnahmeBeschreibung[] = [
     darf: 'jail',
   },
   {
+    wert: 'PROFILE_LOCK',
+    label: 'Öffentliches Profil sperren',
+    folge:
+      'Die öffentliche Profilseite ist nicht mehr erreichbar - auch nicht über einen geteilten Link. Intern bleibt alles, wie es ist, und die Person sieht ihr eigenes Profil weiterhin.',
+    darf: 'profileLock',
+  },
+  {
+    wert: 'PROFILE_UNLOCK',
+    label: 'Profilsperre aufheben',
+    folge: 'Die öffentliche Profilseite ist wieder erreichbar.',
+    darf: 'profileUnlock',
+  },
+  {
     wert: 'NOTE',
     label: 'Notiz hinterlegen',
     folge: 'Nur ein Eintrag in der Akte. Die Person merkt nichts davon.',
@@ -115,6 +138,22 @@ const JAIL_DAUERN = [
 ] as const;
 
 const JAIL_PERMANENT = 'permanent';
+
+/**
+ * Dauern fuer die Profilsperre.
+ *
+ * In Tagen gedacht und nicht in Stunden: eine Sperre, die nach sechs Stunden
+ * endet, hat niemand gemeint. Der Normalfall steht oben - unbefristet, bis
+ * jemand sie aufhebt.
+ */
+const SPERRE_UNBEFRISTET = 'unbefristet';
+
+const SPERR_DAUERN = [
+  { label: '1 Tag', seconds: 86_400 },
+  { label: '3 Tage', seconds: 259_200 },
+  { label: '1 Woche', seconds: 604_800 },
+  { label: '1 Monat', seconds: 2_592_000 },
+] as const;
 
 /**
  * Die Dauer, die nicht in der Liste steht.
@@ -191,6 +230,7 @@ export function ModerationDialog({
   const [jailDauer, setJailDauer] = useState<string>('3600');
   const [eigeneDauer, setEigeneDauer] = useState({ tage: 0, stunden: 2, minuten: 0 });
   const [loeschen, setLoeschen] = useState<string>('0');
+  const [sperrDauer, setSperrDauer] = useState<string>(SPERRE_UNBEFRISTET);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const router = useRouter();
 
@@ -224,6 +264,7 @@ export function ModerationDialog({
     setJailDauer('3600');
     setEigeneDauer({ tage: 0, stunden: 2, minuten: 0 });
     setLoeschen('0');
+    setSperrDauer(SPERRE_UNBEFRISTET);
     setFieldError(null);
   }
 
@@ -264,7 +305,16 @@ export function ModerationDialog({
           ? timeoutMemberAction({ ...basis, seconds: dauerSekunden })
           : massnahme === 'TIMEOUT_REMOVE'
             ? removeTimeoutAction(basis)
-            : massnahme === 'JAIL'
+            : massnahme === 'PROFILE_LOCK'
+              ? sperreProfilAction({
+                  ...basis,
+                  bis: sperrDauer === SPERRE_UNBEFRISTET
+                    ? null
+                    : new Date(Date.now() + Number(sperrDauer) * 1000).toISOString(),
+                })
+              : massnahme === 'PROFILE_UNLOCK'
+                ? entsperreProfilAction(basis)
+                : massnahme === 'JAIL'
               ? // Dieselbe Aktion wie die Jail-Maske: Policy, Rollen-Snapshot,
                 // Discord, Audit und Historie liegen im Jail-Service. Diese
                 // Maske sammelt nur die Eingabe.
@@ -283,7 +333,7 @@ export function ModerationDialog({
                         { type: 'TEMPORARY' as const, dauer: eigeneDauer }
                       : { type: 'TEMPORARY' as const, durationSeconds: Number(jailDauer) }),
                 })
-              : addModerationNoteAction(basis));
+                  : addModerationNoteAction(basis));
 
     if (antwort.ok) {
       const beschriftung = MASSNAHMEN.find((eintrag) => eintrag.wert === massnahme)?.label ?? 'Massnahme';
@@ -501,6 +551,29 @@ export function ModerationDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+              ) : null}
+
+              {massnahme === 'PROFILE_LOCK' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="moderation-sperrdauer">Dauer der Sperre</Label>
+                  <Select value={sperrDauer} onValueChange={setSperrDauer}>
+                    <SelectTrigger id="moderation-sperrdauer">
+                      <SelectValue placeholder="Dauer wählen" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={SPERRE_UNBEFRISTET}>Bis jemand sie aufhebt</SelectItem>
+                      {SPERR_DAUERN.map((eintrag) => (
+                        <SelectItem key={eintrag.seconds} value={String(eintrag.seconds)}>
+                          {eintrag.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Eine befristete Sperre hebt die Zeitsteuerung selbst wieder auf. Der Grund bleibt intern -
+                    Besucher sehen nur, dass das Profil derzeit nicht verfügbar ist.
+                  </p>
                 </div>
               ) : null}
 

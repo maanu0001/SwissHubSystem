@@ -232,8 +232,31 @@ function VorschauKopf({
           darüber ist positioniert und würde sonst über den Namen gezeichnet,
           den der negative Rand dort hineinzieht. */}
       <div className="relative -mt-7 flex items-end gap-3 px-4 pb-4">
+        {/*
+          Avatar und Ring auf einer gemeinsamen Grundlage.
+
+          ## Was hier schiefging
+
+          Zwei Ringe lagen ineinander. `DiscordAvatar` zeichnet von sich aus
+          einen duennen Rand (`ring`), und dieser Kasten legte den Akzentring
+          darum - der aeussere sah dadurch aus, als sitze er nicht richtig.
+          Der oeffentliche Profilkopf schaltet den inneren seit jeher mit
+          `ring={false}` ab; die Vorschau hier hatte es nie getan.
+
+          ## Warum `grid` und eine feste Kantenlaenge
+
+          Der Kasten war zuvor ein `span` mit `p-1`, dessen Hoehe sich aus
+          dem Zeilenkasten seines Inhalts ergab. Das ist die uebliche Quelle
+          fuer einen Kreis, der zur Ellipse wird: ein einziges Pixel
+          Unterlaenge genuegt, und `rounded-full` zieht daraus ein Ei.
+
+          `size-14` ist gesetzt - 56 Pixel, quadratisch, unabhaengig vom
+          Inhalt. `place-items-center` legt den Avatar in dieselbe Zelle,
+          ohne Zeilenkasten. Damit bleiben ringsum genau vier Pixel, auf
+          jeder Bildschirmgroesse und bei jedem Bildformat.
+        */}
         <span
-          className="rounded-full p-1 ring-2 ring-[hsl(var(--profil-akzent)/0.65)]"
+          className="grid size-14 shrink-0 place-items-center rounded-full ring-2 ring-[hsl(var(--profil-akzent)/0.65)]"
           style={{ backgroundColor: 'hsl(var(--profil-flaeche))' }}
         >
           <DiscordAvatar
@@ -241,6 +264,7 @@ function VorschauKopf({
             avatarHash={identitaet.avatarHash}
             name={identitaet.discordName}
             size={48}
+            ring={false}
           />
         </span>
         <div className="min-w-0 flex-1 pb-0.5">

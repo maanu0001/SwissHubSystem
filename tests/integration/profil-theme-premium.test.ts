@@ -22,8 +22,17 @@ useTestSchema('test_profil_theme_premium');
  */
 const { prisma } = await import('@swisshub/database');
 const { profile } = await import('@swisshub/modules');
+/*
+ * Die Rollenkonfiguration haelt einen kurzen Zwischenspeicher (15 Sekunden).
+ * Produktiv verwirft ihn die Einstellungsseite bei jeder Aenderung; im Test
+ * tut das dieser Aufruf. Ohne ihn pruefte der Test die Konfiguration von
+ * vorhin - und waere damit wertlos.
+ */
+const { invalidateRoleConfiguration } = await import('@swisshub/permissions');
 
 const MITGLIED = '100000000000000001';
+/** Die Rolle, an der im Berechtigungstest die Theme-Freigabe haengt. */
+const TEAM_ROLLE = '900000000000000777';
 
 const eingabe = (premiumTheme: string | null) => ({
   theme: 'swisshub',
@@ -65,6 +74,33 @@ async function gibPremium(status: 'ACTIVE' | 'CANCEL_AT_PERIOD_END' | 'EXPIRED' 
   });
 }
 
+/**
+ * Die Theme-Berechtigung an eine Rolle haengen - und dem Mitglied die Rolle.
+ *
+ * Derselbe Weg wie produktiv: ein Eintrag in `RolePermission` und die Rolle
+ * im Discord-Spiegel. Kein Mock der Berechtigungspruefung - sonst pruefte
+ * der Test seinen eigenen Mock statt der Engine.
+ */
+async function gibThemeBerechtigung(): Promise<void> {
+  await prisma.managedRole.upsert({
+    where: { discordRoleId: TEAM_ROLLE },
+    create: { discordRoleId: TEAM_ROLLE, label: 'Team' },
+    update: {},
+  });
+  await prisma.rolePermission.create({
+    data: {
+      discordRoleId: TEAM_ROLLE,
+      permission: 'members.profile.themes.premium',
+      effect: 'ALLOW',
+    },
+  });
+  await prisma.discordMemberCache.update({
+    where: { discordId: MITGLIED },
+    data: { roleIds: [TEAM_ROLLE] },
+  });
+  invalidateRoleConfiguration();
+}
+
 describeWithDatabase('Premium-Themes', () => {
   beforeAll(() => {
     pushSchema();
@@ -74,6 +110,9 @@ describeWithDatabase('Premium-Themes', () => {
     await prisma.auditLog.deleteMany({});
     await prisma.memberProfile.deleteMany({});
     await prisma.premiumSubscription.deleteMany({});
+    await prisma.rolePermission.deleteMany({});
+    await prisma.managedRole.deleteMany({});
+    invalidateRoleConfiguration();
 
     /*
      * Ohne Eintrag im Discord-Spiegel gibt es kein Profil - `ladeProfil`
@@ -191,5 +230,93 @@ describeWithDatabase('Premium-Themes', () => {
   it('nimmt einen erfundenen Schlüssel gar nicht erst an', async () => {
     const geprueft = profile.gestaltungSchema.safeParse(eingabe('gibt-es-nicht'));
     expect(geprueft.success).toBe(false);
+  });
+
+  // --- Die Berechtigung fuer Admins und Moderatoren ------------------------
+
+  it('laesst ein Premium-Design auch ohne Abonnement zu, wenn die Berechtigung erteilt ist', async () => {
+    /*
+     * Die zentrale Regel lautet «aktives Premium ODER Berechtigung».
+     * Hier ist das zweite Bein dran - und zwar ueber die echte
+     * Berechtigungs-Engine, nicht ueber eine Ausnahme fuer einen
+     * Rollennamen. Rollennamen aendern sich; Berechtigungen nicht.
+     */
+    await gibThemeBerechtigung();
+    await profile.speichereGestaltung(MITGLIED, eingabe('nebula'));
+
+    const zeile = await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } });
+    expect(zeile?.premiumTheme).toBe('nebula');
+
+    const ansicht = await profile.ladeProfil(MITGLIED, 'jemand-anderes');
+    expect(ansicht?.gestaltung.theme).toBe('nebula');
+  });
+
+  it('zeigt die Herkunft des Rechts - Abonnement vor Berechtigung', async () => {
+    expect(await profile.themeZugang(MITGLIED)).toBe('keiner');
+
+    await gibThemeBerechtigung();
+    expect(await profile.themeZugang(MITGLIED)).toBe('berechtigung');
+
+    // Wer beides hat, soll «premium» lesen: er hat dafuer bezahlt.
+    await gibPremium('ACTIVE');
+    expect(await profile.themeZugang(MITGLIED)).toBe('premium');
+  });
+
+  it('oeffnet dem Berechtigten die Galerie im Editor', async () => {
+    await gibThemeBerechtigung();
+    const editor = await profile.ladeEditor(MITGLIED);
+    expect(editor.gestaltung.darfPremium).toBe(true);
+  });
+
+  it('faellt auf das Standarddesign zurueck, wenn die Berechtigung entzogen wird', async () => {
+    await gibThemeBerechtigung();
+    await profile.speichereGestaltung(MITGLIED, eingabe('matrix'));
+    expect((await profile.ladeProfil(MITGLIED, 'wer-auch-immer'))?.gestaltung.theme).toBe('matrix');
+
+    // Die Rolle verliert die Berechtigung.
+    await prisma.rolePermission.deleteMany({});
+    invalidateRoleConfiguration();
+
+    const ansicht = await profile.ladeProfil(MITGLIED, 'wer-auch-immer');
+    expect(ansicht?.gestaltung.theme).toBe('classic');
+    // Die Wahl bleibt gespeichert - genau wie beim Ablauf eines Abonnements.
+    const zeile = await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } });
+    expect(zeile?.premiumTheme).toBe('matrix');
+  });
+
+  it('gibt einem Mitglied ohne diese Berechtigung keine Premium-Designs', async () => {
+    /*
+     * Eine andere Berechtigung derselben Rolle darf nicht aus Versehen
+     * mitziehen - geprueft wird genau `members.profile.themes.premium`.
+     */
+    await prisma.managedRole.upsert({
+      where: { discordRoleId: TEAM_ROLLE },
+      create: { discordRoleId: TEAM_ROLLE, label: 'Team' },
+      update: {},
+    });
+    await prisma.rolePermission.create({
+      data: { discordRoleId: TEAM_ROLLE, permission: 'members.view', effect: 'ALLOW' },
+    });
+    await prisma.discordMemberCache.update({
+      where: { discordId: MITGLIED },
+      data: { roleIds: [TEAM_ROLLE] },
+    });
+    invalidateRoleConfiguration();
+
+    expect(await profile.themeZugang(MITGLIED)).toBe('keiner');
+    await expect(profile.speichereGestaltung(MITGLIED, eingabe('cyber'))).rejects.toThrow();
+  });
+
+  it('gibt mit der Theme-Berechtigung keine weiteren Premium-Vorteile', async () => {
+    /*
+     * Die Abgrenzung, um die es geht: die Berechtigung oeffnet die Designs
+     * und sonst nichts. Der Premium-Anspruch selbst - der, an dem die
+     * Discord-Rolle und alles Weitere haengt - bleibt unberuehrt.
+     */
+    const { premium } = await import('@swisshub/modules');
+    await gibThemeBerechtigung();
+
+    expect(await premium.hatAnspruch(MITGLIED, 'PREMIUM_ROLE')).toBe(false);
+    expect((await premium.aktiveAnsprueche(MITGLIED)).size).toBe(0);
   });
 });

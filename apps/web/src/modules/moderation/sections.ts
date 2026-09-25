@@ -23,6 +23,8 @@ export const ACTION_LABEL: Record<ModerationActionType, string> = {
   TIMEOUT: 'Timeout',
   TIMEOUT_UPDATE: 'Timeout geändert',
   TIMEOUT_REMOVE: 'Timeout aufgehoben',
+  PROFILE_LOCK: 'Profil gesperrt',
+  PROFILE_UNLOCK: 'Profilsperre aufgehoben',
   NOTE: 'Notiz',
 };
 
@@ -76,5 +78,7 @@ export const ACTION_TONE: Record<ModerationActionType, 'neutral' | 'warn' | 'har
   TIMEOUT: 'warn',
   TIMEOUT_UPDATE: 'warn',
   TIMEOUT_REMOVE: 'gut',
+  PROFILE_LOCK: 'warn',
+  PROFILE_UNLOCK: 'gut',
   NOTE: 'neutral',
 };

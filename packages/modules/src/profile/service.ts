@@ -7,8 +7,7 @@ import * as angaben from './angaben';
 import * as auszeichnungen from './auszeichnungen';
 import * as gestaltung from './gestaltung';
 import * as profilThemes from './profil-themes';
-import { ENTITLEMENTS } from '../premium/entitlements';
-import { hatAnspruch } from '../premium/queries';
+import { darfPremiumThemes } from './theme-zugang';
 import * as showcase from './showcase';
 import { verliehenAn } from './verleihung';
 import { auszeichnungsArtenNach } from './auszeichnungs-arten';
@@ -362,7 +361,13 @@ export async function ladeProfilFuer(
    * irrelevant ist, waere schlechter Tausch.
    */
   const gewaehltesTheme = profilThemes.profilTheme(profil.premiumTheme);
-  const hatPremium = gewaehltesTheme.premium && (await hatAnspruch(discordId, ENTITLEMENTS.premiumRole));
+  /*
+   * Gefragt wird die zentrale Regel: Abonnement **oder** Berechtigung.
+   *
+   * Und nur dann, wenn ueberhaupt ein Premium-Design gespeichert ist - fuer
+   * Classic braucht es keine Abfrage, und Classic ist der Normalfall.
+   */
+  const hatPremium = gewaehltesTheme.premium && (await darfPremiumThemes(discordId));
   const theme = profilThemes.wirksamesTheme(profil.premiumTheme, hatPremium);
 
   return {
@@ -777,7 +782,7 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
    *
    * Sie ist kein Riegel - der sitzt in `speichereGestaltung`.
    */
-  const darfPremium = await hatAnspruch(discordId, ENTITLEMENTS.premiumRole);
+  const darfPremium = await darfPremiumThemes(discordId);
 
   // Die Auszeichnungen fuer die Vitrine: alle, die es gibt. Ob sie erreicht
   // sind, entscheidet die Anzeige - eine nicht erreichte faellt dort still

@@ -95,6 +95,8 @@ export function moderationAbilities(context: AuthContext): ModerationAbilities {
     // Derselbe Schluessel wie in der Jail-Maske - ein zweiter waere ein
     // zweites Regelwerk fuer dieselbe Handlung.
     jail: can(context, jail.JAIL_PERMISSIONS.create),
+    profileLock: can(context, p.profileLock),
+    profileUnlock: can(context, p.profileUnlock),
     note: can(context, p.notesCreate),
   };
   return { ...abilities, any: Object.values(abilities).some(Boolean) };

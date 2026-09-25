@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Bot, ExternalLink, Lock, Pencil, ShieldAlert, UserX } from 'lucide-react';
+import { ArrowLeft, Bot, ExternalLink, Lock, Pencil, ShieldAlert, ShieldOff, UserX } from 'lucide-react';
 import { can } from '@swisshub/auth';
 import {
   clips,
@@ -9,6 +9,7 @@ import {
   jail,
   level,
   members,
+  moderation,
   profile,
   verification,
 } from '@swisshub/modules';
@@ -233,6 +234,19 @@ export async function MitgliedsAkte({
    */
   const eigenerSlug = selbst ? await profile.slugVon(basic.discordId).catch(() => null) : null;
 
+  /*
+   * Der Sperrzustand des oeffentlichen Profils.
+   *
+   * Fuer Staff, damit die Massnahme nicht unsichtbar wirkt - und fuer die
+   * betroffene Person selbst, damit sie nicht raetselt, warum ihr geteilter
+   * Link ins Leere fuehrt. **Der Grund steht nur bei Staff**: er ist eine
+   * interne Angabe und beantwortet eine Frage der Moderation, nicht des
+   * Mitglieds.
+   */
+  const darfSperrenSehen = can(context, moderation.MODERATION_PERMISSIONS.historyView);
+  const sperre =
+    selbst || darfSperrenSehen ? await moderation.profilSperrStand(basic.discordId) : null;
+
   // Die Rollenliste braucht Discord und ist nur fuer die Verwaltung da.
   const rollenAngebot = capabilities.canManageRoles
     ? await members
@@ -244,6 +258,23 @@ export async function MitgliedsAkte({
 
   return (
     <>
+      {sperre?.gesperrt ? (
+        <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-warning">
+          <ShieldOff className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>
+            <span className="font-medium">
+              {selbst
+                ? 'Dein öffentliches Profil ist gesperrt.'
+                : 'Das öffentliche Profil ist gesperrt.'}
+            </span>{' '}
+            {selbst
+              ? 'Die Seite unter deinem Profil-Link ist derzeit nicht erreichbar. Hier drin bleibt alles wie gewohnt.'
+              : `Seit ${formatDateTime(sperre.seit!)}${sperre.bis ? `, bis ${formatDateTime(sperre.bis)}` : ' - bis jemand sie aufhebt'}.`}
+            {!selbst && darfSperrenSehen && sperre.grund ? ` Grund: ${sperre.grund}` : ''}
+          </span>
+        </p>
+      ) : null}
+
       <PageHeader
         title={basic.displayName}
         description={`@${basic.username}`}
@@ -278,7 +309,7 @@ export async function MitgliedsAkte({
                       <ExternalLink aria-hidden="true" />
                       Öffentliche Seite
                     </a>
-                    <TeilenKnopf slug={eigenerSlug} name={basic.displayName} variante="dezent" />
+                    <TeilenKnopf slug={eigenerSlug} variante="dezent" />
                   </>
                 ) : (
                   <ProfilFreigebenKnopf />
@@ -480,7 +511,7 @@ export async function MitgliedsAkte({
             <CardContent className="space-y-4 pt-6">
               {aktiv === 'uebersicht' ? (
                 <>
-                  <Uebersicht profil={profil} />
+                  <Uebersicht profil={profil} selbst={selbst} />
                   {clipBilanz ? <ClipBilanzBlock bilanz={clipBilanz} /> : null}
                   {/* Verifikation: nur der Ausgang und die Methode, nie die
                       Nachricht selbst - die faellt unter die Aufbewahrung des
@@ -676,13 +707,31 @@ export async function MitgliedsAkte({
  * Eine Kachel «0 Jails» waere bereits eine Auskunft aus der Moderationsakte -
  * auch eine Null sagt etwas.
  */
-function Uebersicht({ profil }: { profil: members.MemberCenterProfile }): React.JSX.Element {
+function Uebersicht({
+  profil,
+  selbst,
+}: {
+  profil: members.MemberCenterProfile;
+  selbst: boolean;
+}): React.JSX.Element {
   const kacheln: Array<{ label: string; wert: string }> = [];
 
   if (profil.level) {
     kacheln.push({ label: 'Level', wert: `${profil.level.level} · ${profil.level.xp} XP` });
   }
-  if (profil.tournaments) {
+  /*
+   * Turniere stehen im eigenen Profil nicht.
+   *
+   * Dieselbe Regel wie beim Reiter daneben - `NICHT_IM_EIGENEN_PROFIL`. Der
+   * Reiter war bereits weg, die Kachel blieb stehen: eine Zahl, die auf
+   * einen Abschnitt zeigte, den es hier gar nicht gibt. Sie kommt aus
+   * derselben Menge, damit die beiden nicht ein zweites Mal auseinander
+   * laufen.
+   *
+   * Geloescht wird dabei nichts. In der Akte eines anderen Mitglieds steht
+   * die Kachel weiterhin, und die Turnierverwaltung merkt davon nichts.
+   */
+  if (profil.tournaments && !(selbst && NICHT_IM_EIGENEN_PROFIL.has('tournaments'))) {
     kacheln.push({ label: 'Turniere', wert: String(profil.tournaments.gesamt) });
   }
   if (profil.tickets) {

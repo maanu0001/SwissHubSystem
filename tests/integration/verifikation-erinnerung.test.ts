@@ -120,8 +120,8 @@ async function einstellungen(teil: Record<string, unknown> = {}): Promise<void> 
   );
 }
 
-const hole = (): Promise<import('@swisshub/modules').VerificationSettings> =>
-  verification.verificationSettings();
+type Einstellungen = Awaited<ReturnType<typeof verification.verificationSettings>>;
+const hole = (): Promise<Einstellungen> => verification.verificationSettings();
 
 /** Ein neuer Beitritt mit gesendeter Begruessung. */
 async function neuerFall(discordId: string, gateway: Parameters<typeof verification.sendGreeting>[2]) {
@@ -469,7 +469,7 @@ describeWithDatabase('Verifikation: Erinnerungen', () => {
     await faelligStellen(fall.id);
 
     const kaputt = attrappe({ sendenScheitert: true });
-    (kaputt.gateway.channels as unknown as { message: unknown }).message = vi.fn(async () => {
+    (kaputt.gateway!.channels as unknown as { message: unknown }).message = vi.fn(async () => {
       throw new Error('Discord antwortet nicht');
     });
 
@@ -489,7 +489,7 @@ describeWithDatabase('Verifikation: Erinnerungen', () => {
 
     const kaputt = attrappe({ sendenScheitert: true });
     // Die Begruessung soll als vorhanden gelten - es geht allein ums Senden.
-    (kaputt.gateway.channels as unknown as { message: unknown }).message = vi.fn(async () => ({
+    (kaputt.gateway!.channels as unknown as { message: unknown }).message = vi.fn(async () => ({
       id: 'x',
       authorId: 'bot',
       authorIsBot: true,
@@ -515,7 +515,7 @@ describeWithDatabase('Verifikation: Erinnerungen', () => {
     const fall = await neuerFall('900000000000009823', gateway);
     gesendet.length = 0;
     await faelligStellen(fall.id);
-    (gateway.channels as unknown as { delete: unknown }).delete = vi.fn(async () => {
+    (gateway!.channels as unknown as { delete: unknown }).delete = vi.fn(async () => {
       throw new Error('Manage Messages fehlt');
     });
 
@@ -558,7 +558,7 @@ describeWithDatabase('Verifikation: Erinnerungen', () => {
     const { gateway, nachrichten } = attrappe();
     const fall = await neuerFall('900000000000009826', gateway);
     nachrichten.clear();
-    (gateway.channels as unknown as { delete: unknown }).delete = vi.fn(async () => {
+    (gateway!.channels as unknown as { delete: unknown }).delete = vi.fn(async () => {
       throw new Error('Unknown Message');
     });
 

@@ -22,6 +22,20 @@ export const MODERATION_PERMISSIONS = {
   timeout: 'moderation.timeout',
   timeoutRemove: 'moderation.timeout.remove',
 
+  /*
+   * Das oeffentliche Profil sperren und entsperren.
+   *
+   * Getrennt, aus demselben Grund wie Bann und Bann-Aufhebung: sperren ist
+   * eine Massnahme, entsperren nimmt die Entscheidung eines anderen zurueck.
+   * Wer das eine darf, muss deshalb nicht das andere duerfen.
+   *
+   * Beide im Moderationsmodul und nicht im Mitgliederbereich: es ist eine
+   * Massnahme gegen ein Mitglied, sie steht in derselben Akte wie Bann und
+   * Timeout, und sie laeuft durch dieselbe Rangfolgepruefung.
+   */
+  profileLock: 'moderation.profile.lock',
+  profileUnlock: 'moderation.profile.unlock',
+
   historyView: 'moderation.history.view',
   notesCreate: 'moderation.notes.create',
   settingsManage: 'moderation.settings',
@@ -63,6 +77,17 @@ export const MODERATION_CENTER_PERMISSIONS: PermissionDefinition[] = [
     MODERATION_PERMISSIONS.timeoutRemove,
     'Timeout aufheben',
     'Einen laufenden Timeout vorzeitig beenden.',
+  ),
+  eintrag(
+    MODERATION_PERMISSIONS.profileLock,
+    'Öffentliches Profil sperren',
+    'Die öffentliche Profilseite eines Mitglieds vom Netz nehmen. Intern bleibt das Mitglied verwaltbar, und das Mitglied selbst sieht sein Profil weiterhin.',
+    true,
+  ),
+  eintrag(
+    MODERATION_PERMISSIONS.profileUnlock,
+    'Profilsperre aufheben',
+    'Eine bestehende Sperre des öffentlichen Profils aufheben.',
   ),
   eintrag(
     MODERATION_PERMISSIONS.historyView,

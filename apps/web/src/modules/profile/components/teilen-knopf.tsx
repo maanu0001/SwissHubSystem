@@ -7,25 +7,74 @@ import { systemRoutes } from '@swisshub/shared';
 import { toast } from 'sonner';
 
 /**
- * Den Profil-Link weitergeben.
+ * Den Profil-Link in die Zwischenablage legen.
  *
- * Zwei Wege, und welcher es wird, entscheidet das Geraet: wo es die
- * Teilen-Funktion des Systems gibt - auf dem Handy praktisch immer -, oeffnet
- * sie sich; sonst wandert die Adresse in die Zwischenablage. Ein Knopf, der
- * auf dem Handy nur kopiert, verschenkt den kuerzeren Weg; einer, der nur
- * teilt, tut am Schreibtisch gar nichts.
+ * ## Warum nur das
  *
- * Die Adresse entsteht erst im Browser aus `location.origin`. Serverseitig
- * muesste dafuer die oeffentliche Domain bekannt sein, und sie waere eine
- * zweite Stelle, die beim naechsten Umzug falsch wird.
+ * Der Knopf oeffnete frueher die Teilen-Funktion des Systems, wo es sie gibt.
+ * Das klang nach dem kuerzeren Weg und war in der Praxis der ueberraschende:
+ * auf dem Telefon sprang ein Systemblatt auf, auf dem Schreibtisch geschah
+ * etwas anderes, und wer einfach nur die Adresse in eine Discord-Nachricht
+ * setzen wollte, musste den Umweg ueber ein Menue nehmen, das er nicht
+ * bestellt hatte.
+ *
+ * Ein Knopf, zwei Verhalten, je nach Geraet - das ist einer zu viel. Jetzt
+ * tut er ueberall dasselbe: kopieren, kurz bestaetigen, fertig. Wer teilen
+ * will, fuegt ein.
+ *
+ * ## Die Adresse
+ *
+ * Sie entsteht erst im Browser aus `location.origin`. Serverseitig muesste
+ * dafuer die oeffentliche Domain bekannt sein, und sie waere eine zweite
+ * Stelle, die beim naechsten Umzug falsch wird.
  */
+/**
+ * Text in die Zwischenablage - mit Rueckfallebene.
+ *
+ * `navigator.clipboard` gibt es nur in sicheren Kontexten. Ueber HTTP, in
+ * manchen eingebetteten Ansichten und in aelteren Browsern fehlt es ganz,
+ * und dann wirft der Zugriff, ehe ueberhaupt etwas kopiert wurde. Der alte
+ * Weg ueber ein unsichtbares Textfeld und `execCommand` funktioniert dort
+ * weiterhin; er ist abgekuendigt und trotzdem das, was in genau diesen
+ * Faellen noch traegt.
+ *
+ * Gibt zurueck, ob es geklappt hat - geraten wird nicht.
+ */
+async function inDieZwischenablage(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Verweigert oder nicht verfuegbar - unten weiter.
+  }
+
+  try {
+    const feld = document.createElement('textarea');
+    feld.value = text;
+    // Ausserhalb des Sichtfelds statt `display: none`: ein verstecktes Feld
+    // laesst sich nicht auswaehlen, und ohne Auswahl kopiert `execCommand`
+    // nichts.
+    feld.setAttribute('readonly', '');
+    feld.style.position = 'fixed';
+    feld.style.top = '-1000px';
+    feld.style.opacity = '0';
+    document.body.append(feld);
+    feld.select();
+    const geklappt = document.execCommand('copy');
+    feld.remove();
+    return geklappt;
+  } catch {
+    return false;
+  }
+}
+
 export function TeilenKnopf({
   slug,
-  name,
   variante = 'knopf',
 }: {
   slug: string;
-  name: string;
   variante?: 'knopf' | 'dezent';
 }): React.JSX.Element {
   const [kopiert, setKopiert] = useState(false);
@@ -33,25 +82,21 @@ export function TeilenKnopf({
   const teilen = async (): Promise<void> => {
     const adresse = `${window.location.origin}/u/${slug}`;
 
-    if (typeof navigator.share === 'function') {
-      try {
-        await navigator.share({ title: `${name} auf SwissHub`, url: adresse });
-        return;
-      } catch {
-        // Abgebrochen oder nicht erlaubt - dann eben kopieren.
-      }
+    if (await inDieZwischenablage(adresse)) {
+      setKopiert(true);
+      toast.success('Profil-Link kopiert!');
+      window.setTimeout(() => setKopiert(false), 2000);
+      return;
     }
 
-    try {
-      await navigator.clipboard.writeText(adresse);
-      setKopiert(true);
-      toast.success('Link kopiert.');
-      window.setTimeout(() => setKopiert(false), 2000);
-    } catch {
-      // Ohne Zwischenablage bleibt nur, die Adresse zu zeigen - damit sie
-      // sich von Hand markieren laesst.
-      toast.error(adresse);
-    }
+    /*
+     * Ohne Zwischenablage bleibt, die Adresse zu zeigen.
+     *
+     * Sie steht dann im Hinweis und laesst sich von Hand markieren. Das ist
+     * kein schoener Weg, aber ein gangbarer - und besser als eine Meldung,
+     * die sagt, es habe nicht geklappt, ohne zu sagen, was stattdessen.
+     */
+    toast.error(`Kopieren hat nicht geklappt. Die Adresse lautet: ${adresse}`, { duration: 15000 });
   };
 
   if (variante === 'dezent') {

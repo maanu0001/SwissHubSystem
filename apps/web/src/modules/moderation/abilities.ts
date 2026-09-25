@@ -19,6 +19,14 @@ export interface ModerationAbilities {
    * ist derselbe Jail, nur ein anderer Weg dorthin.
    */
   jail: boolean;
+  /**
+   * Das oeffentliche Profil sperren und entsperren.
+   *
+   * Zwei Schluessel, wie bei Bann und Bann-Aufhebung: sperren ist eine
+   * Massnahme, entsperren nimmt die Entscheidung eines anderen zurueck.
+   */
+  profileLock: boolean;
+  profileUnlock: boolean;
   note: boolean;
   /** Mindestens eine Massnahme - sonst braucht es gar keine Maske. */
   any: boolean;

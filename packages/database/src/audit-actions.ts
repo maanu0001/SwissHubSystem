@@ -223,6 +223,9 @@ export const AUDIT_ACTIONS = {
   MODERATION_KICK: 'MODERATION_KICK',
   MODERATION_TIMEOUT: 'MODERATION_TIMEOUT',
   MODERATION_TIMEOUT_REMOVE: 'MODERATION_TIMEOUT_REMOVE',
+  /// Das oeffentliche Profil eines Mitglieds gesperrt bzw. entsperrt.
+  MODERATION_PROFILE_LOCK: 'MODERATION_PROFILE_LOCK',
+  MODERATION_PROFILE_UNLOCK: 'MODERATION_PROFILE_UNLOCK',
   MODERATION_NOTE: 'MODERATION_NOTE',
   // Eine Massnahme, die nicht ueber SwissHub lief, wurde erkannt. Getrennt
   // von MODERATION_BAN und den uebrigen, weil es eine andere Aussage ist:

@@ -301,6 +301,8 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   PROFILE_AWARD_TYPE_DELETED: 'Auszeichnung entfernt',
   PROFILE_ADMIN_EDITED: 'Fremdes Profil bearbeitet',
   PROFILE_THEME_CHANGED: 'Profil-Design gewechselt',
+  MODERATION_PROFILE_LOCK: 'Öffentliches Profil gesperrt',
+  MODERATION_PROFILE_UNLOCK: 'Profilsperre aufgehoben',
   CLIP_WINNER_REWARDED: 'Clip-Gewinner belohnt',
   CLIP_COMPETITION_FINALIZED: 'Clip-Runde abgeschlossen',
   CLIP_COMPETITION_CANCELLED: 'Clip-Runde abgebrochen',

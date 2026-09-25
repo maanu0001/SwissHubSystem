@@ -12,8 +12,7 @@ import {
   type SocialsEingabe,
 } from './schemas';
 import { profilTheme } from './profil-themes';
-import { ENTITLEMENTS } from '../premium/entitlements';
-import { hatAnspruch } from '../premium/queries';
+import { darfPremiumThemes } from './theme-zugang';
 import { SPIELFELDER_VERSION } from './spielfelder';
 import { findeFreienSlug, slugVorschlag } from './slug';
 
@@ -85,10 +84,10 @@ export async function speichereGestaltung(discordId: string, eingabe: Gestaltung
   });
 
   if (gewaehlt.premium && vorher?.premiumTheme !== eingabe.premiumTheme) {
-    if (!(await hatAnspruch(discordId, ENTITLEMENTS.premiumRole))) {
+    if (!(await darfPremiumThemes(discordId))) {
       throw new AppError('FORBIDDEN', {
         userMessage: `«${gewaehlt.label}» ist ein Premium-Design. Es lässt sich mit einem aktiven SwissHub Premium auswählen.`,
-        internalMessage: `Profil-Theme ${gewaehlt.id} ohne Anspruch ${ENTITLEMENTS.premiumRole}`,
+        internalMessage: `Profil-Theme ${gewaehlt.id} ohne Premium und ohne Berechtigung`,
       });
     }
   }

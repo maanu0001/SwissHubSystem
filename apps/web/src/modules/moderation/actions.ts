@@ -159,3 +159,91 @@ export const addModerationNoteAction = defineAction(
     return { id: eintrag.id };
   },
 );
+
+/**
+ * Das oeffentliche Profil sperren und wieder freigeben.
+ *
+ * ## Warum die Zwischenspeicher hier eine eigene Rolle spielen
+ *
+ * Die oeffentliche Profilseite ist die einzige Seite dieser Anwendung, die
+ * fuer eine Minute zwischengespeichert wird - ohne das waere jeder geteilte
+ * Link ein Datenbankzugriff. Genau das ist bei einer Sperre das Problem:
+ * ohne ausdrueckliches Verwerfen lieferte sie das Profil bis zu einer Minute
+ * weiter aus, und die Vorschaukarte fuer soziale Netze womoeglich laenger.
+ *
+ * Verworfen wird deshalb beides ausdruecklich: die Seite und ihre Karte.
+ */
+const profilPfadeVerwerfen = (slug: string | null): void => {
+  revalidatePath('/moderation');
+  if (slug) {
+    revalidatePath(`/u/${slug}`);
+    revalidatePath(`/u/${slug}/karte`);
+  }
+};
+
+const sperrSchema = zielSchema.extend({
+  /**
+   * Geplantes Ende, als ISO-Zeitpunkt. Leer = bis jemand aufhebt.
+   *
+   * Als Text und nicht als `Date`: durch die Server Action geht JSON, und
+   * ein `Date` daraus ist ein String, der bloss so tut.
+   */
+  bis: z.string().datetime().nullish(),
+});
+
+export const sperreProfilAction = defineAction(
+  {
+    name: 'moderation.profil.sperren',
+    module: 'moderation',
+    permission: moderation.MODERATION_PERMISSIONS.profileLock,
+    schema: sperrSchema,
+    rateLimit: 'moderationWrite',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const { profile } = await import('@swisshub/modules');
+    // Den Slug **vor** der Sperre holen: danach gibt `slugVon` nichts mehr
+    // zurueck, und der Zwischenspeicher der Seite bliebe stehen.
+    const slug = await profile.slugVon(input.discordId).catch(() => null);
+
+    const eintrag = await moderation.sperreOeffentlichesProfil({
+      actor: moderationActor(ctx),
+      targetDiscordId: input.discordId,
+      reason: input.reason,
+      note: input.note ?? null,
+      bis: input.bis ? new Date(input.bis) : null,
+    });
+
+    profilPfadeVerwerfen(slug);
+    revalidatePath(`/members/${input.discordId}`);
+    revalidatePath('/profil');
+    return { id: eintrag.id };
+  },
+);
+
+export const entsperreProfilAction = defineAction(
+  {
+    name: 'moderation.profil.entsperren',
+    module: 'moderation',
+    permission: moderation.MODERATION_PERMISSIONS.profileUnlock,
+    schema: zielSchema,
+    rateLimit: 'moderationWrite',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const eintrag = await moderation.entsperreOeffentlichesProfil({
+      actor: moderationActor(ctx),
+      targetDiscordId: input.discordId,
+      reason: input.reason,
+      note: input.note ?? null,
+    });
+
+    // Jetzt erst holen: vor dem Entsperren gaebe `slugVon` nichts zurueck.
+    const { profile } = await import('@swisshub/modules');
+    const slug = await profile.slugVon(input.discordId).catch(() => null);
+    profilPfadeVerwerfen(slug);
+    revalidatePath(`/members/${input.discordId}`);
+    revalidatePath('/profil');
+    return { id: eintrag.id };
+  },
+);

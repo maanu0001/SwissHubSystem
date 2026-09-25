@@ -206,6 +206,15 @@ enum ModerationActionType {
   TIMEOUT_REMOVE
   /// Interne Notiz zu einem Mitglied - keine Massnahme, aber Teil der Akte.
   NOTE
+  /// Das oeffentliche Profil gesperrt.
+  ///
+  /// Keine Discord-Massnahme: sie wirkt ausschliesslich in dieser Anwendung.
+  /// Sie steht trotzdem hier und in derselben Akte wie Bann und Timeout,
+  /// weil sie dieselbe Frage beantwortet - was ist diesem Mitglied
+  /// widerfahren, und wer hat es veranlasst.
+  PROFILE_LOCK
+  /// Die Sperre des oeffentlichen Profils aufgehoben.
+  PROFILE_UNLOCK
 }
 
 /// Wo eine Massnahme ausgeloest wurde.
@@ -7397,6 +7406,32 @@ model MemberProfile {
   /// der beim Ablaufen aufraeumt.
   premiumTheme String?
 
+  // --- Moderation ------------------------------------------------------------
+  /// Seit wann das oeffentliche Profil gesperrt ist. `NULL` = nicht gesperrt.
+  ///
+  /// ## Warum hier und nicht in einer eigenen Tabelle
+  ///
+  /// Weil die Sperre eine Eigenschaft **dieses Profils** ist, und weil jede
+  /// Abfrage, die ein oeffentliches Profil holt, sie ohnehin mitlesen muss.
+  /// Eine eigene Tabelle waere ein zweiter Join auf jedem Seitenaufruf - und
+  /// eine zweite Stelle, an der jemand vergessen koennte nachzusehen.
+  ///
+  /// Die Massnahme selbst steht daneben in `ModerationAction`, wie jeder
+  /// Bann und jeder Timeout auch. Hier steht nur der Zustand, dort die
+  /// Geschichte: wer, wann, warum. Das ist dieselbe Aufteilung wie beim
+  /// Jail - der Zustand am Mitglied, der Verlauf in der Akte.
+  publicLockedAt         DateTime?
+  /// Der Grund - intern. Er wird oeffentlich **nie** ausgegeben.
+  publicLockReason       String?
+  /// Wer gesperrt hat.
+  publicLockedByDiscordId String?
+  /// Geplantes Ende einer befristeten Sperre. `NULL` = bis jemand aufhebt.
+  ///
+  /// Eigene Spalte und nicht nur `expiresAt` an der Massnahme, weil danach
+  /// gefiltert wird: «welche Sperren sind faellig» ist eine Abfrage, keine
+  /// Auswertung im Anwendungscode.
+  publicLockUntil        DateTime?
+
   // --- Privatsphaere ---------------------------------------------------------
   // Je Abschnitt und nicht pauschal: wer seine Spiele zeigen will, muss dafuer
   // nicht auch seine Socials zeigen. Voreinstellung ist zurueckhaltend - was
@@ -7434,6 +7469,8 @@ model MemberProfile {
   /// Die Entdecken-Liste filtert darueber.
   @@index([discoverable, availability])
   @@index([playStyle])
+  /// Die faellige Abfrage der befristeten Profilsperren.
+  @@index([publicLockUntil])
 }
 
 /// Eine von Hand verliehene Auszeichnung.
