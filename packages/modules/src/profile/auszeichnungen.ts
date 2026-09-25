@@ -117,8 +117,7 @@ export const FLAGGEN: Record<FlaggenKey, { label: string; lies: (g: Grundlage) =
 
 /** Die Bedingung einer gerechneten Auszeichnung - Daten, kein Code. */
 export type Bedingung =
-  | { art: 'schwelle'; messwert: MesswertKey; wert: number }
-  | { art: 'flagge'; flagge: FlaggenKey };
+  { art: 'schwelle'; messwert: MesswertKey; wert: number } | { art: 'flagge'; flagge: FlaggenKey };
 
 export interface AuszeichnungsArt {
   key: string;
@@ -602,11 +601,11 @@ export function bewerte(g: Grundlage, arten: readonly AuszeichnungsArt[] = ARTEN
       fortschritt: bedingungFortschritt(art.bedingung, g),
     }))
     .sort((a, b) => {
-    if (a.erreicht !== b.erreicht) {
-      return a.erreicht ? -1 : 1;
-    }
-    return rang[a.stufe] - rang[b.stufe];
-  });
+      if (a.erreicht !== b.erreicht) {
+        return a.erreicht ? -1 : 1;
+      }
+      return rang[a.stufe] - rang[b.stufe];
+    });
 }
 
 /** Nur die erreichten - fuer Profilkopf und Vitrine. */

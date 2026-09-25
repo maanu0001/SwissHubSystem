@@ -214,10 +214,7 @@ export const verificationSettingsSchema = z.object({
    * erlaubt. Was ein Administrator sonst in den Text schreibt, bleibt Text:
    * ein `@everyone` darin pingt niemanden.
    */
-  reminderMessage: z
-    .string()
-    .max(500)
-    .default('Hoi {user}, deine Verifikation bei SwissHub ist noch offen.'),
+  reminderMessage: z.string().max(500).default('Hoi {user}, deine Verifikation bei SwissHub ist noch offen.'),
   /**
    * Wie lange die Erinnerung stehen bleibt, in Sekunden.
    *

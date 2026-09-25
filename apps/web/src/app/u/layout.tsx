@@ -18,9 +18,19 @@ import { cn } from '@/lib/utils';
  * erreichbar, ohne dass an der Middleware etwas geaendert werden musste -
  * was die oeffentliche Rangliste mitbeschaedigt haette.
  *
- * Derselbe schmale Streifen wie bei der Rangliste, damit die oeffentlichen
- * Seiten zusammengehoeren. Keine Seitenleiste, keine Verwaltung: hier ist
- * jemand zu Besuch.
+ * ## Warum dieser Rahmen so duenn ist
+ *
+ * Er war einmal derselbe schmale Streifen wie bei der Rangliste, mit einer
+ * festen Breite von fuenf Spalten und Polstern ringsum. Das passte zu einer
+ * Liste und nicht zu einem Profil: die Gestaltung eines Mitglieds endete an
+ * einer Kante, die nicht ihm gehoerte, und dahinter lag wieder die Flaeche
+ * der Anwendung.
+ *
+ * Jetzt traegt die Kopfzeile nur noch die Herkunft, und darunter beginnt
+ * das Profil - ohne Rand, ohne feste Breite. Wie breit es wird, entscheidet
+ * seine Komposition; sieben Themes haben sieben Antworten darauf.
+ *
+ * Keine Seitenleiste, keine Verwaltung: hier ist jemand zu Besuch.
  */
 export default async function OeffentlichesProfilLayout({
   children,
@@ -50,8 +60,15 @@ export default async function OeffentlichesProfilLayout({
         </nav>
       </header>
 
-      <main className="relative z-10 flex-1 px-4 py-6 sm:px-8 sm:py-10">
-        <div className="mx-auto w-full max-w-5xl">{children}</div>
+      {/*
+        Randlos bis zur Kante.
+
+        Die Seitenpolster stehen hier trotzdem, aber klein: auf dem Telefon
+        darf Text nicht am Displayrand kleben. Die eigentliche Breite
+        bestimmt das Profil selbst.
+      */}
+      <main className="relative z-10 flex-1 px-3 py-4 sm:px-6 sm:py-8">
+        <div className="mx-auto w-full max-w-6xl">{children}</div>
       </main>
 
       <footer className="relative z-10 border-t border-border/70 px-4 py-6 text-center text-xs text-muted-foreground sm:px-8">

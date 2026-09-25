@@ -38,14 +38,7 @@ import {
 
 /** Die Massnahmen, die diese Maske anbietet. */
 type Massnahme =
-  | 'BAN'
-  | 'KICK'
-  | 'TIMEOUT'
-  | 'TIMEOUT_REMOVE'
-  | 'JAIL'
-  | 'PROFILE_LOCK'
-  | 'PROFILE_UNLOCK'
-  | 'NOTE';
+  'BAN' | 'KICK' | 'TIMEOUT' | 'TIMEOUT_REMOVE' | 'JAIL' | 'PROFILE_LOCK' | 'PROFILE_UNLOCK' | 'NOTE';
 
 interface MassnahmeBeschreibung {
   wert: Massnahme;
@@ -308,31 +301,32 @@ export function ModerationDialog({
             : massnahme === 'PROFILE_LOCK'
               ? sperreProfilAction({
                   ...basis,
-                  bis: sperrDauer === SPERRE_UNBEFRISTET
-                    ? null
-                    : new Date(Date.now() + Number(sperrDauer) * 1000).toISOString(),
+                  bis:
+                    sperrDauer === SPERRE_UNBEFRISTET
+                      ? null
+                      : new Date(Date.now() + Number(sperrDauer) * 1000).toISOString(),
                 })
               : massnahme === 'PROFILE_UNLOCK'
                 ? entsperreProfilAction(basis)
                 : massnahme === 'JAIL'
-              ? // Dieselbe Aktion wie die Jail-Maske: Policy, Rollen-Snapshot,
-                // Discord, Audit und Historie liegen im Jail-Service. Diese
-                // Maske sammelt nur die Eingabe.
-                createJailAction({
-                  csrfToken,
-                  targetDiscordId: member.discordId,
-                  reason: reason.trim(),
-                  idempotencyKey: crypto.randomUUID(),
-                  ...(jailDauer === JAIL_PERMANENT
-                    ? { type: 'PERMANENT' as const }
-                    : jailDauer === JAIL_INDIVIDUELL
-                      ? // Die drei Felder gehen so, wie sie eingetippt wurden.
-                        // Dann prueft der Server die tatsaechliche Eingabe und
-                        // nicht eine Sekundenzahl, aus der sich nicht mehr
-                        // ablesen laesst, was jemand gemeint hat.
-                        { type: 'TEMPORARY' as const, dauer: eigeneDauer }
-                      : { type: 'TEMPORARY' as const, durationSeconds: Number(jailDauer) }),
-                })
+                  ? // Dieselbe Aktion wie die Jail-Maske: Policy, Rollen-Snapshot,
+                    // Discord, Audit und Historie liegen im Jail-Service. Diese
+                    // Maske sammelt nur die Eingabe.
+                    createJailAction({
+                      csrfToken,
+                      targetDiscordId: member.discordId,
+                      reason: reason.trim(),
+                      idempotencyKey: crypto.randomUUID(),
+                      ...(jailDauer === JAIL_PERMANENT
+                        ? { type: 'PERMANENT' as const }
+                        : jailDauer === JAIL_INDIVIDUELL
+                          ? // Die drei Felder gehen so, wie sie eingetippt wurden.
+                            // Dann prueft der Server die tatsaechliche Eingabe und
+                            // nicht eine Sekundenzahl, aus der sich nicht mehr
+                            // ablesen laesst, was jemand gemeint hat.
+                            { type: 'TEMPORARY' as const, dauer: eigeneDauer }
+                          : { type: 'TEMPORARY' as const, durationSeconds: Number(jailDauer) }),
+                    })
                   : addModerationNoteAction(basis));
 
     if (antwort.ok) {

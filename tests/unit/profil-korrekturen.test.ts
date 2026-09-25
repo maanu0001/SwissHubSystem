@@ -27,10 +27,10 @@ describe('Mein Profil: keine Turnier-Kachel', () => {
      * getrennte Listen fuer dieselbe Frage laufen irgendwann auseinander, und
      * auffallen wuerde es erst an der Stelle, an der es niemand prueft.
      */
+    expect(akte).toContain("profil.tournaments && !(selbst && NICHT_IM_EIGENEN_PROFIL.has('tournaments'))");
     expect(akte).toContain(
-      "profil.tournaments && !(selbst && NICHT_IM_EIGENEN_PROFIL.has('tournaments'))",
+      "const NICHT_IM_EIGENEN_PROFIL: ReadonlySet<string> = new Set(['tournaments', 'roles'])",
     );
-    expect(akte).toContain("const NICHT_IM_EIGENEN_PROFIL: ReadonlySet<string> = new Set(['tournaments', 'roles'])");
   });
 
   it('reicht durch, ob es das eigene Profil ist', () => {

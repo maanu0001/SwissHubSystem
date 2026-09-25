@@ -244,8 +244,7 @@ export async function MitgliedsAkte({
    * Mitglieds.
    */
   const darfSperrenSehen = can(context, moderation.MODERATION_PERMISSIONS.historyView);
-  const sperre =
-    selbst || darfSperrenSehen ? await moderation.profilSperrStand(basic.discordId) : null;
+  const sperre = selbst || darfSperrenSehen ? await moderation.profilSperrStand(basic.discordId) : null;
 
   // Die Rollenliste braucht Discord und ist nur fuer die Verwaltung da.
   const rollenAngebot = capabilities.canManageRoles
@@ -263,9 +262,7 @@ export async function MitgliedsAkte({
           <ShieldOff className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>
             <span className="font-medium">
-              {selbst
-                ? 'Dein öffentliches Profil ist gesperrt.'
-                : 'Das öffentliche Profil ist gesperrt.'}
+              {selbst ? 'Dein öffentliches Profil ist gesperrt.' : 'Das öffentliche Profil ist gesperrt.'}
             </span>{' '}
             {selbst
               ? 'Die Seite unter deinem Profil-Link ist derzeit nicht erreichbar. Hier drin bleibt alles wie gewohnt.'

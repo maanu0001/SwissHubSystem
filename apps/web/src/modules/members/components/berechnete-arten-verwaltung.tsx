@@ -81,8 +81,8 @@ export function BerechneteArtenVerwaltung({
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
           Diese {arten.length} entstehen aus echten Daten - Turnieren, Clip-Runden, dem Level, dem
-          Beitrittsdatum. Bezeichnung, Symbol, Stufe und Schwellenwert lassen sich ändern; vergeben lassen
-          sie sich nicht, und genau das ist ihr Wert: sie stimmen.
+          Beitrittsdatum. Bezeichnung, Symbol, Stufe und Schwellenwert lassen sich ändern; vergeben lassen sie
+          sich nicht, und genau das ist ihr Wert: sie stimmen.
         </p>
       </div>
 
@@ -227,7 +227,10 @@ function Zeile({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor={`symbol-${art.key}`}>Symbol</Label>
-              <Select value={entwurf.symbol} onValueChange={(wert) => setEntwurf({ ...entwurf, symbol: wert })}>
+              <Select
+                value={entwurf.symbol}
+                onValueChange={(wert) => setEntwurf({ ...entwurf, symbol: wert })}
+              >
                 <SelectTrigger id={`symbol-${art.key}`}>
                   <SelectValue />
                 </SelectTrigger>
@@ -253,7 +256,10 @@ function Zeile({
                   max={1_000_000}
                   value={entwurf.schwelle ?? ''}
                   onChange={(e) =>
-                    setEntwurf({ ...entwurf, schwelle: e.target.value === '' ? null : Number(e.target.value) })
+                    setEntwurf({
+                      ...entwurf,
+                      schwelle: e.target.value === '' ? null : Number(e.target.value),
+                    })
                   }
                 />
                 <p className="text-[0.7rem] text-muted-foreground">

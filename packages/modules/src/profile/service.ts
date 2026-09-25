@@ -7,7 +7,7 @@ import * as angaben from './angaben';
 import * as auszeichnungen from './auszeichnungen';
 import * as gestaltung from './gestaltung';
 import * as profilThemes from './profil-themes';
-import { darfPremiumThemes } from './theme-zugang';
+import { darfPremiumThemes, themeZugang } from './theme-zugang';
 import * as showcase from './showcase';
 import { verliehenAn } from './verleihung';
 import { auszeichnungsArtenNach } from './auszeichnungs-arten';
@@ -103,6 +103,24 @@ export interface ProfilGestaltung {
   theme: string;
   /** Der Klassenname der Kulisse - siehe `profil-themes.css`. */
   kulisse: string;
+  /**
+   * Die Buehne der oeffentlichen Seite.
+   *
+   * Anordnung, Kantenform, Avatarauftritt, Muster und typografische
+   * Haltung - alles Schluessel aus der Registry, nie Werte aus der
+   * Datenbank. Die oeffentliche Seite macht daraus Klassennamen; was sie
+   * bedeuten, steht in `profil-oeffentlich.css`.
+   *
+   * Die **internen** Ansichten lesen das nicht: dort bleibt alles, wie es
+   * war. Ein Theme aendert die oeffentliche Seite und sonst nichts.
+   */
+  buehne: {
+    komposition: string;
+    kante: string;
+    avatar: string;
+    muster: string;
+    schrift: string;
+  };
 }
 
 export interface ProfilAngaben {
@@ -409,6 +427,13 @@ export async function ladeProfilFuer(
       bannerVerlauf: theme.bannerVerlauf ?? vorlage.verlauf,
       theme: theme.id,
       kulisse: theme.kulisse,
+      buehne: {
+        komposition: theme.komposition,
+        kante: theme.kante,
+        avatar: theme.avatar,
+        muster: theme.muster,
+        schrift: theme.schrift,
+      },
     },
     ...(zeigeAngaben
       ? {
@@ -723,6 +748,14 @@ export interface EditorDaten {
      * steuert nur, was die Oberflaeche dazu sagt.
      */
     darfPremium: boolean;
+    /**
+     * Woher das Recht auf die Premium-Designs kommt.
+     *
+     * Fuer die Galerie, damit sie den Unterschied benennen kann: «dein
+     * Abonnement» ist eine andere Auskunft als «deine Rolle im Team». Wer
+     * beides hat, liest «premium» - er hat dafuer bezahlt.
+     */
+    themeZugang: 'premium' | 'berechtigung' | 'keiner';
   };
   privatsphaere: {
     visibilityProfile: string;
@@ -795,7 +828,8 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
    *
    * Sie ist kein Riegel - der sitzt in `speichereGestaltung`.
    */
-  const darfPremium = await darfPremiumThemes(discordId);
+  const zugang = await themeZugang(discordId);
+  const darfPremium = zugang !== 'keiner';
 
   // Die Auszeichnungen fuer die Vitrine: alle, die es gibt. Ob sie erreicht
   // sind, entscheidet die Anzeige - eine nicht erreichte faellt dort still
@@ -821,6 +855,7 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
       bannerBild: werte.bannerPath ? bannerQuelle(discordId, werte.bannerPath) : null,
       premiumTheme: werte.premiumTheme,
       darfPremium,
+      themeZugang: zugang,
     },
     privatsphaere: {
       visibilityProfile: werte.visibilityProfile,

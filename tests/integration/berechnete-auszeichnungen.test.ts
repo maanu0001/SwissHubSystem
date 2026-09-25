@@ -21,10 +21,12 @@ useTestSchema('test_berechnete_auszeichnungen');
  */
 const { prisma } = await import('@swisshub/database');
 const { profile } = await import('@swisshub/modules');
+type Grundlage = Parameters<typeof profile.bewerte>[0];
+type ArtEingabe = Parameters<typeof profile.aendereBerechneteArt>[1];
 
 const ADMIN = { discordId: '100000000000000009', username: 'adminin' };
 
-const grundlage = (teil: Partial<profile.Grundlage> = {}): profile.Grundlage => ({
+const grundlage = (teil: Partial<Grundlage> = {}): Grundlage => ({
   beitrittAm: new Date('2024-01-01T00:00:00Z'),
   level: 1,
   hoechstlevel: false,
@@ -37,7 +39,7 @@ const grundlage = (teil: Partial<profile.Grundlage> = {}): profile.Grundlage => 
   ...teil,
 });
 
-const eingabe = (teil: Partial<profile.BerechneteArtEingabe> = {}): profile.BerechneteArtEingabe => ({
+const eingabe = (teil: Partial<ArtEingabe> = {}): ArtEingabe => ({
   label: 'Seriensieger',
   beschreibung: 'Drei Turniere gewonnen.',
   symbol: 'Trophy',

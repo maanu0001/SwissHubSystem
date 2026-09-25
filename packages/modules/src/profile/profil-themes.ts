@@ -77,7 +77,65 @@ export interface ProfilTheme {
   bannerVerlauf: string | null;
   /** Zwei Farben fuer die Kachel in der Auswahl. */
   vorschau: { von: string; bis: string };
+
+  /**
+   * Wie die oeffentliche Seite komponiert wird.
+   *
+   * ## Warum ein Theme mehr ist als eine Farbe
+   *
+   * Sechs Gestaltungen, die sich nur in der Farbe unterscheiden, sind eine
+   * Gestaltung mit sechs Farben. Wer die Wahl hat, soll etwas anderes
+   * bekommen - eine andere Anordnung, andere Kanten, eine andere
+   * Auftrittsform des Avatars, ein anderes Muster hinter den Karten.
+   *
+   * Die Felder unten sind Schluessel, keine Werte: was sie bedeuten, steht
+   * als CSS-Klasse in `profil-oeffentlich.css`. Aus der Datenbank kommt
+   * weiterhin nur die Theme-Kennung.
+   *
+   * **Dieselben Daten, andere Buehne.** Jede Komposition zeigt Banner,
+   * Avatar, Name, Abzeichen, Bio, Spiele, Auszeichnungen und Socials - sie
+   * ordnet sie nur anders an.
+   */
+  komposition: Komposition;
+  /** Die Form der Karten und Kanten. */
+  kante: Kante;
+  /** Wie der Avatar auftritt. */
+  avatar: AvatarForm;
+  /** Das Muster hinter den Karten. */
+  muster: Muster;
+  /** Die typografische Haltung. */
+  schrift: Schrift;
 }
+
+/**
+ * Die Anordnung der Seite.
+ *
+ * - `saeule`  - schmale Mittelsaeule, Abschnitte untereinander, viel Kante
+ * - `banner`  - breites Banner, der Kopf sitzt darin statt darunter
+ * - `raster`  - zweispaltiges Raster mit klaren Blockkanten
+ * - `strom`   - schmale Spalte links, Inhalt rechts, vertikale Fuehrung
+ * - `weite`   - grosszuegig gesetzt, Abschnitte versetzt eingerueckt
+ * - `buehne`  - zentriert, der Kopf steht frei, Abschnitte als Baender
+ * - `orbit`   - der Kopf in der Mitte, Abschnitte wechselseitig versetzt
+ *
+ * Sieben Anordnungen fuer sieben Themes: jede genau einmal vergeben. Zwei
+ * Themes mit derselben Anordnung waeren zwei Themes mit derselben Seite in
+ * einer anderen Farbe - genau das, was hier nicht entstehen soll. Ein Test
+ * haelt die Eindeutigkeit fest.
+ */
+export type Komposition = 'saeule' | 'banner' | 'raster' | 'strom' | 'weite' | 'buehne' | 'orbit';
+
+/** Kantenform der Karten. */
+export type Kante = 'kantig' | 'weich' | 'rund' | 'schnitt';
+
+/** Auftrittsform des Avatars. */
+export type AvatarForm = 'schild' | 'kreis' | 'rahmen' | 'sechseck';
+
+/** Muster hinter den Karten - nicht zu verwechseln mit der Kulisse. */
+export type Muster = 'linien' | 'schleier' | 'raster' | 'strom' | 'nebel' | 'reflex' | 'keines';
+
+/** Typografische Haltung von Namen und Ueberschriften. */
+export type Schrift = 'technisch' | 'weit' | 'kompakt' | 'elegant';
 
 /**
  * Die Themes.
@@ -98,6 +156,11 @@ const THEMES: readonly ProfilTheme[] = [
     kulisse: 'pt-classic',
     bannerVerlauf: null,
     vorschau: { von: '#1a1a1d', bis: '#0b0b0d' },
+    komposition: 'buehne',
+    kante: 'weich',
+    avatar: 'kreis',
+    muster: 'keines',
+    schrift: 'kompakt',
   },
   {
     id: 'crimson',
@@ -114,6 +177,11 @@ const THEMES: readonly ProfilTheme[] = [
     bannerVerlauf:
       'radial-gradient(120% 150% at 15% 0%, hsl(358 65% 26%) 0%, transparent 58%), linear-gradient(160deg, hsl(354 30% 10%) 0%, hsl(354 24% 5%) 100%)',
     vorschau: { von: '#e02630', bis: '#2a070c' },
+    komposition: 'raster',
+    kante: 'kantig',
+    avatar: 'schild',
+    muster: 'linien',
+    schrift: 'technisch',
   },
   {
     id: 'aurora',
@@ -130,6 +198,11 @@ const THEMES: readonly ProfilTheme[] = [
     bannerVerlauf:
       'radial-gradient(110% 130% at 25% 10%, hsl(168 55% 24%) 0%, transparent 56%), radial-gradient(95% 120% at 78% 15%, hsl(262 55% 28%) 0%, transparent 60%), linear-gradient(180deg, hsl(230 26% 11%) 0%, hsl(230 26% 6%) 100%)',
     vorschau: { von: '#3ddbb0', bis: '#1a1440' },
+    komposition: 'weite',
+    kante: 'rund',
+    avatar: 'kreis',
+    muster: 'schleier',
+    schrift: 'weit',
   },
   {
     id: 'cyber',
@@ -146,6 +219,11 @@ const THEMES: readonly ProfilTheme[] = [
     bannerVerlauf:
       'radial-gradient(110% 140% at 50% -10%, hsl(196 70% 26%) 0%, transparent 60%), repeating-linear-gradient(90deg, transparent 0 46px, hsl(196 80% 40% / 0.14) 46px 47px, transparent 47px 94px), linear-gradient(180deg, hsl(215 40% 10%) 0%, hsl(215 40% 5%) 100%)',
     vorschau: { von: '#35c6f4', bis: '#071a2b' },
+    komposition: 'strom',
+    kante: 'schnitt',
+    avatar: 'sechseck',
+    muster: 'raster',
+    schrift: 'technisch',
   },
   {
     id: 'matrix',
@@ -162,6 +240,11 @@ const THEMES: readonly ProfilTheme[] = [
     bannerVerlauf:
       'radial-gradient(110% 140% at 50% -10%, hsl(152 60% 20%) 0%, transparent 58%), linear-gradient(180deg, hsl(155 22% 8%) 0%, hsl(155 22% 4%) 100%)',
     vorschau: { von: '#27d77f', bis: '#04150d' },
+    komposition: 'saeule',
+    kante: 'kantig',
+    avatar: 'sechseck',
+    muster: 'strom',
+    schrift: 'technisch',
   },
   {
     id: 'nebula',
@@ -178,6 +261,11 @@ const THEMES: readonly ProfilTheme[] = [
     bannerVerlauf:
       'radial-gradient(100% 130% at 30% 5%, hsl(276 60% 32%) 0%, transparent 58%), radial-gradient(90% 120% at 80% 30%, hsl(310 55% 30%) 0%, transparent 60%), linear-gradient(180deg, hsl(268 30% 12%) 0%, hsl(268 30% 6%) 100%)',
     vorschau: { von: '#b06bf0', bis: '#1b0b33' },
+    komposition: 'orbit',
+    kante: 'rund',
+    avatar: 'rahmen',
+    muster: 'nebel',
+    schrift: 'weit',
   },
   {
     id: 'prestige',
@@ -194,6 +282,11 @@ const THEMES: readonly ProfilTheme[] = [
     bannerVerlauf:
       'radial-gradient(110% 150% at 50% -20%, hsl(42 55% 26%) 0%, transparent 58%), linear-gradient(180deg, hsl(40 16% 9%) 0%, hsl(40 14% 4%) 100%)',
     vorschau: { von: '#e8b44a', bis: '#16120a' },
+    komposition: 'banner',
+    kante: 'weich',
+    avatar: 'rahmen',
+    muster: 'reflex',
+    schrift: 'elegant',
   },
 ];
 

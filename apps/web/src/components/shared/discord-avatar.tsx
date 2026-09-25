@@ -70,7 +70,20 @@ export function DiscordAvatar({
   const hasCustomAvatar = Boolean(avatarHash);
   const imageRef = useRef<HTMLImageElement>(null);
 
-  const nextLevel = (): void => setFallbackLevel(hasCustomAvatar ? 1 : 2);
+  /*
+   * Eine Stufe weiter - nie dieselbe noch einmal.
+   *
+   * Hier stand `setFallbackLevel(hasCustomAvatar ? 1 : 2)`, und das war bei
+   * einem eigenen Avatar eine Sackgasse: Stufe 0 scheiterte, es ging auf 1,
+   * Stufe 1 scheiterte ebenfalls - und setzte wieder 1. Das Monogramm wurde
+   * nie erreicht, und stehen blieb ein kaputtes Bild mit dem Alternativtext
+   * daneben.
+   *
+   * Der Fall ist nicht selten: wer seinen Avatar aendert, hinterlaesst im
+   * Spiegel einen Hash, den Discords CDN nicht mehr kennt. Dann scheitern
+   * beide Stufen.
+   */
+  const nextLevel = (): void => setFallbackLevel((stand) => (stand === 0 && hasCustomAvatar ? 1 : 2));
 
   const source =
     fallbackLevel === 0

@@ -167,9 +167,7 @@ export async function ladeOeffentlichesProfil(slug: string): Promise<Oeffentlich
  * ohne Datum und ohne Anlass.
  */
 export type OeffentlicheAntwort =
-  | { art: 'profil'; profil: OeffentlichesProfil }
-  | { art: 'gesperrt' }
-  | { art: 'keines' };
+  { art: 'profil'; profil: OeffentlichesProfil } | { art: 'gesperrt' } | { art: 'keines' };
 
 export async function ladeOeffentlichesProfilOderSperre(slug: string): Promise<OeffentlicheAntwort> {
   if (!istGueltigerSlug(slug)) {

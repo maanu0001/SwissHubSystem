@@ -4,7 +4,7 @@ import { branding } from '@swisshub/config/client';
 import Link from 'next/link';
 import { ShieldOff } from 'lucide-react';
 import { profile } from '@swisshub/modules';
-import { ProfilAnsicht } from '@/modules/profile/components/profil-ansicht';
+import { OeffentlicheProfilseite } from '@/modules/profile/components/oeffentlich/oe-seite';
 import { TeilenKnopf } from '@/modules/profile/components/teilen-knopf';
 
 /**
@@ -104,12 +104,12 @@ export default async function OeffentlichesProfilPage({
   const oeffentlich = antwort.profil;
 
   return (
-    <div className="space-y-6">
-      <ProfilAnsicht ansicht={profile.alsAnsicht(oeffentlich)} />
-      <div className="flex justify-center">
+    <>
+      <OeffentlicheProfilseite profil={oeffentlich} />
+      <div className="mt-8 flex justify-center">
         <TeilenKnopf slug={oeffentlich.slug} variante="dezent" />
       </div>
-    </div>
+    </>
   );
 }
 
@@ -132,9 +132,7 @@ function Gesperrt(): React.JSX.Element {
     <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 px-6 text-center">
       <ShieldOff className="size-10 text-muted-foreground" aria-hidden="true" />
       <h1 className="text-xl font-semibold">Dieses Profil ist derzeit nicht öffentlich verfügbar.</h1>
-      <p className="max-w-md text-sm text-muted-foreground">
-        Schau später noch einmal vorbei.
-      </p>
+      <p className="max-w-md text-sm text-muted-foreground">Schau später noch einmal vorbei.</p>
       <Link
         href="/"
         className="mt-2 inline-flex min-h-11 items-center rounded-lg border border-border px-4 text-sm transition-colors hover:border-foreground/30"

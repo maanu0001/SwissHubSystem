@@ -27,13 +27,34 @@ import '../../profil-themes.css';
  * nicht, weil dieser Knopf `disabled` ist, sondern weil der Dienst es
  * ablehnt.
  */
+/**
+ * Was ein Theme ausser der Farbe aendert - in einem Halbsatz.
+ *
+ * Er steht auf der Kachel, weil die Vorschau nur die Kulisse zeigt. Dass
+ * sich mit dem Theme auch die **Anordnung** der oeffentlichen Seite
+ * aendert, sieht man dort nicht; wer es nicht liest, waehlt nach Farbe und
+ * wundert sich danach.
+ */
+const KOMPOSITION_TEXT: Record<string, string> = {
+  saeule: 'Schmale Mittelsäule, alles untereinander',
+  banner: 'Breites Banner, zweispaltig darunter',
+  raster: 'Zweispaltiges Raster mit harten Kanten',
+  strom: 'Schmale Spalte links, Inhalt rechts',
+  weite: 'Grosszügig gesetzt, versetzt eingerückt',
+  buehne: 'Zentriert, Abschnitte als volle Bänder',
+  orbit: 'Wechselseitig versetzt um die Mitte',
+};
+
 export function ThemeGalerie({
   gewaehlt,
   darfPremium,
+  zugang = 'keiner',
   onWaehlen,
 }: {
   gewaehlt: string | null;
   darfPremium: boolean;
+  /** Woher das Recht kommt - fuer den Hinweis unter der Galerie. */
+  zugang?: 'premium' | 'berechtigung' | 'keiner';
   onWaehlen: (id: string | null) => void;
 }): React.JSX.Element {
   const alle = themes.alleProfilThemes();
@@ -92,6 +113,9 @@ export function ThemeGalerie({
                     <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
                       {theme.beschreibung}
                     </span>
+                    <span className="mt-1 block text-[0.7rem] leading-snug text-muted-foreground/80">
+                      {KOMPOSITION_TEXT[theme.komposition] ?? ''}
+                    </span>
                     {gesperrt ? (
                       <span className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
                         <Lock className="size-3" aria-hidden="true" />
@@ -111,6 +135,13 @@ export function ThemeGalerie({
           );
         })}
       </ul>
+
+      {zugang === 'berechtigung' ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Alle Designs stehen dir über deine Rolle offen - ohne Abonnement. Diese Freigabe gilt
+          ausschliesslich für die Profildesigns; weitere Premium-Vorteile sind damit nicht verbunden.
+        </p>
+      ) : null}
 
       {!darfPremium ? (
         <p className="mt-3 text-xs text-muted-foreground">

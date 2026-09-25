@@ -1,0 +1,493 @@
+/* =========================================================================
+ * Die oeffentliche Profilseite.
+ *
+ * ## Was hier steht - und was nicht
+ *
+ * Hier steht **die Buehne**: wie die Seite komponiert ist, welche Form die
+ * Karten haben, wie der Avatar auftritt, welches Muster hinter den Karten
+ * liegt. Die **Kulisse** - die bewegten Lagen im Hintergrund - steht
+ * daneben in `profil-themes.css` und bleibt davon unberuehrt.
+ *
+ * ## Warum Klassen und keine Werte aus der Datenbank
+ *
+ * Aus der Datenbank kommt eine Theme-Kennung, sonst nichts. Die Registry
+ * macht daraus Klassennamen, und was ein Klassenname bedeutet, steht hier.
+ * Damit kann aus einer Profilspalte nie ein Stylesheet werden.
+ *
+ * ## Bewegung
+ *
+ * Nur `transform` und `opacity`, wie in der Kulisse - alles andere zwingt
+ * den Browser zum Neuzeichnen. `prefers-reduced-motion` schaltet unten
+ * alles ab, und zwar an einer Stelle.
+ * ========================================================================= */
+
+/* --- Der Rahmen ---------------------------------------------------------
+ * Ein eigener Ort und kein Dashboard: keine Seitenleiste, keine Karten mit
+ * Ueberschriftzeile, kein Raster aus gleich grossen Kaesten. Die Flaeche
+ * gehoert dem Profil.
+ */
+.po {
+  --po-kante: 1rem;
+  --po-luft: 1.5rem;
+  position: relative;
+  color: hsl(var(--profil-text, 0 0% 98%));
+}
+
+/* --- Kantenformen -------------------------------------------------------
+ * Die Form ist Teil der Identitaet. Ein Esports-Theme mit runden Ecken
+ * wirkt weich, ein elegantes mit harten Kanten billig - deshalb traegt
+ * jedes Theme seine eigene.
+ */
+.po-kantig {
+  --po-kante: 0;
+}
+.po-schnitt {
+  --po-kante: 0;
+}
+.po-weich {
+  --po-kante: 0.875rem;
+}
+.po-rund {
+  --po-kante: 1.75rem;
+}
+
+.po-karte {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid hsl(var(--profil-rand));
+  border-radius: var(--po-kante);
+  background: hsl(var(--profil-flaeche) / 0.72);
+  backdrop-filter: blur(10px);
+}
+
+/* Der diagonale Anschnitt - nur bei `schnitt`. Keine zweite Farbe, keine
+ * zweite Kante: derselbe Kasten, anders beschnitten. */
+.po-schnitt .po-karte {
+  clip-path: polygon(
+    0 0,
+    calc(100% - 1.25rem) 0,
+    100% 1.25rem,
+    100% 100%,
+    1.25rem 100%,
+    0 calc(100% - 1.25rem)
+  );
+}
+
+/* --- Muster hinter den Karten -------------------------------------------
+ * Statisch, sehr zurueckhaltend und ausserhalb des Textflusses. Es soll
+ * Tiefe geben, nicht auffallen: was man bemerkt, stoert beim Lesen.
+ */
+.po-karte::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.po-linien .po-karte::before {
+  background-image: repeating-linear-gradient(
+    115deg,
+    transparent 0 22px,
+    hsl(var(--profil-akzent) / 0.05) 22px 23px,
+    transparent 23px 46px
+  );
+}
+
+.po-schleier .po-karte::before {
+  background-image: radial-gradient(
+    120% 90% at 10% -10%,
+    hsl(var(--profil-akzent) / 0.12) 0%,
+    transparent 62%
+  );
+}
+
+.po-raster .po-karte::before {
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 27px, hsl(var(--profil-akzent) / 0.06) 27px 28px),
+    repeating-linear-gradient(90deg, transparent 0 27px, hsl(var(--profil-akzent) / 0.06) 27px 28px);
+}
+
+.po-strom .po-karte::before {
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0 14px,
+    hsl(var(--profil-akzent) / 0.07) 14px 15px,
+    transparent 15px 30px
+  );
+  mask-image: linear-gradient(180deg, hsl(0 0% 0% / 0.9) 0%, transparent 70%);
+}
+
+.po-nebel .po-karte::before {
+  background-image:
+    radial-gradient(70% 60% at 85% 15%, hsl(var(--profil-akzent) / 0.14) 0%, transparent 60%),
+    radial-gradient(60% 70% at 5% 90%, hsl(320 60% 55% / 0.1) 0%, transparent 62%);
+}
+
+.po-reflex .po-karte::before {
+  background-image: linear-gradient(
+    100deg,
+    transparent 0 42%,
+    hsl(var(--profil-akzent) / 0.1) 50%,
+    transparent 58% 100%
+  );
+}
+
+.po-keines .po-karte::before {
+  display: none;
+}
+
+/* --- Der Kopf -----------------------------------------------------------
+ * Banner, Avatar, Name, Abzeichen. Die Anordnung wechselt je Komposition;
+ * die Bausteine bleiben dieselben.
+ */
+.po-kopf {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--po-kante);
+  border: 1px solid hsl(var(--profil-rand));
+}
+
+/*
+ * Die Hoehe des Banners.
+ *
+ * Sie war einmal grosszuegiger - und ergab ohne hochgeladenes Bild eine
+ * grosse leere Farbflaeche, in deren unterer Ecke der Avatar sass. Ein
+ * Banner ist ein Streifen, kein Feld: hoch genug, dass ein Bild wirkt, und
+ * niedrig genug, dass der Name ohne Scrollen dasteht.
+ *
+ * Je Komposition unterschiedlich, weil die Anordnungen unterschiedlich viel
+ * Ruhe vertragen.
+ */
+.po-banner {
+  position: relative;
+  height: 9.5rem;
+  background-size: cover;
+  background-position: center;
+}
+
+@media (min-width: 640px) {
+  .po-banner {
+    height: 12.5rem;
+  }
+}
+
+/* Das Prestige-Banner traegt den Kopf - es darf hoeher sein. */
+@media (min-width: 640px) {
+  .po-banner-layout .po-banner {
+    height: 15rem;
+  }
+  /* Die Mittelsaeule ist schmal; ein hohes Banner wirkt darin erdrueckend. */
+  .po-saeule-layout .po-banner {
+    height: 10.5rem;
+  }
+}
+
+/* Der Verlauf, der den Namen lesbar macht - unabhaengig vom Bild darunter. */
+.po-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    hsl(var(--profil-flaeche) / 0.1) 0%,
+    hsl(var(--profil-flaeche) / 0.96) 100%
+  );
+}
+
+/* --- Avatarformen -------------------------------------------------------
+ * Vier Auftritte fuer denselben Baustein. Die Groesse bleibt gleich - was
+ * sich aendert, ist die Fassung.
+ */
+.po-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 6.5rem;
+  height: 6.5rem;
+  background: hsl(var(--profil-flaeche));
+}
+
+@media (min-width: 640px) {
+  .po-avatar {
+    width: 8.5rem;
+    height: 8.5rem;
+  }
+}
+
+.po-avatar-kreis {
+  border-radius: 9999px;
+  box-shadow: 0 0 0 3px hsl(var(--profil-akzent) / 0.7);
+}
+
+.po-avatar-rahmen {
+  border-radius: 0.5rem;
+  box-shadow:
+    0 0 0 1px hsl(var(--profil-akzent) / 0.9),
+    0 0 0 6px hsl(var(--profil-flaeche)),
+    0 0 0 7px hsl(var(--profil-akzent) / 0.35);
+}
+
+.po-avatar-schild {
+  border-radius: 0.75rem 0.75rem 40% 40%;
+  box-shadow: 0 0 0 3px hsl(var(--profil-akzent) / 0.75);
+}
+
+.po-avatar-sechseck {
+  clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+  background: hsl(var(--profil-akzent) / 0.85);
+  padding: 3px;
+}
+
+/* Das Bild selbst folgt der Fassung. */
+.po-avatar > * {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.po-avatar-kreis > * {
+  border-radius: 9999px;
+}
+.po-avatar-rahmen > * {
+  border-radius: 0.375rem;
+}
+.po-avatar-schild > * {
+  border-radius: 0.6rem 0.6rem 40% 40%;
+}
+.po-avatar-sechseck > * {
+  clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+}
+
+/* --- Typografische Haltung ---------------------------------------------- */
+.po-name {
+  font-weight: 800;
+  line-height: 1.05;
+  font-size: clamp(1.9rem, 6vw, 3.25rem);
+}
+
+.po-technisch .po-name {
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+.po-technisch .po-titel {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.7rem;
+}
+
+.po-weit .po-name {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.po-weit .po-titel {
+  letter-spacing: 0.1em;
+  font-size: 0.75rem;
+}
+
+.po-kompakt .po-name {
+  letter-spacing: -0.03em;
+}
+.po-kompakt .po-titel {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+.po-elegant .po-name {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.po-elegant .po-titel {
+  letter-spacing: 0.24em;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.po-titel {
+  color: hsl(var(--profil-akzent));
+  font-weight: 600;
+}
+
+/* --- Kompositionen ------------------------------------------------------
+ * Jede genau einmal vergeben. Was sich aendert, ist die Anordnung - nicht
+ * der Inhalt: jede zeigt dieselben Bausteine.
+ */
+
+/* Mittelsaeule, alles untereinander, schmal gesetzt. */
+.po-saeule-layout .po-inhalt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--po-luft);
+  max-width: 44rem;
+  margin-inline: auto;
+}
+
+/* Breites Banner, der Kopf sitzt darin. */
+.po-banner-layout .po-inhalt {
+  display: grid;
+  gap: var(--po-luft);
+}
+
+@media (min-width: 900px) {
+  .po-banner-layout .po-inhalt {
+    grid-template-columns: 1fr 1fr;
+  }
+  .po-banner-layout .po-breit {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Zweispaltiges Raster mit klaren Bloecken. */
+.po-raster-layout .po-inhalt {
+  display: grid;
+  gap: var(--po-luft);
+}
+
+@media (min-width: 900px) {
+  .po-raster-layout .po-inhalt {
+    grid-template-columns: 1.6fr 1fr;
+    align-items: start;
+  }
+  .po-raster-layout .po-breit {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Schmale Spalte links, Inhalt rechts. */
+.po-strom-layout .po-inhalt {
+  display: grid;
+  gap: var(--po-luft);
+}
+
+@media (min-width: 900px) {
+  .po-strom-layout .po-inhalt {
+    grid-template-columns: 17rem 1fr;
+    align-items: start;
+  }
+  .po-strom-layout .po-breit {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Grosszuegig, Abschnitte versetzt eingerueckt. */
+.po-weite-layout .po-inhalt {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--po-luft) * 1.4);
+}
+
+@media (min-width: 900px) {
+  .po-weite-layout .po-inhalt > :nth-child(even) {
+    margin-inline-start: 4rem;
+  }
+  .po-weite-layout .po-inhalt > :nth-child(odd) {
+    margin-inline-end: 4rem;
+  }
+}
+
+/* Zentriert, Abschnitte als volle Baender. */
+.po-buehne-layout .po-inhalt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--po-luft);
+  max-width: 60rem;
+  margin-inline: auto;
+}
+
+/* Wechselseitig versetzt um eine gedachte Mitte. */
+.po-orbit-layout .po-inhalt {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--po-luft) * 1.15);
+}
+
+@media (min-width: 900px) {
+  .po-orbit-layout .po-inhalt > * {
+    width: 78%;
+  }
+  .po-orbit-layout .po-inhalt > :nth-child(even) {
+    align-self: flex-end;
+  }
+}
+
+/* --- Abschnittsueberschrift --------------------------------------------- */
+.po-abschnitt-titel {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.po-abschnitt-titel::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, hsl(var(--profil-akzent) / 0.45), transparent);
+}
+
+/* --- Auftritt beim Laden ------------------------------------------------
+ * Einmalig, kurz, versetzt. Nur `transform` und `opacity`.
+ */
+@keyframes po-auf {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.po-auftritt {
+  animation: po-auf 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--po-verzug, 0ms);
+}
+
+/* --- Hover --------------------------------------------------------------
+ * Nur dort, wo ein Zeiger existiert. Auf dem Telefon bliebe ein
+ * Hover-Zustand nach dem Tippen kleben.
+ */
+@media (hover: hover) {
+  .po-hebt {
+    transition:
+      transform 220ms ease,
+      border-color 220ms ease;
+  }
+  .po-hebt:hover {
+    transform: translate3d(0, -3px, 0);
+    border-color: hsl(var(--profil-akzent) / 0.55);
+  }
+}
+
+/* --- Weniger Bewegung ---------------------------------------------------
+ * Dieselbe Zusage wie in der Kulisse: dasselbe Bild, ohne Bewegung.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .po-auftritt {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .po-hebt {
+    transition: none;
+  }
+  .po-hebt:hover {
+    transform: none;
+  }
+}
+
+/* --- Schmale Geraete ----------------------------------------------------
+ * Die Einrueckungen der breiten Kompositionen fallen weg - auf 390 Pixel
+ * waere eine Einrueckung von vier Zentimetern kein Stilmittel, sondern ein
+ * Lesehindernis. Das Raster darunter macht daraus ohnehin eine Spalte.
+ */
+@media (max-width: 899px) {
+  .po {
+    --po-luft: 1.1rem;
+  }
+  .po-inhalt > * {
+    width: 100% !important;
+    margin-inline: 0 !important;
+  }
+}

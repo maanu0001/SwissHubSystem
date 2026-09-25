@@ -94,7 +94,9 @@ function attrappe(optionen: { mitgliedFehlt?: boolean; sendenScheitert?: boolean
         nachrichten.delete(messageId);
       }),
       message: vi.fn(async (_channelId: string, messageId: string) =>
-        nachrichten.has(messageId) ? { id: messageId, authorId: 'bot', authorIsBot: true, createdAt: new Date() } : null,
+        nachrichten.has(messageId)
+          ? { id: messageId, authorId: 'bot', authorIsBot: true, createdAt: new Date() }
+          : null,
       ),
     },
   } as unknown as NonNullable<Parameters<typeof verification.sendeErinnerung>[2]>['gateway'];

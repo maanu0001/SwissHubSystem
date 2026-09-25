@@ -54,11 +54,7 @@ const logger = createLogger('verification:erinnerung');
  * `nextReminderAt` auf `NULL`.
  */
 export type ErinnerungsEnde =
-  | 'entschieden'
-  | 'abgeschaltet'
-  | 'kein_kanal'
-  | 'original_geloescht'
-  | 'kein_mitglied';
+  'entschieden' | 'abgeschaltet' | 'kein_kanal' | 'original_geloescht' | 'kein_mitglied';
 
 export interface ErinnerungsErgebnis {
   requestId: string;
@@ -77,10 +73,7 @@ export interface ErinnerungsErgebnis {
  * Bedingt auf «es gibt ueberhaupt noch einen Termin»: zwei Worker duerfen
  * sich hier begegnen, und nur einer soll das Protokoll schreiben.
  */
-export async function beendeErinnerungen(
-  requestId: string,
-  grund: ErinnerungsEnde,
-): Promise<boolean> {
+export async function beendeErinnerungen(requestId: string, grund: ErinnerungsEnde): Promise<boolean> {
   const { count } = await prisma.verificationRequest.updateMany({
     where: { id: requestId, nextReminderAt: { not: null } },
     data: { nextReminderAt: null },
@@ -185,11 +178,7 @@ async function originalStehtNoch(
 }
 
 /** Den naechsten Termin setzen und die Zaehler fortschreiben. */
-async function verschiebe(
-  requestId: string,
-  settings: VerificationSettings,
-  jetzt: Date,
-): Promise<void> {
+async function verschiebe(requestId: string, settings: VerificationSettings, jetzt: Date): Promise<void> {
   await prisma.verificationRequest.update({
     where: { id: requestId },
     data: {
