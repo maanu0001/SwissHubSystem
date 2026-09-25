@@ -6,11 +6,12 @@ import {
   CalendarDays,
   ChevronDown,
   Clapperboard,
+  DatabaseBackup,
+  Dices,
   ExternalLink,
   FileCog,
   Gamepad2,
   Gift,
-  Dices,
   KeyRound,
   LifeBuoy,
   Megaphone,
@@ -57,6 +58,7 @@ import type { AuditKategorieId, AuditKontext } from './kontext';
 
 const SYMBOL: Record<AuditKategorieId, typeof Users> = {
   auth: KeyRound,
+  backup: DatabaseBackup,
   moderation: ShieldAlert,
   tickets: LifeBuoy,
   verifikation: UserCheck,

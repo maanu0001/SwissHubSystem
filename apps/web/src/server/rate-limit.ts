@@ -35,6 +35,31 @@ export const RATE_LIMITS = {
   gameWrite: { limit: 60, windowMs: 10 * 60 * 1000 },
   levelWrite: { limit: 40, windowMs: 5 * 60 * 1000 },
   /**
+   * Eine Sicherung oder Pruefung von Hand anstossen.
+   *
+   * Eng bemessen, und aus einem anderen Grund als sonst: nicht gegen
+   * Missbrauch, sondern gegen Selbstschaden. Jede Anforderung belegt
+   * Rechenzeit, I/O und Speicherplatz auf demselben Server, auf dem der
+   * Discord-Bot laeuft. Zehn Vollbackups hintereinander waeren keine
+   * Boesartigkeit, sondern ein ungeduldiger Finger - und das Ergebnis waere
+   * ein Server, der eine Stunde lang nichts anderes mehr tut.
+   *
+   * Die Werkzeuge haben ohnehin eine Sperre und ueberspringen einen Lauf,
+   * solange einer laeuft. Diese Grenze verhindert, dass sich hundert
+   * Anforderungen im Eingang stapeln, die dann eine nach der anderen
+   * abgearbeitet werden.
+   */
+  backupRun: { limit: 10, windowMs: 30 * 60 * 1000 },
+  /**
+   * Einen produktiven Restore anfordern oder freigeben.
+   *
+   * Sehr eng: das ist die destruktivste Operation des Systems, und sie wird
+   * einmal in Monaten gebraucht. Wer sie in einer halben Stunde dreimal
+   * anfordert, hat nicht mehr Sicherungen, sondern ein Problem an anderer
+   * Stelle.
+   */
+  backupRestore: { limit: 5, windowMs: 30 * 60 * 1000 },
+  /**
    * Den eigenen Lesezustand aendern.
    *
    * Grosszuegig: wer zehn Meldungen durchgeht, drueckt zehnmal, und das

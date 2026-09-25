@@ -1,13 +1,40 @@
-name: Deploy SwissHub Production
+name: SwissHub CI und Production Deploy
 
+# Ein Workflow, zwei Anlaesse - und nur einer davon rollt aus.
+#
+# `pull_request` prueft, BEVOR zusammengefuehrt wird. Vorher lief die
+# Validierung erst beim Push auf `production`, also nach dem Merge: ein
+# fehlerhafter Stand lag dann bereits im produktiven Branch, und nur der
+# `needs: validate` im Deploy-Job hat verhindert, dass er auch auf den Server
+# kommt. Repariert werden musste er trotzdem auf `production`.
+#
+# `pull_request` und ausdruecklich NICHT `pull_request_target`: letzteres
+# liefe mit den Rechten und Geheimnissen des Zielbranches, waehrend es den
+# Code des Pull Requests ausfuehrt. Bei einem Fork waere das die Uebergabe
+# der Deployment-Schluessel an jeden, der einen PR oeffnen kann.
 on:
   push:
     branches:
       - production
+  pull_request:
+    branches:
+      - production
+
+# Nur Lesen. Der Deploy-Job braucht kein Schreibrecht am Repository - er
+# spricht ueber SSH mit dem Server. Was nicht vergeben ist, kann auch nicht
+# missbraucht werden.
+permissions:
+  contents: read
 
 concurrency:
-  group: swisshub-production
-  cancel-in-progress: false
+  # Produktion: eines nach dem anderen, und kein laufendes Deployment wird
+  # abgebrochen - ein halb ausgerollter Stand ist schlimmer als ein spaeter.
+  #
+  # Pull Request: eine Gruppe je PR. Ohne die Trennung warteten
+  # PR-Pruefungen hinter Deployments, und ein neuer Commit im PR liesse die
+  # Pruefung des alten weiterlaufen.
+  group: ${{ github.event_name == 'pull_request' && format('swisshub-pr-{0}', github.event.number) || 'swisshub-production' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
@@ -53,9 +80,21 @@ jobs:
       PAYMENT_WEBHOOK_SECRET: ci-attrappe
       MUSIC_RUNTIME_KEY: ci-attrappe
 
+    # Was der Deploy-Job wissen muss: braucht dieses Deployment einen
+    # Wiederherstellungspunkt, bevor es migriert?
+    outputs:
+      braucht_recovery_point: ${{ steps.migrationen.outputs.braucht_recovery_point }}
+      migrations_bericht: ${{ steps.migrationen.outputs.bericht }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Die Bewertung vergleicht mit dem vorherigen Stand von `production`.
+          # Ohne Historie gibt es nichts zu vergleichen, und der Vergleich
+          # faellt auf «alle Migrationen» zurueck - das ergaebe bei jedem
+          # Deployment ein unnoetiges Backup.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -69,11 +108,119 @@ jobs:
       - name: Generate Prisma client
         run: npm run db:generate
 
+      # ---------------------------------------------------------------------
+      # Braucht dieses Deployment ein Netz?
+      #
+      # Nicht jedes. Die meisten Deployments aendern nur Quelltext, und ein
+      # Basis-Backup davor schuetzt vor nichts und kostet Minuten - ein
+      # Schritt, der jedes Ausrollen verzoegert, wird irgendwann abgeschaltet.
+      #
+      # `scripts/migrationen-pruefen.ts` liest das SQL der neu hinzugekommenen
+      # Migrationen und fragt, ob eine davon etwas WEGNIMMT oder etwas
+      # ERZWINGT. Nur dann reicht ein Git-Rollback nicht: er stellt kein altes
+      # Datenbankschema wieder her.
+      #
+      # Was das Skript nicht erkennt, stuft es als `unbekannt` ein - und das
+      # wird wie `destruktiv` behandelt. Falsch positiv kostet ein Backup,
+      # falsch negativ kostet Daten.
+      # ---------------------------------------------------------------------
+      - name: Migrationen bewerten
+        id: migrationen
+        env:
+          # Der Stand, gegen den verglichen wird - je nach Anlass ein anderer.
+          #
+          # Beim Push auf `production`: der Stand davor. Beim Pull Request:
+          # die Basis des Pull Requests. Ohne diese Unterscheidung waere
+          # `github.event.before` im PR leer, die Bewertung fiele auf «alle
+          # Migrationen» zurueck und meldete bei jedem PR einen noetigen
+          # Wiederherstellungspunkt.
+          #
+          # Ueber `env` und nicht direkt in das Skript hinein: ein Ausdruck,
+          # der in eine Shell-Zeile eingesetzt wird, ist eine Einfallstelle.
+          # Hier sind es Commit-Kennungen, aber die Gewohnheit gehoert richtig.
+          VORHER: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -uo pipefail
+
+          # Bei einem neuen Branch oder einem erzwungenen Push steht dort eine
+          # Nullkennung - dann wird ohne Vergleich bewertet.
+          vorher="$VORHER"
+          if [ -z "$vorher" ] || [ "$vorher" = '0000000000000000000000000000000000000000' ] \
+             || ! git cat-file -e "$vorher^{commit}" 2>/dev/null; then
+            echo "Kein vergleichbarer Vorgaengerstand - es werden alle Migrationen bewertet."
+            vorher=''
+          fi
+
+          # Der Bericht landet im Temp-Verzeichnis des Laufs, NICHT im
+          # Arbeitsverzeichnis.
+          #
+          # Lag er daneben, fand ihn `prettier --check "**/*.json"` im naechsten
+          # Schritt und beanstandete seine Formatierung. Lokal faellt das nie
+          # auf: die Datei entsteht nur hier. Ein erzeugtes Zwischenergebnis
+          # gehoert ohnehin nicht in den ausgecheckten Baum.
+          export BERICHT="${RUNNER_TEMP:-/tmp}/migrationen.json"
+
+          if [ -n "$vorher" ]; then
+            npx tsx scripts/migrationen-pruefen.ts "$vorher" > "$BERICHT"
+          else
+            npx tsx scripts/migrationen-pruefen.ts > "$BERICHT"
+          fi
+          status=$?
+
+          cat "$BERICHT"
+
+          if [ "$status" -eq 2 ]; then
+            echo "::error::Die Bewertung der Migrationen war nicht moeglich."
+            exit 1
+          fi
+
+          if [ "$status" -eq 1 ]; then
+            echo 'braucht_recovery_point=ja' >> "$GITHUB_OUTPUT"
+            echo "::warning::Dieses Deployment enthaelt Migrationen, die nicht vorwaertskompatibel sind. Vor der Migration wird ein Wiederherstellungspunkt verlangt."
+          else
+            echo 'braucht_recovery_point=nein' >> "$GITHUB_OUTPUT"
+          fi
+
+          # Die Zusammenfassung als Ausgabe, damit sie im Deploy-Log steht.
+          {
+            echo 'bericht<<ENDE_DES_BERICHTS'
+            python3 -c "import json,os;print(json.load(open(os.environ['BERICHT']))['zusammenfassung'])"
+            echo 'ENDE_DES_BERICHTS'
+          } >> "$GITHUB_OUTPUT"
+
+          # Und in die Zusammenfassung des Lauf, damit man sie ohne Log sieht.
+          {
+            echo '## Migrationen'
+            echo
+            python3 -c "import json,os;print(json.load(open(os.environ['BERICHT']))['zusammenfassung'])"
+            echo
+            python3 - <<'PYTHON'
+          import json, os
+          daten = json.load(open(os.environ['BERICHT']))
+          if daten['befunde']:
+              print('### Nicht vorwärtskompatibel')
+              print()
+              for befund in daten['befunde']:
+                  print('- **%s** (%s)' % (befund['name'], befund['bewertung']))
+                  for grund in befund['gruende']:
+                      print('  - %s' % grund)
+                  for unbekannt in befund['unbekannt'][:3]:
+                      print('  - nicht erkannt: `%s`' % unbekannt)
+          PYTHON
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # Die Migrationen einmal vollstaendig auf eine leere Datenbank anwenden.
       # Ein Schema-Entwurf, der nur in der Datei stimmt, faellt sonst erst beim
       # Deployment auf - also genau dann, wenn niemand mehr eingreifen kann.
       - name: Apply migrations
         run: npm run db:deploy
+
+      # `npm run check` ist format:check && lint && typecheck && test. Die
+      # Formatpruefung fehlte hier - ein Stand, der lokal an `npm run check`
+      # scheitert, kam damit durch die Pipeline. Die vier Schritte bleiben
+      # einzeln, damit im Lauf sichtbar ist, welcher gescheitert ist.
+      - name: Format check
+        run: npm run format:check
 
       - name: Lint
         run: npm run lint
@@ -107,18 +254,33 @@ jobs:
     # Ohne `needs` liefe das Deployment parallel zur Prüfung. Erst wenn Lint,
     # Typecheck, Tests und Build durch sind, darf etwas auf den Server.
     needs: validate
+
+    # Und nur nach einem Push auf `production`.
+    #
+    # Der Workflow laeuft jetzt auch fuer Pull Requests. Ohne diese Bedingung
+    # wuerde jeder geoeffnete Pull Request ausrollen - er wuerde `git reset
+    # --hard origin/production` auf dem Server ausfuehren und damit nicht
+    # einmal seinen eigenen Stand, sondern den produktiven neu starten. Die
+    # Bedingung ist die eine Zeile, an der das haengt.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     steps:
       - name: Deploy to SwissHub server
         uses: appleboy/ssh-action@v1
+        env:
+          BRAUCHT_RECOVERY_POINT: ${{ needs.validate.outputs.braucht_recovery_point }}
+          MIGRATIONS_BERICHT: ${{ needs.validate.outputs.migrations_bericht }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT }}
           script_stop: true
-          command_timeout: 30m
+          command_timeout: 45m
+          # Die Bewertung aus dem validate-Job. `envs` gibt genau diese
+          # Variablen in die SSH-Sitzung; alles andere bleibt draussen.
+          envs: BRAUCHT_RECOVERY_POINT,MIGRATIONS_BERICHT
           script: |
             set -euo pipefail
 
@@ -133,7 +295,71 @@ jobs:
             git reset --hard origin/production
             echo "   Stand: $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)"
 
-            echo "2. Baue Docker Images ..."
+            # ---------------------------------------------------------------
+            # 2. Hat dieses Deployment ein Netz?
+            #
+            # Nur wenn es eines braucht. `BRAUCHT_RECOVERY_POINT` kommt aus der
+            # Bewertung der neu hinzugekommenen Migrationen im validate-Job: sie
+            # liest deren SQL und fragt, ob eine davon etwas WEGNIMMT oder
+            # ERZWINGT.
+            #
+            # Warum nicht immer: die meisten Deployments aendern nur Quelltext.
+            # Ein Basis-Backup davor schuetzt vor nichts und kostet Minuten -
+            # und ein Schritt, der jedes Ausrollen verzoegert, wird irgendwann
+            # abgeschaltet. Eine Sicherung, die abgeschaltet wird, weil sie im
+            # Weg ist, ist keine.
+            #
+            # Warum ueberhaupt: ein Git-Rollback stellt kein altes
+            # Datenbankschema wieder her. Eine Migration, die eine Spalte
+            # loescht, ist ohne Wiederherstellungspunkt ein Schreibvorgang ohne
+            # Netz.
+            # ---------------------------------------------------------------
+            echo "2. Pruefe das Netz fuer die Datenbankmigration ..."
+            echo "   Bewertung: ${MIGRATIONS_BERICHT:-keine Angabe}"
+
+            if [ "${BRAUCHT_RECOVERY_POINT:-nein}" = "ja" ]; then
+              if ! command -v swisshub-backup >/dev/null 2>&1; then
+                echo "FEHLER: Dieses Deployment enthaelt eine Migration, die nicht"
+                echo "        vorwaertskompatibel ist - und auf diesem Server ist keine"
+                echo "        Backup-Anlage eingerichtet (swisshub-backup fehlt)."
+                echo
+                echo "        Ein Git-Rollback stellt kein altes Datenbankschema wieder"
+                echo "        her. Ohne Wiederherstellungspunkt gibt es keinen Weg zurueck."
+                echo
+                echo "        Einrichten: sudo bash deploy/backup/install.sh"
+                echo "        Siehe docs/BACKUP.md."
+                echo
+                echo "        Ausdruecklich uebergehen (und wissen, was fehlt):"
+                echo "          SWISSHUB_DEPLOY_OHNE_NETZ=ich-weiss-was-ich-tue in /opt/swisshub/.env"
+                if [ "${SWISSHUB_DEPLOY_OHNE_NETZ:-}" = "ich-weiss-was-ich-tue" ]; then
+                  echo "   UEBERGANGEN auf ausdruecklichen Wunsch."
+                else
+                  exit 1
+                fi
+              else
+                echo "   Lege einen Wiederherstellungspunkt an ..."
+                if sudo -n swisshub-backup vor-deployment; then
+                  echo "   Netz gespannt."
+                else
+                  echo "FEHLER: Es liess sich kein verlaesslicher Wiederherstellungspunkt"
+                  echo "        anlegen. Die Meldungen darueber sagen, was fehlt."
+                  echo
+                  echo "        Dieses Deployment wird NICHT ausgerollt. Eine Migration, die"
+                  echo "        etwas wegnimmt, ohne dass man zurueck kann, ist der Fehler,"
+                  echo "        gegen den dieses Tor gebaut ist."
+                  if [ "${SWISSHUB_DEPLOY_OHNE_NETZ:-}" = "ich-weiss-was-ich-tue" ]; then
+                    echo "   UEBERGANGEN auf ausdruecklichen Wunsch."
+                  else
+                    exit 1
+                  fi
+                fi
+              fi
+            else
+              echo "   Nicht noetig: keine Migration, die etwas wegnimmt oder erzwingt."
+              echo "   Ein Git-Rollback genuegt, um zurueckzukommen."
+            fi
+
+            echo "9. Baue Docker Images ..."
             $COMPOSE build
 
             echo "3. Starte Migration und Services ..."

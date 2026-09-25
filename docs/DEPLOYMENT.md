@@ -465,24 +465,51 @@ gibt sie niemals aus; `script_stop: true` bricht beim ersten Fehler ab, und
 
 ### Backups
 
-```bash
-sudo cp /opt/swisshub/deploy/backup.sh /usr/local/bin/swisshub-backup
-sudo chmod +x /usr/local/bin/swisshub-backup
-sudo crontab -e
-# taeglich um 03:30 Uhr:
-30 3 * * * /usr/local/bin/swisshub-backup
-```
-
-Wiederherstellen:
+Die vollständige Anlage ist in [BACKUP.md](BACKUP.md) beschrieben, der
+Notfallablauf in [DISASTER-RECOVERY.md](DISASTER-RECOVERY.md). Einrichtung:
 
 ```bash
-gunzip -c /var/backups/swisshub/swisshub_2026-08-19_03-30.sql.gz \
-  | sudo docker compose -f /opt/swisshub/docker-compose.prod.yml exec -T postgres \
-    psql -U swisshub -d swisshub
+sudo /opt/swisshub/deploy/backup/install.sh
+# danach /etc/swisshub-backup/swisshub-backup.env ausfüllen, dann:
+sudo swisshub-backup einrichten
+sudo systemctl enable --now swisshub-backup-stuendlich.timer \
+                           swisshub-backup-taeglich.timer \
+                           swisshub-backup-woechentlich.timer
 ```
 
-Es liegt kein Zustand ausschliesslich im Arbeitsspeicher - ein PostgreSQL-Dump
-genügt als vollständige Sicherung.
+`deploy/backup.sh` ist der alte Stand: ein `pg_dump` pro Nacht nach
+`/var/backups/swisshub` auf derselben Maschine. Er bleibt liegen, weil ein
+einzelner Dump als Notbehelf besser ist als nichts, aber er ist **keine
+ausreichende Sicherung** — was er alles nicht leistet, steht in
+[BESTANDSAUFNAHME.md](BESTANDSAUFNAHME.md).
+
+Wiederherstellen geschieht nicht mehr per `psql`, sondern mit der Recovery-CLI,
+die auch ohne laufende WebApp funktioniert:
+
+```bash
+sudo swisshub-recovery notfall                    # geführter Ablauf
+sudo swisshub-recovery punkte                     # was zur Auswahl steht
+sudo swisshub-recovery pruefen --zeit '<T>'       # Preflight, ändert nichts
+sudo swisshub-recovery wiederherstellen --zeit '<T>'
+```
+
+#### Was ein Dump nicht kann
+
+Der Satz «ein PostgreSQL-Dump genügt als vollständige Sicherung» stand hier
+früher und war falsch. Er stimmt nur für die Frage, ob Zustand ausschliesslich
+im Arbeitsspeicher liegt — das tut er nicht. Als Sicherung genügt er nicht:
+
+- Ein Dump ist ein Stand pro Nacht. Der mögliche Datenverlust ist damit alles
+  seit dem letzten Lauf, im Mittel zwölf Stunden. Ein Zeitpunkt dazwischen ist
+  nicht erreichbar; dafür braucht es archivierte WAL-Segmente.
+- Ein Dump neben der Datenbank auf derselben Platte überlebt keinen Verlust
+  dieses Servers — und das ist der häufigste Ernstfall.
+- Ein Dump enthält die Datenbank. Er enthält nicht die hochgeladenen Dateien
+  (Ticket-Transkripte, Bilder) und nicht den `MASTER_ENCRYPTION_KEY`. Ohne
+  diesen Schlüssel sind die verschlüsselten Integrations-Zugangsdaten in der
+  wiederhergestellten Datenbank unlesbar: die Zeilen sind da, der Inhalt ist
+  verloren.
+- Ein Dump, der nie zurückgespielt wurde, ist eine Annahme und kein Backup.
 
 ### Überwachung
 
@@ -501,7 +528,10 @@ genügt als vollständige Sicherung.
 - [ ] `DEV_MOCK_DISCORD=false`, `TRUST_PROXY=true`
 - [ ] Bot-Rolle über Jail-Rolle, Admin-Rollen als _geschützt_ markiert
 - [ ] Jail-Rolle und Log-Channel konfiguriert, Testjail erfolgreich
-- [ ] Backup-Cron eingerichtet und einmal manuell getestet
+- [ ] Backup-Anlage eingerichtet (`deploy/backup/install.sh`), Timer aktiv
+- [ ] `swisshub-backup-verify` einmal grün, `swisshub-restore-test` einmal grün
+- [ ] Wiederherstellungspaket erzeugt, privater `age`-Schlüssel offline verwahrt
+- [ ] Eine Wiederherstellung einmal wirklich durchgeführt — auf einem Testsystem
 - [ ] Firewall aktiv, PostgreSQL nicht öffentlich erreichbar
 - [ ] `curl -s https://system.swisshub.gg/api/health` meldet `"status":"ok"`
 

@@ -1,0 +1,15 @@
+[Unit]
+Description=SwissHub Restore-Test woechentlich
+
+[Timer]
+Unit=swisshub-restore-test.service
+# Mittwoch nachts: mit Abstand zum woechentlichen Vollbackup am Sonntag, damit
+# beide nicht um dieselben Ressourcen streiten - und mitten in der Woche, damit
+# ein Fehlschlag an einem Arbeitstag auffaellt und nicht am Wochenende liegen
+# bleibt.
+OnCalendar=Wed *-*-* 01:37:00
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

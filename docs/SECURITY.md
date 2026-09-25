@@ -479,4 +479,12 @@ Der Modus ist doppelt abgesichert: die ENV-Validierung lehnt ihn in Production a
 - [ ] Jail-Rolle konfiguriert und unterhalb der Bot-Rolle
 - [ ] Moderations-Log-Channel gesetzt und für den Bot beschreibbar
 - [ ] `npm run check` und `npm run build` laufen fehlerfrei
-- [ ] Datenbank-Backups eingerichtet (`pg_dump` genügt - kein Zustand nur im Arbeitsspeicher)
+- [ ] Backup-Anlage eingerichtet — siehe [BACKUP.md](BACKUP.md). `pg_dump` genügt
+      **nicht**: ein nächtlicher Dump neben der Datenbank überlebt den Verlust des
+      Servers nicht, kennt keinen Zeitpunkt zwischen zwei Läufen und enthält weder
+      die hochgeladenen Dateien noch den `MASTER_ENCRYPTION_KEY`
+- [ ] `MASTER_ENCRYPTION_KEY` unabhängig von den mit ihm verschlüsselten Daten
+      gesichert (versiegeltes Wiederherstellungspaket, privater `age`-Schlüssel
+      offline) — ohne ihn sind die Integrations-Zugangsdaten nach einem Restore
+      unlesbar
+- [ ] Eine Wiederherstellung einmal wirklich durchgeführt, nicht nur eingerichtet

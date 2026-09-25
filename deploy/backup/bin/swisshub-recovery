@@ -1,0 +1,1572 @@
+#!/usr/bin/env bash
+# SwissHub Recovery - Wiederherstellung ohne die WebApp.
+#
+#   swisshub-recovery notfall                 Gefuehrt durch alles
+#   swisshub-recovery vorbereiten             Voraussetzungen pruefen
+#   swisshub-recovery paket <datei> <key>     Wiederherstellungspaket oeffnen
+#   swisshub-recovery punkte                  Verfuegbare Wiederherstellungspunkte
+#   swisshub-recovery pruefen --zeit <T>      Preflight fuer einen Zeitpunkt
+#   swisshub-recovery probelauf --zeit <T>    Probelauf, veraendert nichts
+#   swisshub-recovery wiederherstellen --zeit <T>
+#   swisshub-recovery datei <name>            Eine einzelne Datei zurueckholen
+#   swisshub-recovery verzeichnis             Uploads zurueckholen
+#   swisshub-recovery validieren              Nach dem Restore pruefen
+#   swisshub-recovery freigeben               Bot und Musik-Laufzeit starten
+#
+# ==========================================================================
+# WOZU EIN EIGENES WERKZEUG
+# ==========================================================================
+#
+# Das Dashboard unter System -> Backup & Recovery zeigt Zustaende und startet
+# Sicherungen. Fuer den Ernstfall taugt es nicht: wenn der Server verloren ist,
+# gibt es kein Dashboard. Ein Wiederherstellungsverfahren, das eine laufende
+# WebApp voraussetzt, setzt genau das voraus, was gerade fehlt.
+#
+# Dieses Werkzeug braucht nichts von SwissHub. Es braucht bash, pgbackrest,
+# restic, age und das Wiederherstellungspaket. Kein Node, kein Prisma, keine
+# Datenbank, kein Netzwerk zum alten Server.
+#
+# Es ist so geschrieben, dass es jemand um drei Uhr nachts bedienen kann, der
+# es nie zuvor benutzt hat.
+# ==========================================================================
+
+set -uo pipefail
+
+HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB="${SWISSHUB_LIB_DIR:-$HIER/../lib}"
+
+# Die Bibliothek wird gebraucht, sobald eine Konfiguration vorliegt. Ohne sie
+# - also vor `paket` - laeuft dieses Werkzeug bewusst allein.
+KONFIGURATION_GELADEN='nein'
+lade_falls_moeglich() {
+  # shellcheck source=../lib/gemeinsam.sh
+  source "$LIB/gemeinsam.sh" 2>/dev/null || return 1
+  LOG_KONTEXT='recovery'
+  if lade_konfiguration 2>/dev/null; then
+    KONFIGURATION_GELADEN='ja'
+    protokoll_eroeffnen 'recovery' 2>/dev/null || true
+    # Die pgbackrest.conf notfalls selbst erzeugen.
+    #
+    # Das Paket enthaelt sie nicht - sie ist aus swisshub-backup.env herleitbar
+    # und enthielte das Repository-Passwort sonst ein zweites Mal. Auf einem neu
+    # aufgesetzten Server fehlt sie also, und ohne sie meldet pgBackRest
+    # «unable to open missing file ... for read»: das liest sich wie ein
+    # zerstoertes Repository und ist bloss eine fehlende Datei.
+    if [[ ! -r "$PGBACKREST_CONF" ]]; then
+      if pgbackrest_konfiguration_schreiben >/dev/null 2>&1; then
+        ok "pgbackrest.conf war nicht vorhanden und wurde aus der Konfiguration erzeugt: $PGBACKREST_CONF"
+      else
+        nein "pgbackrest.conf fehlt und liess sich nicht erzeugen: $PGBACKREST_CONF"
+        sage '  Meist fehlt SWISSHUB_PGBACKREST_CIPHER_PASS in swisshub-backup.env'
+        sage '  oder das Vorlagenverzeichnis deploy/backup/vorlagen ist nicht daneben.'
+        return 1
+      fi
+    fi
+    # Erst jetzt ist bekannt, ob es ein auswaertiges Repository gibt.
+    repo_vorgabe_aufloesen || return 1
+    return 0
+  fi
+  return 1
+}
+
+# Ausgaben ohne die Bibliothek - dieses Werkzeug muss auch dann reden koennen,
+# wenn noch gar nichts eingerichtet ist.
+sage() { printf '%s\n' "$*"; }
+titel() { printf '\n\033[1m%s\033[0m\n%s\n' "$1" "$(printf '─%.0s' $(seq 1 ${#1}))"; }
+ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+nein() { printf '  \033[31m✗\033[0m %s\n' "$*"; }
+achtung() { printf '  \033[33m!\033[0m %s\n' "$*"; }
+schritt_nr() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+
+# Eine Frage, die eine ausdrueckliche Antwort verlangt.
+#
+# Kein «[j/N]» mit Vorgabe: bei einer Wiederherstellung soll niemand aus
+# Versehen Enter druecken und damit die Produktion ueberschreiben. Wer
+# fortfahren will, tippt das Wort.
+bestaetige() {
+  local frage="$1" wort="${2:-JA}"
+  printf '\n%s\n  Zum Fortfahren «%s» eingeben: ' "$frage" "$wort"
+  local antwort
+  read -r antwort
+  [[ "$antwort" == "$wort" ]]
+}
+
+ARBEIT='/var/lib/swisshub-recovery'
+ZIEL_ZEIT=''
+
+# Vorgabe ist das AUSWAERTIGE Repository (2), nicht das lokale.
+#
+# Wer dieses Werkzeug braucht, hat im Regelfall den Server verloren - und damit
+# auch die lokale Kopie. Die Vorgabe zeigt deshalb dorthin, wo die Sicherung
+# einen Serververlust ueberlebt.
+#
+# Ist gar kein auswaertiges Ziel eingerichtet, wird daraus das lokale: siehe
+# `repo_vorgabe_aufloesen`.
+REPO='2'
+REPO_AUSDRUECKLICH=0
+# «entpackt» und nicht «paket»: das Archiv enthaelt selbst ein Verzeichnis
+# `paket/`, und der Pfad hiess sonst .../paket/paket/...
+PAKET_ZIEL="$ARBEIT/entpackt"
+
+# --------------------------------------------------------------------------
+
+befehl_vorbereiten() {
+  titel 'Voraussetzungen'
+
+  local fehlt=0
+  local werkzeug
+  for werkzeug in pgbackrest restic age python3 tar; do
+    if command -v "$werkzeug" >/dev/null 2>&1; then
+      ok "$werkzeug vorhanden"
+    else
+      nein "$werkzeug FEHLT"
+      fehlt=1
+    fi
+  done
+
+  local pg_bin=''
+  for kandidat in $(ls -d /usr/lib/postgresql/*/bin /usr/pgsql-*/bin 2>/dev/null | sort -rV); do
+    [[ -x "$kandidat/pg_ctl" ]] && { pg_bin="$kandidat"; break; }
+  done
+  if [[ -n "$pg_bin" ]]; then
+    ok "PostgreSQL-Serverprogramme: $pg_bin ($("$pg_bin/postgres" --version 2>&1))"
+  else
+    nein 'PostgreSQL-Serverprogramme fehlen'
+    fehlt=1
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    ok "Docker: $(docker --version 2>&1)"
+  else
+    achtung 'Docker fehlt - fuer den Compose-Betrieb wird es gebraucht'
+  fi
+
+  if [[ "$fehlt" -eq 1 ]]; then
+    cat <<'HINWEIS'
+
+  Nachinstallieren (Ubuntu/Debian):
+
+      apt update
+      apt install -y pgbackrest restic age python3-cryptography \
+                     postgresql-client-16 postgresql-16 curl git
+      curl -fsSL https://get.docker.com | sh
+
+  WICHTIG: die PostgreSQL-HAUPTVERSION muss zur Sicherung passen. Ein
+  physisches Backup aus PostgreSQL 16 laesst sich NICHT in 15 oder 17
+  einspielen. Welche Version die Sicherung braucht, sagt
+  `swisshub-recovery punkte`.
+
+HINWEIS
+    return 1
+  fi
+
+  # Platz.
+  local frei
+  frei=$(df --output=avail -k /var 2>/dev/null | tail -1 | tr -d ' ')
+  frei=$(( ${frei:-0} / 1048576 ))
+  if [[ "$frei" -lt 20 ]]; then
+    nein "Nur ${frei} GB frei unter /var. Fuer eine Wiederherstellung wird etwa das Doppelte der Datenmenge gebraucht."
+    return 1
+  fi
+  ok "${frei} GB frei unter /var"
+
+  mkdir -p "$ARBEIT"
+  chmod 700 "$ARBEIT"
+  ok "Arbeitsverzeichnis: $ARBEIT"
+
+  titel 'Die naechsten Schritte'
+  cat <<'WEITER'
+  1. Wiederherstellungspaket und privaten age-Schluessel bereitlegen.
+  2. swisshub-recovery paket <paket.tar.age> <recovery.key>
+  3. swisshub-recovery punkte
+WEITER
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# Das Paket oeffnen
+# --------------------------------------------------------------------------
+
+befehl_paket() {
+  local paket="${1:-}" schluessel="${2:-}"
+  if [[ -z "$paket" || -z "$schluessel" ]]; then
+    cat <<'HILFE'
+  swisshub-recovery paket <paket.tar.age> <recovery.key>
+
+  Das Paket liegt:
+    - im Verzeichnis recovery/ des Backup-Speichers,
+    - im externen Restic-Repository unter der Marke «recovery»,
+    - dort, wo du es hingelegt hast.
+
+  Der private Schluessel liegt NICHT auf einem Server. Er liegt im
+  Passwortmanager und auf einem Medium im Safe. Genau das ist der Grund,
+  weshalb ein Angreifer mit dem alten Server das Paket nicht oeffnen konnte.
+HILFE
+    return 64
+  fi
+  [[ -r "$paket" ]] || { nein "Paket nicht lesbar: $paket"; return 1; }
+  [[ -r "$schluessel" ]] || { nein "Schluesseldatei nicht lesbar: $schluessel"; return 1; }
+  command -v age >/dev/null 2>&1 || { nein 'age fehlt - erst `swisshub-recovery vorbereiten`.'; return 1; }
+
+  titel 'Wiederherstellungspaket oeffnen'
+
+  rm -rf -- "${PAKET_ZIEL:?}"
+  mkdir -p "$PAKET_ZIEL"
+  chmod 700 "$PAKET_ZIEL"
+
+  if ! age --decrypt --identity "$schluessel" "$paket" 2>/dev/null | tar --extract --directory "$PAKET_ZIEL" 2>/dev/null; then
+    nein 'Das Paket liess sich mit diesem Schluessel nicht oeffnen.'
+    cat <<'HINWEIS'
+
+  Moegliche Ursachen:
+    - Es ist der falsche private Schluessel. Das Paket wurde auf mehrere
+      Empfaenger verschluesselt - jeder davon oeffnet es allein. Den anderen
+      versuchen.
+    - Die Datei ist beschaedigt. Eine andere Fassung aus recovery/ versuchen;
+      es liegen bis zu zwoelf.
+HINWEIS
+    return 1
+  fi
+
+  local inhalt="$PAKET_ZIEL/paket"
+  [[ -d "$inhalt" ]] || inhalt="$PAKET_ZIEL"
+  ok 'Paket geoeffnet.'
+  ( cd "$inhalt" && find . -type f -printf '    %-30p %s Bytes\n' )
+
+  local kennung
+  kennung=$(grep -m1 '^master_key_kennung=' "$inhalt/fingerabdruecke.txt" 2>/dev/null | cut -d= -f2-)
+  [[ -n "$kennung" ]] && ok "Kennung des Hauptschluessels: $kennung"
+
+  if [[ -s "$inhalt/release.json" ]]; then
+    local commit pgversion migration
+    commit=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit","?"))' "$inhalt/release.json" 2>/dev/null)
+    pgversion=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("postgres","?"))' "$inhalt/release.json" 2>/dev/null)
+    migration=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("migration","?"))' "$inhalt/release.json" 2>/dev/null)
+    ok "Produktiver Commit: $commit"
+    ok "PostgreSQL-Version der Sicherung: $pgversion"
+    ok "Migrationsstand: $migration"
+  fi
+
+  titel 'Konfiguration uebernehmen'
+  sage '  Die beiden Dateien aus dem Paket an ihren Platz bringen:'
+  sage ''
+  sage "    install -m 0600 -o root -g root $inhalt/swisshub.env /opt/swisshub/.env"
+  sage "    install -d -m 0750 /etc/swisshub-backup"
+  sage "    install -m 0640 $inhalt/swisshub-backup.env /etc/swisshub-backup/swisshub-backup.env"
+  sage ''
+  sage '  Danach in /etc/swisshub-backup/swisshub-backup.env die LESENDEN'
+  sage '  S3-Zugangsdaten eintragen:'
+  sage ''
+  sage '    SWISSHUB_S3_WRITE_KEY_ID=<die lesenden Zugangsdaten>'
+  sage '    SWISSHUB_S3_WRITE_SECRET=<das lesende Geheimnis>'
+  sage ''
+  achtung 'Die schreibenden Zugangsdaten aus dem Paket stammen vom verlorenen Server.'
+  achtung 'Sie sind moeglicherweise kompromittiert und gehoeren gesperrt, nicht weiterbenutzt.'
+  sage ''
+  sage '  Danach:  swisshub-recovery punkte'
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# Verfuegbare Wiederherstellungspunkte
+# --------------------------------------------------------------------------
+
+befehl_punkte() {
+  # Rueckwaerts-Anfuehrungszeichen stehen hier NICHT: in doppelten
+  # Anfuehrungszeichen waeren sie Befehlssubstitution, und die Meldung haette
+  # versucht, sich selbst auszufuehren.
+  if ! lade_falls_moeglich; then
+    nein "Keine Konfiguration unter ${SWISSHUB_CONFIG_FILE:-/etc/swisshub-backup/swisshub-backup.env}."
+    achtung 'Zuerst: swisshub-recovery paket <paket.tar.age> <recovery.key>'
+    return 1
+  fi
+
+  titel "Wiederherstellungspunkte (Repository $REPO)"
+
+  local pg_info
+  # `pgbackrest_lauf` und nicht `pgbackrest`: im Host-Betrieb laeuft
+  # pgBackRest als der PostgreSQL-Systembenutzer - nur der kommt an das
+  # Datenverzeichnis UND an die Konfigurationsdatei (0640, Gruppe postgres).
+  # Direkt als root aufgerufen scheiterte es mit «unable to open file ...
+  # Permission denied», und das liest sich wie ein Problem des Repositories.
+  pg_info=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>&1)
+  if ! printf '%s' "$pg_info" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
+    nein "Das Repository $REPO war nicht lesbar."
+    printf '%s\n' "$pg_info" | tail -8 | sed 's/^/    /'
+    cat <<'HINWEIS'
+
+  Pruefen:
+    - Stimmen die S3-Zugangsdaten in /etc/swisshub-backup/swisshub-backup.env?
+      Fuer eine Wiederherstellung werden die LESENDEN gebraucht.
+    - Stimmt SWISSHUB_PGBACKREST_CIPHER_PASS? Ohne das richtige
+      Repository-Passwort ist das Repository nicht lesbar - und dieser Fehler
+      sieht aus wie ein Verbindungsfehler.
+    - Mit --repo 1 das lokale Repository versuchen, falls der alte Server noch
+      erreichbar ist.
+HINWEIS
+    return 1
+  fi
+
+  # Die Darstellung steht in lib/punkte-anzeigen.py.
+  #
+  # Nicht als Here-Dokument in einer Pipe: `printf | python3 - <<PY` hat ZWEI
+  # Quellen fuer die Standardeingabe, und die zweite gewinnt. Python liest
+  # dann sein Programm aus dem Here-Dokument und findet auf sys.stdin nichts
+  # mehr - der Aufruf scheitert mit einem JSONDecodeError, mitten in der
+  # Wiederherstellung, wenn man die Liste am dringendsten braucht.
+  printf '%s' "$pg_info" | python3 "$LIB/punkte-anzeigen.py"
+
+  # Die Dateisicherungen daneben - ohne sie ist die Datenbank allein nutzlos.
+  titel 'Dateisicherungen (Uploads und Konfiguration)'
+  restic_umgebung
+  local ziel
+  if [[ "$REPO" == '2' ]]; then
+    export AWS_ACCESS_KEY_ID="$SWISSHUB_S3_WRITE_KEY_ID"
+    export AWS_SECRET_ACCESS_KEY="$SWISSHUB_S3_WRITE_SECRET"
+    [[ -n "$SWISSHUB_S3_REGION" ]] && export AWS_DEFAULT_REGION="$SWISSHUB_S3_REGION"
+    ziel="s3:${SWISSHUB_S3_ENDPOINT%/}/${SWISSHUB_S3_BUCKET}/restic"
+  else
+    ziel="$SWISSHUB_RESTIC_REPO"
+  fi
+
+  if ! restic --repo "$ziel" snapshots --no-lock 2>/dev/null | tail -30 | sed 's/^/  /'; then
+    nein 'Das Restic-Repository war nicht lesbar - Uploads und Konfiguration sind von hier aus nicht erreichbar.'
+  fi
+
+  titel 'Weiter'
+  sage '  Zeitpunkt waehlen und pruefen lassen:'
+  sage ''
+  sage "    swisshub-recovery pruefen --zeit '2026-09-25 14:30:00+02'"
+  sage ''
+  sage '  Ohne --zeit wird der jungstmoegliche Stand genommen.'
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# Preflight
+# --------------------------------------------------------------------------
+
+PREFLIGHT_FEHLER=0
+
+preflight() {
+  lade_falls_moeglich || { nein 'Keine Konfiguration gefunden.'; return 1; }
+
+  titel 'Preflight'
+  PREFLIGHT_FEHLER=0
+
+  # --- 1. Ist das Repository lesbar? -------------------------------------
+  if pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" info >/dev/null 2>&1; then
+    ok "Repository $REPO ist lesbar (Passwort und Zugangsdaten stimmen)."
+  else
+    nein "Repository $REPO ist nicht lesbar."
+    PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+  fi
+
+  # --- 2. Integritaet ----------------------------------------------------
+  if pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" verify >/dev/null 2>&1; then
+    ok 'Alle Pruefsummen im Repository stimmen.'
+  else
+    nein 'pgbackrest verify ist gescheitert - mindestens eine Sicherung im Repository ist beschaedigt.'
+    achtung 'Es kann trotzdem gehen: eine andere, aeltere Sicherung ist moeglicherweise unbeschaedigt. `swisshub-recovery punkte` zeigt sie.'
+    PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+  fi
+
+  # --- 3. Passt die PostgreSQL-Version? ---------------------------------
+  #
+  # Die haerteste Grenze eines physischen Backups, und die, an der eine
+  # Wiederherstellung am haeufigsten scheitert: PostgreSQL 16 liest das
+  # Datenverzeichnis von 15 nicht und umgekehrt. Es gibt keine Umgehung -
+  # dafuer sind die logischen Exporte da.
+  local sicherung_version installiert
+  sicherung_version=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>/dev/null \
+    | python3 -c '
+import json, sys
+daten = json.load(sys.stdin)
+for stanza in daten:
+    for datenbank in stanza.get("db", []):
+        print(datenbank.get("version"))
+        raise SystemExit' 2>/dev/null)
+
+  local pg_bin=''
+  for kandidat in $(ls -d /usr/lib/postgresql/*/bin /usr/pgsql-*/bin 2>/dev/null | sort -rV); do
+    [[ -x "$kandidat/postgres" ]] && { pg_bin="$kandidat"; break; }
+  done
+  [[ -n "$pg_bin" ]] && installiert=$("$pg_bin/postgres" --version 2>/dev/null | grep -oE '[0-9]+' | head -1)
+
+  if [[ -z "$sicherung_version" ]]; then
+    achtung 'Die PostgreSQL-Version der Sicherung war nicht ermittelbar.'
+  elif [[ -z "$installiert" ]]; then
+    nein 'Es ist kein PostgreSQL-Server installiert.'
+    PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+  elif [[ "$sicherung_version" == "$installiert" ]]; then
+    ok "PostgreSQL-Hauptversion passt: Sicherung $sicherung_version, installiert $installiert."
+  else
+    nein "PostgreSQL-Hauptversion PASST NICHT: die Sicherung ist aus $sicherung_version, installiert ist $installiert."
+    cat <<HINWEIS
+
+  Ein physisches Backup laesst sich NUR in dieselbe Hauptversion einspielen.
+  Zwei Wege:
+
+    a) PostgreSQL $sicherung_version installieren und diese Wiederherstellung
+       damit ausfuehren. Der empfohlene Weg.
+         apt install postgresql-$sicherung_version
+
+    b) Den logischen Export verwenden (er ist versionsuebergreifend):
+         swisshub-recovery punkte   zeigt, ob einer vorliegt
+       Dabei geht Point-in-Time-Recovery verloren - ein logischer Export ist
+       ein Zeitpunkt und keine Kette.
+
+HINWEIS
+    PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+  fi
+
+  # --- 4. Ist der Zielzeitpunkt erreichbar? ------------------------------
+  if [[ -n "$ZIEL_ZEIT" ]]; then
+    local ziel_epoche
+    ziel_epoche=$(date -d "$ZIEL_ZEIT" +%s 2>/dev/null)
+    if [[ -z "$ziel_epoche" ]]; then
+      nein "«$ZIEL_ZEIT» ist kein gueltiger Zeitpunkt. Format: 'YYYY-MM-DD HH:MM:SS+02'."
+      PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+    else
+      local frueheste
+      frueheste=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>/dev/null \
+        | python3 -c '
+import json, sys
+daten = json.load(sys.stdin)
+enden = [
+    sicherung.get("timestamp", {}).get("stop", 0)
+    for stanza in daten
+    for sicherung in stanza.get("backup", [])
+]
+print(min(enden) if enden else 0)' 2>/dev/null)
+      if [[ "${frueheste:-0}" -eq 0 ]]; then
+        nein 'Es gibt kein Basis-Backup - kein Zeitpunkt ist erreichbar.'
+        PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+      elif [[ "$ziel_epoche" -lt "$frueheste" ]]; then
+        nein "Der Zielzeitpunkt liegt VOR dem Ende des aeltesten Basis-Backups ($(date -d "@$frueheste" '+%Y-%m-%d %H:%M:%S')). Er ist nicht erreichbar."
+        PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+      else
+        ok "Der Zielzeitpunkt liegt im ansteuerbaren Zeitraum."
+      fi
+    fi
+  else
+    ok 'Kein Zielzeitpunkt angegeben - es wird der jungstmoegliche Stand hergestellt.'
+  fi
+
+  # --- 5. Liegt der Hauptschluessel bereit? ------------------------------
+  local master=''
+  [[ -r "$SWISSHUB_PROJECT_DIR/.env" ]] && \
+    master=$(grep -m1 '^MASTER_ENCRYPTION_KEY=' "$SWISSHUB_PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'"'')
+  if [[ -z "$master" ]]; then
+    nein "In $SWISSHUB_PROJECT_DIR/.env steht kein MASTER_ENCRYPTION_KEY."
+    achtung 'Ohne ihn werden Bot-Token, Discord-OAuth und AI-Schluessel aus der wiederhergestellten Datenbank NICHT lesbar sein. Sie waeren neu zu beschaffen - mit Ausfall des Bots und aller Anmeldungen.'
+    PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+  else
+    local kennung erwartet
+    kennung=$("${SWISSHUB_BIN_DIR:-$HIER}/swisshub-secrets-seal" kennung "$master" 2>/dev/null)
+    erwartet=$(grep -m1 '^master_key_kennung=' "$PAKET_ZIEL/paket/fingerabdruecke.txt" 2>/dev/null | cut -d= -f2-)
+    if [[ -n "$erwartet" && -n "$kennung" && "$kennung" != "$erwartet" ]]; then
+      nein "Der Hauptschluessel in der .env (Kennung $kennung) ist nicht der aus dem Paket (Kennung $erwartet)."
+      PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+    else
+      ok "Hauptschluessel liegt bereit (Kennung ${kennung:-?})."
+    fi
+  fi
+
+  # --- 6. Platz ----------------------------------------------------------
+  local benoetigt frei
+  benoetigt=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --repo="$REPO" --output=json info 2>/dev/null \
+    | python3 -c '
+import json, sys
+daten = json.load(sys.stdin)
+groessen = [
+    sicherung.get("info", {}).get("size", 0)
+    for stanza in daten
+    for sicherung in stanza.get("backup", [])
+]
+print(max(groessen) if groessen else 0)' 2>/dev/null)
+  frei=$(df --output=avail -k "$(dirname "$SWISSHUB_PG_DATA")" 2>/dev/null | tail -1 | tr -d ' ')
+  frei=$(( ${frei:-0} * 1024 ))
+  if [[ "${benoetigt:-0}" -gt 0 ]]; then
+    # Das Doppelte: die Datenbank und Luft fuer die eingespielten WAL-Segmente.
+    local doppelt=$(( benoetigt * 2 ))
+    if [[ "$frei" -lt "$doppelt" ]]; then
+      nein "Es werden etwa $(numfmt --to=iec "$doppelt" 2>/dev/null || echo "$doppelt B") gebraucht, frei sind $(numfmt --to=iec "$frei" 2>/dev/null || echo "$frei B")."
+      PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+    else
+      ok "Platz reicht: $(numfmt --to=iec "$frei" 2>/dev/null) frei, etwa $(numfmt --to=iec "$doppelt" 2>/dev/null) gebraucht."
+    fi
+  fi
+
+  # --- 7. Laeuft hier schon etwas? ---------------------------------------
+  #
+  # Eine Wiederherstellung ueber einen laufenden Cluster ist Datenverlust mit
+  # zusaetzlichen Schritten.
+  if [[ -f "$SWISSHUB_PG_DATA/postmaster.pid" ]]; then
+    nein "Unter $SWISSHUB_PG_DATA laeuft ein PostgreSQL-Cluster (postmaster.pid vorhanden)."
+    achtung 'Er ist vor der Wiederherstellung anzuhalten. Ein Restore ueber einen laufenden Cluster beschaedigt beide Staende.'
+    PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+  else
+    ok 'Am Zielort laeuft kein Cluster.'
+  fi
+
+  # --- 8. Datei-Datenbank-Bezug ------------------------------------------
+  #
+  # Die Regel: eine Dateisicherung, die NICHT AELTER ist als der
+  # Zielzeitpunkt, enthaelt jede Datei, auf die diese Datenbank verweist.
+  if [[ -n "$ZIEL_ZEIT" ]]; then
+    restic_zugang
+    local repo_pfad
+    repo_pfad=$(restic_repo_pfad)
+    local passend
+    passend=$(restic --repo "$repo_pfad" snapshots --json --no-lock --tag uploads 2>/dev/null \
+      | python3 - "$ZIEL_ZEIT" <<'PY' 2>/dev/null
+import datetime, json, subprocess, sys
+
+try:
+    snapshots = json.load(sys.stdin)
+except Exception:
+    print("")
+    raise SystemExit
+
+ziel_roh = subprocess.run(
+    ["date", "-d", sys.argv[1], "+%s"], capture_output=True, text=True
+).stdout.strip()
+if not ziel_roh:
+    print("")
+    raise SystemExit
+ziel = datetime.datetime.fromtimestamp(int(ziel_roh), datetime.timezone.utc)
+
+geeignet = []
+for snapshot in snapshots:
+    roh = (snapshot.get("time") or "").replace("Z", "+00:00")
+    try:
+        zeit = datetime.datetime.fromisoformat(roh)
+    except ValueError:
+        continue
+    if zeit.tzinfo is None:
+        zeit = zeit.replace(tzinfo=datetime.timezone.utc)
+    if zeit >= ziel:
+        geeignet.append((zeit, snapshot.get("short_id")))
+
+if geeignet:
+    geeignet.sort()
+    print("%s %s" % (geeignet[0][1], geeignet[0][0].isoformat()))
+PY
+)
+    if [[ -n "$passend" ]]; then
+      ok "Passende Dateisicherung vorhanden: Snapshot ${passend%% *} von ${passend#* } (gleich alt oder juenger als der Zielzeitpunkt)."
+    else
+      nein 'Es gibt keine Dateisicherung, die gleich alt oder juenger als der Zielzeitpunkt ist.'
+      achtung 'Die wiederhergestellte Datenbank wuerde auf Upload-Dateien verweisen, die in keiner Sicherung stehen - Ticket-Verlaeufe und Antragsanhaenge waeren totverweisend. Einen frueheren Zielzeitpunkt waehlen.'
+      PREFLIGHT_FEHLER=$(( PREFLIGHT_FEHLER + 1 ))
+    fi
+  fi
+
+  printf '\n'
+  if [[ "$PREFLIGHT_FEHLER" -eq 0 ]]; then
+    ok 'Preflight vollstaendig bestanden.'
+    return 0
+  fi
+  nein "Preflight: $PREFLIGHT_FEHLER Punkt(e) sind nicht erfuellt."
+  return 1
+}
+
+# --------------------------------------------------------------------------
+# Probelauf
+# --------------------------------------------------------------------------
+
+# Was eine Wiederherstellung tun WUERDE - ohne etwas zu tun.
+#
+# `--dry-run` von pgBackRest laeuft den ganzen Plan durch, liest das Manifest
+# und sagt, welche Dateien es anfassen wuerde. Es ist die einzige Probe, die
+# den echten Ablauf prueft statt eine Nachbildung davon.
+befehl_probelauf() {
+  preflight || achtung 'Der Preflight hat Beanstandungen - der Probelauf laeuft trotzdem, damit man sieht, was geschehen wuerde.'
+
+  titel 'Probelauf (es wird nichts geschrieben)'
+
+  local ziel=(--type=default)
+  [[ -n "$ZIEL_ZEIT" ]] && ziel=(--type=time --target="$ZIEL_ZEIT" --target-action=promote)
+
+  local ausgabe
+  ausgabe=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" \
+    --repo="$REPO" --pg1-path="$SWISSHUB_PG_DATA" --dry-run \
+    --log-level-console=info "${ziel[@]}" restore 2>&1)
+  local status=$?
+
+  printf '%s\n' "$ausgabe" | verdecke | tail -40 | sed 's/^/  /'
+
+  if [[ $status -eq 0 ]]; then
+    ok 'Der Probelauf ist durchgelaufen - die Wiederherstellung ist ausfuehrbar.'
+  else
+    nein 'Der Probelauf ist gescheitert. Die Wiederherstellung wuerde ebenso scheitern.'
+    return 1
+  fi
+
+  titel 'Was die Wiederherstellung veraendern wuerde'
+  sage "  Datenverzeichnis:  $SWISSHUB_PG_DATA   (wird ERSETZT)"
+  sage "  Uploads:           ${SWISSHUB_UPLOAD_DIR:-nicht konfiguriert}   (werden ERSETZT)"
+  sage "  Zielzeitpunkt:     ${ZIEL_ZEIT:-jungstmoeglicher Stand}"
+  sage ''
+  achtung 'Alles, was nach dem Zielzeitpunkt geschehen ist, ist danach weg.'
+  sage ''
+  sage '  Wenn das so gewollt ist:'
+  sage "    swisshub-recovery wiederherstellen${ZIEL_ZEIT:+ --zeit '$ZIEL_ZEIT'}"
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# Wiederherstellen
+# --------------------------------------------------------------------------
+
+befehl_wiederherstellen() {
+  if ! preflight; then
+    printf '\n'
+    if ! bestaetige "Der Preflight hat $PREFLIGHT_FEHLER Beanstandung(en). Eine Wiederherstellung trotzdem zu versuchen ist zulaessig - sie kann unvollstaendig ausgehen." 'TROTZDEM'; then
+      sage 'Abgebrochen.'
+      return 1
+    fi
+  fi
+
+  titel 'Wiederherstellung'
+  sage "  Repository:        $REPO"
+  sage "  Zielzeitpunkt:     ${ZIEL_ZEIT:-jungstmoeglicher Stand}"
+  sage "  Datenverzeichnis:  $SWISSHUB_PG_DATA"
+  sage "  Uploads:           ${SWISSHUB_UPLOAD_DIR:-nicht konfiguriert}"
+  printf '\n'
+  achtung 'Der Inhalt des Datenverzeichnisses wird ERSETZT.'
+  achtung 'Alles, was nach dem Zielzeitpunkt geschah, ist danach weg.'
+
+  if ! bestaetige 'Das ist nicht rueckgaengig zu machen.' 'WIEDERHERSTELLEN'; then
+    sage 'Abgebrochen. Es wurde nichts verändert.'
+    return 1
+  fi
+
+  local START
+  START=$(date +%s)
+  # Das Arbeitsverzeichnis muss es geben, bevor etwas darin erwartet wird -
+  # `vorbereiten` legt es an, aber niemand muss es vorher aufgerufen haben.
+  mkdir -p "$ARBEIT"
+  chmod 700 "$ARBEIT"
+
+  # --- 1. Dienste anhalten -----------------------------------------------
+  #
+  # Zuerst und ausdruecklich der Bot: er wirkt nach aussen. Solange er laeuft,
+  # arbeitet er auf den Daten, die gerade ersetzt werden.
+  schritt_nr '1/8  Dienste anhalten'
+  if command -v docker >/dev/null 2>&1 && [[ -f "$SWISSHUB_PROJECT_DIR/docker-compose.prod.yml" ]]; then
+    ( cd "$SWISSHUB_PROJECT_DIR" && docker compose -f docker-compose.prod.yml stop bot music-runtime web 2>/dev/null ) && \
+      ok 'Bot, Musik-Laufzeit und WebApp angehalten.' || achtung 'Es lief offenbar nichts.'
+  fi
+  if [[ -f "$SWISSHUB_PG_DATA/postmaster.pid" ]]; then
+    if [[ "$SWISSHUB_PG_MODE" == 'docker' ]]; then
+      ( cd "$SWISSHUB_PROJECT_DIR" && docker compose -f docker-compose.prod.yml stop postgres 2>/dev/null )
+    else
+      pg_werkzeug pg_ctl -D "$SWISSHUB_PG_DATA" -m fast -w stop >/dev/null 2>&1
+    fi
+    ok 'PostgreSQL angehalten.'
+  fi
+
+  # --- 2. Datenbank ------------------------------------------------------
+  schritt_nr '2/8  Datenbank wiederherstellen'
+  local ziel=(--type=default)
+  [[ -n "$ZIEL_ZEIT" ]] && ziel=(--type=time --target="$ZIEL_ZEIT" --target-action=promote)
+
+  # `--delta` vergleicht und ersetzt nur, was abweicht. Auf einem leeren
+  # Verzeichnis ist es gleichwertig, auf einem teilweise gefuellten spart es
+  # erheblich Zeit - etwa beim zweiten Versuch nach einem Abbruch.
+  if pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" \
+      --repo="$REPO" --pg1-path="$SWISSHUB_PG_DATA" --delta \
+      --log-level-console=info "${ziel[@]}" restore 2>&1 | verdecke | tail -20 | sed 's/^/    /'; then
+    ok 'Die Dateien der Datenbank sind wiederhergestellt.'
+  else
+    nein 'pgbackrest restore ist gescheitert.'
+    return 1
+  fi
+
+  # --- 3. PostgreSQL starten und die WAL-Kette einspielen ---------------
+  schritt_nr '3/8  WAL einspielen und den Zielzeitpunkt erreichen'
+  if [[ "$SWISSHUB_PG_MODE" == 'docker' ]]; then
+    if ! ( cd "$SWISSHUB_PROJECT_DIR" && docker compose -f docker-compose.prod.yml up -d postgres ); then
+      nein 'Der Datenbankcontainer liess sich nicht starten.'
+      return 1
+    fi
+  else
+    # Das Startprotokoll INS DATENVERZEICHNIS.
+    #
+    # Nicht in das Arbeitsverzeichnis dieses Werkzeugs: das gehoert root, und
+    # PostgreSQL laeuft als sein eigener Benutzer. `pg_ctl -l` auf einen Pfad,
+    # in den er nicht schreiben darf, scheitert - und zwar bevor PostgreSQL
+    # ueberhaupt anlaeuft. Das Datenverzeichnis gehoert ihm ohnehin.
+    local startprotokoll="$SWISSHUB_PG_DATA/start-nach-wiederherstellung.log"
+
+    # Und der Rueckgabewert wird GEPRUEFT.
+    #
+    # Ohne diese Pruefung wartete die Schleife unten dreissig Minuten auf einen
+    # Cluster, der nie angelaufen ist - und meldete danach eine Luecke in der
+    # WAL-Kette. Der Fehler saesse an einer voellig anderen Stelle als die
+    # Meldung. Genau so ist es in der ersten Uebung passiert.
+    if ! pg_werkzeug pg_ctl -D "$SWISSHUB_PG_DATA" -l "$startprotokoll" -w -t 600 start >/dev/null 2>&1; then
+      nein 'PostgreSQL ist auf den wiederhergestellten Dateien nicht gestartet.'
+      if [[ -r "$startprotokoll" ]]; then
+        sage ''
+        sage '  Die letzten Zeilen des Startprotokolls:'
+        tail -25 "$startprotokoll" | sed 's/^/      /'
+      else
+        achtung "Es wurde kein Startprotokoll geschrieben ($startprotokoll). Haeufigste Ursache: das Datenverzeichnis gehoert nicht dem PostgreSQL-Benutzer «${SWISSHUB_PG_SYSTEM_USER:-postgres}»."
+        sage ''
+        sage '  Beheben:'
+        sage "      chown -R ${SWISSHUB_PG_SYSTEM_USER:-postgres} $SWISSHUB_PG_DATA"
+        sage "      chmod 700 $SWISSHUB_PG_DATA"
+      fi
+      return 1
+    fi
+  fi
+
+  local grenze=$(( $(date +%s) + 1800 ))
+  local letzter=''
+  while true; do
+    local zustand
+    zustand=$(pg_abfrage 'SELECT pg_is_in_recovery()' postgres | tr -d ' ')
+    if [[ "$zustand" == 'f' ]]; then
+      ok 'Die Wiederherstellung ist abgeschlossen, die Datenbank ist beschreibbar.'
+      break
+    fi
+    # Den Fortschritt zeigen: eine halbe Stunde Stillstand ohne Auskunft ist
+    # der Moment, in dem jemand abbricht und alles noch einmal anfaengt.
+    local stand
+    stand=$(pg_abfrage 'SELECT pg_last_wal_replay_lsn()' postgres | tr -d ' ')
+    if [[ -n "$stand" && "$stand" != "$letzter" ]]; then
+      printf '    eingespielt bis %s\n' "$stand"
+      letzter="$stand"
+    fi
+    if [[ "$(date +%s)" -ge "$grenze" ]]; then
+      nein 'Nach 30 Minuten war die Wiederherstellung nicht abgeschlossen.'
+      if [[ -z "$letzter" ]]; then
+        achtung 'Es wurde kein einziges WAL-Segment eingespielt. Das deutet nicht auf eine Luecke in der Kette, sondern darauf, dass PostgreSQL gar nicht antwortet.'
+      fi
+      achtung 'Haeufigste Ursache: eine Luecke in der WAL-Kette. PostgreSQL wartet dann auf ein Segment, das es nicht gibt. Im Protokoll steht, auf welches.'
+      achtung "Protokoll: $ARBEIT/postgres.log bzw. docker compose logs postgres"
+      return 1
+    fi
+    sleep 5
+  done
+
+  local DB_DAUER=$(( $(date +%s) - START ))
+  ok "Datenbank wiederhergestellt in ${DB_DAUER}s."
+
+  # --- 4. Dateien --------------------------------------------------------
+  schritt_nr '4/8  Uploads wiederherstellen'
+  dateien_wiederherstellen || achtung 'Die Uploads sind nicht vollstaendig wiederhergestellt - die Datenbank ist davon unberuehrt.'
+
+  # --- 5. Konfiguration --------------------------------------------------
+  schritt_nr '5/8  Konfiguration bereitstellen'
+  konfiguration_wiederherstellen
+
+  # --- 6. Migrationsstand pruefen - NICHT migrieren ---------------------
+  schritt_nr '6/8  Migrationsstand pruefen'
+  local migration
+  migration=$(pg_abfrage "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1" | tr -d ' ')
+  local unvollendet
+  unvollendet=$(pg_abfrage "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL" | tr -d ' ')
+  ok "Angewandte Migration: ${migration:-keine}"
+  if [[ "${unvollendet:-0}" -gt 0 ]]; then
+    nein "$unvollendet Migration(en) sind nicht abgeschlossen - der Zielzeitpunkt liegt mitten in einer Migration."
+    achtung 'Einen Zeitpunkt VOR dem Beginn dieser Migration waehlen und erneut wiederherstellen.'
+  fi
+  cat <<'HINWEIS'
+
+    Es wird ABSICHTLICH nicht migriert.
+
+    `prisma migrate deploy` wuerde das Schema auf den Stand des Quelltexts
+    bringen und dabei die gerade wiederhergestellten Daten veraendern. Wenn
+    der Quelltext neuer ist als der Zielzeitpunkt, ist das eine Entscheidung
+    und keine Nebenwirkung - sie faellt nach der Validierung.
+HINWEIS
+
+  # --- 7. Kein zweiter Bot ----------------------------------------------
+  schritt_nr '7/8  Sicherstellen, dass keine zweite Instanz laeuft'
+  bot_alleinstellung
+
+  # --- 8. Validieren ----------------------------------------------------
+  schritt_nr '8/8  Validierung'
+  local GESAMT=$(( $(date +%s) - START ))
+
+  zustand_schreiben 'letzte-wiederherstellung' "$(printf \
+    '{"zeit":%s,"zielzeit":%s,"repo":%s,"dauer_datenbank_s":%s,"dauer_gesamt_s":%s,"validiert":false,"freigegeben":false}' \
+    "$(json_text "$(date --iso-8601=seconds)")" "$(json_text "${ZIEL_ZEIT:-ende}")" "$REPO" \
+    "$DB_DAUER" "$GESAMT")"
+
+  befehl_validieren
+  local validiert=$?
+
+  titel 'Ergebnis'
+  sage "  Wiederherstellung der Datenbank:   ${DB_DAUER}s"
+  sage "  Gesamt (ohne Serveraufsetzung):    ${GESAMT}s"
+  printf '\n'
+  if [[ "$validiert" -eq 0 ]]; then
+    ok 'Die Validierung ist bestanden.'
+    sage ''
+    sage '  Jetzt - und erst jetzt - duerfen Bot und Musik-Laufzeit starten:'
+    sage ''
+    sage '      swisshub-recovery freigeben'
+  else
+    nein 'Die Validierung ist nicht bestanden.'
+    achtung 'Bot und Musik-Laufzeit bleiben aus. Sie wirken nach aussen - auf fehlerhaften Daten richten sie auf Discord Schaden an, den kein Backup zuruecknimmt.'
+  fi
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# Dateien
+# --------------------------------------------------------------------------
+
+# Die Vorgabe «auswaertiges Repository» auf die Wirklichkeit abbilden.
+#
+# Ohne das scheiterte jeder Zugriff mit «Bucket name cannot be empty» und der
+# Frage, ob unter «s3://restic» ein Repository liege - was in einem Notfall
+# aussieht wie ein zerstoertes Backup, obwohl bloss kein S3 eingerichtet ist.
+#
+# Wer --repo ausdruecklich angegeben hat, bekommt keine stille Umleitung: dann
+# ist die Angabe eine Entscheidung, und ein fehlendes Ziel ist ein Fehler.
+repo_vorgabe_aufloesen() {
+  [[ "$REPO" == '2' ]] || return 0
+  hat_externes_ziel && return 0
+
+  if [[ "$REPO_AUSDRUECKLICH" == '1' ]]; then
+    nein 'Repository 2 ist verlangt, aber kein auswaertiges Ziel eingerichtet.'
+    sage '  In der Konfiguration fehlen SWISSHUB_S3_ENDPOINT, SWISSHUB_S3_BUCKET'
+    sage '  oder SWISSHUB_S3_WRITE_KEY_ID. Mit «--repo 1» aus der lokalen Kopie.'
+    return 1
+  fi
+
+  REPO='1'
+  achtung 'Kein auswaertiges Repository eingerichtet - es wird die lokale Kopie (Repository 1) verwendet.'
+  achtung 'Eine lokale Kopie ueberlebt keinen Verlust dieses Servers. Siehe docs/BACKUP.md.'
+  return 0
+}
+
+# Die Zugangsdaten fuer Restic in die Umgebung.
+#
+# GETRENNT von `restic_repo_pfad`, und das ist der ganze Punkt.
+#
+# Beides stand einmal in einer Funktion, die den Pfad AUSGIBT - und sie wurde
+# deshalb in einer Befehlssubstitution aufgerufen: `repo=$(restic_repo_pfad)`.
+# Darin laeuft eine Subshell, und jedes `export` darin ist beim Zurueckkommen
+# weg. Das Repository-Passwort war also nie gesetzt, wenn es gebraucht wurde,
+# und jeder restic-Aufruf scheiterte - mitten in der Wiederherstellung, mit der
+# Meldung «restic restore ist gescheitert» und ohne Grund.
+#
+# Diese Funktion setzt und gibt nichts aus. Sie muss VOR `restic_repo_pfad`
+# und ausserhalb einer Befehlssubstitution aufgerufen werden.
+restic_zugang() {
+  restic_umgebung
+  if [[ "$REPO" == '2' ]]; then
+    export AWS_ACCESS_KEY_ID="$SWISSHUB_S3_WRITE_KEY_ID"
+    export AWS_SECRET_ACCESS_KEY="$SWISSHUB_S3_WRITE_SECRET"
+    [[ -n "$SWISSHUB_S3_REGION" ]] && export AWS_DEFAULT_REGION="$SWISSHUB_S3_REGION"
+  fi
+}
+
+# Nur der Pfad. Keine Nebenwirkung - siehe `restic_zugang` darueber.
+restic_repo_pfad() {
+  if [[ "$REPO" == '2' ]]; then
+    printf '%s' "s3:${SWISSHUB_S3_ENDPOINT%/}/${SWISSHUB_S3_BUCKET}/restic"
+  else
+    printf '%s' "$SWISSHUB_RESTIC_REPO"
+  fi
+}
+
+# Der Snapshot, der zum Zielzeitpunkt passt.
+#
+# Gesucht wird der AELTESTE, der nicht aelter als der Zielzeitpunkt ist -
+# nicht der jungste. Der jungste enthaelt zwar auch alles Noetige, aber
+# zusaetzlich Dateien, die zum Zielzeitpunkt noch nicht existierten. Die sind
+# harmlos, aber unnoetig; der aelteste passende ist der genaueste Treffer.
+# Wird selbst in einer Befehlssubstitution aufgerufen und setzt deshalb
+# NICHTS: die Zugangsdaten muss der Aufrufer schon gesetzt haben
+# (`restic_zugang`).
+passender_datei_snapshot() {
+  local repo
+  repo=$(restic_repo_pfad)
+  # Ohne Zielzeitpunkt der jungste Snapshot MIT DER MARKE «uploads».
+  #
+  # Nicht «latest»: das ist der jungste Snapshot ueberhaupt, und im selben
+  # Repository liegen auch die Marken «konfiguration» und «recovery». Wurde
+  # zuletzt das Wiederherstellungspaket gesichert, packte «latest» dieses aus -
+  # und die Wiederherstellung brach mit «Im Snapshot war kein Verzeichnis zu
+  # /.../uploads zu finden» ab, obwohl die Uploads gesichert waren.
+  if [[ -z "$ZIEL_ZEIT" ]]; then
+    local jungster
+    jungster=$(restic --repo "$repo" snapshots --json --no-lock --tag uploads 2>/dev/null \
+      | python3 -c 'import json,sys
+daten = json.load(sys.stdin)
+daten.sort(key=lambda s: s.get("time") or "")
+print(daten[-1]["short_id"] if daten else "")' 2>/dev/null)
+    printf '%s' "${jungster:-latest}"
+    return 0
+  fi
+  local ziel_epoche
+  ziel_epoche=$(date -d "$ZIEL_ZEIT" +%s 2>/dev/null) || { printf 'latest'; return 0; }
+  restic --repo "$repo" snapshots --json --no-lock --tag uploads 2>/dev/null \
+    | python3 - "$ziel_epoche" <<'PY' 2>/dev/null || printf 'latest'
+import datetime, json, sys
+
+try:
+    snapshots = json.load(sys.stdin)
+except Exception:
+    print("latest")
+    raise SystemExit
+
+ziel = datetime.datetime.fromtimestamp(int(sys.argv[1]), datetime.timezone.utc)
+geeignet = []
+for snapshot in snapshots:
+    roh = (snapshot.get("time") or "").replace("Z", "+00:00")
+    try:
+        zeit = datetime.datetime.fromisoformat(roh)
+    except ValueError:
+        continue
+    if zeit.tzinfo is None:
+        zeit = zeit.replace(tzinfo=datetime.timezone.utc)
+    if zeit >= ziel:
+        geeignet.append((zeit, snapshot.get("short_id")))
+
+if geeignet:
+    geeignet.sort()
+    print(geeignet[0][1])
+else:
+    print("latest")
+PY
+}
+
+dateien_wiederherstellen() {
+  if [[ -z "$SWISSHUB_UPLOAD_DIR" ]]; then
+    achtung 'SWISSHUB_UPLOAD_DIR ist nicht gesetzt - es werden keine Uploads wiederhergestellt.'
+    return 1
+  fi
+  restic_zugang
+  local repo snapshot
+  repo=$(restic_repo_pfad)
+  snapshot=$(passender_datei_snapshot)
+  ok "Dateisicherung: Snapshot $snapshot"
+
+  # Erst neben das Ziel, dann tauschen.
+  #
+  # `restic restore` direkt in das Upload-Verzeichnis liesse bei einem Abbruch
+  # einen halb ersetzten Stand zurueck - und halb ist hier schlimmer als alt.
+  local zwischen="$ARBEIT/uploads-neu"
+  rm -rf -- "${zwischen:?}"
+  mkdir -p "$zwischen"
+
+  local restic_protokoll="$ARBEIT/restic-restore.log"
+  if ! restic --repo "$repo" restore "$snapshot" --target "$zwischen" >"$restic_protokoll" 2>&1; then
+    nein 'restic restore ist gescheitert.'
+    # Der Grund gehoert hierher. Ohne ihn stand im Protokoll nur, DASS es
+    # gescheitert ist - und in einem Notfall ist das keine Hilfe.
+    sed 's/^/      /' "$restic_protokoll" | tail -12
+    return 1
+  fi
+
+  # Der Snapshot enthaelt den urspruenglichen absoluten Pfad. Gesucht ist das
+  # Verzeichnis darin, das den Uploads entspricht.
+  local quelle
+  quelle=$(find "$zwischen" -type d -path "*${SWISSHUB_UPLOAD_DIR}" -print -quit 2>/dev/null)
+  if [[ -z "$quelle" ]]; then
+    # Auch ein verschobenes Upload-Verzeichnis soll gefunden werden.
+    quelle=$(find "$zwischen" -type d -name "$(basename "$SWISSHUB_UPLOAD_DIR")" -print -quit 2>/dev/null)
+  fi
+  if [[ -z "$quelle" ]]; then
+    nein "Im Snapshot war kein Verzeichnis zu $SWISSHUB_UPLOAD_DIR zu finden."
+    sage '  Enthalten sind:'
+    find "$zwischen" -maxdepth 4 -type d | head -12 | sed 's/^/      /'
+    return 1
+  fi
+
+  mkdir -p "$SWISSHUB_UPLOAD_DIR"
+  local vorher
+  vorher=$(find "$SWISSHUB_UPLOAD_DIR" -type f 2>/dev/null | wc -l)
+  if [[ "$vorher" -gt 0 ]]; then
+    # Der bisherige Stand wird nicht geloescht, sondern beiseitegelegt. Wer
+    # den falschen Snapshot gewaehlt hat, soll nicht auch noch das verlieren,
+    # was vorher da war.
+    local beiseite="${SWISSHUB_UPLOAD_DIR}.vor-wiederherstellung-$(date +%Y%m%d-%H%M)"
+    mv "$SWISSHUB_UPLOAD_DIR" "$beiseite"
+    mkdir -p "$SWISSHUB_UPLOAD_DIR"
+    achtung "Der bisherige Stand liegt unter $beiseite - nach der Abnahme loeschen."
+  fi
+
+  cp -a "$quelle/." "$SWISSHUB_UPLOAD_DIR/"
+  rm -rf -- "${zwischen:?}"
+
+  local nachher
+  nachher=$(find "$SWISSHUB_UPLOAD_DIR" -type f 2>/dev/null | wc -l)
+  ok "$nachher Datei(en) wiederhergestellt nach $SWISSHUB_UPLOAD_DIR"
+  return 0
+}
+
+konfiguration_wiederherstellen() {
+  restic_zugang
+  local repo snapshot
+  repo=$(restic_repo_pfad)
+  snapshot=$(restic --repo "$repo" snapshots --json --no-lock --tag konfiguration 2>/dev/null \
+    | python3 -c '
+import json, sys
+daten = json.load(sys.stdin)
+daten.sort(key=lambda s: s.get("time") or "")
+print(daten[-1]["short_id"] if daten else "")' 2>/dev/null)
+
+  if [[ -z "$snapshot" ]]; then
+    achtung 'Es gibt keine Konfigurationssicherung - nginx, Zertifikatsstand und Releasestand sind von Hand nachzuziehen.'
+    return 1
+  fi
+
+  local ziel="$ARBEIT/konfiguration"
+  rm -rf -- "${ziel:?}"
+  mkdir -p "$ziel"
+  if ! restic --repo "$repo" restore "$snapshot" --target "$ziel" >/dev/null 2>&1; then
+    achtung 'Die Konfigurationssicherung liess sich nicht zurueckholen.'
+    return 1
+  fi
+
+  ok "Konfiguration ausgepackt nach $ziel"
+  cat <<HINWEIS
+
+    Sie wird ABSICHTLICH nicht selbst eingespielt. Eine
+    nginx-Konfiguration, die auf den alten Hostnamen und alte
+    Zertifikatspfade zeigt, wuerde den neuen Server lahmlegen - das gehoert
+    angesehen und nicht ueberschrieben.
+
+    Enthalten:
+      release.json            Commit, Abbild-Digests, Migrationsstand
+      systemstand.txt         OS, Docker, PostgreSQL des alten Servers
+      projekt/deploy/         nginx-Vorlage, systemd-Units
+      host/                   nginx und Let's-Encrypt-Stand (ohne private Schluessel)
+      env-variablennamen.txt  Womit sich die neue .env auf Vollstaendigkeit pruefen laesst
+
+HINWEIS
+
+  # Die .env auf Vollstaendigkeit pruefen. Eine fehlende Variable faellt sonst
+  # erst beim Start auf - und der Start bricht dann ab, ohne dass klar ist,
+  # ob die Wiederherstellung geglueckt ist.
+  local namen
+  namen=$(find "$ziel" -name 'env-variablennamen.txt' -print -quit 2>/dev/null)
+  if [[ -n "$namen" && -r "$SWISSHUB_PROJECT_DIR/.env" ]]; then
+    local fehlend
+    fehlend=$(comm -23 <(sort -u "$namen") <(grep -oE '^[A-Z_][A-Z0-9_]*' "$SWISSHUB_PROJECT_DIR/.env" | sort -u))
+    if [[ -n "$fehlend" ]]; then
+      achtung 'In der neuen .env fehlen Variablen, die der alte Server gesetzt hatte:'
+      printf '%s\n' "$fehlend" | sed 's/^/        /'
+    else
+      ok 'Die .env enthaelt alle Variablen, die der alte Server gesetzt hatte.'
+    fi
+  fi
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# Einzelne Datei zurueckholen
+# --------------------------------------------------------------------------
+
+# Nicht jeder Fehler braucht einen vollstaendigen Restore.
+#
+# Eine versehentlich geloeschte Datei ist der haeufigste Fall, und dafuer den
+# ganzen Server zurueckzusetzen waere ein Schaden, um einen Schaden zu
+# beheben.
+befehl_datei() {
+  lade_falls_moeglich || { nein 'Keine Konfiguration gefunden.'; return 1; }
+  local muster="${1:-}"
+  if [[ -z "$muster" ]]; then
+    sage '  swisshub-recovery datei <dateiname oder teil davon>'
+    return 64
+  fi
+
+  restic_zugang
+  local repo
+  repo=$(restic_repo_pfad)
+
+  titel "Suche «$muster» in den Dateisicherungen"
+
+  # Ueber alle Snapshots suchen, nicht nur im jungsten: eine geloeschte Datei
+  # ist im jungsten Snapshot gerade nicht mehr enthalten.
+  local treffer
+  treffer=$(restic --repo "$repo" find --json --no-lock "*${muster}*" 2>/dev/null)
+  if [[ -z "$treffer" || "$treffer" == '[]' ]]; then
+    nein 'Nichts gefunden.'
+    achtung 'Die Suche unterscheidet Gross- und Kleinschreibung. Die Dateinamen sind serverseitig erzeugt (Zufall plus Endung) - der Name aus dem Browser kommt darin nicht vor. Er steht in der Datenbank.'
+    return 1
+  fi
+
+  printf '%s' "$treffer" | python3 "$LIB/datei-suche-anzeigen.py"
+
+  cat <<HINWEIS
+
+  Zurueckholen - in ein Nebenverzeichnis, NICHT direkt ueber die Produktion:
+
+      restic --repo <repo> restore <snapshot> \\
+             --target /tmp/wiederhergestellt --include '<vollstaendiger Pfad>'
+
+  Danach ansehen und erst dann an den richtigen Ort kopieren. Direkt ueber die
+  Produktion zu schreiben heisst, den zweiten Fehler nicht mehr korrigieren zu
+  koennen.
+
+  Das Repository ist hier: $repo
+HINWEIS
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# Validierung
+# --------------------------------------------------------------------------
+
+befehl_validieren() {
+  lade_falls_moeglich || { nein 'Keine Konfiguration gefunden.'; return 1; }
+
+  titel 'Validierung nach der Wiederherstellung'
+  local fehler=0
+
+  # --- PostgreSQL --------------------------------------------------------
+  local version
+  version=$(trimmen "$(pg_abfrage 'SHOW server_version' postgres)")
+  if [[ -n "$version" ]]; then
+    ok "PostgreSQL $version antwortet."
+  else
+    nein 'PostgreSQL antwortet nicht.'
+    return 1
+  fi
+
+  local in_recovery
+  in_recovery=$(pg_abfrage 'SELECT pg_is_in_recovery()' postgres | tr -d ' ')
+  if [[ "$in_recovery" == 'f' ]]; then
+    ok 'Die Datenbank ist beschreibbar (Wiederherstellung abgeschlossen).'
+  else
+    nein 'Die Datenbank ist noch in der Wiederherstellung - sie ist nur lesbar.'
+    fehler=$(( fehler + 1 ))
+  fi
+
+  # --- Schema ------------------------------------------------------------
+  local tabellen
+  tabellen=$(pg_abfrage "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" | tr -d ' ')
+  if [[ "${tabellen:-0}" -lt 50 ]]; then
+    nein "Nur ${tabellen:-0} Tabellen im Schema public - das SwissHub-Schema hat deutlich mehr."
+    fehler=$(( fehler + 1 ))
+  else
+    ok "$tabellen Tabellen im Schema public."
+  fi
+
+  local fehlende=()
+  local tabelle
+  for tabelle in AuditLog IntegrationSecret GuildConfig RolePermission ModuleState Session; do
+    [[ "$(pg_abfrage "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$tabelle'" | tr -d ' ')" == '1' ]] \
+      || fehlende+=("$tabelle")
+  done
+  if [[ ${#fehlende[@]} -gt 0 ]]; then
+    nein "Diese Kerntabellen fehlen: ${fehlende[*]}"
+    fehler=$(( fehler + 1 ))
+  else
+    ok 'Alle Kerntabellen vorhanden.'
+  fi
+
+  # --- Migrationen -------------------------------------------------------
+  local migration unvollendet
+  migration=$(pg_abfrage "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1" | tr -d ' ')
+  unvollendet=$(pg_abfrage "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL" | tr -d ' ')
+  if [[ -z "$migration" ]]; then
+    nein 'Kein Migrationsstand vorhanden.'
+    fehler=$(( fehler + 1 ))
+  elif [[ "${unvollendet:-0}" -gt 0 ]]; then
+    nein "$unvollendet Migration(en) unvollendet."
+    fehler=$(( fehler + 1 ))
+  else
+    ok "Migrationsstand: $migration"
+  fi
+
+  # --- Konfiguration -----------------------------------------------------
+  local guild rollen module
+  guild=$(pg_abfrage 'SELECT count(*) FROM "GuildConfig"' | tr -d ' ')
+  rollen=$(pg_abfrage 'SELECT count(*) FROM "RolePermission"' | tr -d ' ')
+  module=$(pg_abfrage 'SELECT count(*) FROM "ModuleState"' | tr -d ' ')
+  if [[ "${guild:-0}" -eq 0 ]]; then
+    nein 'Keine GuildConfig - die Anwendung waere unkonfiguriert.'
+    fehler=$(( fehler + 1 ))
+  elif [[ "${rollen:-0}" -eq 0 ]]; then
+    nein 'Keine Rollenzuordnung - ins Dashboard kaeme nur der Notzugang.'
+    fehler=$(( fehler + 1 ))
+  else
+    ok "Konfiguration: $guild Guild, $rollen Rollenzuordnungen, $module Moduleinstellungen."
+  fi
+
+  # --- Die Geheimnisse ---------------------------------------------------
+  local anzahl
+  anzahl=$(pg_abfrage 'SELECT count(*) FROM "IntegrationSecret"' | tr -d ' ')
+  if [[ "${anzahl:-0}" -eq 0 ]]; then
+    achtung 'Es liegen keine verschluesselten Zugangsdaten in der Datenbank - die Anwendung faellt auf die Werte aus der .env zurueck.'
+  else
+    local master
+    master=$(grep -m1 '^MASTER_ENCRYPTION_KEY=' "$SWISSHUB_PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'"'')
+    local zeilen
+    zeilen=$(pg_abfrage "SELECT scope||E'\t'||\"guildId\"||E'\t'||provider||E'\t'||key||E'\t'||ciphertext FROM \"IntegrationSecret\"")
+    local ergebnis
+    ergebnis=$(SWISSHUB_MASTER_KEY="$master" python3 "$LIB/geheimnis-pruefung.py" <<<"$zeilen" 2>/dev/null || printf 'FEHLER')
+    read -r marke gelesen gescheitert fremd kennung <<< "$ergebnis"
+    if [[ "$marke" == 'OK' && "${gescheitert:-1}" -eq 0 && "${fremd:-1}" -eq 0 && "${gelesen:-0}" -gt 0 ]]; then
+      ok "Alle $gelesen verschluesselten Zugangsdaten sind mit dem vorhandenen Hauptschluessel lesbar (Kennung $kennung)."
+    else
+      nein "Die Zugangsdaten sind NICHT vollstaendig lesbar: $gelesen lesbar, ${gescheitert:-?} gescheitert, ${fremd:-?} mit anderem Schluessel."
+      achtung 'Der Bot kann ohne sein Token nicht starten, und die Anmeldung braucht das OAuth-Secret. Sie sind unter System -> Integrationen neu zu hinterlegen.'
+      fehler=$(( fehler + 1 ))
+    fi
+  fi
+
+  # --- Uploads -----------------------------------------------------------
+  if [[ -n "$SWISSHUB_UPLOAD_DIR" && -d "$SWISSHUB_UPLOAD_DIR" ]]; then
+    local dateien
+    dateien=$(find "$SWISSHUB_UPLOAD_DIR" -type f 2>/dev/null | wc -l)
+    ok "$dateien Datei(en) im Upload-Verzeichnis."
+
+    # Die Verweise gegen die vorhandenen Dateien halten.
+    local verwiesen fehlend=0 name
+    verwiesen=0
+    while IFS= read -r name; do
+      [[ -n "$name" ]] || continue
+      verwiesen=$(( verwiesen + 1 ))
+      find "$SWISSHUB_UPLOAD_DIR" -name "$name" -print -quit 2>/dev/null | grep -q . || fehlend=$(( fehlend + 1 ))
+    done < <(pg_abfrage "
+      SELECT \"fileName\" FROM \"TicketTranscript\" WHERE \"fileName\" IS NOT NULL
+      UNION
+      SELECT \"fileName\" FROM \"AppealAttachment\" WHERE \"fileName\" IS NOT NULL" 2>/dev/null | tr -d ' ')
+    if [[ "$fehlend" -gt 0 ]]; then
+      nein "$fehlend von $verwiesen in der Datenbank verwiesenen Dateien fehlen."
+      achtung 'Ursache ist meist eine Dateisicherung, die aelter ist als der Zielzeitpunkt der Datenbank. Ein neuerer Datei-Snapshot behebt es.'
+      fehler=$(( fehler + 1 ))
+    elif [[ "$verwiesen" -gt 0 ]]; then
+      ok "Alle $verwiesen verwiesenen Dateien sind vorhanden."
+    fi
+  else
+    achtung 'Das Upload-Verzeichnis existiert nicht oder ist nicht konfiguriert.'
+  fi
+
+  # --- WebApp und Proxy --------------------------------------------------
+  local gesundheit
+  gesundheit=$(curl -fsS --max-time 10 http://127.0.0.1:3000/api/health 2>/dev/null)
+  if [[ -n "$gesundheit" ]]; then
+    ok "WebApp antwortet: $gesundheit"
+  else
+    achtung 'Die WebApp antwortet noch nicht - sie wird nach der Validierung gestartet.'
+  fi
+
+  if command -v nginx >/dev/null 2>&1; then
+    nginx -t >/dev/null 2>&1 && ok 'nginx-Konfiguration ist gueltig.' || achtung 'nginx -t meldet einen Fehler.'
+  fi
+
+  local zertifikat
+  zertifikat=$(find /etc/letsencrypt/live -name 'cert.pem' -print -quit 2>/dev/null)
+  if [[ -n "$zertifikat" ]]; then
+    if openssl x509 -checkend 604800 -noout -in "$zertifikat" >/dev/null 2>&1; then
+      ok "TLS-Zertifikat gueltig bis $(openssl x509 -enddate -noout -in "$zertifikat" | cut -d= -f2)"
+    else
+      achtung 'Das TLS-Zertifikat laeuft innerhalb einer Woche ab oder ist abgelaufen - certbot renew.'
+    fi
+  else
+    achtung "Es ist kein Let's-Encrypt-Zertifikat vorhanden - certbot --nginx."
+  fi
+
+  printf '\n'
+  if [[ "$fehler" -eq 0 ]]; then
+    ok 'Validierung bestanden.'
+    local bisher
+    bisher=$(zustand_lesen 'letzte-wiederherstellung')
+    zustand_schreiben 'letzte-wiederherstellung' "$(printf '%s' "$bisher" | python3 -c '
+import json, sys
+try:
+    daten = json.load(sys.stdin)
+except Exception:
+    daten = {}
+daten["validiert"] = True
+print(json.dumps(daten))' 2>/dev/null || printf '{"validiert":true}')"
+    return 0
+  fi
+  nein "Validierung NICHT bestanden: $fehler Punkt(e)."
+  return 1
+}
+
+# --------------------------------------------------------------------------
+# Kein zweiter Bot
+# --------------------------------------------------------------------------
+
+# Der Fehler, der bei einer Wiederherstellung den meisten Schaden anrichtet.
+#
+# Zwei Instanzen mit demselben Bot-Token laufen beide, und Discord liefert
+# jedes Ereignis an beide aus. Das Ergebnis sind doppelte Nachrichten, zweimal
+# vergebene Rollen, zwei Jail-Sweeps, die sich gegenseitig ueberschreiben, und
+# ein Verhalten, das keine der beiden Instanzen erklaeren kann.
+#
+# Der Heartbeat in der Datenbank ist die Auskunft, die es dafuer gibt: er wird
+# alle 20 Sekunden geschrieben. Ist er frisch und dieser Server hat den Bot
+# nicht gestartet, laeuft er woanders.
+bot_alleinstellung() {
+  local heartbeat
+  heartbeat=$(pg_abfrage "SELECT EXTRACT(EPOCH FROM (now() - \"lastSeenAt\"))::int FROM \"BotStatus\" ORDER BY \"lastSeenAt\" DESC LIMIT 1" 2>/dev/null | tr -d ' ')
+
+  if [[ -z "$heartbeat" ]]; then
+    ok 'Kein Bot-Herzschlag in der Datenbank - es laeuft offenbar keine zweite Instanz.'
+    return 0
+  fi
+
+  if [[ "$heartbeat" -lt 90 ]]; then
+    nein "Der Bot-Herzschlag ist nur ${heartbeat} Sekunden alt. Es laeuft eine Bot-Instanz - moeglicherweise die auf dem alten Server."
+    cat <<'HINWEIS'
+
+    VOR der Freigabe abstellen. Zwei Bots mit demselben Token bedeuten:
+      - jede Nachricht doppelt,
+      - Rollen zweimal vergeben und wieder entzogen,
+      - zwei Jail-Sweeps, die sich gegenseitig ueberschreiben,
+      - ein Verhalten, das keine der beiden Instanzen erklaeren kann.
+
+    Auf dem alten Server, falls er noch erreichbar ist:
+        docker compose -f docker-compose.prod.yml stop bot music-runtime
+
+    Ist er nicht mehr erreichbar, aber der Herzschlag frisch, dann greift
+    er noch auf DIESE Datenbank zu. Dann ist die sicherste Massnahme, den
+    Bot-Token im Discord Developer Portal zu erneuern und ihn hier unter
+    System -> Integrationen neu zu hinterlegen. Der alte Token ist damit
+    ungueltig, und die Altinstanz ist von Discord getrennt.
+
+HINWEIS
+    return 1
+  fi
+
+  ok "Der letzte Bot-Herzschlag ist ${heartbeat} Sekunden alt - es laeuft keine zweite Instanz."
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# Freigeben
+# --------------------------------------------------------------------------
+
+# Der Schritt, der nach aussen wirkt - und der einzige, der eine bestandene
+# Validierung voraussetzt.
+befehl_freigeben() {
+  lade_falls_moeglich || { nein 'Keine Konfiguration gefunden.'; return 1; }
+
+  titel 'Freigabe von Bot und Musik-Laufzeit'
+
+  local validiert
+  validiert=$(zustand_lesen 'letzte-wiederherstellung' | python3 -c '
+import json, sys
+try:
+    print("ja" if json.load(sys.stdin).get("validiert") else "nein")
+except Exception:
+    print("unbekannt")' 2>/dev/null)
+
+  if [[ "$validiert" != 'ja' ]]; then
+    nein "Es liegt keine bestandene Validierung vor (Zustand: $validiert)."
+    achtung 'Zuerst `swisshub-recovery validieren`. Der Bot wirkt nach aussen: er vergibt Discord-Rollen, schreibt in Kanaele und arbeitet Jail-Fristen ab. Auf unvalidierten Daten richtet er Schaden an, den kein Backup zuruecknimmt.'
+    return 1
+  fi
+  ok 'Eine bestandene Validierung liegt vor.'
+
+  if ! bot_alleinstellung; then
+    nein 'Die Freigabe wird verweigert, solange eine zweite Instanz laufen koennte.'
+    return 1
+  fi
+
+  if ! bestaetige 'Bot und Musik-Laufzeit werden gestartet. Ab diesem Moment wirkt SwissHub wieder auf Discord.' 'FREIGEBEN'; then
+    sage 'Abgebrochen. Die Dienste bleiben aus.'
+    return 1
+  fi
+
+  if [[ -f "$SWISSHUB_PROJECT_DIR/docker-compose.prod.yml" ]]; then
+    ( cd "$SWISSHUB_PROJECT_DIR" && docker compose -f docker-compose.prod.yml up -d ) || {
+      nein 'Die Dienste liessen sich nicht starten.'
+      return 1
+    }
+  else
+    achtung 'Keine docker-compose.prod.yml gefunden - die Dienste sind von Hand zu starten.'
+  fi
+
+  # Warten, bis sie gesund sind, statt Erfolg zu melden und zu hoffen.
+  titel 'Warte auf gesunde Dienste'
+  local dienst
+  for dienst in web bot music-runtime; do
+    local grenze=$(( $(date +%s) + 300 ))
+    while true; do
+      local behaelter gesundheit
+      behaelter=$( cd "$SWISSHUB_PROJECT_DIR" && docker compose -f docker-compose.prod.yml ps -q "$dienst" 2>/dev/null )
+      if [[ -z "$behaelter" ]]; then
+        nein "$dienst laeuft nicht."
+        break
+      fi
+      gesundheit=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$behaelter" 2>/dev/null)
+      if [[ "$gesundheit" == 'healthy' ]]; then
+        ok "$dienst: healthy"
+        break
+      fi
+      if [[ "$gesundheit" == 'none' ]]; then
+        ok "$dienst: laeuft (ohne Gesundheitscheck)"
+        break
+      fi
+      if [[ "$(date +%s)" -ge "$grenze" ]]; then
+        nein "$dienst wurde nicht gesund (zuletzt: $gesundheit)."
+        docker logs --tail 30 "$behaelter" 2>&1 | sed 's/^/      /'
+        break
+      fi
+      sleep 5
+    done
+  done
+
+  local bisher
+  bisher=$(zustand_lesen 'letzte-wiederherstellung')
+  zustand_schreiben 'letzte-wiederherstellung' "$(printf '%s' "$bisher" | python3 -c '
+import datetime, json, sys
+try:
+    daten = json.load(sys.stdin)
+except Exception:
+    daten = {}
+daten["freigegeben"] = True
+daten["freigegeben_am"] = datetime.datetime.now().astimezone().isoformat()
+print(json.dumps(daten))' 2>/dev/null || printf '{"freigegeben":true}')"
+
+  titel 'Nach der Freigabe'
+  cat <<'NACHHER'
+  Das gehoert jetzt geprueft, und zwar in dieser Reihenfolge:
+
+    1. Ist der Bot in Discord online, und nur EINMAL?
+    2. Funktioniert die Anmeldung im Dashboard?
+    3. Sind die Berechtigungen da, wie sie sein sollen?
+    4. Zeigt System -> Integrationen alle Zugangsdaten als hinterlegt?
+    5. Laufen die Hintergrundjobs? (Dashboard, Bot-Status, letzter Herzschlag)
+    6. Ist ein Logo da, oeffnet sich ein Ticket-Verlauf?
+    7. Und dann: eine NEUE Sicherung anlegen.
+
+       Der wiederhergestellte Stand ist noch in keiner Sicherung. Nach einer
+       Wiederherstellung liegt eine neue Zeitlinie vor, und die erste
+       Sicherung darauf ist die, die den naechsten Ernstfall abdeckt:
+
+           swisshub-backup einrichten
+           swisshub-backup db-voll
+           swisshub-backup geheimnisse
+
+       Der letzte Befehl ist wichtig: der MASTER_ENCRYPTION_KEY liegt jetzt
+       auf einem neuen Server, und das Wiederherstellungspaket muss das
+       widerspiegeln.
+NACHHER
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# Notfall - der gefuehrte Weg
+# --------------------------------------------------------------------------
+
+befehl_notfall() {
+  cat <<'KOPF'
+
+  ╔══════════════════════════════════════════════════════════════════════╗
+  ║  SwissHub - Wiederherstellung                                        ║
+  ╚══════════════════════════════════════════════════════════════════════╝
+
+  Dieser Weg fuehrt durch die vollstaendige Wiederherstellung. Er tut nichts
+  ohne ausdrueckliche Bestaetigung, und jeder Schritt laesst sich einzeln
+  wiederholen.
+
+  Was gebraucht wird:
+
+    1. Das Wiederherstellungspaket             (swisshub-recovery-*.tar.age)
+    2. Der private age-Schluessel              (recovery.key)
+    3. Die LESENDEN S3-Zugangsdaten
+    4. Ein Server mit der passenden PostgreSQL-Hauptversion
+
+  Fehlt 1 oder 2, ist eine vollstaendige Wiederherstellung nicht moeglich:
+  die verschluesselten Zugangsdaten bleiben dann unlesbar. Die Datenbank
+  selbst laesst sich trotzdem herstellen, wenn 3 vorliegt.
+
+KOPF
+
+  schritt_nr '1/7  Voraussetzungen'
+  befehl_vorbereiten || return 1
+
+  schritt_nr '2/7  Wiederherstellungspaket'
+  if lade_falls_moeglich && [[ -r "$SWISSHUB_PROJECT_DIR/.env" ]]; then
+    ok 'Konfiguration und .env sind schon vorhanden - Schritt uebersprungen.'
+  else
+    sage '  Das Paket ist noch nicht ausgepackt. Jetzt ausfuehren:'
+    sage ''
+    sage '      swisshub-recovery paket <paket.tar.age> <recovery.key>'
+    sage ''
+    sage '  Danach die beiden Dateien an ihren Platz bringen (der Befehl sagt,'
+    sage '  wohin) und diesen Weg erneut starten.'
+    return 1
+  fi
+
+  schritt_nr '3/7  Was es zur Auswahl gibt'
+  befehl_punkte || return 1
+
+  schritt_nr '4/7  Zielzeitpunkt'
+  if [[ -z "$ZIEL_ZEIT" ]]; then
+    sage '  Kein Zielzeitpunkt angegeben.'
+    sage ''
+    sage '  Bei einem Serververlust ist das richtig: der jungstmoegliche Stand'
+    sage '  ist der mit dem geringsten Datenverlust.'
+    sage ''
+    sage '  Bei einer fehlerhaften Aktion - geloeschte Tabelle, missglueckte'
+    sage '  Migration - ist ein Zeitpunkt UNMITTELBAR DAVOR der richtige:'
+    sage ''
+    sage "      swisshub-recovery notfall --zeit '2026-09-25 14:31:00+02'"
+    sage ''
+    if ! bestaetige 'Mit dem jungstmoeglichen Stand fortfahren?' 'JA'; then
+      sage 'Abgebrochen. Mit --zeit erneut starten.'
+      return 1
+    fi
+  else
+    ok "Zielzeitpunkt: $ZIEL_ZEIT"
+  fi
+
+  schritt_nr '5/7  Preflight und Probelauf'
+  befehl_probelauf || {
+    achtung 'Der Probelauf ist gescheitert. Die Wiederherstellung wuerde ebenso scheitern.'
+    return 1
+  }
+
+  schritt_nr '6/7  Wiederherstellung'
+  befehl_wiederherstellen || return 1
+
+  schritt_nr '7/7  Freigabe'
+  sage '  Die Freigabe ist ein eigener Schritt und ausdruecklich nicht Teil'
+  sage '  dieses Ablaufs. Zuerst ansehen, ob die Daten stimmen - dann:'
+  sage ''
+  sage '      swisshub-recovery freigeben'
+  return 0
+}
+
+# --------------------------------------------------------------------------
+
+BEFEHL="${1:-hilfe}"
+shift || true
+
+# Optionen, die jeder Befehl versteht.
+ARGUMENTE=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --zeit) ZIEL_ZEIT="${2:-}"; shift 2 ;;
+    --repo) REPO="${2:-2}"; REPO_AUSDRUECKLICH=1; shift 2 ;;
+    *) ARGUMENTE+=("$1"); shift ;;
+  esac
+done
+
+case "$BEFEHL" in
+  notfall) befehl_notfall ;;
+  vorbereiten) befehl_vorbereiten ;;
+  paket) befehl_paket "${ARGUMENTE[@]:-}" ;;
+  punkte) befehl_punkte ;;
+  pruefen) preflight ;;
+  probelauf) befehl_probelauf ;;
+  wiederherstellen) befehl_wiederherstellen ;;
+  dateien) lade_falls_moeglich && dateien_wiederherstellen ;;
+  verzeichnis) lade_falls_moeglich && dateien_wiederherstellen ;;
+  datei) befehl_datei "${ARGUMENTE[@]:-}" ;;
+  konfiguration) lade_falls_moeglich && konfiguration_wiederherstellen ;;
+  validieren) befehl_validieren ;;
+  freigeben) befehl_freigeben ;;
+  hilfe|--help|-h) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) nein "Unbekannter Befehl: $BEFEHL"; sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 64 ;;
+esac

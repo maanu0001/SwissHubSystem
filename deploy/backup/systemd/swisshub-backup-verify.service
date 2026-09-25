@@ -1,0 +1,33 @@
+# SwissHub - Pruefstufen 1 bis 4.
+
+[Unit]
+Description=SwissHub Sicherungen pruefen
+Documentation=file:///opt/swisshub/docs/BACKUP.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=swisshub-backup
+Group=swisshub-backup
+SupplementaryGroups=postgres docker
+# `--tief` am Sonntag, sonst die schnelle Pruefung. Welche, entscheidet der
+# Timer ueber zwei getrennte Aufrufe; hier steht die schnelle.
+ExecStart=/usr/local/lib/swisshub-backup/bin/swisshub-backup-verify
+
+IOWeight=20
+CPUWeight=20
+IOSchedulingClass=idle
+Nice=10
+MemoryMax=1G
+TimeoutStartSec=4h
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/swisshub-backup
+ReadOnlyPaths=/etc/swisshub-backup /opt/swisshub

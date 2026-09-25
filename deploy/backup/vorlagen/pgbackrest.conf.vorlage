@@ -1,0 +1,122 @@
+# ---------------------------------------------------------------------------
+# pgBackRest fuer SwissHub - ERZEUGTE DATEI
+#
+# Nicht von Hand bearbeiten. Erzeugt aus
+# deploy/backup/vorlagen/pgbackrest.conf.vorlage durch
+#
+#   swisshub-backup konfiguration-schreiben
+#
+# Quelle aller Werte: /etc/swisshub-backup/swisshub-backup.env
+# ---------------------------------------------------------------------------
+
+[global]
+
+# --- Repository 1: lokal --------------------------------------------------
+#
+# Die erste Kopie. Schnell wiederherstellbar, aber auf demselben Rechner -
+# gegen dessen Verlust schuetzt sie nicht. Genau dafuer gibt es Repository 2.
+repo1-path=@PGBACKREST_REPO@
+repo1-type=posix
+
+# Verschluesselung auch lokal.
+#
+# Eine Datenbanksicherung ist eine vollstaendige Kopie aller Personendaten.
+# Unverschluesselt auf demselben Laufwerk waere sie fuer jeden lesbar, der
+# irgendwie Dateizugriff erlangt - und das ist eine niedrigere Huerde als der
+# Datenbankzugang.
+repo1-cipher-type=aes-256-cbc
+repo1-cipher-pass=@PGBACKREST_CIPHER_PASS@
+
+# --- Aufbewahrung ---------------------------------------------------------
+#
+# `repo1-retention-archive-type=full` ist die entscheidende Zeile.
+#
+# Ohne sie raeumt pgBackRest WAL-Dateien nach eigenem Ermessen auf und kann
+# dabei genau die Kette zerreissen, die das aelteste noch aufbewahrte
+# Basis-Backup zum Wiederherstellen braucht. Das Backup waere dann noch da und
+# trotzdem unbrauchbar - der schlimmste aller Zustaende, weil er wie Sicherheit
+# aussieht.
+#
+# Mit dieser Zeile rechnet pgBackRest die WAL-Aufbewahrung aus den
+# Basis-Backups: es behaelt WAL so lange, wie das aelteste aufbewahrte
+# Vollbackup es braucht. Die Point-in-Time-Spanne ergibt sich damit von selbst
+# und bleibt immer zu den vorhandenen Backups passend.
+repo1-retention-full=@RETENTION_FULL@
+repo1-retention-diff=@RETENTION_DIFF@
+repo1-retention-archive-type=full
+
+# --- WAL-Archivierung -----------------------------------------------------
+#
+# `archive-async=y` ist die Zeile, an der der RPO haengt.
+#
+# Synchron wuerde PostgreSQLs Archivierungsprozess auf jede einzelne
+# WAL-Datei warten, bis sie im Repository liegt - und bei einer langsamen
+# Verbindung staut sich pg_wal, bis die Platte voll ist. Asynchron schreibt
+# pgBackRest ueber einen Spool-Bereich und kann mehrere Dateien gleichzeitig
+# uebertragen.
+#
+# Der Preis ist ehrlich zu benennen: asynchron heisst, dass eine Handvoll
+# WAL-Dateien den Server noch nicht verlassen hat, wenn er ausfaellt. Der
+# tatsaechliche RPO ist deshalb nicht null, sondern das, was der Restore-Test
+# misst. Er wird gemessen und nicht behauptet.
+archive-async=y
+spool-path=@BACKUP_ROOT@/spool-wal
+
+# Wie lange `backup` auf ein Archivsegment wartet, bevor es aufgibt.
+# 60 Sekunden: laenger hiesse, einen kaputten Archivierungspfad erst nach
+# Minuten zu bemerken.
+archive-timeout=60
+
+# --- Ressourcen -----------------------------------------------------------
+#
+# Der produktive Bot laeuft daneben. Bei 2 vCPU macht mehr Parallelitaet die
+# Sicherung nicht schneller, sondern nur den Bot langsamer.
+process-max=@PGBACKREST_PROCESSES@
+
+# zstd auf niedriger Stufe: nahe an gzip-9 im Ergebnis, ein Bruchteil der
+# CPU-Zeit. Auf einem Server, der gleichzeitig Discord bedient, ist das der
+# Unterschied zwischen einer unbemerkten und einer spuerbaren Sicherung.
+compress-type=zst
+compress-level=3
+
+# --- Verhalten ------------------------------------------------------------
+#
+# `start-fast=y` erzwingt sofort einen Checkpoint. Ohne das wartet
+# `pg_backup_start` bis zum naechsten regulaeren Checkpoint - bei
+# `checkpoint_timeout=5min` also bis zu fuenf Minuten, in denen die Sicherung
+# nichts tut und trotzdem laeuft.
+start-fast=y
+
+# Verweise auf Dateien ausserhalb des Datenverzeichnisses werden abgelehnt.
+# Ein `pg_wal`, das per Symlink woandershin zeigt, soll auffallen und nicht
+# still fehlen.
+link-all=n
+
+# Pruefsummen auf Seitenebene beim Backup mitpruefen, wenn der Cluster sie
+# fuehrt. Erkennt stille Datenkorruption dann, wenn sie noch reparierbar ist -
+# und nicht erst beim Restore.
+checksum-page=y
+
+# --- Protokollierung ------------------------------------------------------
+#
+# Die Fehlerausgabe geht an den Aufrufer (und damit in das Protokoll des
+# Orchestrators), die ausfuehrliche Fassung in eine Datei.
+log-level-console=warn
+log-level-file=detail
+log-path=@BACKUP_ROOT@/log/pgbackrest
+log-subprocess=y
+
+@S3_BLOCK@
+
+# ---------------------------------------------------------------------------
+# Die Stanza
+#
+# Eine Stanza ist ein Cluster. Mehrere Datenbanken auf demselben Cluster sind
+# EINE Stanza - und das ist die Tatsache, an der jede Vorstellung von
+# «eine Tabelle zuruecksetzen» scheitert: ein physischer Restore stellt den
+# Cluster her, nicht eine Zeile darin.
+# ---------------------------------------------------------------------------
+[swisshub]
+pg1-path=@PG_DATA@
+pg1-port=@PG_PORT@
+pg1-user=@PG_USER@
