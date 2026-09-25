@@ -15,14 +15,14 @@ Stand der Erhebung: 2026-09-25, aus dem Repository-Stand `31f1874`.
 
 ## 1. Was von hier aus einsehbar war
 
-| Quelle                                  | Zugriff                     |
-| --------------------------------------- | --------------------------- |
-| `maanu0001/SwissHub_Bot-WebApp`          | vollständig (Arbeitskopie)  |
-| `maanu0001/SwissHubSystem`               | lesend (geklont)            |
-| `maanu0001/SwissHubGG`                   | lesend (geklont)            |
-| `maanu0001/SwissHubSponsoring`           | lesend (geklont)            |
-| Produktiver Server (`system.swisshub.gg`) | **kein Zugriff**            |
-| Backup-Speicher, S3, DNS-Konto           | **kein Zugriff**            |
+| Quelle                                    | Zugriff                    |
+| ----------------------------------------- | -------------------------- |
+| `maanu0001/SwissHub_Bot-WebApp`           | vollständig (Arbeitskopie) |
+| `maanu0001/SwissHubSystem`                | lesend (geklont)           |
+| `maanu0001/SwissHubGG`                    | lesend (geklont)           |
+| `maanu0001/SwissHubSponsoring`            | lesend (geklont)           |
+| Produktiver Server (`system.swisshub.gg`) | **kein Zugriff**           |
+| Backup-Speicher, S3, DNS-Konto            | **kein Zugriff**           |
 
 Der produktive Server war aus dieser Umgebung nicht erreichbar. Alles, was
 seinen Ist-Zustand betrifft - freier Speicherplatz, vorhandene Cronjobs,
@@ -46,11 +46,11 @@ gegen einen Ausfall von GitHub oder den Verlust dieses Kontos hilft sie nicht.
 
 Bleiben drei Dienste:
 
-| Dienst              | Repository               | Domain                     | Produktiver Commit |
-| ------------------- | ------------------------ | -------------------------- | ------------------ |
-| System-WebApp + Bot | `SwissHub_Bot-WebApp`    | `system.swisshub.gg`       | `31f1874`          |
-| Öffentliche Website | `SwissHubGG`             | `swisshub.gg`, `www`       | `b67a00a`          |
-| Sponsoring-WebApp   | `SwissHubSponsoring`     | `sponsoring.swisshub.gg`   | `1314be8`          |
+| Dienst              | Repository            | Domain                   | Produktiver Commit |
+| ------------------- | --------------------- | ------------------------ | ------------------ |
+| System-WebApp + Bot | `SwissHub_Bot-WebApp` | `system.swisshub.gg`     | `31f1874`          |
+| Öffentliche Website | `SwissHubGG`          | `swisshub.gg`, `www`     | `b67a00a`          |
+| Sponsoring-WebApp   | `SwissHubSponsoring`  | `sponsoring.swisshub.gg` | `1314be8`          |
 
 Die genannten Commits sind die Spitzen der Standardbranches zum Zeitpunkt der
 Erhebung, **nicht** notwendigerweise der Stand, der produktiv läuft. Welcher
@@ -67,20 +67,20 @@ Belegt durch `docker-compose.prod.yml`, `Dockerfile`, `.env.example`,
 
 ### Container
 
-| Dienst          | Abbild                          | Aufgabe                                     |
-| --------------- | ------------------------------- | ------------------------------------------- |
-| `postgres`      | `postgres:16-alpine`            | Datenbank                                   |
-| `migrate`       | `swisshub-migrate:latest`       | `prisma migrate deploy`, läuft einmal       |
-| `web`           | `swisshub-web:latest`           | Next.js, nur auf `127.0.0.1:3000`           |
-| `bot`           | `swisshub-bot:latest`           | discord.js, keine offenen Ports             |
+| Dienst          | Abbild                          | Aufgabe                                      |
+| --------------- | ------------------------------- | -------------------------------------------- |
+| `postgres`      | `postgres:16-alpine`            | Datenbank                                    |
+| `migrate`       | `swisshub-migrate:latest`       | `prisma migrate deploy`, läuft einmal        |
+| `web`           | `swisshub-web:latest`           | Next.js, nur auf `127.0.0.1:3000`            |
+| `bot`           | `swisshub-bot:latest`           | discord.js, keine offenen Ports              |
 | `music-runtime` | `swisshub-music-runtime:latest` | Python, FFmpeg/Opus/yt-dlp, kein Port aussen |
 
 ### Persistente Datenträger
 
-| Volume               | Einhängepunkt                  | Inhalt                            | Im DB-Dump enthalten? |
-| -------------------- | ------------------------------ | --------------------------------- | --------------------- |
-| `swisshub-postgres`  | `/var/lib/postgresql/data`     | PostgreSQL-Cluster                | ist der Dump          |
-| `swisshub-uploads`   | `/var/lib/swisshub/uploads`    | siehe unten                       | **nein**              |
+| Volume              | Einhängepunkt               | Inhalt             | Im DB-Dump enthalten? |
+| ------------------- | --------------------------- | ------------------ | --------------------- |
+| `swisshub-postgres` | `/var/lib/postgresql/data`  | PostgreSQL-Cluster | ist der Dump          |
+| `swisshub-uploads`  | `/var/lib/swisshub/uploads` | siehe unten        | **nein**              |
 
 `swisshub-uploads` ist bei `web` beschreibbar und bei `bot` **nur lesend**
 eingehängt. Das ist für die Sicherung wichtig: es gibt genau einen Schreiber.
@@ -90,12 +90,12 @@ eingehängt. Das ist für die Sicherung wichtig: es gibt genau einen Schreiber.
 Ermittelt aus `packages/modules/src/branding/storage.ts` und den Stellen, die
 `UPLOAD_DIR` weiterverwenden:
 
-| Unterverzeichnis | Quelle                                     | Inhalt                          |
-| ---------------- | ------------------------------------------ | ------------------------------- |
-| (Wurzel)         | `branding/storage.ts`                      | Logo, Levelkarten-Hintergründe  |
-| `appeals/`       | `appeals/attachments.ts`                   | Anhänge zu Entbannungsanträgen  |
-| `transcripts/`   | `tickets/transcript.ts`                    | Ticket-Verläufe als HTML        |
-| `analytics/`     | `analytics/media.ts`                       | Medien der Auswertungen         |
+| Unterverzeichnis | Quelle                   | Inhalt                         |
+| ---------------- | ------------------------ | ------------------------------ |
+| (Wurzel)         | `branding/storage.ts`    | Logo, Levelkarten-Hintergründe |
+| `appeals/`       | `appeals/attachments.ts` | Anhänge zu Entbannungsanträgen |
+| `transcripts/`   | `tickets/transcript.ts`  | Ticket-Verläufe als HTML       |
+| `analytics/`     | `analytics/media.ts`     | Medien der Auswertungen        |
 
 Alle vier tragen Verweise in der Datenbank. Datei und Verweis müssen deshalb
 **zum selben Zeitpunkt** wiederherstellbar sein - eine Datenbank von 14:00 mit
@@ -118,15 +118,15 @@ Zwei Schichten, und der Unterschied entscheidet über die Wiederherstellbarkeit.
 
 **Schicht 1 - in der Serverumgebung (`/opt/swisshub/.env`, `chmod 600`):**
 
-| Variable                     | Wozu                                     | Nach Verlust           |
-| ---------------------------- | ---------------------------------------- | ---------------------- |
-| `MASTER_ENCRYPTION_KEY`      | ver-/entschlüsselt Schicht 2             | **unersetzlich**       |
-| `AUTH_SECRET`                | Sessions, CSRF                           | neu erzeugbar          |
-| `POSTGRES_PASSWORD`          | Datenbankzugang                          | neu setzbar            |
-| `SWISSHUB_OWNER_DISCORD_ID`  | Notzugang                                | neu setzbar            |
-| `PAYMENT_API_KEY`, `…SECRET` | Zahlungsanbieter                         | beim Anbieter neu      |
-| `MUSIC_RUNTIME_KEY`          | WebApp ↔ Musik-Laufzeit                  | neu erzeugbar          |
-| `ANTHROPIC_API_KEY` u.a.     | Rückfall, sofern noch gesetzt            | beim Anbieter neu      |
+| Variable                     | Wozu                          | Nach Verlust      |
+| ---------------------------- | ----------------------------- | ----------------- |
+| `MASTER_ENCRYPTION_KEY`      | ver-/entschlüsselt Schicht 2  | **unersetzlich**  |
+| `AUTH_SECRET`                | Sessions, CSRF                | neu erzeugbar     |
+| `POSTGRES_PASSWORD`          | Datenbankzugang               | neu setzbar       |
+| `SWISSHUB_OWNER_DISCORD_ID`  | Notzugang                     | neu setzbar       |
+| `PAYMENT_API_KEY`, `…SECRET` | Zahlungsanbieter              | beim Anbieter neu |
+| `MUSIC_RUNTIME_KEY`          | WebApp ↔ Musik-Laufzeit       | neu erzeugbar     |
+| `ANTHROPIC_API_KEY` u.a.     | Rückfall, sofern noch gesetzt | beim Anbieter neu |
 
 **Schicht 2 - AES-256-GCM-verschlüsselt in der Tabelle `IntegrationSecret`:**
 Discord Bot Token, Discord OAuth Client Secret, AI-Schlüssel, Tokens der
@@ -265,17 +265,17 @@ Cron, laut `docs/DEPLOYMENT.md` täglich um 03:30.
 
 Was es **nicht** tut, und jeder Punkt ist ein eigener Datenverlust:
 
-| Lücke                                      | Folge                                                        |
-| ------------------------------------------ | ------------------------------------------------------------ |
-| Keine Uploads                              | Logo, Ticket-Verläufe, Antragsanhänge, Analytics-Medien weg  |
-| Kein `MASTER_ENCRYPTION_KEY`               | Schicht-2-Geheimnisse dauerhaft unlesbar                      |
-| Keine `.env`                               | Konfiguration von Hand zu rekonstruieren                      |
-| Kein Offsite                               | Serververlust = Backupverlust                                 |
-| Keine Unveränderbarkeit                    | Ransomware und `rm -rf` löschen die Sicherungen mit           |
-| Keine Verschlüsselung der Sicherung        | Personendaten liegen im Klartext auf demselben Laufwerk       |
-| Kein PITR                                  | Datenverlust bis zu 24 h; 14:32 nicht ansteuerbar             |
-| Keine Prüfung des Ergebnisses              | Ein leeres `.sql.gz` gilt als Erfolg                          |
-| Keine Meldung bei Fehlschlag               | Ein gescheiterter Cronjob fällt niemandem auf                 |
+| Lücke                                       | Folge                                                        |
+| ------------------------------------------- | ------------------------------------------------------------ |
+| Keine Uploads                               | Logo, Ticket-Verläufe, Antragsanhänge, Analytics-Medien weg  |
+| Kein `MASTER_ENCRYPTION_KEY`                | Schicht-2-Geheimnisse dauerhaft unlesbar                     |
+| Keine `.env`                                | Konfiguration von Hand zu rekonstruieren                     |
+| Kein Offsite                                | Serververlust = Backupverlust                                |
+| Keine Unveränderbarkeit                     | Ransomware und `rm -rf` löschen die Sicherungen mit          |
+| Keine Verschlüsselung der Sicherung         | Personendaten liegen im Klartext auf demselben Laufwerk      |
+| Kein PITR                                   | Datenverlust bis zu 24 h; 14:32 nicht ansteuerbar            |
+| Keine Prüfung des Ergebnisses               | Ein leeres `.sql.gz` gilt als Erfolg                         |
+| Keine Meldung bei Fehlschlag                | Ein gescheiterter Cronjob fällt niemandem auf                |
 | Retention nach Alter, nicht nach Gültigkeit | Nach 14 stillen Fehlschlägen ist gar keine Sicherung mehr da |
 
 ### Zwei Sätze in der Dokumentation, die falsch sind

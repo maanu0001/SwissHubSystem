@@ -104,12 +104,12 @@ ist, und scheitert dauerhaft.
 
 **App Keys** → **Add a New Application Key**
 
-| Einstellung             | Wert                                     |
-| ----------------------- | ---------------------------------------- |
-| Name of Key             | `swisshub-server-schreibend`             |
-| Allow access to Bucket  | nur der Backup-Bucket                    |
-| Type of Access          | **Read and Write**                       |
-| Allow List All Bucket Names | nein                                 |
+| Einstellung                 | Wert                         |
+| --------------------------- | ---------------------------- |
+| Name of Key                 | `swisshub-server-schreibend` |
+| Allow access to Bucket      | nur der Backup-Bucket        |
+| Type of Access              | **Read and Write**           |
+| Allow List All Bucket Names | nein                         |
 
 B2 hat kein feineres Raster als „Read and Write“. Der Löschschutz kommt hier
 also **allein** aus Object Lock — und genau deshalb ist Object Lock bei B2
@@ -129,17 +129,17 @@ Der Endpunkt steht bei **Buckets → Endpoint**. Die Region ist der Teil daraus.
 
 **App Keys** → **Add a New Application Key**
 
-| Einstellung            | Wert                          |
-| ---------------------- | ----------------------------- |
-| Name of Key            | `swisshub-recovery-lesend`    |
-| Allow access to Bucket | nur der Backup-Bucket         |
-| Type of Access         | **Read Only**                 |
+| Einstellung            | Wert                       |
+| ---------------------- | -------------------------- |
+| Name of Key            | `swisshub-recovery-lesend` |
+| Allow access to Bucket | nur der Backup-Bucket      |
+| Type of Access         | **Read Only**              |
 
 **Diese beiden Werte gehören nicht auf den produktiven Server.** Sie gehören
 an denselben Ort wie der private age-Schlüssel: Passwortmanager und Medium im
 Safe.
 
-Der Grund: wiederhergestellt wird auf einem *anderen* Server. Auf dem
+Der Grund: wiederhergestellt wird auf einem _anderen_ Server. Auf dem
 produktiven haben lesende Zugangsdaten keinen Zweck — und ein Angreifer, der
 ihn übernimmt, soll nicht auch noch bequem die Historie durchsehen können.
 
@@ -184,10 +184,7 @@ sondern auch die Richtlinie.
         "s3:ListMultipartUploadParts",
         "s3:ListBucketMultipartUploads"
       ],
-      "Resource": [
-        "arn:aws:s3:::swisshub-backup-xyz",
-        "arn:aws:s3:::swisshub-backup-xyz/*"
-      ]
+      "Resource": ["arn:aws:s3:::swisshub-backup-xyz", "arn:aws:s3:::swisshub-backup-xyz/*"]
     },
     {
       "Sid": "NichtsLoeschenUndSperreNichtAnfassen",
@@ -204,10 +201,7 @@ sondern auch die Richtlinie.
         "s3:DeleteBucket",
         "s3:DeleteBucketPolicy"
       ],
-      "Resource": [
-        "arn:aws:s3:::swisshub-backup-xyz",
-        "arn:aws:s3:::swisshub-backup-xyz/*"
-      ]
+      "Resource": ["arn:aws:s3:::swisshub-backup-xyz", "arn:aws:s3:::swisshub-backup-xyz/*"]
     }
   ]
 }
@@ -228,20 +222,19 @@ gesperrten Fassungen, aber alles nach Ablauf der Frist wäre weg.
 ```json
 {
   "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": [
-      "s3:GetObject",
-      "s3:GetObjectVersion",
-      "s3:ListBucket",
-      "s3:ListBucketVersions",
-      "s3:GetBucketLocation"
-    ],
-    "Resource": [
-      "arn:aws:s3:::swisshub-backup-xyz",
-      "arn:aws:s3:::swisshub-backup-xyz/*"
-    ]
-  }]
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": ["arn:aws:s3:::swisshub-backup-xyz", "arn:aws:s3:::swisshub-backup-xyz/*"]
+    }
+  ]
 }
 ```
 
@@ -257,11 +250,11 @@ ehrliche Weise: **es versucht zu löschen und erwartet, dass es scheitert.**
 
 Der Befund `unveraenderbarkeit` sagt eines von drei Dingen:
 
-| Befund                                                     | Bedeutung                            |
-| ---------------------------------------------------------- | ------------------------------------ |
-| „Der Loeschversuch wurde abgelehnt“                        | Die Richtlinie greift. Gut.          |
-| „Loeschen setzt nur eine Loeschmarkierung“                  | Versionierung greift. Gut.           |
-| „liess sich restlos loeschen“                              | **Es greift nichts.** Nachbessern.   |
+| Befund                                     | Bedeutung                          |
+| ------------------------------------------ | ---------------------------------- |
+| „Der Loeschversuch wurde abgelehnt“        | Die Richtlinie greift. Gut.        |
+| „Loeschen setzt nur eine Loeschmarkierung“ | Versionierung greift. Gut.         |
+| „liess sich restlos loeschen“              | **Es greift nichts.** Nachbessern. |
 
 Für diese Prüfung braucht es die aws-CLI (`apt install awscli`). Fehlt sie,
 sagt die Prüfung ausdrücklich, dass sie nicht durchgeführt wurde — statt
@@ -282,13 +275,13 @@ Fassung. Klappt es restlos, ist der Schutz nicht vorhanden.
 Für eine SwissHub-Installation mit einer Datenbank von etwa 2 GB und Uploads
 von etwa 5 GB:
 
-| Posten                                     | Menge      | B2       | Wasabi   | AWS S3   |
-| ------------------------------------------ | ---------- | -------- | -------- | -------- |
-| Speicher (4 Vollbackups + WAL + Dateien)   | ~40 GB     | 0.24 $   | 6.99 $¹  | 0.92 $   |
-| Übertragung hinein                         | ~50 GB/Mt  | 0 $      | 0 $      | 0 $      |
-| API-Aufrufe                                | ~200 000   | 0.08 $   | 0 $      | 1.00 $   |
-| **Laufend im Monat**                       |            | **~0.35 $** | **~7 $** | **~2 $** |
-| Übertragung heraus bei EINER Wiederherstellung | ~10 GB | 0 $²     | 0 $      | 0.90 $   |
+| Posten                                         | Menge     | B2          | Wasabi   | AWS S3   |
+| ---------------------------------------------- | --------- | ----------- | -------- | -------- |
+| Speicher (4 Vollbackups + WAL + Dateien)       | ~40 GB    | 0.24 $      | 6.99 $¹  | 0.92 $   |
+| Übertragung hinein                             | ~50 GB/Mt | 0 $         | 0 $      | 0 $      |
+| API-Aufrufe                                    | ~200 000  | 0.08 $      | 0 $      | 1.00 $   |
+| **Laufend im Monat**                           |           | **~0.35 $** | **~7 $** | **~2 $** |
+| Übertragung heraus bei EINER Wiederherstellung | ~10 GB    | 0 $²        | 0 $      | 0.90 $   |
 
 ¹ Wasabi berechnet mindestens 1 TB.
 ² B2 gibt dreimal die gespeicherte Menge je Monat kostenlos heraus.

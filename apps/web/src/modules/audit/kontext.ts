@@ -47,6 +47,7 @@ export type AuditKategorieId =
   | 'clips'
   | 'wrapped'
   | 'spielwahl'
+  | 'backup'
   | 'system';
 
 export interface AuditKategorie {
@@ -75,6 +76,10 @@ const BEREICH: ReadonlyArray<readonly [RegExp, AuditKategorie]> = [
   [/^(COMMUNICATION|SPIELERSUCHE)/u, { id: 'kommunikation', label: 'Kommunikation' }],
   [/^(INTEGRATION|PREMIUM)/u, { id: 'integrationen', label: 'Integrationen' }],
   [/^MIGRATION/u, { id: 'migration', label: 'Migration' }],
+  // Eigene Kategorie und nicht unter «System»: hier stehen die Entscheidungen
+  // ueber produktive Wiederherstellungen, und die will man filtern koennen,
+  // ohne sie aus allem Uebrigen heraussuchen zu muessen.
+  [/^BACKUP/u, { id: 'backup', label: 'Backup & Recovery' }],
   [/^(SETTING|MODULE|ROLE_MAPPING|BRANDING|LOG_CHANNEL)/u, { id: 'einstellungen', label: 'Einstellungen' }],
   // `PROFILE` gehoert hierher und nicht unter «System»: Auszeichnungen und
   // fremd bearbeitete Profile sind Vorgaenge an einem Mitglied. Vorher
