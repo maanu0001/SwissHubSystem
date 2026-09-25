@@ -66,6 +66,8 @@ lade_konfiguration() {
   : "${SWISSHUB_PG_PORT:=5432}"
   : "${SWISSHUB_PG_DATABASE:=swisshub}"
   : "${SWISSHUB_PG_CONTAINER:=}"
+  : "${SWISSHUB_PG_SYSTEM_USER:=postgres}"
+  : "${SWISSHUB_SERVICE_GROUP:=swisshub-backup}"
   : "${SWISSHUB_UPLOAD_DIR:=}"
   : "${SWISSHUB_EXTRA_PATHS:=}"
   : "${SWISSHUB_CONFIG_PATHS:=}"
@@ -498,6 +500,19 @@ werkzeug_pruefen() {
 # PostgreSQL
 # --------------------------------------------------------------------------
 
+# Aussen kuerzen, innen nichts anfassen.
+#
+# `tr -d " "` schien bequem und machte aus «16.13 (Ubuntu 16.13-...)» das
+# unleserliche «16.13(Ubuntu16.13-...)», und aus einem Zeitstempel
+# «2026-09-25 14:30:00+00» das von pgBackRest zu Recht abgelehnte
+# «2026-09-2514:30:00+00». Wo ein Wert Leerzeichen enthalten DARF, wird nur
+# aussen gekuerzt.
+trimmen() {
+  local wert="$1"
+  wert="${wert#"${wert%%[![:space:]]*}"}"
+  printf '%s' "${wert%"${wert##*[![:space:]]}"}"
+}
+
 # Ein psql-Aufruf, gleich ob PostgreSQL im Container oder auf dem System
 # laeuft. `-A -t` liefert reine Werte ohne Rahmen und Kopfzeile.
 pg_abfrage() {
@@ -563,9 +578,25 @@ pg_werkzeug() {
 pgbackrest_lauf() {
   if [[ "$SWISSHUB_PG_MODE" == 'docker' ]]; then
     docker exec -i "$SWISSHUB_PG_CONTAINER" pgbackrest "$@"
-  else
-    pgbackrest "$@"
+    return $?
   fi
+
+  # Im Host-Betrieb als der PostgreSQL-Systembenutzer.
+  #
+  # Das Datenverzeichnis gehoert ihm und hat 0700 - kein anderer Benutzer kommt
+  # hinein, auch kein eigener Dienstbenutzer. Ein physisches Backup kopiert
+  # aber genau diese Dateien. Deshalb laeuft pgBackRest hier unter demselben
+  # Benutzer wie PostgreSQL selbst; das ist auch der von pgBackRest
+  # vorgesehene Betrieb.
+  #
+  # Laeuft dieses Skript schon als dieser Benutzer, wird nicht gewechselt -
+  # ein `su` auf sich selbst braeuchte ein Passwort.
+  local benutzer="${SWISSHUB_PG_SYSTEM_USER:-postgres}"
+  if [[ "$(id -un)" == "$benutzer" ]] || [[ "$(id -u)" -ne 0 ]]; then
+    pgbackrest "$@"
+    return $?
+  fi
+  su "$benutzer" -s /bin/bash -c "$(printf '%q ' pgbackrest "$@")"
 }
 
 # --------------------------------------------------------------------------

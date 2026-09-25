@@ -36,6 +36,7 @@ HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SWISSHUB_LIB_DIR:-$HIER/../lib}/gemeinsam.sh"
 
 LOG_KONTEXT='verify'
+LIB_PYTHON="${SWISSHUB_LIB_DIR:-$HIER/../lib}"
 lade_konfiguration || exit 1
 protokoll_eroeffnen 'verify'
 
@@ -189,7 +190,7 @@ stufe2() {
     args+=(--read-data-subset=5%)
   fi
   if restic_lokal "${args[@]}" >/dev/null 2>&1; then
-    befund 2 'restic-check' 'erfolg' "Restic-Repository unbeschaedigt${TIEF:+ (mit Stichprobe der Nutzdaten)}."
+    befund 2 'restic-check' 'erfolg' "Restic-Repository unbeschaedigt$([[ "$TIEF" == 'ja' ]] && printf ' (mit Stichprobe der Nutzdaten)')."
   else
     befund 2 'restic-check' 'fehler' 'restic check ist gescheitert - das Dateirepository ist beschaedigt. Es wird deshalb nichts daraus geloescht.'
   fi
@@ -347,90 +348,20 @@ stufe4() {
   local pg_info
   pg_info=$(pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" --output=json info 2>/dev/null || printf '[]')
 
+  # Die Pruefung selbst steht in lib/wal-kette.py.
+  #
+  # Sie stand hier einmal als eingebettetes Here-Dokument in einer
+  # Befehlssubstitution. Das ist bash-seitig heikel: eine schliessende
+  # Klammer am Zeilenanfang im Python-Code brachte den Parser aus dem Tritt,
+  # und die ganze Stufe 4 fiel still aus - `bericht` blieb leer, es erschien
+  # kein einziger Befund, und die Pruefung meldete trotzdem Erfolg. Eine
+  # Pruefung, die ausfaellt ohne es zu sagen, ist schlimmer als keine.
+  #
+  # Als eigene Datei ist sie ausserdem pruefbar: tests/unit/backup-wal-kette.test.ts
+  # gibt ihr echte pgBackRest-Ausgaben und erwartet bestimmte Befunde.
   local bericht
-  bericht=$(printf '%s' "$pg_info" | python3 - <<'PY' 2>/dev/null || printf '{}'
-import json, sys
-
-try:
-    daten = json.load(sys.stdin)
-except Exception:
-    print(json.dumps({"fehler": "pgbackrest info war nicht lesbar"}))
-    raise SystemExit
-
-meldungen = []
-schwer = []
-spanne = {}
-
-for stanza in daten:
-    zustand = stanza.get("status", {})
-    if zustand.get("code", 0) != 0:
-        schwer.append("pgBackRest meldet fuer die Stanza: %s" % zustand.get("message", "?"))
-
-    sicherungen = stanza.get("backup", [])
-    archive = stanza.get("archive", [])
-
-    # Die Spanne des Archivs je Datenbankhistorie.
-    #
-    # Geschluessselt wird mit `database.id`, weil Sicherung und Archiveintrag
-    # beide diese Kennung tragen. `archive.id` ist die Historienkennung im
-    # Format «<version>-<db-id>» (etwa «16-1») und ausdruecklich NICHT die
-    # Zeitlinie - wer sie mit den ersten acht Zeichen eines WAL-Namens
-    # vergleicht, findet nie eine Uebereinstimmung und meldet dann eine
-    # unterbrochene Kette, obwohl sie vollstaendig ist. Ein Fehlalarm an dieser
-    # Stelle ist besonders teuer: er entwertet jede weitere Meldung.
-    for eintrag in archive:
-        spanne[eintrag.get("database", {}).get("id")] = {
-            "von": eintrag.get("min"),
-            "bis": eintrag.get("max"),
-        }
-
-    for sicherung in sicherungen:
-        label = sicherung.get("label", "?")
-        archiv = sicherung.get("archive", {})
-        start, stop = archiv.get("start"), archiv.get("stop")
-        if not start or not stop:
-            schwer.append(
-                "Sicherung %s nennt keine WAL-Spanne - sie ist nicht auf einen "
-                "Zeitpunkt zurueckfuehrbar." % label
-            )
-            continue
-
-        historie = sicherung.get("database", {}).get("id")
-        vorhanden = spanne.get(historie)
-        if not vorhanden:
-            schwer.append(
-                "Fuer Sicherung %s (Datenbankhistorie %s) liegt kein WAL-Archiv "
-                "vor. Sie stellt nur ihren eigenen Endzeitpunkt her, keinen "
-                "anderen." % (label, historie)
-            )
-            continue
-
-        # Deckt das Archiv den Bereich der Sicherung ab? Verglichen wird
-        # lexikografisch - WAL-Dateinamen sind dafuer gebaut.
-        if vorhanden["von"] and start < vorhanden["von"]:
-            schwer.append(
-                "Sicherung %s beginnt bei WAL %s, das Archiv erst bei %s. Der "
-                "Anfang der Kette fehlt - diese Sicherung ist nicht "
-                "wiederherstellbar." % (label, start, vorhanden["von"])
-            )
-        elif vorhanden["bis"] and stop > vorhanden["bis"]:
-            schwer.append(
-                "Sicherung %s endet bei WAL %s, das Archiv nur bei %s. Die "
-                "Sicherung ist unvollstaendig archiviert." % (label, stop, vorhanden["bis"])
-            )
-        else:
-            meldungen.append("Sicherung %s: WAL %s..%s liegt vollstaendig vor." % (label, start, stop))
-
-# Die erreichbare Spanne: vom Ende des aeltesten Basis-Backups bis zum
-# jungsten archivierten WAL. Das ist der Bereich, in dem ein Zeitpunkt
-# tatsaechlich ansteuerbar ist - und die Zahl, die das Dashboard zeigen soll.
-print(json.dumps({
-    "in_ordnung": meldungen,
-    "schwer": schwer,
-    "archiv_spanne": spanne,
-}))
-PY
-)
+  bericht=$(printf '%s' "$pg_info" | python3 "$LIB_PYTHON/wal-kette.py" 2>/dev/null)
+  [[ -n "$bericht" ]] || bericht='{"schwer":["Die Pruefung der WAL-Kette liess sich nicht ausfuehren."]}'
 
   local schwer_anzahl
   schwer_anzahl=$(printf '%s' "$bericht" | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("schwer",[])))' 2>/dev/null || echo 1)
@@ -453,53 +384,9 @@ PY
   # die in keiner Sicherung stehen.
   restic_umgebung
   local bezug
-  bezug=$(restic_lokal snapshots --json --no-lock 2>/dev/null | python3 - "$(zustand_lesen 'wiederherstellungspunkte')" <<'PY' 2>/dev/null || printf 'unbekannt'
-import datetime, json, sys
-
-def zeit(roh):
-    if not roh:
-        return None
-    try:
-        return datetime.datetime.fromisoformat(roh.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-try:
-    snapshots = json.load(sys.stdin)
-except Exception:
-    print("unbekannt")
-    raise SystemExit
-
-try:
-    punkte = json.loads(sys.argv[1]).get("punkte", [])
-except Exception:
-    punkte = []
-
-datei_zeiten = sorted(
-    filter(None, (zeit(s.get("time")) for s in snapshots if "uploads" in (s.get("tags") or [])))
-)
-if not datei_zeiten:
-    print("keine-dateisicherung")
-    raise SystemExit
-
-# Der jungste Datenbankzeitpunkt, fuer den es KEINE gleich alte oder juengere
-# Dateisicherung gibt.
-ohne = []
-for punkt in punkte:
-    if punkt.get("art") != "datenbank":
-        continue
-    ende = zeit(punkt.get("ende"))
-    if ende is None:
-        continue
-    if not any(datei >= ende for datei in datei_zeiten):
-        ohne.append(punkt.get("kennung"))
-
-if ohne:
-    print("ohne-passende-dateien:" + ",".join(filter(None, ohne[:3])))
-else:
-    print("stimmig")
-PY
-)
+  bezug=$(restic_lokal snapshots --json --no-lock 2>/dev/null \
+    | python3 "$LIB_PYTHON/datei-bezug.py" "$(zustand_lesen 'wiederherstellungspunkte')" 2>/dev/null)
+  [[ -n "$bezug" ]] || bezug='unbekannt'
 
   case "$bezug" in
     stimmig)
@@ -517,7 +404,7 @@ PY
 
 sperre_oder_raus 'verify' 30 || exit 0
 
-info "Pruefung beginnt${TIEF:+ (tief)}."
+info "Pruefung beginnt$([[ "$TIEF" == 'ja' ]] && printf ' (tief, mit Stichprobe der Nutzdaten)')."
 START=$(date +%s)
 
 stufe1

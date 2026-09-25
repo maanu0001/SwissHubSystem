@@ -141,10 +141,29 @@ befehl_konfiguration_schreiben() {
 
   local ziel="${PGBACKREST_CONF}"
   mkdir -p "$(dirname "$ziel")"
-  # 0640 und die Gruppe des Dienstbenutzers: die Datei enthaelt das
-  # Repository-Passwort und die S3-Zugangsdaten.
+  # 0640, nie 0644: die Datei enthaelt das Repository-Passwort und die
+  # S3-Zugangsdaten.
   ( umask 027; printf '%s\n' "$inhalt" > "$ziel" )
-  info "pgbackrest.conf geschrieben: $ziel"
+
+  # Und die Gruppe so, dass der Benutzer sie lesen kann, der pgBackRest
+  # WIRKLICH ausfuehrt.
+  #
+  # Im Host-Betrieb ist das der PostgreSQL-Systembenutzer: nur er kommt an das
+  # Datenverzeichnis, und ein physisches Backup kopiert Dateien. Bleibt die
+  # Datei root:root, scheitert jeder Aufruf mit «Permission denied» - und diese
+  # Meldung liest sich wie ein Problem des Repositories, nicht wie ein
+  # Rechteproblem. Der Fehler kostet eine halbe Stunde Suche.
+  local gruppe
+  if [[ "$SWISSHUB_PG_MODE" == 'host' ]]; then
+    gruppe=$(id -gn "${SWISSHUB_PG_SYSTEM_USER:-postgres}" 2>/dev/null)
+  else
+    gruppe="${SWISSHUB_SERVICE_GROUP:-swisshub-backup}"
+  fi
+  if [[ -n "$gruppe" ]] && chgrp "$gruppe" "$ziel" 2>/dev/null; then
+    info "pgbackrest.conf geschrieben: $ziel (Gruppe $gruppe, 0640)"
+  else
+    warnung "pgbackrest.conf geschrieben: $ziel - die Gruppe «${gruppe:-?}» liess sich nicht setzen. pgBackRest kann die Datei dann moeglicherweise nicht lesen; der Fehler lautet «unable to open file ... Permission denied»."
+  fi
 
   if [[ "$SWISSHUB_PG_MODE" == 'docker' ]]; then
     cat <<'HINWEIS'
@@ -172,10 +191,71 @@ HINWEIS
 # einrichten
 # --------------------------------------------------------------------------
 
+# Das Verzeichnisgeruest, und zwar mit Rechten, die beide Seiten benutzen
+# koennen.
+#
+# Hier arbeiten zwei Benutzer im selben Baum:
+#   - pgBackRest laeuft als der PostgreSQL-Systembenutzer, weil nur er an das
+#     Datenverzeichnis kommt.
+#   - Restic und die Orchestrierung laufen als Dienstbenutzer.
+#
+# Gehoert der Baum einem von beiden allein, scheitert der andere - und die
+# Meldung lautet «Permission denied» beim Schreiben einer Protokolldatei, was
+# nach einem Nebenschauplatz aussieht und den ganzen Lauf abbricht.
+#
+# Die Loesung ist eine gemeinsame Gruppe und das setgid-Bit: 2770 sorgt dafuer,
+# dass jede neu angelegte Datei die Gruppe des Verzeichnisses erbt, statt die
+# des Erzeugers. Ohne setgid liefe es beim ersten Lauf und beim zweiten nicht
+# mehr.
+geruest_anlegen() {
+  local gruppe="$1"
+  local verzeichnis
+  for verzeichnis in \
+      "$SWISSHUB_BACKUP_ROOT" \
+      "$SWISSHUB_PGBACKREST_REPO" \
+      "$SWISSHUB_BACKUP_ROOT/spool-wal" \
+      "$SWISSHUB_BACKUP_ROOT/log" \
+      "$SWISSHUB_BACKUP_ROOT/log/pgbackrest" \
+      "$SWISSHUB_BACKUP_ROOT/state" \
+      "$SWISSHUB_BACKUP_ROOT/spool" \
+      "$SWISSHUB_BACKUP_ROOT/spool/eingang" \
+      "$SWISSHUB_BACKUP_ROOT/spool/ergebnis" \
+      "$SWISSHUB_BACKUP_ROOT/cache" \
+      "$SWISSHUB_BACKUP_ROOT/lock" \
+      "$SWISSHUB_BACKUP_ROOT/logisch" \
+      "$SWISSHUB_BACKUP_ROOT/recovery"; do
+    mkdir -p "$verzeichnis"
+    if [[ -n "$gruppe" ]]; then
+      chgrp "$gruppe" "$verzeichnis" 2>/dev/null || true
+    fi
+    # 2770: Eigentuemer und Gruppe duerfen alles, alle anderen nichts, und die
+    # Gruppe wird vererbt. Hier liegen vollstaendige Kopien aller Personendaten.
+    chmod 2770 "$verzeichnis" 2>/dev/null || chmod 770 "$verzeichnis" 2>/dev/null || true
+  done
+}
+
 befehl_einrichten() {
   werkzeug_pruefen pgbackrest || return 1
-  mkdir -p "$SWISSHUB_PGBACKREST_REPO" "$SWISSHUB_BACKUP_ROOT"/{spool-wal,log/pgbackrest,state,spool/eingang,spool/ergebnis,cache,lock,logisch}
-  chmod 750 "$SWISSHUB_BACKUP_ROOT"
+
+  # Welche Gruppe beide Seiten teilen.
+  local gruppe="${SWISSHUB_SERVICE_GROUP:-}"
+  if [[ -z "$gruppe" ]] || ! getent group "$gruppe" >/dev/null 2>&1; then
+    # Ohne eigene Dienstgruppe die des PostgreSQL-Benutzers - im Host-Betrieb
+    # ist er derjenige, der pgBackRest ausfuehrt.
+    gruppe=$(id -gn "${SWISSHUB_PG_SYSTEM_USER:-postgres}" 2>/dev/null)
+  fi
+  geruest_anlegen "$gruppe"
+  info "Verzeichnisgeruest angelegt unter $SWISSHUB_BACKUP_ROOT (Gruppe ${gruppe:-unveraendert}, 2770)."
+
+  # Das Repository und der Spool-Bereich gehoeren dem Benutzer, der pgBackRest
+  # ausfuehrt. Die Gruppe allein genuegt nicht: pgBackRest legt dort
+  # Unterverzeichnisse an und will sie besitzen.
+  if [[ "$SWISSHUB_PG_MODE" == 'host' && "$(id -u)" -eq 0 ]]; then
+    local pg_benutzer="${SWISSHUB_PG_SYSTEM_USER:-postgres}"
+    chown -R "$pg_benutzer" "$SWISSHUB_PGBACKREST_REPO" "$SWISSHUB_BACKUP_ROOT/spool-wal" \
+      "$SWISSHUB_BACKUP_ROOT/log/pgbackrest" 2>/dev/null || true
+    info "Repository, Spool und Protokoll gehoeren $pg_benutzer."
+  fi
 
   laufe 'Stanza anlegen' pgbackrest_lauf --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" stanza-create \
     || warnung 'stanza-create meldete einen Fehler - falls die Stanza schon existiert, ist das erwartet.'
@@ -201,14 +281,14 @@ befehl_einrichten() {
       archive_command = 'pgbackrest --stanza=$PGBACKREST_STANZA --config=$PGBACKREST_CONF archive-push %p'
       archive_timeout = 300
 
-  `archive_timeout = 300` ist die zweite Zeile, an der der RPO haengt: ohne sie
+  \`archive_timeout = 300\` ist die zweite Zeile, an der der RPO haengt: ohne sie
   wird ein WAL-Segment erst archiviert, wenn es voll ist (16 MB). Auf einem
   ruhigen Server kann das Stunden dauern - und so alt waere dann der jungste
   erreichbare Zeitpunkt. 300 Sekunden erzwingen den Wechsel spaetestens alle
   fuenf Minuten und sind damit die Obergrenze des erreichbaren RPO.
 
-  `wal_level` und `archive_mode` brauchen einen Neustart, `archive_command` und
-  `archive_timeout` nur ein Neuladen (SELECT pg_reload_conf()).
+  \`wal_level\` und \`archive_mode\` brauchen einen Neustart, \`archive_command\`
+  und \`archive_timeout\` nur ein Neuladen (SELECT pg_reload_conf()).
 
 HINWEIS
   lauf_abschliessen 'einrichten' 'fehler' 'pgbackrest check gescheitert'
@@ -513,7 +593,9 @@ for zeile in sys.stdin:
     if eintrag.get("message_type") == "summary":
         zusammen = eintrag
 print(json.dumps({
-    "snapshot": zusammen.get("snapshot_id", ""),
+    # Auf acht Zeichen gekuerzt - genauso adressiert restic selbst, und eine
+    # 64-stellige Kennung in der Uebersicht ist unlesbar.
+    "snapshot": (zusammen.get("snapshot_id") or "")[:8],
     "neu": zusammen.get("files_new", 0),
     "geaendert": zusammen.get("files_changed", 0),
     "unveraendert": zusammen.get("files_unmodified", 0),
@@ -542,43 +624,44 @@ print(json.dumps({
 # Der Releasestand als JSON. Auch einzeln aufrufbar - die Pipeline benutzt das.
 befehl_release() {
   local commit branch schmutzig migration
+
+  # `-c safe.directory=*`: das Projektverzeichnis gehoert dem Dienstbenutzer
+  # der Anwendung, dieses Skript laeuft aber als Backup-Benutzer. Ohne diese
+  # Angabe verweigert git seit 2.35.2 jede Auskunft mit «dubious ownership» -
+  # und der Releasestand waere dauerhaft «unbekannt», ohne dass jemand einen
+  # Fehler saehe.
   if [[ -d "$SWISSHUB_PROJECT_DIR/.git" ]]; then
-    commit=$(git -C "$SWISSHUB_PROJECT_DIR" rev-parse HEAD 2>/dev/null)
-    branch=$(git -C "$SWISSHUB_PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
-    schmutzig=$(git -C "$SWISSHUB_PROJECT_DIR" status --porcelain 2>/dev/null | wc -l)
+    commit=$(git -c safe.directory='*' -C "$SWISSHUB_PROJECT_DIR" rev-parse HEAD 2>/dev/null)
+    branch=$(git -c safe.directory='*' -C "$SWISSHUB_PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    schmutzig=$(git -c safe.directory='*' -C "$SWISSHUB_PROJECT_DIR" status --porcelain 2>/dev/null | wc -l)
   fi
-  migration=$(pg_abfrage "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1" | tr -d ' ')
+  migration=$(trimmen "$(pg_abfrage "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY finished_at DESC, migration_name DESC LIMIT 1")")
 
   # Die Digests der laufenden Abbilder.
   #
   # Ein `image: swisshub-web:latest` sagt nach einem halben Jahr nichts mehr -
   # `latest` ist dann ein anderes Abbild. Der Digest ist die Kennung, die
   # tatsaechlich lief.
+  #
+  # Erst pruefen, ob Docker ueberhaupt antwortet, und dann erst die Pipeline:
+  # mit `pipefail` faerbt ein gescheitertes `docker ps` die ganze Pipeline
+  # rot, der Rueckfall `|| printf {}` feuert zusaetzlich zur Ausgabe von
+  # Python, und im JSON standen zwei Objekte hintereinander - womit die ganze
+  # Datei unlesbar war.
   local abbilder='{}'
-  if command -v docker >/dev/null 2>&1; then
-    abbilder=$(docker ps --format '{{.Names}}|{{.Image}}|{{.ID}}' 2>/dev/null | python3 -c '
-import json, subprocess, sys
-ergebnis = {}
-for zeile in sys.stdin:
-    teile = zeile.strip().split("|")
-    if len(teile) != 3:
-        continue
-    name, abbild, kennung = teile
-    try:
-        digest = subprocess.run(
-            ["docker", "inspect", "--format", "{{.Image}}", kennung],
-            capture_output=True, text=True, timeout=10,
-        ).stdout.strip()
-    except Exception:
-        digest = ""
-    ergebnis[name] = {"abbild": abbild, "digest": digest}
-print(json.dumps(ergebnis))' 2>/dev/null || printf '{}')
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    local ps_ausgabe
+    ps_ausgabe=$(docker ps --format '{{.Names}}|{{.Image}}|{{.ID}}' 2>/dev/null)
+    if [[ -n "$ps_ausgabe" ]]; then
+      abbilder=$(printf '%s\n' "$ps_ausgabe" | python3 "${SWISSHUB_LIB_DIR:-$HIER/../lib}/abbilder.py" 2>/dev/null)
+      [[ -n "$abbilder" ]] || abbilder='{}'
+    fi
   fi
 
   printf '{"erhoben":%s,"commit":%s,"branch":%s,"nicht_committet":%s,"migration":%s,"abbilder":%s,"postgres":%s}\n' \
     "$(json_text "$(date --iso-8601=seconds)")" "$(json_text "${commit:-unbekannt}")" \
     "$(json_text "${branch:-unbekannt}")" "${schmutzig:-0}" "$(json_text "${migration:-unbekannt}")" \
-    "$abbilder" "$(json_text "$(pg_abfrage 'SHOW server_version' | tr -d ' ')")"
+    "$abbilder" "$(json_text "$(trimmen "$(pg_abfrage 'SHOW server_version')")")"
 }
 
 # Was ein neuer Server braucht und was in keinem Repository steht.
@@ -592,8 +675,16 @@ befehl_konfiguration() {
   werkzeug_pruefen restic || return 1
   restic_repo_bereit || { lauf_abschliessen 'konfiguration' 'fehler' 'Repository nicht bereit'; return 1; }
 
-  local sammel
-  sammel=$(mktemp -d "$SWISSHUB_BACKUP_ROOT/.konfig.XXXXXX") || return 1
+  # Ein FESTER Pfad, kein mktemp.
+  #
+  # Restic erkennt Wiederholungen am Pfad. Ein bei jedem Lauf anderer
+  # Verzeichnisname macht aus derselben Konfiguration jedes Mal einen neuen
+  # Baum: die Deduplizierung greift nicht mehr, und in `restic snapshots`
+  # steht bei jedem Lauf ein anderer Pfad - womit sich zwei Staende nicht
+  # mehr vergleichen lassen.
+  local sammel="$SWISSHUB_BACKUP_ROOT/konfigurationsstand"
+  rm -rf -- "${sammel:?}"
+  mkdir -p "$sammel"
   chmod 700 "$sammel"
 
   befehl_release > "$sammel/release.json"
@@ -651,6 +742,7 @@ befehl_konfiguration() {
     printf 'node=%s\n' "$(node --version 2>/dev/null || echo '-')"
   } > "$sammel/systemstand.txt"
 
+  info "Sichere Konfiguration und Systemstand ($(du -sh "$sammel" 2>/dev/null | cut -f1))."
   local status=0
   restic_lokal backup --tag konfiguration --host "$(hostname -s)" "$sammel" >/dev/null 2>&1 || status=1
   # Das Sammelverzeichnis enthaelt Konfiguration - es wird in jedem Fall
@@ -844,97 +936,17 @@ wiederherstellungspunkte_erheben() {
   restic_json=$(restic_lokal snapshots --json 2>/dev/null || printf '[]')
 
   local ergebnis
-  ergebnis=$(SWISSHUB_PG_JSON="$pg_json" SWISSHUB_RESTIC_JSON="$restic_json" python3 - <<'PY' 2>/dev/null || printf '{}'
-import json, os, datetime
-
-def lade(name):
-    try:
-        return json.loads(os.environ.get(name) or "[]")
-    except ValueError:
-        return []
-
-pg = lade("SWISSHUB_PG_JSON")
-sn = lade("SWISSHUB_RESTIC_JSON")
-
-punkte = []
-aeltester = jungster = None
-wal_von = wal_bis = None
-postgres_version = None
-
-for stanza in pg if isinstance(pg, list) else []:
-    datenbanken = stanza.get("db") or []
-    if datenbanken:
-        postgres_version = datenbanken[0].get("version")
-
-    for sicherung in stanza.get("backup", []):
-        zeit = sicherung.get("timestamp", {})
-        beginn, ende = zeit.get("start"), zeit.get("stop")
-        punkte.append({
-            "art": "datenbank",
-            "typ": sicherung.get("type"),
-            "kennung": sicherung.get("label"),
-            "beginn": datetime.datetime.fromtimestamp(beginn, datetime.timezone.utc).isoformat() if beginn else None,
-            "ende": datetime.datetime.fromtimestamp(ende, datetime.timezone.utc).isoformat() if ende else None,
-            "bytes": sicherung.get("info", {}).get("repository", {}).get("delta"),
-            "bytes_gesamt": sicherung.get("info", {}).get("size"),
-            "wal_von": sicherung.get("archive", {}).get("start"),
-            "wal_bis": sicherung.get("archive", {}).get("stop"),
-            # Welche Repositories diese Sicherung tatsaechlich halten. Eine
-            # Sicherung, die nur in repo1 liegt, ueberlebt den Serververlust
-            # nicht - und genau das muss die Uebersicht zeigen.
-            "repo": sicherung.get("database", {}).get("repo-key", 1),
-            "postgres": postgres_version,
-            "verschluesselt": True,
-        })
-        if beginn and (aeltester is None or beginn < aeltester):
-            aeltester = beginn
-        if ende and (jungster is None or ende > jungster):
-            jungster = ende
-
-    # Die WAL-Spanne. Sie ist die eigentliche Antwort auf «welchen Zeitpunkt
-    # kann ich ansteuern» - ein Basis-Backup allein kann nur seinen eigenen
-    # Endzeitpunkt.
-    for archiv in stanza.get("archive", []):
-        if archiv.get("min"):
-            wal_von = archiv["min"] if wal_von is None else min(wal_von, archiv["min"])
-        if archiv.get("max"):
-            wal_bis = archiv["max"] if wal_bis is None else max(wal_bis, archiv["max"])
-
-for snapshot in sn if isinstance(sn, list) else []:
-    marken = snapshot.get("tags") or []
-    db_zeit = next((m[3:] for m in marken if m.startswith("db:")), None)
-    punkte.append({
-        "art": "dateien" if "uploads" in marken else "konfiguration",
-        "typ": "snapshot",
-        "kennung": snapshot.get("short_id") or snapshot.get("id", "")[:8],
-        "beginn": snapshot.get("time"),
-        "ende": snapshot.get("time"),
-        "bytes": None,
-        "db_zeitpunkt": db_zeit,
-        "pfade": snapshot.get("paths", []),
-        "repo": 1,
-        "verschluesselt": True,
-    })
-
-punkte.sort(key=lambda eintrag: eintrag.get("beginn") or "", reverse=True)
-
-def iso(wert):
-    return datetime.datetime.fromtimestamp(wert, datetime.timezone.utc).isoformat() if wert else None
-
-print(json.dumps({
-    "erhoben": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    "aeltester": iso(aeltester),
-    "jungster": iso(jungster),
-    "wal_von": wal_von,
-    "wal_bis": wal_bis,
-    "postgres": postgres_version,
-    "anzahl": len(punkte),
-    # Nur die letzten 200 - die Uebersicht blaettert nicht weiter zurueck, und
-    # eine unbegrenzt wachsende Zustandsdatei ist ein spaeterer Fehler.
-    "punkte": punkte[:200],
-}))
-PY
-)
+  # Zusammengestellt wird in lib/punkte.py.
+  #
+  # Als eigene Datei und nicht als eingebettetes Here-Dokument: eine
+  # schliessende Klammer am Zeilenanfang im Python-Code kann den
+  # bash-Parser einer Befehlssubstitution aus dem Tritt bringen, und dann
+  # faellt die Erhebung still aus - die Uebersicht zeigte eine leere Liste
+  # und meldete trotzdem Erfolg. Als Datei ist sie ausserdem pruefbar.
+  local ergebnis
+  ergebnis=$(SWISSHUB_PG_JSON="$pg_json" SWISSHUB_RESTIC_JSON="$restic_json" \
+    python3 "${SWISSHUB_LIB_DIR:-$HIER/../lib}/punkte.py" 2>/dev/null)
+  [[ -n "$ergebnis" ]] || ergebnis='{"anzahl":0,"punkte":[],"fehler":"Die Erhebung der Wiederherstellungspunkte liess sich nicht ausfuehren."}'
   zustand_schreiben 'wiederherstellungspunkte' "$ergebnis"
 }
 
@@ -987,32 +999,7 @@ befehl_woechentlich() {
 
 befehl_status() {
   wiederherstellungspunkte_erheben
-  python3 - "$ZUSTAND_DIR" <<'PY'
-import glob, json, os, sys
-
-verzeichnis = sys.argv[1]
-ergebnis = {}
-for pfad in sorted(glob.glob(os.path.join(verzeichnis, "*.json"))):
-    name = os.path.basename(pfad)[:-5]
-    try:
-        with open(pfad, encoding="utf-8") as datei:
-            ergebnis[name] = json.load(datei)
-    except Exception as fehler:
-        ergebnis[name] = {"fehler": str(fehler)}
-
-verlauf = os.path.join(verzeichnis, "laeufe.jsonl")
-ergebnis["laeufe"] = []
-if os.path.exists(verlauf):
-    with open(verlauf, encoding="utf-8") as datei:
-        zeilen = datei.readlines()[-200:]
-    for zeile in reversed(zeilen):
-        try:
-            ergebnis["laeufe"].append(json.loads(zeile))
-        except ValueError:
-            continue
-
-print(json.dumps(ergebnis, indent=2, ensure_ascii=False))
-PY
+  python3 "${SWISSHUB_LIB_DIR:-$HIER/../lib}/status.py" "$ZUSTAND_DIR"
 }
 
 # --------------------------------------------------------------------------

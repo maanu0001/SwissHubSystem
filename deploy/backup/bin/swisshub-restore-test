@@ -279,7 +279,7 @@ stufe5_warte_auf_ende_der_wiederherstellung() {
 stufe6_anwendung() {
   # --- PostgreSQL antwortet ----------------------------------------------
   local version
-  version=$(test_abfrage 'SHOW server_version' postgres | tr -d ' ')
+  version=$(trimmen "$(test_abfrage 'SHOW server_version' postgres)")
   if [[ -z "$version" ]]; then
     pruefung 'stufe6-postgres' 'fehler' 'Die wiederhergestellte Datenbank antwortet nicht.'
     return 1
@@ -439,7 +439,13 @@ stufe6_geheimnisse() {
     python3 "${SWISSHUB_LIB_DIR:-$HIER/../lib}/geheimnis-pruefung.py" <<<"$zeilen" 2>/dev/null \
     || printf 'FEHLER aufruf-gescheitert')
 
-  read -r marke gelesen gescheitert fremd <<< "$ergebnis"
+  # Fuenf Felder, nicht vier.
+  #
+  # `geheimnis-pruefung.py` gibt «OK <gelesen> <gescheitert> <fremd> <kennung>»
+  # aus. Mit vier Variablen bekaeme `fremd` den Rest - also «0 c8c93ce7» - und
+  # ein arithmetischer Vergleich damit bricht unter `set -u` mit «unbound
+  # variable» ab. Der Fehler trat genau dann auf, wenn alles in Ordnung war.
+  read -r marke gelesen gescheitert fremd kennung_geprueft <<< "$ergebnis"
 
   if [[ "$marke" != 'OK' ]]; then
     # `cryptography` ist nicht ueberall installiert. Das ist eine fehlende
@@ -543,7 +549,10 @@ stufe6_konfiguration() {
 # schreibt und damit die dichteste Zeitreihe im System ist.
 rpo_messen() {
   local jungster
-  jungster=$(test_abfrage 'SELECT max("createdAt") FROM "AuditLog"' | tr -d ' ')
+  # Nur aussen kuerzen: ein Zeitstempel enthaelt ein Leerzeichen zwischen Datum
+  # und Uhrzeit. `tr -d " "` machte daraus etwas, das `date -d` nicht liest -
+  # und die Messung ergab dann «null», also gar keine Messung.
+  jungster=$(trimmen "$(test_abfrage 'SELECT max("createdAt") FROM "AuditLog"')")
   if [[ -z "$jungster" ]]; then
     printf '%s' 'null'
     return
@@ -612,6 +621,11 @@ if [[ "$PRUEF_FEHLER" -gt 0 ]]; then
 fi
 
 alarm_entwarnung 'restore-test' 'Restore-Test wieder erfolgreich'
-printf '\nRestore-Test BESTANDEN: %d Pruefungen, Wiederherstellung der Datenbank in %ds, gemessener Datenverlust %ss.\n' \
-  "${#PRUEFUNGEN[@]}" "$RESTORE_DAUER" "${RPO_SEKUNDEN:-?}"
+if [[ "${RPO_SEKUNDEN:-null}" == 'null' ]]; then
+  rpo_text='nicht messbar (im Audit Log stand kein Zeitstempel zum Vergleich)'
+else
+  rpo_text="${RPO_SEKUNDEN}s"
+fi
+printf '\nRestore-Test BESTANDEN: %d Pruefungen, Wiederherstellung der Datenbank in %ds, gemessener Datenverlust: %s.\n' \
+  "${#PRUEFUNGEN[@]}" "$RESTORE_DAUER" "$rpo_text"
 exit 0
