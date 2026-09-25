@@ -675,6 +675,14 @@ describe('Die Pipeline prueft, bevor zusammengefuehrt wird', () => {
     expect(workflow).toContain('npm run build');
   });
 
+  it('legt den Migrationsbericht nicht in den ausgecheckten Baum', () => {
+    // `prettier --check "**/*.json"` findet jede JSON-Datei im
+    // Arbeitsverzeichnis - auch eine, die ein vorheriger Schritt erst erzeugt
+    // hat. Lokal faellt das nie auf, weil die Datei nur in CI entsteht.
+    expect(workflow).toContain('${RUNNER_TEMP:-/tmp}/migrationen.json');
+    expect(workflow).not.toMatch(/>\s*migrationen\.json/u);
+  });
+
   it('prueft gegen ein echtes PostgreSQL', () => {
     expect(workflow).toContain('postgres:16-alpine');
     expect(workflow).toContain('SWISSHUB_TEST_DATABASE_URL');

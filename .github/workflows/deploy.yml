@@ -151,14 +151,23 @@ jobs:
             vorher=''
           fi
 
+          # Der Bericht landet im Temp-Verzeichnis des Laufs, NICHT im
+          # Arbeitsverzeichnis.
+          #
+          # Lag er daneben, fand ihn `prettier --check "**/*.json"` im naechsten
+          # Schritt und beanstandete seine Formatierung. Lokal faellt das nie
+          # auf: die Datei entsteht nur hier. Ein erzeugtes Zwischenergebnis
+          # gehoert ohnehin nicht in den ausgecheckten Baum.
+          export BERICHT="${RUNNER_TEMP:-/tmp}/migrationen.json"
+
           if [ -n "$vorher" ]; then
-            npx tsx scripts/migrationen-pruefen.ts "$vorher" > migrationen.json
+            npx tsx scripts/migrationen-pruefen.ts "$vorher" > "$BERICHT"
           else
-            npx tsx scripts/migrationen-pruefen.ts > migrationen.json
+            npx tsx scripts/migrationen-pruefen.ts > "$BERICHT"
           fi
           status=$?
 
-          cat migrationen.json
+          cat "$BERICHT"
 
           if [ "$status" -eq 2 ]; then
             echo "::error::Die Bewertung der Migrationen war nicht moeglich."
@@ -175,7 +184,7 @@ jobs:
           # Die Zusammenfassung als Ausgabe, damit sie im Deploy-Log steht.
           {
             echo 'bericht<<ENDE_DES_BERICHTS'
-            python3 -c "import json;print(json.load(open('migrationen.json'))['zusammenfassung'])"
+            python3 -c "import json,os;print(json.load(open(os.environ['BERICHT']))['zusammenfassung'])"
             echo 'ENDE_DES_BERICHTS'
           } >> "$GITHUB_OUTPUT"
 
@@ -183,11 +192,11 @@ jobs:
           {
             echo '## Migrationen'
             echo
-            python3 -c "import json;print(json.load(open('migrationen.json'))['zusammenfassung'])"
+            python3 -c "import json,os;print(json.load(open(os.environ['BERICHT']))['zusammenfassung'])"
             echo
             python3 - <<'PYTHON'
-          import json
-          daten = json.load(open('migrationen.json'))
+          import json, os
+          daten = json.load(open(os.environ['BERICHT']))
           if daten['befunde']:
               print('### Nicht vorwärtskompatibel')
               print()
