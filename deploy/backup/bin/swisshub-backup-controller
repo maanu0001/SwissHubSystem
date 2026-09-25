@@ -1,0 +1,483 @@
+#!/usr/bin/env python3
+"""SwissHub - Restricted Backup Controller.
+
+Der einzige Weg, auf dem die WebApp eine Backup-Operation ausloesen kann.
+
+    swisshub-backup-controller            Eingang abarbeiten
+    swisshub-backup-controller --einmal   Genau eine Anforderung, dann Ende
+
+==========================================================================
+WARUM ES DIESE SCHICHT GIBT
+==========================================================================
+
+Die WebApp ist aus dem Internet erreichbar. Sie ist damit die Komponente mit
+der groessten Angriffsflaeche im ganzen System - und ausgerechnet sie soll
+Sicherungen starten und Wiederherstellungspunkte anzeigen koennen.
+
+Der naheliegende Weg waere, ihr das Ausfuehren von Befehlen zu erlauben.
+Genau das ist der Weg, auf dem eine kompromittierte WebApp zum Rootzugriff
+auf den Host wird. Eine WebApp, die `bash -c` kann, kann alles.
+
+Also umgekehrt: die WebApp fuehrt nichts aus. Sie LEGT EINE ANFORDERUNG AB -
+eine JSON-Datei in einem Verzeichnis, in das sie schreiben darf und sonst
+nirgends. Dieser Controller liest sie, prueft sie gegen eine feste Liste
+erlaubter Operationen und fuehrt nur aus, was darin steht.
+
+    WEBAPP  (Benutzer swisshub, im Container, aus dem Netz erreichbar)
+        │
+        │  schreibt spool/eingang/<kennung>.json
+        ▼
+    CONTROLLER  (Benutzer swisshub-backup, systemd, kein Netzwerk noetig)
+        │
+        │  prueft gegen die Liste unten - alles andere wird abgelehnt
+        ▼
+    pgBackRest / Restic / age
+
+Was dadurch UNMOEGLICH ist, und zwar durch die Bauart und nicht durch
+Sorgfalt:
+
+  - Ein beliebiger Shell-Befehl. Es gibt kein Feld dafuer. Operationen sind
+    Namen aus einer Liste, und der Name wird nie zu einem Befehl
+    zusammengesetzt - er waehlt eine feste Argumentliste aus.
+  - Ein beliebiger Dateipfad. Kein Feld der Anforderung wird zu einem Pfad.
+    Pfade stehen ausschliesslich in der Konfiguration.
+  - Ein produktiver Restore. Er steht NICHT in der Liste, und deshalb kann
+    die WebApp ihn nicht ausloesen - auch nicht, wenn jemand sie vollstaendig
+    uebernimmt. Ein produktiver Restore laeuft ueber `swisshub-recovery` auf
+    der Kommandozeile, von einem Menschen, mit einer Freigabe.
+  - Schreiben in das Repository. Der Controller loescht nie; die
+    Aufbewahrung laeuft im Zeitplan und nicht auf Anforderung.
+
+Diese Datei ist Python und nicht bash, und das ist Absicht: strenge Pruefung
+von JSON in bash ist die Art Code, in der Einschleusungsfehler wohnen.
+==========================================================================
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+KONFIGURATION = Path(
+    os.environ.get("SWISSHUB_CONFIG_FILE", "/etc/swisshub-backup/swisshub-backup.env")
+)
+BIN = Path(os.environ.get("SWISSHUB_BIN_DIR") or Path(__file__).resolve().parent)
+
+# ==========================================================================
+# Die Liste der erlaubten Operationen.
+#
+# Sie ist die ganze Sicherheitsgrenze. Was hier nicht steht, ist nicht
+# moeglich - und zwar nicht, weil es geprueft und abgelehnt wird, sondern weil
+# es keinen Weg dorthin gibt.
+#
+# `argumente` ist eine FESTE Liste. Kein Wert aus der Anforderung wird je
+# hineingeschrieben; die einzige Ausnahme sind ausdruecklich erlaubte,
+# einzeln geprueften Zusaetze (siehe `zusatz`).
+# ==========================================================================
+OPERATIONEN = {
+    # --- Lesen ------------------------------------------------------------
+    "status": {
+        "argumente": ["swisshub-backup", "status"],
+        "beschreibung": "Zustand als JSON neu erheben.",
+        "zeitgrenze": 120,
+        "zusatz": None,
+    },
+    "punkte": {
+        "argumente": ["swisshub-backup", "punkte"],
+        "beschreibung": "Wiederherstellungspunkte neu erheben.",
+        "zeitgrenze": 180,
+        "zusatz": None,
+    },
+    # --- Sichern ----------------------------------------------------------
+    "backup-datenbank": {
+        "argumente": ["swisshub-backup", "db-diff"],
+        "beschreibung": "Differentielles Basis-Backup der Datenbank.",
+        "zeitgrenze": 7200,
+        "zusatz": None,
+    },
+    "backup-datenbank-voll": {
+        "argumente": ["swisshub-backup", "db-voll"],
+        "beschreibung": "Vollstaendiges Basis-Backup der Datenbank.",
+        "zeitgrenze": 14400,
+        "zusatz": None,
+    },
+    "backup-dateien": {
+        "argumente": ["swisshub-backup", "dateien"],
+        "beschreibung": "Uploads sichern.",
+        "zeitgrenze": 3600,
+        "zusatz": None,
+    },
+    "backup-konfiguration": {
+        "argumente": ["swisshub-backup", "konfiguration"],
+        "beschreibung": "Konfiguration und Releasestand sichern.",
+        "zeitgrenze": 600,
+        "zusatz": None,
+    },
+    "backup-geheimnisse": {
+        "argumente": ["swisshub-backup", "geheimnisse"],
+        "beschreibung": "Wiederherstellungspaket neu erzeugen.",
+        "zeitgrenze": 600,
+        "zusatz": None,
+    },
+    "backup-extern": {
+        "argumente": ["swisshub-backup", "extern"],
+        "beschreibung": "Externe Kopie auffrischen.",
+        "zeitgrenze": 14400,
+        "zusatz": None,
+    },
+    # --- Pruefen ----------------------------------------------------------
+    "pruefen": {
+        "argumente": ["swisshub-backup-verify"],
+        "beschreibung": "Pruefstufen 1 bis 4.",
+        "zeitgrenze": 3600,
+        "zusatz": None,
+    },
+    "pruefen-tief": {
+        "argumente": ["swisshub-backup-verify", "--tief"],
+        "beschreibung": "Pruefstufen 1 bis 4 mit Stichprobe der Nutzdaten.",
+        "zeitgrenze": 14400,
+        "zusatz": None,
+    },
+    "restore-test": {
+        "argumente": ["swisshub-restore-test"],
+        "beschreibung": "Restore in einer isolierten Testumgebung, Stufen 5 und 6.",
+        "zeitgrenze": 7200,
+        # Der EINZIGE Wert, der aus der Anforderung in einen Aufruf gelangt -
+        # und er wird gegen ein festes Muster geprueft, bevor er das darf.
+        # Ein Zeitpunkt kann keinen Befehl enthalten, wenn er nur aus Ziffern,
+        # Bindestrichen, Doppelpunkten, Punkt, Leerzeichen und einem
+        # Zeitzonenzeichen bestehen darf.
+        "zusatz": {
+            "feld": "zeitpunkt",
+            "schalter": "--zeit",
+            "muster": r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?([+-]\d{2}(:?\d{2})?|Z)?$",
+        },
+    },
+    # --- Der Probelauf eines Restores -------------------------------------
+    #
+    # Er veraendert nichts: `pgbackrest --dry-run` liest das Manifest und sagt,
+    # was es taete. Damit darf ihn die WebApp ausloesen - im Gegensatz zum
+    # Restore selbst, der hier ausdruecklich NICHT steht.
+    "restore-probelauf": {
+        "argumente": ["swisshub-recovery", "probelauf", "--repo", "1"],
+        "beschreibung": "Probelauf eines Restores. Veraendert nichts.",
+        "zeitgrenze": 1800,
+        "zusatz": {
+            "feld": "zeitpunkt",
+            "schalter": "--zeit",
+            "muster": r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?([+-]\d{2}(:?\d{2})?|Z)?$",
+        },
+    },
+}
+
+# Operationen, die einander ausschliessen, laufen ohnehin gegen dieselbe
+# Sperre in den Werkzeugen. Hier wird nur verhindert, dass der Eingang
+# vollaeuft: mehr als das wird pro Durchgang nicht abgearbeitet.
+MAX_JE_DURCHGANG = 3
+
+# Wie lange ein Ergebnis aufbewahrt wird, bevor es weggeraeumt wird.
+ERGEBNIS_TAGE = 14
+
+KENNUNG_MUSTER = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{7,63}$")
+
+
+def konfiguration_lesen() -> dict:
+    """Die Konfigurationsdatei lesen, ohne sie auszufuehren.
+
+    Ausdruecklich kein `source`: die Datei koennte Befehlssubstitution
+    enthalten, und die soll hier nicht laufen. Gelesen werden nur
+    Zuweisungen der Form NAME=wert.
+    """
+    werte = {}
+    try:
+        for zeile in KONFIGURATION.read_text(encoding="utf-8").splitlines():
+            zeile = zeile.strip()
+            if not zeile or zeile.startswith("#") or "=" not in zeile:
+                continue
+            name, _, wert = zeile.partition("=")
+            name = name.strip()
+            if not re.match(r"^[A-Z_][A-Z0-9_]*$", name):
+                continue
+            werte[name] = wert.strip().strip('"').strip("'")
+    except OSError as fehler:
+        print("FEHLER: %s ist nicht lesbar: %s" % (KONFIGURATION, fehler), file=sys.stderr)
+        sys.exit(1)
+    return werte
+
+
+KONFIG = konfiguration_lesen()
+WURZEL = Path(KONFIG.get("SWISSHUB_BACKUP_ROOT", "/var/lib/swisshub-backup"))
+EINGANG = WURZEL / "spool" / "eingang"
+ERGEBNIS = WURZEL / "spool" / "ergebnis"
+PROTOKOLL = WURZEL / "log"
+
+
+def jetzt() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat()
+
+
+def notiz(text: str) -> None:
+    zeile = "%s [controller] %s" % (jetzt(), text)
+    print(zeile, file=sys.stderr)
+    try:
+        PROTOKOLL.mkdir(parents=True, exist_ok=True)
+        datei = PROTOKOLL / ("controller-%s.log" % datetime.now().strftime("%Y%m%d"))
+        with datei.open("a", encoding="utf-8") as ausgabe:
+            ausgabe.write(zeile + "\n")
+    except OSError:
+        pass
+
+
+def ergebnis_schreiben(kennung: str, inhalt: dict) -> None:
+    ERGEBNIS.mkdir(parents=True, exist_ok=True)
+    ziel = ERGEBNIS / ("%s.json" % kennung)
+    # Erst daneben, dann umbenennen: ein Leser sieht nie ein halbes Ergebnis.
+    zwischen = ERGEBNIS / (".%s.%d" % (kennung, os.getpid()))
+    zwischen.write_text(json.dumps(inhalt, ensure_ascii=False, indent=2), encoding="utf-8")
+    zwischen.chmod(0o640)
+    zwischen.replace(ziel)
+
+
+def anforderung_pruefen(pfad: Path):
+    """Eine Anforderung lesen und streng pruefen.
+
+    Gibt (kennung, operation, zusatzargumente, anforderung) zurueck oder wirft
+    ValueError mit einem Grund, der in das Ergebnis geschrieben wird.
+
+    Jede Pruefung hier ist eine, deren Fehlen ein Angriffsweg waere.
+    """
+    if pfad.suffix != ".json":
+        raise ValueError("Nur .json-Dateien werden gelesen.")
+
+    # Groesse zuerst: eine 200-MB-Datei soll den Controller nicht beschaeftigen.
+    groesse = pfad.stat().st_size
+    if groesse > 16 * 1024:
+        raise ValueError("Die Anforderung ist %d Bytes gross - erlaubt sind 16 KiB." % groesse)
+
+    try:
+        anforderung = json.loads(pfad.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as fehler:
+        raise ValueError("Die Anforderung ist kein lesbares JSON: %s" % fehler)
+
+    if not isinstance(anforderung, dict):
+        raise ValueError("Die Anforderung ist kein JSON-Objekt.")
+
+    # Die Kennung kommt aus dem DATEINAMEN und nicht aus dem Inhalt.
+    #
+    # Wichtig: eine Kennung aus dem Inhalt waere ein Wert, der zu einem
+    # Dateinamen wird - und damit ein Weg, ausserhalb des Ergebnisverzeichnisses
+    # zu schreiben. Aus dem Dateinamen kann sie das nicht sein, und geprueft
+    # wird sie trotzdem.
+    kennung = pfad.stem
+    if not KENNUNG_MUSTER.match(kennung):
+        raise ValueError(
+            "Die Kennung «%s» entspricht nicht dem erlaubten Muster "
+            "(8 bis 64 Zeichen, Buchstaben, Ziffern, Bindestrich, Unterstrich)." % kennung
+        )
+
+    name = anforderung.get("operation")
+    if not isinstance(name, str) or name not in OPERATIONEN:
+        raise ValueError(
+            "Die Operation «%s» steht nicht in der Liste der erlaubten Operationen. "
+            "Erlaubt sind: %s" % (name, ", ".join(sorted(OPERATIONEN)))
+        )
+
+    operation = OPERATIONEN[name]
+    zusatz_argumente = []
+
+    regel = operation["zusatz"]
+    if regel is not None:
+        wert = anforderung.get(regel["feld"])
+        if wert is not None:
+            if not isinstance(wert, str):
+                raise ValueError("«%s» muss eine Zeichenkette sein." % regel["feld"])
+            if len(wert) > 40:
+                raise ValueError("«%s» ist zu lang." % regel["feld"])
+            if not re.match(regel["muster"], wert):
+                raise ValueError(
+                    "«%s» ist kein zulaessiger Zeitpunkt. Erwartet wird "
+                    "«YYYY-MM-DD HH:MM:SS+02»." % regel["feld"]
+                )
+            zusatz_argumente = [regel["schalter"], wert]
+
+    # Wer es angefordert hat. Wird nicht geprueft, sondern protokolliert: die
+    # Berechtigungspruefung ist Sache der WebApp und ihrer Permission Engine,
+    # und sie ist dort richtig aufgehoben. Der Controller prueft, WAS
+    # ausgefuehrt wird, nicht WER es darf - diese Trennung ist der Grund,
+    # weshalb er ueberhaupt streng sein kann.
+    urheber = anforderung.get("angefordert_von")
+    if urheber is not None and (not isinstance(urheber, str) or len(urheber) > 64):
+        raise ValueError("«angefordert_von» ist unbrauchbar.")
+
+    return kennung, name, zusatz_argumente, anforderung
+
+
+def ausfuehren(kennung: str, name: str, zusatz: list, anforderung: dict) -> dict:
+    operation = OPERATIONEN[name]
+    programm = BIN / operation["argumente"][0]
+    if not programm.is_file():
+        return {
+            "kennung": kennung,
+            "operation": name,
+            "status": "fehler",
+            "meldung": "Das Werkzeug %s ist nicht vorhanden." % programm,
+            "beendet": jetzt(),
+        }
+
+    befehl = [str(programm)] + operation["argumente"][1:] + zusatz
+    notiz("Fuehre aus: %s (Kennung %s, angefordert von %s)" % (
+        " ".join(befehl), kennung, anforderung.get("angefordert_von", "?")))
+
+    begonnen = time.time()
+    ergebnis_schreiben(kennung, {
+        "kennung": kennung,
+        "operation": name,
+        "status": "laeuft",
+        "begonnen": jetzt(),
+        "beschreibung": operation["beschreibung"],
+    })
+
+    umgebung = dict(os.environ)
+    # Der Controller gibt nichts aus der Anforderung in die Umgebung weiter.
+    # Ein Feld, das zu einer Umgebungsvariablen wird, ist ein Weg, das
+    # Verhalten eines Programms zu aendern, ohne einen Befehl zu brauchen -
+    # LD_PRELOAD ist der bekannteste davon.
+    umgebung["SWISSHUB_CONFIG_FILE"] = str(KONFIGURATION)
+
+    try:
+        lauf = subprocess.run(
+            befehl,
+            capture_output=True,
+            text=True,
+            timeout=operation["zeitgrenze"],
+            env=umgebung,
+            # Kein `shell=True`. Niemals. Damit gibt es keine Shell, die
+            # irgendetwas interpretieren koennte.
+            shell=False,
+            cwd=str(WURZEL),
+        )
+        status = "erfolg" if lauf.returncode == 0 else "fehler"
+        # Nur die letzten Zeilen: die Ausgabe von pgBackRest kann sehr lang
+        # werden, und das Ergebnis liest die WebApp.
+        ausgabe = (lauf.stderr or "") + (lauf.stdout or "")
+        zeilen = [zeile for zeile in ausgabe.splitlines() if zeile.strip()][-60:]
+        meldung = "\n".join(zeilen)
+        rueckgabe = lauf.returncode
+    except subprocess.TimeoutExpired:
+        status = "fehler"
+        meldung = (
+            "Die Operation wurde nach %d Sekunden abgebrochen. Sie laeuft "
+            "moeglicherweise noch weiter; der naechste Lauf faellt dann in die "
+            "Sperre und wird uebersprungen." % operation["zeitgrenze"]
+        )
+        rueckgabe = -1
+    except OSError as fehler:
+        status = "fehler"
+        meldung = "Die Operation liess sich nicht starten: %s" % fehler
+        rueckgabe = -1
+
+    inhalt = {
+        "kennung": kennung,
+        "operation": name,
+        "beschreibung": operation["beschreibung"],
+        "status": status,
+        "rueckgabe": rueckgabe,
+        "begonnen": datetime.fromtimestamp(begonnen, timezone.utc).astimezone().isoformat(),
+        "beendet": jetzt(),
+        "dauer_s": int(time.time() - begonnen),
+        "angefordert_von": anforderung.get("angefordert_von"),
+        "meldung": meldung,
+    }
+    ergebnis_schreiben(kennung, inhalt)
+    notiz("Ergebnis %s: %s (%ds)" % (kennung, status, inhalt["dauer_s"]))
+    return inhalt
+
+
+def aufraeumen() -> None:
+    """Alte Ergebnisse wegraeumen."""
+    grenze = time.time() - ERGEBNIS_TAGE * 86400
+    for pfad in ERGEBNIS.glob("*.json"):
+        try:
+            if pfad.stat().st_mtime < grenze:
+                pfad.unlink()
+        except OSError:
+            pass
+
+
+def durchgang(einmal: bool) -> int:
+    EINGANG.mkdir(parents=True, exist_ok=True)
+    ERGEBNIS.mkdir(parents=True, exist_ok=True)
+
+    # Aeltestes zuerst: wer zuerst angefordert hat, kommt zuerst dran.
+    anforderungen = sorted(EINGANG.iterdir(), key=lambda pfad: pfad.stat().st_mtime)
+    if not anforderungen:
+        return 0
+
+    verarbeitet = 0
+    for pfad in anforderungen:
+        if verarbeitet >= MAX_JE_DURCHGANG:
+            notiz("Mehr als %d Anforderungen im Eingang - der Rest kommt im naechsten Durchgang." % MAX_JE_DURCHGANG)
+            break
+        if not pfad.is_file():
+            continue
+
+        kennung = pfad.stem
+        try:
+            kennung, name, zusatz, anforderung = anforderung_pruefen(pfad)
+        except ValueError as fehler:
+            notiz("Abgelehnt (%s): %s" % (pfad.name, fehler))
+            # Abgelehnt wird mit Grund, nicht stillschweigend: die WebApp soll
+            # es anzeigen koennen, und ein Ablehnungsgrund ist eine Auskunft.
+            sichere_kennung = kennung if KENNUNG_MUSTER.match(kennung) else "abgelehnt-%d" % int(time.time())
+            ergebnis_schreiben(sichere_kennung, {
+                "kennung": sichere_kennung,
+                "operation": None,
+                "status": "abgelehnt",
+                "meldung": str(fehler),
+                "beendet": jetzt(),
+            })
+            pfad.unlink(missing_ok=True)
+            continue
+        finally:
+            pass
+
+        # Die Anforderung wird ENTFERNT, bevor sie ausgefuehrt wird.
+        #
+        # Sonst liefe sie beim naechsten Durchgang erneut, falls der Controller
+        # waehrend der Ausfuehrung stirbt - und ein Backup, das in einer
+        # Endlosschleife startet, fuellt das Laufwerk.
+        pfad.unlink(missing_ok=True)
+        ausfuehren(kennung, name, zusatz, anforderung)
+        verarbeitet += 1
+        if einmal:
+            break
+
+    aufraeumen()
+    return verarbeitet
+
+
+def main() -> int:
+    einmal = "--einmal" in sys.argv[1:]
+
+    if "--operationen" in sys.argv[1:]:
+        # Damit die WebApp die Liste nicht doppelt pflegen muss.
+        print(json.dumps(
+            {name: {"beschreibung": eintrag["beschreibung"],
+                    "zeitgrenze_s": eintrag["zeitgrenze"],
+                    "nimmt_zeitpunkt": eintrag["zusatz"] is not None}
+             for name, eintrag in sorted(OPERATIONEN.items())},
+            ensure_ascii=False, indent=2))
+        return 0
+
+    verarbeitet = durchgang(einmal)
+    if verarbeitet == 0:
+        notiz("Nichts im Eingang.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

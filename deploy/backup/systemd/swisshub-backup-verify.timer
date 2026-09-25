@@ -1,0 +1,13 @@
+[Unit]
+Description=SwissHub Sicherungen taeglich pruefen
+
+[Timer]
+Unit=swisshub-backup-verify.service
+# 04:43 - nach dem taeglichen Backup (03:17) und mit Abstand dazu. Prueft man
+# waehrend gesichert wird, prueft man einen halben Stand.
+OnCalendar=*-*-* 04:43:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

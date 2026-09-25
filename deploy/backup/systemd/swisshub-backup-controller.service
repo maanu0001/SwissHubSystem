@@ -1,0 +1,38 @@
+# SwissHub - Restricted Backup Controller.
+#
+# Arbeitet den Eingang ab, den die WebApp fuellt. Siehe den Kopf von
+# bin/swisshub-backup-controller: die WebApp fuehrt nichts aus, sie legt eine
+# Anforderung ab, und dieser Dienst prueft sie gegen eine feste Liste.
+
+[Unit]
+Description=SwissHub Backup-Controller (Anforderungen der WebApp)
+Documentation=file:///opt/swisshub/docs/BACKUP.md
+After=network-online.target docker.service postgresql.service
+
+[Service]
+Type=oneshot
+User=swisshub-backup
+Group=swisshub-backup
+SupplementaryGroups=postgres docker
+ExecStart=/usr/local/lib/swisshub-backup/bin/swisshub-backup-controller
+
+# So lang wie der laengste erlaubte Lauf: ein Vollbackup darf hier nicht in
+# eine Zeitgrenze laufen. Die einzelnen Operationen haben ihre eigene, kuerzere.
+TimeoutStartSec=5h
+
+IOWeight=20
+CPUWeight=20
+IOSchedulingClass=idle
+Nice=10
+MemoryMax=2G
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/swisshub-backup
+ReadOnlyPaths=/etc/swisshub-backup /opt/swisshub
