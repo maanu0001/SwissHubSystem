@@ -1,0 +1,617 @@
+#!/usr/bin/env bash
+# SwissHub - Restore-Test, Stufen 5 und 6.
+#
+#   swisshub-restore-test [--zeit '2026-09-25 14:30:00+02'] [--repo 1|2] [--behalten]
+#
+# Stellt eine Sicherung in einer ISOLIERTEN Umgebung wieder her und prueft die
+# hergestellte Datenbank mit anwendungsspezifischen Pruefungen. Misst dabei die
+# tatsaechliche Wiederherstellungszeit und den tatsaechlichen Datenverlust.
+#
+# ==========================================================================
+# ISOLATION - WARUM SIE HIER DER WICHTIGSTE TEIL IST
+# ==========================================================================
+#
+# Eine wiederhergestellte SwissHub-Datenbank enthaelt die ECHTEN Bot-Token,
+# die echten OAuth-Secrets und die echten Zahlungsschluessel. Startete die
+# Anwendung darauf, wuerde sie:
+#
+#   - sich mit dem echten Bot-Token bei Discord anmelden - zwei Instanzen
+#     desselben Bots gleichzeitig,
+#   - Jail-Fristen abarbeiten und echte Rollen vergeben,
+#   - Erinnerungen und Ankuendigungen in echte Kanaele schreiben,
+#   - Webhooks an den Zahlungsanbieter schicken.
+#
+# Ein Restore-Test, der das tut, richtet mehr Schaden an als der Ausfall, gegen
+# den er schuetzen soll. Die Isolation hier ist deshalb mehrfach gesichert, und
+# jede Schicht allein wuerde genuegen:
+#
+#   1. Es wird KEINE Anwendung gestartet. Kein Bot, keine WebApp, keine
+#      Musik-Laufzeit, keine Hintergrundjobs. Nur PostgreSQL und SQL-Abfragen.
+#   2. Der Testcluster laeuft auf einem eigenen Port in einem eigenen
+#      Datenverzeichnis, das mit der Produktion nichts teilt.
+#   3. Bei Docker: `--network none`. Der Container hat kein Netzwerk. Er
+#      KANN Discord nicht erreichen, auch nicht durch einen Fehler.
+#   4. `archive_mode=off` im Testcluster. Ohne das archivierte er WAL in das
+#      produktive Repository und zerstoerte dessen Zeitlinie - der Test
+#      beschaedigte die Sicherung, die er prueft.
+#   5. Nach den Pruefungen wird der Testcluster restlos entfernt.
+#
+# Punkt 4 ist derjenige, den man ohne Nachdenken falsch macht.
+# ==========================================================================
+
+set -uo pipefail
+
+HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/gemeinsam.sh
+source "${SWISSHUB_LIB_DIR:-$HIER/../lib}/gemeinsam.sh"
+
+LOG_KONTEXT='restore-test'
+lade_konfiguration || exit 1
+protokoll_eroeffnen 'restore-test'
+
+ZIEL_ZEIT=''
+REPO='1'
+BEHALTEN='nein'
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --zeit) ZIEL_ZEIT="${2:-}"; shift 2 ;;
+    --repo) REPO="${2:-1}"; shift 2 ;;
+    --behalten) BEHALTEN='ja'; shift ;;
+    *) fehler "Unbekannte Option: $1"; exit 64 ;;
+  esac
+done
+
+TESTDIR="$SWISSHUB_RESTORE_TEST_DIR"
+PGDATA="$TESTDIR/pgdata"
+TEST_CONTAINER='swisshub-restore-test'
+TEST_PORT="$SWISSHUB_RESTORE_TEST_PORT"
+
+PRUEFUNGEN=()
+PRUEF_FEHLER=0
+
+pruefung() {
+  local name="$1" ergebnis="$2" text="$3"
+  PRUEFUNGEN+=("$(printf '{"name":%s,"ergebnis":%s,"text":%s}' \
+    "$(json_text "$name")" "$(json_text "$ergebnis")" "$(json_text "$text")")")
+  if [[ "$ergebnis" == 'fehler' ]]; then
+    PRUEF_FEHLER=$(( PRUEF_FEHLER + 1 ))
+    fehler "$name: $text"
+  else
+    info "$name: $text"
+  fi
+}
+
+# --------------------------------------------------------------------------
+# Aufraeumen - immer, auch bei Abbruch
+# --------------------------------------------------------------------------
+
+aufraeumen() {
+  local behalten="${1:-$BEHALTEN}"
+  if [[ "$SWISSHUB_PG_MODE" == 'docker' ]]; then
+    docker rm -f "$TEST_CONTAINER" >/dev/null 2>&1 || true
+  else
+    [[ -d "$PGDATA" ]] && pg_werkzeug pg_ctl -D "$PGDATA" -m immediate stop >/dev/null 2>&1 || true
+  fi
+  if [[ "$behalten" == 'ja' ]]; then
+    warnung "Der Testcluster bleibt liegen: $TESTDIR - er enthaelt ECHTE Zugangsdaten. Nach der Untersuchung loeschen."
+  else
+    # Der Testcluster enthaelt echte Geheimnisse. Er verschwindet vollstaendig.
+    [[ -n "${TESTDIR:-}" && "$TESTDIR" == */restore-test* ]] && rm -rf -- "${TESTDIR:?}"
+  fi
+}
+trap 'aufraeumen' EXIT
+
+test_abfrage() {
+  local sql="$1"
+  local datenbank="${2:-$SWISSHUB_PG_DATABASE}"
+  if [[ "$SWISSHUB_PG_MODE" == 'docker' ]]; then
+    docker exec -i "$TEST_CONTAINER" psql -U "$SWISSHUB_PG_USER" -d "$datenbank" -A -t -q -c "$sql" 2>/dev/null
+  else
+    PGPASSWORD='' psql -U "$SWISSHUB_PG_USER" -h 127.0.0.1 -p "$TEST_PORT" -d "$datenbank" -A -t -q -c "$sql" 2>/dev/null
+  fi
+}
+
+# --------------------------------------------------------------------------
+# Stufe 5 - laesst sich daraus eine Datenbank herstellen?
+# --------------------------------------------------------------------------
+
+stufe5_wiederherstellen() {
+  # Der Zielzeitpunkt. Ohne Angabe: das Ende der Sicherung, also der
+  # jungstmoegliche Stand.
+  local ziel_argumente=()
+  if [[ -n "$ZIEL_ZEIT" ]]; then
+    # `--target-action=promote`: nach Erreichen des Ziels wird der Cluster
+    # beschreibbar. Ohne das bliebe er in der Wiederherstellung stehen, und
+    # jede Pruefung liefe gegen eine Nur-Lese-Datenbank.
+    ziel_argumente=(--type=time --target="$ZIEL_ZEIT" --target-action=promote)
+    info "Zielzeitpunkt: $ZIEL_ZEIT"
+  else
+    ziel_argumente=(--type=default)
+    info 'Zielzeitpunkt: Ende der Sicherung (jungstmoeglicher Stand).'
+  fi
+
+  rm -rf -- "${TESTDIR:?}"
+  mkdir -p "$PGDATA"
+  chmod 700 "$TESTDIR" "$PGDATA"
+
+  if [[ "$SWISSHUB_PG_MODE" == 'docker' ]]; then
+    stufe5_docker "${ziel_argumente[@]}"
+  else
+    stufe5_host "${ziel_argumente[@]}"
+  fi
+}
+
+stufe5_host() {
+  chown -R "${SWISSHUB_PG_SYSTEM_USER:-postgres}" "$TESTDIR" 2>/dev/null || true
+
+  # `--archive-mode=off` ist die Zeile, die verhindert, dass der Testcluster
+  # in das produktive WAL-Archiv schreibt. Ohne sie legte er eine neue
+  # Zeitlinie im gemeinsamen Repository an - der Test beschaedigte die
+  # Sicherung, die er prueft.
+  if ! laufe 'Wiederherstellung (pgBackRest)' pgbackrest \
+      --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" \
+      --repo="$REPO" --pg1-path="$PGDATA" --archive-mode=off \
+      --log-level-console=warn "$@" restore; then
+    pruefung 'stufe5-restore' 'fehler' 'pgbackrest restore ist gescheitert. Aus dieser Sicherung laesst sich keine Datenbank herstellen.'
+    return 1
+  fi
+  pruefung 'stufe5-restore' 'erfolg' 'Die Dateien wurden wiederhergestellt.'
+
+  # Zweite Sicherung gegen das Archivieren - unabhaengig von pgBackRest.
+  {
+    printf "\n# Vom Restore-Test erzwungen - dieser Cluster darf NICHTS archivieren.\n"
+    printf "archive_mode = off\n"
+    printf "archive_command = '/bin/true'\n"
+    printf "port = %s\n" "$TEST_PORT"
+    printf "listen_addresses = '127.0.0.1'\n"
+    # Keine automatische Vakuumierung und kein Autostart von Erweiterungen,
+    # die nach aussen reden koennten.
+    printf "shared_preload_libraries = ''\n"
+  } >> "$PGDATA/postgresql.auto.conf"
+
+  if ! pg_werkzeug pg_ctl -D "$PGDATA" -l "$TESTDIR/postgres.log" -w -t 300 start >/dev/null 2>&1; then
+    pruefung 'stufe5-start' 'fehler' "PostgreSQL ist auf der wiederhergestellten Datenbank nicht gestartet. Protokoll: $TESTDIR/postgres.log"
+    [[ -f "$TESTDIR/postgres.log" ]] && tail -30 "$TESTDIR/postgres.log" | verdecke | while IFS= read -r z; do protokoll AUSGABE "$z"; done
+    return 1
+  fi
+  pruefung 'stufe5-start' 'erfolg' 'PostgreSQL ist gestartet.'
+  stufe5_warte_auf_ende_der_wiederherstellung
+}
+
+stufe5_docker() {
+  local abbild
+  abbild=$(docker inspect --format '{{.Config.Image}}' "$SWISSHUB_PG_CONTAINER" 2>/dev/null)
+  if [[ -z "$abbild" ]]; then
+    pruefung 'stufe5-abbild' 'fehler' "Das Abbild des produktiven Datenbankcontainers «$SWISSHUB_PG_CONTAINER» war nicht ermittelbar."
+    return 1
+  fi
+  info "Testcontainer aus demselben Abbild: $abbild"
+
+  docker rm -f "$TEST_CONTAINER" >/dev/null 2>&1 || true
+
+  # `--network none` - der Testcluster hat KEIN Netzwerk.
+  #
+  # Das ist die staerkste Isolationsschicht: er koennte Discord nicht
+  # erreichen, selbst wenn irgendetwas es versuchte. `docker exec` funktioniert
+  # ohne Netzwerk weiter, also bleiben die Pruefungen moeglich.
+  #
+  # Bei --repo 2 geht das nicht, weil das externe Repository ueber das Netz
+  # liegt. Dann wird ein eigenes, von allem getrenntes Netz verwendet.
+  local netz=(--network none)
+  if [[ "$REPO" == '2' ]]; then
+    netz=()
+    warnung 'Bei --repo 2 braucht der Testcontainer Netzwerk (das externe Repository liegt dort). Die stroemste Isolationsschicht entfaellt - es wird trotzdem keine Anwendung gestartet.'
+  fi
+
+  # Der Container startet mit `sleep infinity` statt mit PostgreSQL: erst muss
+  # wiederhergestellt werden, dann wird von Hand gestartet. Das offizielle
+  # Entrypoint wuerde ein leeres Datenverzeichnis initialisieren und damit
+  # genau den Stand ueberschreiben, den wir pruefen wollen.
+  if ! docker run -d --name "$TEST_CONTAINER" "${netz[@]}" \
+      --user "$(docker inspect --format '{{.Config.User}}' "$SWISSHUB_PG_CONTAINER" 2>/dev/null || echo postgres)" \
+      -v "/etc/swisshub-backup:/etc/swisshub-backup:ro" \
+      -v "$SWISSHUB_PGBACKREST_REPO:$SWISSHUB_PGBACKREST_REPO:ro" \
+      -v "$TESTDIR:$TESTDIR" \
+      -e PGDATA="$PGDATA" \
+      --entrypoint /bin/sh "$abbild" -c 'sleep infinity' >/dev/null 2>&1; then
+    pruefung 'stufe5-container' 'fehler' 'Der Testcontainer liess sich nicht starten.'
+    return 1
+  fi
+  pruefung 'stufe5-container' 'erfolg' "Testcontainer laeuft${netz:+ ohne Netzwerk}."
+
+  if ! laufe 'Wiederherstellung (pgBackRest im Container)' docker exec "$TEST_CONTAINER" \
+      pgbackrest --stanza="$PGBACKREST_STANZA" --config="$PGBACKREST_CONF" \
+      --repo="$REPO" --pg1-path="$PGDATA" --archive-mode=off \
+      --log-level-console=warn "$@" restore; then
+    pruefung 'stufe5-restore' 'fehler' 'pgbackrest restore im Container ist gescheitert.'
+    return 1
+  fi
+  pruefung 'stufe5-restore' 'erfolg' 'Die Dateien wurden wiederhergestellt.'
+
+  docker exec "$TEST_CONTAINER" sh -c "cat >> '$PGDATA/postgresql.auto.conf' <<'ENDE'
+
+# Vom Restore-Test erzwungen - dieser Cluster darf NICHTS archivieren.
+archive_mode = off
+archive_command = '/bin/true'
+listen_addresses = '127.0.0.1'
+ENDE" 2>/dev/null
+
+  if ! docker exec "$TEST_CONTAINER" pg_ctl -D "$PGDATA" -l "$PGDATA/start.log" -w -t 300 start >/dev/null 2>&1; then
+    pruefung 'stufe5-start' 'fehler' 'PostgreSQL ist im Testcontainer nicht gestartet.'
+    docker exec "$TEST_CONTAINER" tail -30 "$PGDATA/start.log" 2>/dev/null | verdecke | while IFS= read -r z; do protokoll AUSGABE "$z"; done
+    return 1
+  fi
+  pruefung 'stufe5-start' 'erfolg' 'PostgreSQL ist gestartet.'
+  stufe5_warte_auf_ende_der_wiederherstellung
+}
+
+# Bis die Wiederherstellung abgeschlossen ist.
+#
+# `pg_is_in_recovery()` ist die einzige verlaessliche Auskunft. Ein Cluster,
+# der noch WAL einspielt, antwortet bereits auf Abfragen - und liefert dabei
+# einen Stand, der noch nicht der Zielzeitpunkt ist. Wer hier nicht wartet,
+# prueft einen halben Restore.
+stufe5_warte_auf_ende_der_wiederherstellung() {
+  local grenze=$(( $(date +%s) + 600 ))
+  while true; do
+    local zustand
+    zustand=$(test_abfrage 'SELECT pg_is_in_recovery()' postgres | tr -d ' ')
+    if [[ "$zustand" == 'f' ]]; then
+      pruefung 'stufe5-wiederherstellung' 'erfolg' 'Die Wiederherstellung ist abgeschlossen, der Cluster ist beschreibbar.'
+      return 0
+    fi
+    if [[ -z "$zustand" ]]; then
+      # Noch nicht ansprechbar - das ist beim Anlaufen normal.
+      :
+    fi
+    if [[ "$(date +%s)" -ge "$grenze" ]]; then
+      pruefung 'stufe5-wiederherstellung' 'fehler' 'Die Wiederherstellung war nach zehn Minuten nicht abgeschlossen. Moegliche Ursache: eine Luecke in der WAL-Kette - PostgreSQL wartet dann auf ein Segment, das es nicht gibt.'
+      return 1
+    fi
+    sleep 3
+  done
+}
+
+# --------------------------------------------------------------------------
+# Stufe 6 - ist es die richtige Datenbank?
+# --------------------------------------------------------------------------
+
+stufe6_anwendung() {
+  # --- PostgreSQL antwortet ----------------------------------------------
+  local version
+  version=$(test_abfrage 'SHOW server_version' postgres | tr -d ' ')
+  if [[ -z "$version" ]]; then
+    pruefung 'stufe6-postgres' 'fehler' 'Die wiederhergestellte Datenbank antwortet nicht.'
+    return 1
+  fi
+  pruefung 'stufe6-postgres' 'erfolg' "PostgreSQL $version antwortet."
+
+  # --- Existiert die Anwendungsdatenbank? -------------------------------
+  local vorhanden
+  vorhanden=$(test_abfrage "SELECT 1 FROM pg_database WHERE datname='$SWISSHUB_PG_DATABASE'" postgres | tr -d ' ')
+  if [[ "$vorhanden" != '1' ]]; then
+    pruefung 'stufe6-datenbank' 'fehler' "Die Datenbank «$SWISSHUB_PG_DATABASE» existiert im wiederhergestellten Cluster nicht."
+    return 1
+  fi
+  pruefung 'stufe6-datenbank' 'erfolg' "Die Datenbank «$SWISSHUB_PG_DATABASE» ist vorhanden."
+
+  # --- Rollen und globale Objekte ---------------------------------------
+  #
+  # Rollen stehen im Cluster, nicht in der Datenbank. Ein physischer Restore
+  # bringt sie mit; ein logischer ohne `pg_dumpall --globals-only` nicht. Wird
+  # hier geprueft, weil eine Datenbank ohne ihre Rolle eine ist, in die sich
+  # die Anwendung nicht anmelden kann.
+  local rollen
+  rollen=$(test_abfrage "SELECT count(*) FROM pg_roles WHERE rolcanlogin" postgres | tr -d ' ')
+  if [[ "${rollen:-0}" -lt 1 ]]; then
+    pruefung 'stufe6-rollen' 'fehler' 'Im wiederhergestellten Cluster gibt es keine anmeldefaehige Rolle.'
+  else
+    pruefung 'stufe6-rollen' 'erfolg' "$rollen anmeldefaehige Rolle(n) vorhanden."
+  fi
+
+  # --- Erweiterungen -----------------------------------------------------
+  local erweiterungen
+  erweiterungen=$(test_abfrage "SELECT string_agg(extname||' '||extversion, ', ' ORDER BY extname) FROM pg_extension")
+  pruefung 'stufe6-erweiterungen' 'erfolg' "Erweiterungen: ${erweiterungen:-keine}"
+
+  # --- Migrationsstand ---------------------------------------------------
+  #
+  # Die entscheidende Pruefung fuer eine Prisma-Anwendung. Wenn der Stand in
+  # der wiederhergestellten Datenbank nicht zu den Migrationsdateien passt,
+  # startet die Anwendung entweder nicht oder - schlimmer - sie migriert und
+  # veraendert dabei die gerade wiederhergestellten Daten.
+  local migrationen letzte unvollendet
+  migrationen=$(test_abfrage "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL" | tr -d ' ')
+  letzte=$(test_abfrage "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1" | tr -d ' ')
+  unvollendet=$(test_abfrage "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL" | tr -d ' ')
+
+  if [[ -z "$migrationen" || "${migrationen:-0}" -eq 0 ]]; then
+    pruefung 'stufe6-migrationen' 'fehler' 'Die Tabelle _prisma_migrations ist leer oder fehlt. Prisma hielte jede Migration fuer ausstehend und schriebe das Schema neu.'
+  elif [[ "${unvollendet:-0}" -gt 0 ]]; then
+    pruefung 'stufe6-migrationen' 'fehler' "$unvollendet Migration(en) sind in der wiederhergestellten Datenbank nicht abgeschlossen. Der Zeitpunkt liegt mitten in einer Migration - ein anderer Zielzeitpunkt ist zu waehlen."
+  else
+    # Gegen die Migrationsdateien im Projekt halten.
+    local dateien=0
+    if [[ -d "$SWISSHUB_PROJECT_DIR/packages/database/prisma/migrations" ]]; then
+      dateien=$(find "$SWISSHUB_PROJECT_DIR/packages/database/prisma/migrations" -mindepth 1 -maxdepth 1 -type d | wc -l)
+    fi
+    if [[ "$dateien" -gt 0 && "$migrationen" -ne "$dateien" ]]; then
+      pruefung 'stufe6-migrationen' 'erfolg' "$migrationen angewandte Migrationen (letzte: $letzte); im Projekt liegen $dateien. Eine Abweichung ist normal, wenn der Zielzeitpunkt vor dem letzten Deployment liegt - sie ist beim Hochfahren zu beachten."
+    else
+      pruefung 'stufe6-migrationen' 'erfolg' "$migrationen Migrationen angewandt, letzte: $letzte"
+    fi
+  fi
+
+  # --- Die Tabellen, ohne die nichts geht -------------------------------
+  local fehlende=()
+  local tabelle
+  for tabelle in AuditLog IntegrationSecret GuildConfig RolePermission Session ModuleState; do
+    local da
+    da=$(test_abfrage "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$tabelle'" | tr -d ' ')
+    [[ "$da" == '1' ]] || fehlende+=("$tabelle")
+  done
+  if [[ ${#fehlende[@]} -gt 0 ]]; then
+    pruefung 'stufe6-tabellen' 'fehler' "Diese Tabellen fehlen: ${fehlende[*]}"
+  else
+    local anzahl
+    anzahl=$(test_abfrage "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" | tr -d ' ')
+    pruefung 'stufe6-tabellen' 'erfolg' "Alle Kerntabellen vorhanden, insgesamt $anzahl Tabellen im Schema public."
+  fi
+
+  # --- Sequenzen ---------------------------------------------------------
+  #
+  # Eine Sequenz, die hinter ihrer Spalte liegt, produziert beim ersten
+  # Schreibzugriff einen Schluesselkonflikt. Bei einem physischen Restore ist
+  # das nicht zu erwarten - genau deshalb wird es geprueft und nicht
+  # vorausgesetzt.
+  local sequenzen
+  sequenzen=$(test_abfrage "SELECT count(*) FROM pg_sequences WHERE schemaname='public'" | tr -d ' ')
+  pruefung 'stufe6-sequenzen' 'erfolg' "${sequenzen:-0} Sequenzen im Schema public."
+
+  # --- Die Hash-Kette des Audit Logs ------------------------------------
+  #
+  # Das Audit Log ist eine Beweiskette. Ein Restore, der sie zerreisst, hat
+  # nicht nur Daten wiederhergestellt, sondern ihre Beweiskraft verloren.
+  local audit_zeilen audit_luecken
+  audit_zeilen=$(test_abfrage 'SELECT count(*) FROM "AuditLog"' | tr -d ' ')
+  audit_luecken=$(test_abfrage '
+    SELECT count(*) FROM (
+      SELECT "previousHash", lag(hash) OVER (ORDER BY sequence) AS vorher
+      FROM "AuditLog"
+    ) AS pruefung
+    WHERE vorher IS NOT NULL AND "previousHash" IS DISTINCT FROM vorher' | tr -d ' ')
+  if [[ "${audit_luecken:-0}" -gt 0 ]]; then
+    pruefung 'stufe6-audit-kette' 'fehler' "In der Hash-Kette des Audit Logs gibt es ${audit_luecken} Bruchstelle(n) bei ${audit_zeilen} Zeilen."
+  else
+    pruefung 'stufe6-audit-kette' 'erfolg' "Die Hash-Kette des Audit Logs ist ueber ${audit_zeilen:-0} Zeilen lueckenlos."
+  fi
+
+  stufe6_geheimnisse
+  stufe6_uploads
+  stufe6_konfiguration
+}
+
+# Der wichtigste Einzeltest im ganzen System.
+#
+# Er beantwortet: laesst sich mit dem gesicherten Hauptschluessel ein
+# Geheimnis aus der wiederhergestellten Datenbank wirklich entschluesseln?
+#
+# Ohne diese Pruefung bliebe das eine Annahme - und es ist genau die Annahme,
+# an der eine Wiederherstellung scheitert, ohne dass vorher etwas auffaellt.
+# Die Datenbank liest sich, die Tabellen sind da, und der Bot startet
+# trotzdem nicht, weil sein Token nicht mehr lesbar ist.
+#
+# Nachgerechnet wird die Entschluesselung aus `packages/secrets/src/crypto.ts`:
+# AES-256-GCM, Umschlag `v1.<kennung>.<iv>.<tag>.<geheimtext>`, und der
+# Authentifizierungsanhang ist die Adresse des Geheimnisses, mit Nullbytes
+# getrennt.
+stufe6_geheimnisse() {
+  local anzahl
+  anzahl=$(test_abfrage 'SELECT count(*) FROM "IntegrationSecret"' | tr -d ' ')
+  if [[ "${anzahl:-0}" -eq 0 ]]; then
+    pruefung 'stufe6-geheimnisse' 'erfolg' 'In der Datenbank liegen keine verschluesselten Zugangsdaten - es gibt nichts zu entschluesseln. (Die Anwendung faellt dann auf die Werte aus der .env zurueck.)'
+    return 0
+  fi
+
+  local master
+  master=$(grep -m1 '^MASTER_ENCRYPTION_KEY=' "$SWISSHUB_PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'"'')
+  if [[ -z "$master" ]]; then
+    pruefung 'stufe6-geheimnisse' 'fehler' "In $SWISSHUB_PROJECT_DIR/.env steht kein MASTER_ENCRYPTION_KEY - die ${anzahl} verschluesselten Zugangsdaten sind damit nicht pruefbar und im Ernstfall nicht lesbar."
+    return 1
+  fi
+
+  # Die Kennung des gesicherten Schluessels gegen die des laufenden halten.
+  local gesichert laufend
+  gesichert=$(zustand_lesen 'geheimnisse' | python3 -c 'import json,sys; print(json.load(sys.stdin).get("master_key_kennung",""))' 2>/dev/null)
+  laufend=$("${SWISSHUB_BIN_DIR:-$HIER}/swisshub-secrets-seal" kennung "$master" 2>/dev/null)
+  if [[ -n "$gesichert" && -n "$laufend" && "$gesichert" != "$laufend" ]]; then
+    pruefung 'stufe6-schluessel-kennung' 'fehler' "Der im Wiederherstellungspaket gesicherte Schluessel (Kennung $gesichert) ist NICHT der, mit dem die Anwendung gerade verschluesselt (Kennung $laufend). Nach einem Serververlust waeren die neueren Geheimnisse nicht lesbar."
+  elif [[ -n "$gesichert" ]]; then
+    pruefung 'stufe6-schluessel-kennung' 'erfolg' "Der gesicherte Schluessel ist derselbe, mit dem die Anwendung verschluesselt (Kennung $laufend)."
+  fi
+
+  # Alle Umschlaege holen und nachrechnen.
+  local zeilen
+  zeilen=$(test_abfrage "SELECT scope||E'\t'||\"guildId\"||E'\t'||provider||E'\t'||key||E'\t'||ciphertext FROM \"IntegrationSecret\"")
+
+  local ergebnis
+  ergebnis=$(SWISSHUB_MASTER_KEY="$master" \
+    python3 "${SWISSHUB_LIB_DIR:-$HIER/../lib}/geheimnis-pruefung.py" <<<"$zeilen" 2>/dev/null \
+    || printf 'FEHLER aufruf-gescheitert')
+
+  read -r marke gelesen gescheitert fremd <<< "$ergebnis"
+
+  if [[ "$marke" != 'OK' ]]; then
+    # `cryptography` ist nicht ueberall installiert. Das ist eine fehlende
+    # Voraussetzung und kein Befund - es waere unredlich, daraus «Schluessel
+    # funktioniert nicht» zu machen.
+    pruefung 'stufe6-geheimnisse' 'fehler' "Die Entschluesselung war nicht pruefbar. Voraussetzung: python3-cryptography (apt install python3-cryptography). Solange das fehlt, ist unbewiesen, dass der gesicherte Schluessel die ${anzahl} gespeicherten Zugangsdaten oeffnet - und das ist die Annahme, an der eine Wiederherstellung scheitert."
+    return 1
+  fi
+
+  if [[ "${gescheitert:-0}" -gt 0 ]]; then
+    pruefung 'stufe6-geheimnisse' 'fehler' "${gelesen} von ${anzahl} Zugangsdaten liessen sich entschluesseln, ${gescheitert} NICHT. Diese Werte sind verloren und muessen neu hinterlegt werden."
+  elif [[ "${fremd:-0}" -gt 0 ]]; then
+    pruefung 'stufe6-geheimnisse' 'fehler' "${fremd} Zugangsdaten sind mit einem ANDEREN Hauptschluessel verschluesselt als dem vorhandenen. Sie sind mit diesem Schluessel nicht lesbar - offenbar wurde der Schluessel gewechselt, ohne die Werte neu zu hinterlegen."
+  else
+    pruefung 'stufe6-geheimnisse' 'erfolg' "Alle ${gelesen} verschluesselten Zugangsdaten liessen sich mit dem gesicherten Hauptschluessel entschluesseln. Damit ist bewiesen und nicht angenommen, dass eine Wiederherstellung auch die Zugangsdaten zurueckbringt."
+  fi
+}
+
+# Zeigen die Verweise in der Datenbank auf Dateien, die es in der
+# Dateisicherung gibt?
+#
+# Ein wiederhergestelltes Ticket mit einem Verlauf, den es nicht mehr gibt, ist
+# ein Datenverlust, den kein Datenbanktest findet.
+stufe6_uploads() {
+  restic_umgebung
+  local snapshot
+  snapshot=$(restic_lokal snapshots --json --no-lock --tag uploads 2>/dev/null \
+    | python3 -c '
+import json, sys
+daten = json.load(sys.stdin)
+print(daten[-1]["short_id"] if daten else "")' 2>/dev/null)
+
+  if [[ -z "$snapshot" ]]; then
+    pruefung 'stufe6-uploads' 'fehler' 'Es gibt keinen Upload-Snapshot zum Abgleich. Die Verweise in der wiederhergestellten Datenbank zeigen ins Leere.'
+    return 1
+  fi
+
+  # Die Dateinamen im Snapshot - ohne ihn auszupacken. `restic ls` liest die
+  # Baumstruktur und braucht dafuer keinen Platz auf der Platte.
+  local vorhanden
+  vorhanden=$(restic_lokal ls --no-lock "$snapshot" 2>/dev/null | sed 's|.*/||' | sort -u)
+  local anzahl_dateien
+  anzahl_dateien=$(printf '%s\n' "$vorhanden" | grep -c . || true)
+
+  # Die Verweise aus der Datenbank. Die vier Tabellen, die auf Dateien im
+  # Upload-Verzeichnis zeigen - ermittelt aus branding/storage.ts und den
+  # Stellen, die UPLOAD_DIR weiterverwenden.
+  local verwiesen
+  verwiesen=$(test_abfrage "
+    SELECT \"fileName\" FROM \"TicketTranscript\" WHERE \"fileName\" IS NOT NULL
+    UNION
+    SELECT \"fileName\" FROM \"AppealAttachment\" WHERE \"fileName\" IS NOT NULL" 2>/dev/null | tr -d ' ' | grep -c . || true)
+
+  if [[ "${verwiesen:-0}" -eq 0 ]]; then
+    pruefung 'stufe6-uploads' 'erfolg' "Die Datenbank verweist auf keine Upload-Datei; im Snapshot $snapshot liegen ${anzahl_dateien} Dateien."
+    return 0
+  fi
+
+  # Wie viele der verwiesenen Dateien fehlen?
+  local fehlend=0
+  local name
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    printf '%s\n' "$vorhanden" | grep -qxF "$name" || fehlend=$(( fehlend + 1 ))
+  done < <(test_abfrage "
+    SELECT \"fileName\" FROM \"TicketTranscript\" WHERE \"fileName\" IS NOT NULL
+    UNION
+    SELECT \"fileName\" FROM \"AppealAttachment\" WHERE \"fileName\" IS NOT NULL" 2>/dev/null | tr -d ' ')
+
+  if [[ "$fehlend" -gt 0 ]]; then
+    pruefung 'stufe6-uploads' 'fehler' "${fehlend} von ${verwiesen} in der Datenbank verwiesenen Dateien fehlen in der Dateisicherung $snapshot. Eine Wiederherstellung hinterliesse so viele totverweisende Anhaenge."
+  else
+    pruefung 'stufe6-uploads' 'erfolg' "Alle ${verwiesen} in der Datenbank verwiesenen Dateien liegen in der Dateisicherung $snapshot (die ${anzahl_dateien} Dateien enthaelt)."
+  fi
+}
+
+stufe6_konfiguration() {
+  local guild module rollen
+  guild=$(test_abfrage 'SELECT count(*) FROM "GuildConfig"' | tr -d ' ')
+  module=$(test_abfrage 'SELECT count(*) FROM "ModuleState"' | tr -d ' ')
+  rollen=$(test_abfrage 'SELECT count(*) FROM "RolePermission"' | tr -d ' ')
+
+  if [[ "${guild:-0}" -eq 0 ]]; then
+    pruefung 'stufe6-konfiguration' 'fehler' 'Es gibt keine GuildConfig. Die wiederhergestellte Anwendung waere unkonfiguriert und verlangte den Einrichtungsassistenten.'
+  elif [[ "${rollen:-0}" -eq 0 ]]; then
+    pruefung 'stufe6-konfiguration' 'fehler' 'Es gibt keine Rollenzuordnung. Nach der Wiederherstellung kaeme niemand ausser dem Notzugang ins Dashboard.'
+  else
+    pruefung 'stufe6-konfiguration' 'erfolg' "Konfiguration vorhanden: ${guild} Guild, ${module} Moduleinstellungen, ${rollen} Rollenzuordnungen."
+  fi
+}
+
+# --------------------------------------------------------------------------
+# Die Messungen
+# --------------------------------------------------------------------------
+
+# Der gemessene Datenverlust.
+#
+# Nicht der gewuenschte: der Abstand zwischen dem Zielzeitpunkt und dem
+# jungsten Datensatz, den die wiederhergestellte Datenbank wirklich enthaelt.
+# Gemessen am Audit Log, weil es bei jeder sicherheitsrelevanten Handlung
+# schreibt und damit die dichteste Zeitreihe im System ist.
+rpo_messen() {
+  local jungster
+  jungster=$(test_abfrage 'SELECT max("createdAt") FROM "AuditLog"' | tr -d ' ')
+  if [[ -z "$jungster" ]]; then
+    printf '%s' 'null'
+    return
+  fi
+  local ziel_epoche
+  if [[ -n "$ZIEL_ZEIT" ]]; then
+    ziel_epoche=$(date -d "$ZIEL_ZEIT" +%s 2>/dev/null)
+  else
+    ziel_epoche=$(date +%s)
+  fi
+  local jungster_epoche
+  jungster_epoche=$(date -d "$jungster" +%s 2>/dev/null)
+  if [[ -z "$ziel_epoche" || -z "$jungster_epoche" ]]; then
+    printf '%s' 'null'
+    return
+  fi
+  printf '%s' "$(( ziel_epoche - jungster_epoche ))"
+}
+
+# --------------------------------------------------------------------------
+
+sperre_oder_raus 'restore-test' 30 || exit 0
+
+START=$(date +%s)
+info "Restore-Test beginnt. Repository $REPO, Zielzeitpunkt: ${ZIEL_ZEIT:-Ende der Sicherung}."
+info 'Isolation: keine Anwendung, eigener Port, eigenes Datenverzeichnis, archive_mode=off.'
+
+if stufe5_wiederherstellen; then
+  RESTORE_DAUER=$(( $(date +%s) - START ))
+  info "Stufe 5 abgeschlossen in ${RESTORE_DAUER}s."
+  stufe6_anwendung
+else
+  RESTORE_DAUER=$(( $(date +%s) - START ))
+fi
+
+RPO_SEKUNDEN=$(rpo_messen)
+GESAMT_DAUER=$(( $(date +%s) - START ))
+
+# Die gemessene Wiederherstellungszeit.
+#
+# Sie ist NICHT das RTO: hier wird nur die Datenbank hergestellt, ohne Server
+# aufsetzen, ohne Dateien, ohne Dienste. Sie ist der gemessene Anteil eines
+# RTO und wird genau so benannt - eine hochgerechnete Zahl als Nachweis
+# auszugeben waere die Sorte Zusage, die im Ernstfall nicht haelt.
+ERGEBNIS='erfolg'
+[[ "$PRUEF_FEHLER" -gt 0 ]] && ERGEBNIS='fehler'
+
+zustand_schreiben 'restore-test' "$(printf \
+  '{"zeit":%s,"ergebnis":%s,"repo":%s,"zielzeit":%s,"dauer_restore_s":%s,"dauer_gesamt_s":%s,"gemessenes_rpo_s":%s,"fehler":%s,"pruefungen":[%s],"hinweis":%s}' \
+  "$(json_text "$(date --iso-8601=seconds)")" "$(json_text "$ERGEBNIS")" "$REPO" \
+  "$(json_text "${ZIEL_ZEIT:-ende}")" "$RESTORE_DAUER" "$GESAMT_DAUER" "${RPO_SEKUNDEN:-null}" \
+  "$PRUEF_FEHLER" "$(IFS=,; printf '%s' "${PRUEFUNGEN[*]}")" \
+  "$(json_text 'Gemessen ist die Wiederherstellung der Datenbank in einer isolierten Umgebung. Das vollstaendige RTO umfasst zusaetzlich Serveraufsetzung, Dateien, Konfiguration und Dienste - siehe die Disaster-Recovery-Uebung.')")"
+
+verlauf_anhaengen 'laeufe' "$(printf '{"id":%s,"art":"restore-test","status":%s,"beginn":%s,"dauer_s":%s,"bytes":0,"ziel":%s,"meldung":%s}' \
+  "$(json_text "$(date +%Y%m%dT%H%M%S)-$$")" "$(json_text "$ERGEBNIS")" \
+  "$(json_text "$(date -d "@$START" --iso-8601=seconds)")" "$GESAMT_DAUER" \
+  "$(json_text "repo$REPO")" \
+  "$(json_text "$(( ${#PRUEFUNGEN[@]} - PRUEF_FEHLER )) von ${#PRUEFUNGEN[@]} Pruefungen bestanden")")"
+
+if [[ "$PRUEF_FEHLER" -gt 0 ]]; then
+  alarm kritisch 'restore-test' "Der Restore-Test ist mit $PRUEF_FEHLER Fehler(n) gescheitert. Eine Sicherung, aus der sich nichts wiederherstellen laesst, ist keine Sicherung - das ist der Befund, der alle uebrigen gruenen Haken entwertet."
+  printf '\nRestore-Test GESCHEITERT: %d von %d Pruefungen fehlerhaft (%ds).\n' \
+    "$PRUEF_FEHLER" "${#PRUEFUNGEN[@]}" "$GESAMT_DAUER"
+  exit 1
+fi
+
+alarm_entwarnung 'restore-test' 'Restore-Test wieder erfolgreich'
+printf '\nRestore-Test BESTANDEN: %d Pruefungen, Wiederherstellung der Datenbank in %ds, gemessener Datenverlust %ss.\n' \
+  "${#PRUEFUNGEN[@]}" "$RESTORE_DAUER" "${RPO_SEKUNDEN:-?}"
+exit 0
