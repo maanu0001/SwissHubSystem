@@ -188,6 +188,18 @@ export default async function WrappedKampagnePage({
                   created: lauf.created,
                   skipped: lauf.skipped,
                   failed: lauf.failed,
+                  grund: lauf.failureReason,
+                  /*
+                   * Die Wartezeit wird hier gerechnet, nicht im Browser.
+                   *
+                   * Eine falsch gestellte Uhr im Browser ergaebe sonst eine
+                   * Warnung, die es nicht gibt - oder keine, wo es eine
+                   * braeuchte.
+                   */
+                  wartetSeit:
+                    lauf.status === 'QUEUED'
+                      ? Math.max(0, Math.round((Date.now() - lauf.createdAt.getTime()) / 1000))
+                      : null,
                 }
               : null
           }

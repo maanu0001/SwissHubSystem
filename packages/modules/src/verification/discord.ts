@@ -11,6 +11,7 @@ import {
 } from '@swisshub/discord';
 import { createLogger } from '@swisshub/logger';
 import { VERIFICATION_ACCENT_COLOR, type VerificationSettings } from './config';
+import { planeErsteErinnerung } from './erinnerung';
 import { statusLabel } from './service';
 
 const logger = createLogger('verification:discord');
@@ -347,6 +348,15 @@ export async function sendGreeting(
       allowedMentions: { parse: [] as never[], users: [request.discordId] },
     });
     await merkeBotNachricht(request.id, 'GREETING', kanal, gesendet.id);
+    /*
+     * Erst jetzt beginnt die Erinnerungsreihe.
+     *
+     * Nicht beim Beitritt: eine Erinnerung zeigt auf die Begruessung
+     * («deine Verifikation ist noch offen» - welche denn?), und ohne sie
+     * zeigte sie auf nichts. Scheitert das Senden oben, wird auch nichts
+     * geplant, und der Vorgang wartet still - so, wie er soll.
+     */
+    await planeErsteErinnerung(request.id, settings);
     return gesendet;
   } catch (error) {
     logger.warn('Begrüssung konnte nicht gesendet werden', { requestId: request.id, error });

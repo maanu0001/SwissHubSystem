@@ -22,6 +22,7 @@ import {
   type BotIdentity,
   CHANNEL_TYPES,
   channelOverwritesSchema,
+  channelEintragSchema,
   channelHistorySchema,
   discordMessageSchema,
   type RawDiscordMember,
@@ -312,6 +313,35 @@ export function createRestGateway(): DiscordGateway {
         method: 'DELETE',
         auditLogReason: reason,
       });
+    },
+
+    async message(channelId, messageId) {
+      /*
+       * 404 heisst «weg», jeder andere Fehler heisst «unbekannt».
+       *
+       * Die Unterscheidung ist der ganze Sinn dieser Funktion. Wer beide
+       * gleich behandelt, beendet bei einem Netzwerkschluckauf eine
+       * Erinnerungsreihe, die weiterlaufen sollte - und das faellt niemandem
+       * auf, weil nichts geschieht.
+       */
+      try {
+        const roh = await discordRequest<unknown>(`/channels/${channelId}/messages/${messageId}`);
+        const zeile = channelEintragSchema.safeParse(roh);
+        if (!zeile.success) {
+          return null;
+        }
+        return {
+          id: zeile.data.id,
+          authorId: zeile.data.author?.id ?? '',
+          authorIsBot: zeile.data.author?.bot === true,
+          createdAt: zeile.data.timestamp ? new Date(zeile.data.timestamp) : new Date(),
+        };
+      } catch (error) {
+        if (error instanceof DiscordApiError && error.status === 404) {
+          return null;
+        }
+        throw error;
+      }
     },
 
     async history(channelId, options = {}) {

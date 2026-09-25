@@ -358,16 +358,20 @@ export function createJobRunner(
     {
       name: 'verification-sweep',
       /*
-       * Verifikationen ablaufen lassen und alte Nachrichtentexte entfernen.
+       * Fällige Erinnerungen senden und alte Nachrichtentexte entfernen.
        *
-       * Im Minutentakt, weil die Frist in Minuten gilt. Ein Lauf alle fünf
-       * Minuten hiesse bei einer Viertelstunde Frist: der Kick kommt
-       * irgendwann zwischen 15 und 20 Minuten. Das Raster darf nicht
-       * gröber sein als das, was es messen soll.
+       * Im Minutentakt, obwohl der Abstand zwischen zwei Erinnerungen in
+       * Stunden gilt: der Takt bestimmt nicht den Abstand, sondern die
+       * Genauigkeit. Ein Lauf alle fünf Minuten hiesse, dass eine um 09:01
+       * fällige Erinnerung irgendwann bis 09:05 rausgeht - unnötig ungenau
+       * für etwas, das ohnehin billig ist.
        *
-       * Der Durchgang ist billig - eine indizierte Abfrage, die meistens
-       * nichts findet. Die Aufbewahrung rechnet in Tagen und prüft sich
-       * deshalb nur stündlich selbst.
+       * Der Durchgang ist eine indizierte Abfrage, die meistens nichts
+       * findet. Die Aufbewahrung rechnet in Tagen und prüft sich deshalb nur
+       * stündlich selbst.
+       *
+       * Die Frist von früher gibt es nicht mehr: es wird niemand wegen
+       * Nichtantwort entfernt.
        */
       intervalMs: 60 * 1000,
       async run() {
@@ -376,7 +380,7 @@ export function createJobRunner(
           return;
         }
         const ergebnis = await verification.runVerificationTick();
-        if (ergebnis.abgelaufen > 0 || ergebnis.bereinigt > 0) {
+        if (ergebnis.erinnert > 0 || ergebnis.beendet > 0 || ergebnis.bereinigt > 0) {
           log.info('Verifikationen fortgeschrieben', { ...ergebnis });
         }
       },

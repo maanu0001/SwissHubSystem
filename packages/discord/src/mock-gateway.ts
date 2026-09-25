@@ -453,6 +453,15 @@ export function createMockGateway(): DiscordGateway {
         log.info('Mock: Nachricht gelöscht', { channelId, messageId });
       },
 
+      async message(channelId, messageId) {
+        const zeile = verlauf.find((eintrag) => eintrag.channelId === channelId && eintrag.id === messageId);
+        if (!zeile) {
+          return null;
+        }
+        const { channelId: _kanal, ...rest } = zeile;
+        return rest;
+      },
+
       async history(channelId, options = {}) {
         // Neueste zuerst - wie bei Discord. `before` blaettert zurueck.
         const sortiert = verlauf

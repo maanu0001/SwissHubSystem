@@ -161,11 +161,73 @@ export async function zaehleKandidaten(campaign: WrappedCampaign): Promise<numbe
 }
 
 /**
+ * Wann ein Durchgang als verwaist gilt.
+ *
+ * Der Takt des Bots laeuft jede Minute, und jeder Aufruf setzt den Herzschlag
+ * neu. Bleibt er zehn Minuten aus, arbeitet niemand mehr daran - dann ist der
+ * Lauf tot und nicht langsam.
+ *
+ * Grosszuegig bemessen: ein einzelner Stapel darf eine halbe Minute dauern
+ * und ein Deployment den Bot fuer ein paar Minuten anhalten. Keiner der
+ * beiden Faelle soll einen gesunden Durchgang fuer tot erklaeren.
+ */
+export const VERWAIST_NACH_MS = 10 * 60 * 1000;
+
+/**
+ * Ist dieser Lauf offen, aber ohne Arbeiter?
+ *
+ * `QUEUED` zaehlt nie dazu: er wartet auf den Bot, und das darf er, solange
+ * der Bot ihn noch holen kann. Fuer `RUNNING` entscheidet der Herzschlag -
+ * und fuer Laeufe aus der Zeit vor dieser Spalte der Beginn.
+ */
+export function istVerwaist(run: WrappedGenerationRun, jetzt = new Date()): boolean {
+  if (run.status !== 'RUNNING') {
+    return false;
+  }
+  const zeichen = run.heartbeatAt ?? run.startedAt;
+  return zeichen === null || jetzt.getTime() - zeichen.getTime() > VERWAIST_NACH_MS;
+}
+
+/**
+ * Einen Lauf als gescheitert abschliessen.
+ *
+ * Bedingt auf die offenen Zustaende, damit ein gleichzeitig abgeschlossener
+ * oder abgebrochener Lauf nicht nachtraeglich zum Fehler wird. Gibt zurueck,
+ * ob dieser Aufruf ihn tatsaechlich geschlossen hat - zwei Arbeiter duerfen
+ * sich hier begegnen, aber nur einer soll das Protokoll schreiben.
+ *
+ * `FAILED` stand von Anfang an im Schema und wurde von `verarbeiteStapel`
+ * auch gelesen - geschrieben hat es nur nie jemand. Ein Durchgang, der
+ * ausserhalb der einzelnen Momentaufnahme scheiterte, blieb deshalb auf
+ * `RUNNING` stehen, und weil der Takt sich immer den aeltesten offenen Lauf
+ * nimmt, blockierte er jeden spaeteren.
+ */
+export async function markiereGescheitert(runId: string, grund: string): Promise<boolean> {
+  const { count } = await prisma.wrappedGenerationRun.updateMany({
+    where: { id: runId, status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'FAILED', finishedAt: new Date(), failureReason: grund.slice(0, 500) },
+  });
+  if (count > 0) {
+    log.warn('Wrapped-Durchgang gescheitert', { runId, grund });
+  }
+  return count > 0;
+}
+
+/**
  * Einen Durchgang beginnen.
  *
  * Laeuft bereits einer, wird er zurueckgegeben statt ein zweiter angelegt:
  * zwei gleichzeitige Durchgaenge derselben Kampagne wuerden einander die
  * Zeilen unter den Fuessen wegschreiben.
+ *
+ * ## Warum ein verwaister Lauf hier stirbt
+ *
+ * «Laeuft bereits einer» war frueher woertlich gemeint: jeder Lauf auf
+ * `RUNNING` galt als lebendig. Starb der Bot mitten im Durchgang, blieb
+ * dieser Zustand fuer immer stehen - und jeder weitere Klick auf
+ * «Momentaufnahmen erzeugen» bekam denselben toten Lauf zurueck, mitsamt
+ * einer Erfolgsmeldung. Das ist der Fall, in dem der Knopf nichts erhebt und
+ * trotzdem nichts meldet.
  */
 export async function starteDurchgang(
   campaignId: string,
@@ -183,8 +245,14 @@ export async function starteDurchgang(
     where: { campaignId, status: { in: ['QUEUED', 'RUNNING'] } },
     orderBy: { createdAt: 'desc' },
   });
-  if (laufend) {
+  if (laufend && !istVerwaist(laufend)) {
     return laufend;
+  }
+  if (laufend) {
+    await markiereGescheitert(
+      laufend.id,
+      'Der Durchgang wurde geschlossen, weil der Bot ihn seit ueber zehn Minuten nicht fortgeschrieben hat.',
+    );
   }
 
   const total = await zaehleKandidaten(campaign);
@@ -228,23 +296,54 @@ export async function verarbeiteStapel(
     return { weiter: false, fortschritt: fortschrittVon(run) };
   }
 
-  const campaign = await verlangeKampagne(run.campaignId);
-  const settings = await getModuleSettings<WrappedSettings>(WRAPPED_MODULE_ID);
-  const zeitraum = zeitraumVon(campaign);
-
   /*
-   * Quellen und Szeneneinstellung einmal je Stapel.
+   * Die Vorbereitung eines Stapels - und was geschieht, wenn sie scheitert.
    *
-   * Sie gelten fuer alle Personen gleichermassen. Sie je Person zu holen
-   * waere bei hundert Personen hundertmal dieselbe Abfrage.
+   * Innerhalb der Schleife unten faengt jede Momentaufnahme ihren eigenen
+   * Fehler ab; eine kaputte Zeile darf den Durchgang nicht anhalten. Hier
+   * oben ist das anders: findet sich die Kampagne nicht mehr, laesst sich
+   * ihr Zeitraum nicht aufloesen oder antwortet die Datenbank nicht, dann
+   * gibt es keinen Stapel, den man ueberspringen koennte.
+   *
+   * Frueher flog der Fehler einfach weiter. Der Lauf blieb auf `RUNNING`
+   * stehen, der Takt holte sich beim naechsten Mal wieder denselben
+   * aeltesten offenen Lauf, scheiterte wieder - und kein spaeterer Durchgang
+   * kam je an die Reihe. Ein einziger kaputter Lauf legte damit die
+   * Momentaufnahmen des ganzen Systems still.
+   *
+   * Jetzt endet er als `FAILED` mit dem Grund daneben, und der naechste Lauf
+   * kommt dran.
    */
-  const [quellen, einstellungen] = await Promise.all([
-    ermittleQuellen(campaign.guildId, zeitraum),
-    szenenEinstellungen(campaign.id),
-  ]);
-  const kontext: ResolverKontext = { guildId: campaign.guildId, zeitraum, quellen };
+  let campaign: WrappedCampaign;
+  let settings: WrappedSettings;
+  let kontext: ResolverKontext;
+  let einstellungen: Awaited<ReturnType<typeof szenenEinstellungen>>;
+  let kandidaten: Kandidat[];
+  try {
+    campaign = await verlangeKampagne(run.campaignId);
+    settings = await getModuleSettings<WrappedSettings>(WRAPPED_MODULE_ID);
+    const zeitraum = zeitraumVon(campaign);
 
-  const kandidaten = await ladeKandidaten(campaign, run.cursor, settings.batchSize);
+    /*
+     * Quellen und Szeneneinstellung einmal je Stapel.
+     *
+     * Sie gelten fuer alle Personen gleichermassen. Sie je Person zu holen
+     * waere bei hundert Personen hundertmal dieselbe Abfrage.
+     */
+    const [quellen, geladen] = await Promise.all([
+      ermittleQuellen(campaign.guildId, zeitraum),
+      szenenEinstellungen(campaign.id),
+    ]);
+    einstellungen = geladen;
+    kontext = { guildId: campaign.guildId, zeitraum, quellen };
+
+    kandidaten = await ladeKandidaten(campaign, run.cursor, settings.batchSize);
+  } catch (fehler) {
+    const grund = fehler instanceof Error ? fehler.message : String(fehler);
+    await markiereGescheitert(runId, grund);
+    log.error('Wrapped-Durchgang konnte nicht vorbereitet werden', { runId, fehler });
+    return { weiter: false, fortschritt: fortschrittVon(await holeLauf(runId)) };
+  }
   if (kandidaten.length === 0) {
     const fertig = await prisma.wrappedGenerationRun.update({
       where: { id: runId },
@@ -274,7 +373,7 @@ export async function verarbeiteStapel(
   if (run.status === 'QUEUED') {
     await prisma.wrappedGenerationRun.update({
       where: { id: runId },
-      data: { status: 'RUNNING', startedAt: new Date() },
+      data: { status: 'RUNNING', startedAt: new Date(), heartbeatAt: new Date() },
     });
   }
 
@@ -325,6 +424,9 @@ export async function verarbeiteStapel(
       failed: { increment: fehler.length },
       cursor: kandidaten[kandidaten.length - 1]?.discordId ?? run.cursor,
       errors: [...bisherige, ...fehler].slice(0, settings.maxErrors) as unknown as Prisma.InputJsonValue,
+      // Das Lebenszeichen. Solange es sich bewegt, arbeitet jemand - und nur
+      // daran laesst sich ein toter Lauf von einem langsamen unterscheiden.
+      heartbeatAt: new Date(),
     },
   });
 
@@ -362,6 +464,10 @@ async function schreibeMomentaufnahme(
     },
   });
 }
+
+/** Den Lauf frisch lesen - fuer den Fortschritt nach einem Abbruch. */
+const holeLauf = (runId: string): Promise<WrappedGenerationRun | null> =>
+  prisma.wrappedGenerationRun.findUnique({ where: { id: runId } });
 
 function fortschrittVon(run: WrappedGenerationRun | null): DurchgangFortschritt {
   if (!run) {

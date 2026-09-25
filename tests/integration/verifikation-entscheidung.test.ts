@@ -356,76 +356,29 @@ describeWithDatabase('Verifikation: Entscheidungen', () => {
     expect(geschlossen?.decidedBy).toBe('SYSTEM');
   });
 
-  it('lässt nur Vorgänge ohne Nachricht ablaufen', async () => {
-    // Wer geschrieben hat, wartet auf uns - den lassen wir nicht ablaufen.
-    const ohne = await verification.startVerification({ discordId: '900000000000009601' });
-    const mit = await neuerFall('900000000000009602');
-    const alt = new Date(Date.now() - 100 * 3600_000);
-    await prisma.verificationRequest.updateMany({
-      where: { id: { in: [ohne.id, mit.id] } },
-      data: { joinedAt: alt },
-    });
-
-    const { gateway } = attrappe();
-    const ergebnis = await verification.runVerificationTick(new Date(), gateway);
-
-    expect(ergebnis.abgelaufen).toBe(1);
-    expect((await verification.requireRequest(ohne.id)).status).toBe('EXPIRED');
-    expect((await verification.requireRequest(mit.id)).status).toBe('WAITING_FOR_REVIEW');
-  });
-
-  it('kickt beim Ablauf - und bannt dabei niemanden', async () => {
+  it('laesst niemanden mehr wegen Nichtantwort ablaufen', async () => {
     /*
-     * Die Vorgabe war einmal «nicht kicken». Das hiess in der Praxis: der
-     * Vorgang wurde als abgelaufen geführt, und die Person sass weiter mit
-     * der Rolle «Noch nicht verifiziert» im Server - unsichtbar für alle
-     * und auf Dauer.
+     * Die Frist ist ersatzlos entfallen.
      *
-     * Ein Kick ist kein Bann. Wer nichts geschrieben hat, hat nichts getan;
-     * er bekommt vorher eine Nachricht mit dem Grund und dem Weg zurück.
+     * Frueher lief ein Vorgang ohne Nachricht nach einer Viertelstunde ab,
+     * und wer bis dahin nichts geschrieben hatte, wurde gekickt. Das traf
+     * zuverlaessig die Falschen. Hier steht, dass davon nichts geblieben
+     * ist: ein Vorgang, der hundert Stunden alt ist und nie eine Nachricht
+     * gesehen hat, wartet - und die Person bleibt auf dem Server.
      */
-    const fall = await verification.startVerification({ discordId: '900000000000009603' });
+    const ohne = await verification.startVerification({ discordId: '900000000000009601' });
     await prisma.verificationRequest.update({
-      where: { id: fall.id },
+      where: { id: ohne.id },
       data: { joinedAt: new Date(Date.now() - 100 * 3600_000) },
     });
 
-    const { gateway, banns, kicks } = attrappe();
-    const ergebnis = await verification.runVerificationTick(new Date(), gateway);
+    const { gateway, kicks, banns } = attrappe();
+    await verification.runVerificationTick(new Date(), gateway);
 
-    expect(ergebnis.abgelaufen).toBe(1);
-    expect(ergebnis.gekickt).toBe(1);
-    expect(kicks.map((eintrag) => eintrag.discordId)).toEqual(['900000000000009603']);
-    expect(kicks[0]?.grund).toContain('Verifikation');
-    expect(banns).toEqual([]);
-  });
-
-  it('lässt den Vorgang ablaufen, ohne zu kicken, wenn der Kick abgeschaltet ist', async () => {
-    await setModuleSettings(
-      verification.VERIFICATION_MODULE_ID,
-      {
-        unverifiedRoleId: UNVERIFIZIERT,
-        memberRoleId: MITGLIED,
-        verificationChannelId: VERIFIKATIONSKANAL,
-        moderatorChannelId: MOD_KANAL,
-        aiEnabled: false,
-        aiAutoVerify: false,
-        kickOnExpire: false,
-      },
-      'test',
-    );
-    const fall = await verification.startVerification({ discordId: '900000000000009604' });
-    await prisma.verificationRequest.update({
-      where: { id: fall.id },
-      data: { joinedAt: new Date(Date.now() - 100 * 3600_000) },
-    });
-
-    const { gateway, kicks } = attrappe();
-    const ergebnis = await verification.runVerificationTick(new Date(), gateway);
-
-    expect(ergebnis.abgelaufen).toBe(1);
-    expect(ergebnis.gekickt).toBe(0);
+    expect((await verification.requireRequest(ohne.id)).status).toBe('WAITING_FOR_MESSAGE');
+    expect((await verification.requireRequest(ohne.id)).decidedAt).toBeNull();
     expect(kicks).toEqual([]);
+    expect(banns).toEqual([]);
   });
 
   it('erkennt eine frühere Verifikation für den erneuten Beitritt', async () => {

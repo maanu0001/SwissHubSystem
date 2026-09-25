@@ -439,6 +439,74 @@ export function fuelleVorlage(
     .replaceAll('{displayName}', anzeige);
 }
 
+/**
+ * Die Begrüssung des Bots entfernen - und nur sie.
+ *
+ * ## Wofür das da ist
+ *
+ * Wer den Server verlässt, bevor er verifiziert wurde, lässt im
+ * Verifikationskanal eine Aufforderung zurück, die an niemanden mehr
+ * gerichtet ist. Sie stehen zu lassen hat keinen Wert: die Person ist weg,
+ * die Erwähnung zeigt auf ein Konto, das den Kanal nicht mehr sieht, und bei
+ * einem Server mit Zulauf sammeln sich davon hunderte.
+ *
+ * ## Warum das nicht am Aufräum-Schalter hängt
+ *
+ * `cleanupEnabled` beantwortet die Frage, ob die **Nachrichten der Person**
+ * nach der Entscheidung aus dem Kanal verschwinden - eine Abwägung zwischen
+ * Ordnung und Nachvollziehbarkeit, die das Team trifft. Hier geht es um
+ * etwas anderes: um eine Nachricht, die der Bot selbst geschrieben hat und
+ * die ihren Adressaten verloren hat. Dafür gibt es nichts abzuwägen.
+ *
+ * ## Idempotent
+ *
+ * Eine bereits gelöschte Nachricht zählt als Erfolg. Discord antwortet mit
+ * 404, und das ist genau der Zustand, den wir wollten - kein Fehler, kein
+ * zweiter Versuch, keine Schleife.
+ */
+export async function loescheBegruessung(
+  requestId: string,
+  options: { gateway?: DiscordGateway } = {},
+): Promise<{ geloescht: number; schonWeg: number; fehlgeschlagen: number }> {
+  const gateway = options.gateway ?? defaultDiscord;
+  const zeilen = await prisma.verificationBotMessage
+    .findMany({ where: { requestId, kind: 'GREETING' }, select: { channelId: true, discordMessageId: true } })
+    .catch(() => []);
+
+  /*
+   * Die Rückfallebene für Vorgänge aus der Zeit vor der Liste: sie tragen
+   * ihre Kennung noch im Einzelfeld.
+   */
+  const marke = await prisma.verificationRequest
+    .findUnique({ where: { id: requestId }, select: { greetingChannelId: true, greetingMessageId: true } })
+    .catch(() => null);
+  const alle = new Map(zeilen.map((zeile) => [zeile.discordMessageId, zeile.channelId]));
+  if (marke?.greetingChannelId && marke.greetingMessageId) {
+    alle.set(marke.greetingMessageId, marke.greetingChannelId);
+  }
+
+  let geloescht = 0;
+  let schonWeg = 0;
+  let fehlgeschlagen = 0;
+  for (const [messageId, channelId] of alle) {
+    try {
+      await gateway.channels.delete(channelId, messageId, 'Mitglied hat den Server verlassen');
+      geloescht += 1;
+    } catch (error) {
+      if (error instanceof DiscordApiError && error.status === 404) {
+        schonWeg += 1;
+        continue;
+      }
+      fehlgeschlagen += 1;
+      logger.warn('verification.greeting.delete_failed', { requestId, messageId, error });
+    }
+  }
+  if (geloescht > 0 || schonWeg > 0 || fehlgeschlagen > 0) {
+    logger.info('verification.greeting.cleared', { requestId, geloescht, schonWeg, fehlgeschlagen });
+  }
+  return { geloescht, schonWeg, fehlgeschlagen };
+}
+
 /** `#3BA55D` → `0x3BA55D`. Ungültige Angaben fallen auf die Modulfarbe zurück. */
 function farbe(wert: string): number {
   const treffer = /^#?([0-9A-Fa-f]{6})$/u.exec(wert.trim());

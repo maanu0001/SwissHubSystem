@@ -85,6 +85,7 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   VERIFICATION_REJECTED: 'Verifikation abgelehnt',
   VERIFICATION_EXPIRED: 'Verifikation abgelaufen',
   VERIFICATION_TIMEOUT_KICK: 'Nach Ablauf entfernt',
+  VERIFICATION_REMINDER_SENT: 'An Verifikation erinnert',
   VERIFICATION_LEFT_SERVER: 'Während der Verifikation gegangen',
   VERIFICATION_CLEANUP: 'Verifikationskanal aufgeräumt',
   VERIFICATION_SUCCESS_POSTED: 'Freischaltung gemeldet',

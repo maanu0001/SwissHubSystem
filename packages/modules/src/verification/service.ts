@@ -4,7 +4,9 @@ import { discord as defaultDiscord, resolveGuildId, type DiscordGateway } from '
 import { createLogger } from '@swisshub/logger';
 import { conflict, notFound } from '@swisshub/shared';
 import { getModuleSettings, isModuleEnabled } from '../module-state';
+import { loescheBegruessung } from './abschluss';
 import { VERIFICATION_MODULE_ID, type VerificationSettings } from './config';
+import { beendeErinnerungen } from './erinnerung';
 
 const logger = createLogger('verification:service');
 
@@ -303,6 +305,21 @@ export async function entscheide(
       decidedByUsername: entscheidung.actorUsername ?? null,
       decisionReason: entscheidung.reason ?? null,
       decidedSource: entscheidung.source ?? null,
+      /*
+       * Und Schluss mit den Erinnerungen.
+       *
+       * Hier und nirgends sonst: `entscheide` ist die eine Stelle, durch die
+       * jeder Ausgang laeuft - freigeschaltet, abgelehnt, gebannt,
+       * ausgetreten, Fehler. Den Termin an jedem dieser Wege einzeln zu
+       * loeschen hiesse, ihn irgendwann an einem zu vergessen; und dieser
+       * eine waere dann der, bei dem ein Verifizierter weiter angepingt
+       * wird.
+       *
+       * Es steht in derselben Anweisung wie die Entscheidung selbst, nicht
+       * danach: wer den Riegel gewinnt, raeumt auch den Termin ab, und es
+       * gibt keinen Augenblick dazwischen.
+       */
+      nextReminderAt: null,
     },
   });
   if (ergebnis.count === 0) {
@@ -486,24 +503,66 @@ export async function verify(
  * Kein Urteil und keine Sanktion - nur die Feststellung, dass es nichts mehr
  * zu pruefen gibt.
  */
-export async function markLeft(guildId: string, discordId: string): Promise<VerificationRequest | null> {
+/**
+ * Jemand hat den Server verlassen.
+ *
+ * ## Was dabei geschieht, und in welcher Reihenfolge
+ *
+ * 1. **Vorgang schliessen.** `entscheide` ist die atomare Klammer: wer
+ *    `decidedAt` von NULL wegsetzt, hat entschieden. Kommt gleichzeitig ein
+ *    Moderator, gewinnt genau einer - und die Folgearbeit laeuft nur einmal.
+ * 2. **Erinnerungen beenden.** Ein Ausgetretener darf keine Erwaehnung mehr
+ *    bekommen. Das geschieht hier ausdruecklich und nicht nur nebenbei ueber
+ *    den Zustand: ein geplanter Termin, der stehen bliebe, waere ein Ping an
+ *    jemanden, der nicht mehr da ist.
+ * 3. **Begruessung loeschen.** Sie ist an eine Person gerichtet, die den
+ *    Kanal nicht mehr sieht. Siehe `loescheBegruessung` - das haengt
+ *    bewusst nicht am Aufraeum-Schalter.
+ *
+ * Schritt 2 und 3 werfen nicht. Eine Discord-Stoerung darf einen
+ * geschlossenen Vorgang nicht wieder aufmachen; was schiefgeht, steht im
+ * Protokoll.
+ *
+ * Idempotent: beim zweiten Aufruf gibt es keinen offenen Vorgang mehr, und
+ * es geschieht gar nichts. Eine bereits geloeschte Nachricht zaehlt als
+ * erledigt - dafuer gibt es keine zweite Runde.
+ */
+export async function markLeft(
+  guildId: string,
+  discordId: string,
+  options: { gateway?: DiscordGateway } = {},
+): Promise<VerificationRequest | null> {
   const offen = await offenerVorgang(guildId, discordId);
   if (!offen) {
     return null;
   }
   const entschieden = await entscheide(offen.id, { status: 'LEFT_SERVER', by: 'SYSTEM' });
-  if (entschieden) {
-    await safeRecordAudit({
-      action: AUDIT_ACTIONS.VERIFICATION_LEFT_SERVER,
-      module: VERIFICATION_MODULE_ID,
-      actorDiscordId: 'system',
-      actorUsername: 'Verifikation',
-      targetDiscordId: discordId,
-      targetLabel: offen.displayName ?? discordId,
-      success: true,
-      metadata: { requestId: offen.id },
-    });
+  if (!entschieden) {
+    return entschieden;
   }
+
+  await beendeErinnerungen(offen.id, 'kein_mitglied').catch(() => false);
+  const aufgeraeumt = await loescheBegruessung(offen.id, options).catch(() => ({
+    geloescht: 0,
+    schonWeg: 0,
+    fehlgeschlagen: 0,
+  }));
+
+  await safeRecordAudit({
+    action: AUDIT_ACTIONS.VERIFICATION_LEFT_SERVER,
+    module: VERIFICATION_MODULE_ID,
+    actorDiscordId: 'system',
+    actorUsername: 'Verifikation',
+    targetDiscordId: discordId,
+    targetLabel: offen.displayName ?? discordId,
+    success: true,
+    metadata: {
+      requestId: offen.id,
+      begruessungGeloescht: aufgeraeumt.geloescht,
+      begruessungSchonWeg: aufgeraeumt.schonWeg,
+      begruessungFehlgeschlagen: aufgeraeumt.fehlgeschlagen,
+    },
+  });
   return entschieden;
 }
 

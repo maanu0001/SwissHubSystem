@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Loader2, Play, Square } from 'lucide-react';
+import { AlertTriangle, Clock, Loader2, Play, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   wrappedDurchgangAbbrechenAction,
@@ -45,6 +45,15 @@ export function DurchgangPanel({
     created: number;
     skipped: number;
     failed: number;
+    /** Warum er gescheitert ist - nur bei `FAILED` gesetzt. */
+    grund: string | null;
+    /**
+     * Wie lange er schon auf den Bot wartet, in Sekunden.
+     *
+     * Serverseitig gerechnet, damit die Anzeige nicht von der Uhr des
+     * Browsers abhaengt. `null`, sobald der Bot ihn aufgenommen hat.
+     */
+    wartetSeit: number | null;
   } | null;
   kandidaten: number;
   snapshots: number;
@@ -83,6 +92,17 @@ export function DurchgangPanel({
   }
 
   const anteil = lauf && lauf.total > 0 ? Math.min(1, lauf.processed / lauf.total) : 0;
+
+  /*
+   * Wann aus «wartet» ein «da stimmt etwas nicht» wird.
+   *
+   * Der Takt des Bots laeuft jede Minute. Nach fuenf Minuten in der
+   * Warteschlange hat ihn also fuenfmal niemand geholt - dann laeuft der Bot
+   * nicht, oder das Modul ist dort aus. Vorher stand hier nur «Wartet auf den
+   * Bot», und zwar auch nach drei Tagen noch: der Knopf meldete Erfolg, es
+   * geschah nichts, und nichts sagte warum.
+   */
+  const langeInWarteschlange = lauf?.status === 'QUEUED' && (lauf.wartetSeit ?? 0) > 300;
 
   return (
     <div className="space-y-4">
@@ -125,6 +145,27 @@ export function DurchgangPanel({
             />
           </div>
         </div>
+      ) : null}
+
+      {lauf?.status === 'FAILED' ? (
+        <p className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>
+            <span className="font-medium">Der Durchgang ist gescheitert.</span>{' '}
+            {lauf.grund ?? 'Ein Grund wurde nicht festgehalten.'} Ein neuer Start beginnt von vorn.
+          </span>
+        </p>
+      ) : null}
+
+      {langeInWarteschlange ? (
+        <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-warning">
+          <Clock className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>
+            Der Durchgang wartet seit {Math.round((lauf?.wartetSeit ?? 0) / 60)} Minuten auf den Bot. Die
+            Arbeit macht der Bot, nicht diese Seite - laeuft er nicht oder ist das Wrapped-Modul dort
+            abgeschaltet, bleibt es dabei.
+          </span>
+        </p>
       ) : null}
 
       {darfErzeugen && !gesperrt ? (

@@ -241,15 +241,15 @@ export const discordMessageSchema = z.object({
  * `passthrough` ist hier richtig: Discord ergaenzt Felder, und ein strenges
  * Schema wuerde dann eine Antwort verwerfen, die vollstaendig brauchbar ist.
  */
-export const channelHistorySchema = z.array(
-  z
-    .object({
-      id: z.string(),
-      timestamp: z.string().optional(),
-      author: z.object({ id: z.string(), bot: z.boolean().optional() }).optional(),
-    })
-    .passthrough(),
-);
+export const channelEintragSchema = z
+  .object({
+    id: z.string(),
+    timestamp: z.string().optional(),
+    author: z.object({ id: z.string(), bot: z.boolean().optional() }).optional(),
+  })
+  .passthrough();
+
+export const channelHistorySchema = z.array(channelEintragSchema);
 
 /**
  * Channel-Overwrites für die Berechtigungsberechnung.

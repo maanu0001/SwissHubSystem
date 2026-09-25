@@ -89,6 +89,21 @@ export interface DiscordGateway {
     /** Löscht eine Nachricht des Bots. */
     delete(channelId: string, messageId: string, reason?: string): Promise<void>;
     /**
+     * Eine einzelne Nachricht - oder `null`, wenn es sie nicht mehr gibt.
+     *
+     * Der Unterschied zu `history` ist der Zweck: dort wird geblättert, hier
+     * wird **eine bekannte Kennung geprüft**. Wer wissen will, ob eine
+     * bestimmte Nachricht noch steht, müsste sonst den halben Kanal
+     * durchlesen - und fände sie ab hundert Nachrichten Abstand gar nicht
+     * mehr, obwohl sie da ist.
+     *
+     * `null` heisst «gelöscht oder nie dagewesen». Ein Fehler der API wird
+     * dagegen geworfen: «Discord antwortet gerade nicht» ist etwas anderes
+     * als «die Nachricht ist weg», und wer beides gleich behandelt, beendet
+     * bei jeder Störung eine Automation, die weiterlaufen sollte.
+     */
+    message(channelId: string, messageId: string): Promise<ChannelMessage | null>;
+    /**
      * Der Nachrichtenverlauf eines Kanals - eine Seite davon.
      *
      * Discord liefert hoechstens hundert Nachrichten je Anfrage, neueste

@@ -139,6 +139,11 @@ export function registerVerification(client: Client): void {
       if (!(await isModuleEnabled(verification.VERIFICATION_MODULE_ID))) {
         return;
       }
+      /*
+       * Schliessen, Erinnerungen beenden, Begruessung loeschen - alles in
+       * `markLeft`. Der Bot reicht hier nur das Ereignis durch; wer den
+       * Ablauf kennen will, findet ihn an einer Stelle statt an zweien.
+       */
       const geschlossen = await verification.markLeft(member.guild.id, member.id);
       if (geschlossen) {
         const settings = await verification.verificationSettings();
@@ -148,6 +153,39 @@ export function registerVerification(client: Client): void {
     } catch (error) {
       log.error('Austritt konnte nicht behandelt werden', { error, member: member.id });
     }
+  });
+
+  // --- Geloeschte Botnachricht -------------------------------------------
+  /*
+   * Wird die Begruessung entfernt, enden die Erinnerungen.
+   *
+   * Das ist die eingestellte Vorgabe - und der Grund dafuer ist einfach: die
+   * Erinnerung verweist auf die Begruessung. Ist sie weg, hat jemand
+   * aufgeraeumt, und der Bot soll nicht weiter anstupsen.
+   *
+   * ## Warum zusaetzlich das Ereignis und nicht nur die Pruefung
+   *
+   * Der Takt prueft ohnehin vor jeder Erinnerung, ob die Begruessung noch
+   * steht - das ist der verlaessliche Weg, denn ein Ereignis kann ausbleiben,
+   * wenn der Bot gerade neu startet. Hier geht es um die Geschwindigkeit:
+   * ohne dieses Ereignis bliebe der Termin bis zur naechsten Faelligkeit
+   * stehen, und in der Zwischenzeit saehe das Dashboard eine Reihe, die es
+   * nicht mehr gibt.
+   *
+   * Gelesen wird nur die Kennung. Ob es eine unserer Nachrichten war,
+   * entscheidet die Datenbank - nicht der Inhalt und nicht der Kanal.
+   */
+  client.on(Events.MessageDelete, (nachricht) => {
+    void (async () => {
+      try {
+        if (!(await isModuleEnabled(verification.VERIFICATION_MODULE_ID))) {
+          return;
+        }
+        await verification.begruessungGeloescht(nachricht.id);
+      } catch (error) {
+        log.warn('Geloeschte Nachricht konnte nicht zugeordnet werden', { error, id: nachricht.id });
+      }
+    })();
   });
 
   // --- Nachricht ---------------------------------------------------------

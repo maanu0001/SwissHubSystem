@@ -179,68 +179,70 @@ export const verificationSettingsSchema = z.object({
   /** Hoechstzahl der AI-Anfragen je Vorgang - Kostenbremse. */
   aiMaxAttempts: z.number().int().min(1).max(10).default(2),
 
-  // --- Ablauf ------------------------------------------------------------
-  /**
-   * Nach dieser Zeit **ohne Nachricht** gilt der Vorgang als abgelaufen.
+  // --- Erinnerungen -------------------------------------------------------
+  /*
+   * Es gibt keine Frist mehr.
    *
-   * In Minuten, weil Stunden die kuerzeste sinnvolle Frist nicht ausdruecken
-   * konnten: eine Viertelstunde ist genug, um eine Zeile zu schreiben, und
-   * kurz genug, dass ein Bot-Konto nicht tagelang im Server steht.
+   * Frueher lief ein Vorgang ohne Nachricht nach einer Viertelstunde ab, und
+   * wer bis dahin nichts geschrieben hatte, flog vom Server. Das traf
+   * zuverlaessig die Falschen: jemanden, der beitritt und das Handy weglegt,
+   * jemanden im Zug, jemanden, der die Begruessung schlicht nicht gesehen
+   * hat. Ein Bot-Konto stoerte in derselben Viertelstunde niemanden - es sass
+   * mit der Rolle «Noch nicht verifiziert» in einem Kanal, den sonst keiner
+   * sieht.
    *
-   * **Die Frist gilt der Person, nicht der Moderation.** Gezaehlt wird nur,
-   * solange der Vorgang auf eine Nachricht wartet. Sobald eine vorliegt,
-   * wartet er auf eine Entscheidung - und ein Moderator, der sich Zeit
-   * laesst, darf niemanden den Platz kosten. Das ist keine zusaetzliche
-   * Pruefung, sondern der Zustand selbst: die faellige Abfrage kennt
-   * ausschliesslich `WAITING_FOR_MESSAGE`.
-   *
-   * Eine eigene Deadline-Spalte braucht es dafuer nicht: `joinedAt` steht
-   * bereits in der Datenbank, und die Frist ist eine Einstellung. Beides
-   * uebersteht jeden Neustart, und wer die Frist aendert, aendert sie fuer
-   * alle - nicht nur fuer die, die danach beitreten.
+   * An die Stelle der Frist tritt etwas, das niemanden hinauswirft: eine
+   * Erinnerung, so lange, bis die Verifikation erledigt ist oder die Person
+   * ohnehin weg ist.
    */
-  expireAfterMinutes: z.number().int().min(1).max(43_200).default(15),
-  expireEnabled: z.boolean().default(true),
+  /** Unverifizierte regelmaessig an ihre offene Verifikation erinnern. */
+  reminderEnabled: z.boolean().default(true),
   /**
-   * Nach Ablauf vom Server werfen.
+   * Abstand zwischen zwei Erinnerungen, in Stunden.
    *
-   * Ein Kick, **niemals ein Bann**: wer nichts geschrieben hat, hat nichts
-   * getan. Er soll jederzeit wiederkommen koennen - deshalb geht vorher eine
-   * Nachricht mit der Einladung raus.
+   * Vierundzwanzig als Vorgabe: einmal am Tag ist bemerkbar und nicht
+   * laestig. Weniger als eine Stunde gibt es nicht - der Takt des Bots
+   * laeuft im Minutentakt, aber eine Erinnerung alle fuenf Minuten waere
+   * Belaestigung. Nach oben eine Woche.
    */
-  kickOnExpire: z.boolean().default(true),
-
+  reminderIntervalHours: z.number().int().min(1).max(168).default(24),
   /**
-   * Was der Person vor dem Kick geschrieben wird.
+   * Der Text der Erinnerung.
    *
-   * Dieselben drei Platzhalter wie ueberall im Modul, dazu `{invite}` fuer
-   * den Einladungslink. Steht keiner zur Verfuegung, faellt der Platzhalter
-   * ersatzlos weg - eine Nachricht mit einem leeren Link waere schlimmer als
-   * eine ohne.
+   * Dieselben drei Platzhalter wie ueberall im Modul. `{user}` wird zur
+   * Erwaehnung - und nur diese eine Erwaehnung wird Discord ausdruecklich
+   * erlaubt. Was ein Administrator sonst in den Text schreibt, bleibt Text:
+   * ein `@everyone` darin pingt niemanden.
    */
-  timeoutDmMessage: z
+  reminderMessage: z
     .string()
-    .max(1500)
-    .default(
-      'Hoi {displayName}\n\nDu wurdest von SwissHub entfernt, weil die Verifikation nicht innerhalb der Frist abgeschlossen wurde.\n\nDas ist keine Sperre: du kannst jederzeit wieder beitreten und die Verifikation neu starten.\n\n{invite}',
-    ),
+    .max(500)
+    .default('Hoi {user}, deine Verifikation bei SwissHub ist noch offen.'),
   /**
-   * Der Einladungslink fuer die Rueckkehr.
+   * Wie lange die Erinnerung stehen bleibt, in Sekunden.
    *
-   * Leer heisst nicht «kein Link»: dann wird eine bestehende, unbefristete
-   * Einladung des Servers verwendet. Erzeugt wird keine - eine neue
-   * Einladung je Zeitueberschreitung waere eine Flut von Links, die niemand
-   * mehr zuordnen kann, und sie braucht ein Recht, das der Bot nicht haben
-   * muss.
+   * Der Sinn der Sache ist die Benachrichtigung, nicht die Nachricht. Sie
+   * verschwindet danach wieder, damit der Verifikationskanal nicht mit
+   * Erinnerungen volllaeuft.
+   *
+   * Eine Zusage ueber die Push-Benachrichtigung ist das nicht: ob eine
+   * Erwaehnung auf dem Geraet ankommt, entscheiden die Einstellungen der
+   * Person und Discord, nicht wir.
    */
-  rejoinInviteUrl: z
-    .string()
-    .trim()
-    .max(200)
-    .refine((wert) => wert === '' || /^https:\/\/(discord\.gg|discord\.com\/invite)\/[\w-]+$/u.test(wert), {
-      message: 'Bitte einen Discord-Einladungslink angeben (https://discord.gg/…).',
-    })
-    .default(''),
+  reminderDeleteAfterSeconds: z.number().int().min(1).max(60).default(2),
+  /**
+   * Weitermachen, wenn die urspruengliche Verifikationsnachricht weg ist?
+   *
+   * Aus als Vorgabe. Die Begruessung ist der Ort, auf den die Erinnerung
+   * zeigt («deine Verifikation ist noch offen» - welche denn?). Ist sie
+   * geloescht, hat in aller Regel jemand aufgeraeumt, und dann soll der Bot
+   * nicht weiter anstupsen.
+   *
+   * Wer sie einschaltet, bekommt trotzdem keine Erinnerungen ins Blaue: es
+   * braucht weiterhin einen offenen Vorgang, ein Mitglied auf dem Server und
+   * einen eingestellten Verifikationskanal.
+   */
+  reminderContinueAfterOriginalDeleted: z.boolean().default(false),
 
   /**
    * Bereits verifizierte Personen bei erneutem Beitritt durchwinken.
@@ -262,56 +264,23 @@ export const verificationSettingsSchema = z.object({
 
 export type VerificationSettings = z.infer<typeof verificationSettingsSchema>;
 
-/** Obergrenze der Frist in Minuten - dreissig Tage. */
-const FRIST_HOECHSTENS = 43_200;
-
-/** Die Frist stand einmal in Stunden - und diese Zahl war ihre Vorgabe. */
-const FRIST_ALTE_VORGABE_STUNDEN = 48;
-
 /**
  * Was gespeichert steht, ehe es geprueft wird.
  *
- * Die Frist stand einmal in Stunden, und die Vorgabe waren achtundvierzig.
- * Beim Umstieg auf Minuten sind das zwei verschiedene Faelle, und sie
- * verdienen zwei verschiedene Antworten:
+ * Die Frist ohne Nachricht gab es in zwei Formen - `expireAfterHours` und
+ * spaeter `expireAfterMinutes` -, dazu `expireEnabled`, `kickOnExpire`,
+ * `timeoutDmMessage` und `rejoinInviteUrl`. Alle sechs sind ersatzlos
+ * entfallen: es wird niemand mehr wegen Nichtantwort entfernt.
  *
- * - **Ein abweichender Wert wurde gewaehlt.** Wer die Frist damals auf zwoelf
- *   oder auf hundertsechzig Stunden gestellt hat, hat eine Entscheidung
- *   getroffen. Sie wird umgerechnet und bleibt bestehen.
- * - **Achtundvierzig stand einfach da.** Das ist keine Entscheidung, sondern
- *   die Vorgabe von damals - gespeichert, weil das Formular beim ersten
- *   Speichern alle Felder mitschickt. Sie wird durch die heutige Vorgabe
- *   ersetzt.
+ * In der Datenbank stehen sie noch, denn dort liegt ein JSON-Objekt, das
+ * niemand wegmigriert hat. Zod laesst unbekannte Schluessel fallen, also
+ * verschwinden sie beim naechsten Lesen aus dem Ergebnis und beim naechsten
+ * Speichern aus der Zeile. Ein eigener Umbau dafuer waere Aufwand fuer
+ * nichts.
  *
- * Ein Umweg fuer eine Uebergangszeit, und er steht an genau einer Stelle:
- * dem Schema, mit dem das Modul seine Einstellungen liest. Das
- * ausgeschriebene `verificationSettingsSchema` bleibt daneben unveraendert -
- * es ist die Form, die das Dashboard speichert und die Tests pruefen.
- *
- * Sobald jemand die Einstellungen einmal speichert, ist der Umweg fuer diese
- * Installation erledigt: danach steht `expireAfterMinutes` in der Datenbank
- * und `expireAfterHours` gar nicht mehr.
+ * Die Protokolleintraege von damals (`VERIFICATION_TIMEOUT_KICK`) bleiben
+ * ausdruecklich lesbar. Was geschehen ist, ist geschehen.
  */
-const verificationSettingsGelesen = z.preprocess((roh) => {
-  if (!roh || typeof roh !== 'object' || Array.isArray(roh)) {
-    return roh;
-  }
-  const werte = roh as Record<string, unknown>;
-  if (werte.expireAfterMinutes !== undefined || typeof werte.expireAfterHours !== 'number') {
-    return roh;
-  }
-  if (werte.expireAfterHours === FRIST_ALTE_VORGABE_STUNDEN) {
-    // Die alte Vorgabe traegt keine Aussage - die heutige tritt an ihre Stelle.
-    const { expireAfterHours: _alt, ...rest } = werte;
-    return rest;
-  }
-  const minuten = Math.round(werte.expireAfterHours * 60);
-  return {
-    ...werte,
-    expireAfterMinutes: Math.min(FRIST_HOECHSTENS, Math.max(1, minuten)),
-  };
-}, verificationSettingsSchema);
-
 const verificationSettingsFields: SettingsField[] = [
   {
     key: 'unverifiedRoleId',
@@ -479,49 +448,50 @@ const verificationSettingsFields: SettingsField[] = [
     group: 'AI',
   },
   {
-    key: 'expireEnabled',
-    label: 'Vorgänge ablaufen lassen',
-    description: 'Wer nichts schreibt, wird nach der eingestellten Frist als abgelaufen geführt.',
+    key: 'reminderEnabled',
+    label: 'An offene Verifikationen erinnern',
+    description:
+      'Der Bot erwähnt Unverifizierte im Verifikationskanal und löscht die Erinnerung gleich wieder. Die ursprüngliche Begrüssung bleibt stehen.',
     type: 'boolean',
-    group: 'Ablauf',
+    group: 'Erinnerungen',
   },
   {
-    key: 'expireAfterMinutes',
-    label: 'Frist ohne Nachricht',
-    description:
-      'Gezählt wird nur, solange der Vorgang auf eine Nachricht wartet. Wer geschrieben hat, wartet auf die Moderation - und läuft nicht ab.',
+    key: 'reminderIntervalHours',
+    label: 'Abstand zwischen zwei Erinnerungen',
+    description: 'Gezählt ab der letzten Erinnerung - beim ersten Mal ab der Begrüssung.',
     type: 'number',
     min: 1,
-    max: 43200,
-    unit: 'Minuten',
-    group: 'Ablauf',
+    max: 168,
+    unit: 'Stunden',
+    group: 'Erinnerungen',
   },
   {
-    key: 'kickOnExpire',
-    label: 'Nach Ablauf vom Server entfernen',
+    key: 'reminderMessage',
+    label: 'Text der Erinnerung',
     description:
-      'Ein Kick ist kein Bann - die Person kann jederzeit wiederkommen. Vorher erhält sie eine Nachricht mit dem Grund und der Einladung.',
-    type: 'boolean',
-    group: 'Ablauf',
-  },
-  {
-    key: 'timeoutDmMessage',
-    label: 'Nachricht vor dem Entfernen',
-    description:
-      '{user}, {username} und {displayName} werden ersetzt, {invite} durch den Einladungslink. Leer lassen, um nichts zu senden.',
+      '{user} wird zur Erwähnung, {username} und {displayName} zu den Namen. Nur diese eine Person wird erwähnt - @everyone im Text pingt niemanden.',
     type: 'textarea',
-    maxLength: 1500,
-    group: 'Ablauf',
+    maxLength: 500,
+    group: 'Erinnerungen',
   },
   {
-    key: 'rejoinInviteUrl',
-    label: 'Einladungslink für die Rückkehr',
+    key: 'reminderDeleteAfterSeconds',
+    label: 'Erinnerung wieder löschen nach',
     description:
-      'Leer lassen, um eine bestehende unbefristete Einladung des Servers zu verwenden. Es wird keine neue erzeugt.',
-    type: 'text',
-    maxLength: 200,
-    placeholder: 'https://discord.gg/…',
-    group: 'Ablauf',
+      'Die Benachrichtigung ist der Zweck, nicht die Nachricht. Ob eine Push-Meldung ankommt, entscheiden Discord und die Einstellungen der Person.',
+    type: 'number',
+    min: 1,
+    max: 60,
+    unit: 'Sekunden',
+    group: 'Erinnerungen',
+  },
+  {
+    key: 'reminderContinueAfterOriginalDeleted',
+    label: 'Auch ohne ursprüngliche Verifikationsnachricht erinnern',
+    description:
+      'Aus: sobald die Begrüssung gelöscht ist, enden die Erinnerungen. An bereits verifizierte, gebannte oder ausgetretene Mitglieder geht ohnehin nie eine.',
+    type: 'boolean',
+    group: 'Erinnerungen',
   },
   {
     key: 'trustReturningMembers',
@@ -664,34 +634,38 @@ async function verificationHealthChecks(context: ModuleHealthContext): Promise<M
   }
 
   /*
-   * Der Ablauf ist still, wenn er nicht tut, was jemand erwartet.
+   * Erinnerungen, die nie ankommen.
    *
-   * «Vorgaenge laufen ab» und «niemand wird entfernt» ergeben zusammen einen
-   * Zustand, in dem abgelaufene Vorgaenge zwar als abgelaufen gefuehrt
-   * werden, die Person aber mit der Rolle «Noch nicht verifiziert» im Server
-   * sitzen bleibt - unsichtbar fuer alle und auf Dauer.
+   * Sie brauchen einen Verifikationskanal - dort steht die Begruessung, und
+   * dorthin geht die Erwaehnung. Ohne Kanal laeuft die Erinnerungsreihe ins
+   * Leere, und niemand merkt es: es geschieht ja nichts.
    */
-  if (settings.expireEnabled) {
-    const frist =
-      settings.expireAfterMinutes < 60
-        ? `${settings.expireAfterMinutes} Minuten`
-        : `${Math.round(settings.expireAfterMinutes / 60)} Stunden`;
-    checks.push(
-      settings.kickOnExpire
-        ? { label: 'Frist ohne Nachricht', status: 'ok', detail: `${frist}, danach Kick.` }
-        : {
-            label: 'Frist ohne Nachricht',
-            status: 'warning',
-            detail: `${frist}. Es wird niemand entfernt - abgelaufene Vorgänge bleiben mit der Rolle «Noch nicht verifiziert» im Server stehen.`,
-            fixHref: fix,
-          },
-    );
-  } else {
+  if (!settings.reminderEnabled) {
     checks.push({
-      label: 'Frist ohne Nachricht',
+      label: 'Erinnerungen',
       status: 'warning',
-      detail: 'Abgeschaltet. Wer nie schreibt, bleibt unbegrenzt im Server stehen.',
+      detail:
+        'Abgeschaltet. Wer nie schreibt, bleibt unbegrenzt unverifiziert - und wird nicht daran erinnert.',
       fixHref: fix,
+    });
+  } else if (!settings.verificationChannelId) {
+    checks.push({
+      label: 'Erinnerungen',
+      status: 'error',
+      detail: 'Eingeschaltet, aber ohne Verifikationskanal gibt es keinen Ort für die Erwähnung.',
+      fixHref: fix,
+    });
+  } else {
+    const abstand =
+      settings.reminderIntervalHours === 24
+        ? 'täglich'
+        : settings.reminderIntervalHours < 24
+          ? `alle ${settings.reminderIntervalHours} Stunden`
+          : `alle ${Math.round(settings.reminderIntervalHours / 24)} Tage`;
+    checks.push({
+      label: 'Erinnerungen',
+      status: 'ok',
+      detail: `${abstand.charAt(0).toUpperCase()}${abstand.slice(1)}, danach wird die Erinnerung nach ${settings.reminderDeleteAfterSeconds} Sekunden wieder gelöscht.`,
     });
   }
 
@@ -742,7 +716,7 @@ export const verificationModule: ModuleDefinition = registerModule({
   icon: 'ShieldCheck',
   permissionPrefix: 'verification',
   defaultEnabled: false,
-  settingsSchema: verificationSettingsGelesen,
+  settingsSchema: verificationSettingsSchema,
   settingsFields: verificationSettingsFields,
   healthChecks: verificationHealthChecks,
   permissions: [

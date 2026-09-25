@@ -1,8 +1,8 @@
 import { prisma } from '@swisshub/database';
 import { discord as defaultDiscord, type DiscordGateway } from '@swisshub/discord';
 import { createLogger } from '@swisshub/logger';
+import { sendeErinnerung } from './erinnerung';
 import { verificationSettings } from './service';
-import { behandleZeitueberschreitung } from './zeitueberschreitung';
 
 const logger = createLogger('verification:worker');
 
@@ -10,22 +10,23 @@ const logger = createLogger('verification:worker');
  * Zeitsteuerung der Verifikation.
  *
  * Zwei Aufgaben, beide idempotent und beide gegen die Datenbank statt gegen
- * Zeitgeber im Arbeitsspeicher: Vorgaenge ablaufen lassen und alte
+ * Zeitgeber im Arbeitsspeicher: faellige Erinnerungen senden und alte
  * Nachrichtentexte loeschen.
  *
- * **Die Frist gilt der Person, nicht der Moderation.** Faellig ist
- * ausschliesslich, was noch auf eine Nachricht wartet - `WAITING_FOR_MESSAGE`
- * und nichts sonst. Wer geschrieben hat, wartet auf uns, nicht umgekehrt,
- * und ein Moderator, der sich Zeit laesst, darf niemanden den Platz kosten.
+ * ## Was hier nicht mehr steht
  *
- * Ablaufen heisst nicht bannen. Wer nichts geschrieben hat, hat nichts
- * getan - er bekommt vorher eine Nachricht mit dem Grund und dem Weg
- * zurueck.
+ * Die Frist. Frueher lief ein Vorgang ohne Nachricht nach einer
+ * Viertelstunde ab, und wer bis dahin nichts geschrieben hatte, wurde vom
+ * Server geworfen. Sie ist ersatzlos entfallen: wer nicht antwortet, bleibt
+ * unverifiziert, und es geschieht zunaechst gar nichts. Was an ihre Stelle
+ * tritt, wirft niemanden hinaus - es erinnert.
  */
 
 export interface VerificationTickResult {
-  abgelaufen: number;
-  gekickt: number;
+  /** Wie viele Erinnerungen tatsaechlich rausgingen. */
+  erinnert: number;
+  /** Wie viele Reihen in diesem Durchgang geendet haben. */
+  beendet: number;
   bereinigt: number;
 }
 
@@ -35,11 +36,11 @@ const JE_DURCHGANG = 50;
 /**
  * Wie oft die Aufbewahrung tatsaechlich geprueft wird.
  *
- * Der Durchgang laeuft im Minutentakt, weil die Frist in Minuten gilt. Die
- * Aufbewahrung rechnet in Tagen; sie jede Minute zu pruefen waere eine
- * Abfrage, die neunundfuenfzig Mal nichts findet. Ein Richtwert, keine
- * Zusage: nach einem Neustart laeuft sie einmal zusaetzlich, und das ist
- * folgenlos.
+ * Der Durchgang laeuft im Minutentakt, weil eine faellige Erinnerung zuegig
+ * rausgehen soll. Die Aufbewahrung rechnet in Tagen; sie jede Minute zu
+ * pruefen waere eine Abfrage, die neunundfuenfzig Mal nichts findet. Ein
+ * Richtwert, keine Zusage: nach einem Neustart laeuft sie einmal zusaetzlich,
+ * und das ist folgenlos.
  */
 const AUFBEWAHRUNG_ABSTAND_MS = 3600_000;
 let aufbewahrungZuletzt = 0;
@@ -49,52 +50,57 @@ export async function runVerificationTick(
   gateway: DiscordGateway = defaultDiscord,
 ): Promise<VerificationTickResult> {
   const settings = await verificationSettings();
-  let abgelaufen = 0;
-  let gekickt = 0;
+  let erinnert = 0;
+  let beendet = 0;
 
-  if (settings.expireEnabled) {
-    const grenze = new Date(now.getTime() - settings.expireAfterMinutes * 60_000);
-    const faellig = await prisma.verificationRequest.findMany({
-      /*
-       * Nur wer nie geschrieben hat.
-       *
-       * Der Zustand ist hier die ganze Pruefung: schreibt jemand in der
-       * letzten Sekunde, wechselt sein Vorgang noch in derselben nach
-       * `WAITING_FOR_REVIEW` und ist fuer diese Abfrage nicht mehr da.
-       * Laeuft der Durchgang trotzdem gleichzeitig los, scheitert er am
-       * Riegel in `entscheide`.
-       */
-      where: { status: 'WAITING_FOR_MESSAGE', joinedAt: { lt: grenze } },
-      select: { id: true, discordId: true, username: true, displayName: true },
-      orderBy: { joinedAt: 'asc' },
-      take: JE_DURCHGANG,
-    });
+  /*
+   * Faellige Erinnerungen.
+   *
+   * Auch dann abgefragt, wenn die Erinnerungen abgeschaltet sind: die
+   * offenen Termine sollen in dem Fall aufgeraeumt und nicht bloss
+   * ignoriert werden, sonst prasselten sie beim Wiedereinschalten auf einen
+   * Schlag los. `sendeErinnerung` beendet sie dann einzeln und sauber.
+   *
+   * Nur `WAITING_FOR_MESSAGE`: wer geschrieben hat, wartet auf die
+   * Moderation und nicht auf einen Anstupser.
+   */
+  const faellig = await prisma.verificationRequest.findMany({
+    where: {
+      status: 'WAITING_FOR_MESSAGE',
+      decidedAt: null,
+      nextReminderAt: { lte: now },
+    },
+    select: { id: true },
+    orderBy: { nextReminderAt: 'asc' },
+    take: JE_DURCHGANG,
+  });
 
-    for (const eintrag of faellig) {
-      const ergebnis = await behandleZeitueberschreitung(eintrag, settings, { gateway, now }).catch(
-        (error: unknown) => {
-          // Ein einzelner Vorgang darf den Durchgang nicht anhalten - sonst
-          // bliebe der Rest der Warteschlange stehen.
-          logger.warn('verification.timeout.failed', { requestId: eintrag.id, error });
-          return null;
-        },
-      );
-      if (!ergebnis) {
-        continue;
-      }
-      abgelaufen += 1;
-      if (ergebnis.gekickt) {
-        gekickt += 1;
-      }
+  for (const eintrag of faellig) {
+    const ergebnis = await sendeErinnerung(eintrag.id, settings, { gateway, jetzt: now }).catch(
+      (error: unknown) => {
+        // Ein einzelner Vorgang darf den Durchgang nicht anhalten - sonst
+        // bliebe der Rest der Warteschlange stehen.
+        logger.warn('verification.reminder.failed', { requestId: eintrag.id, error });
+        return null;
+      },
+    );
+    if (!ergebnis) {
+      continue;
+    }
+    if (ergebnis.gesendet) {
+      erinnert += 1;
+    }
+    if (ergebnis.ende) {
+      beendet += 1;
     }
   }
 
   const bereinigt = await raeumeAlteTexte(now, settings.retentionDays);
 
-  if (abgelaufen > 0 || bereinigt > 0) {
-    logger.info('Verifikation fortgeschrieben', { abgelaufen, gekickt, bereinigt });
+  if (erinnert > 0 || beendet > 0 || bereinigt > 0) {
+    logger.info('Verifikation fortgeschrieben', { erinnert, beendet, bereinigt });
   }
-  return { abgelaufen, gekickt, bereinigt };
+  return { erinnert, beendet, bereinigt };
 }
 
 /**

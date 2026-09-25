@@ -5382,6 +5382,25 @@ model VerificationRequest {
   /// Center, damit es keine zweite Notizenwelt gibt.
   noteId String?
 
+  // --- Erinnerungen --------------------------------------------------------
+  /// Wann die naechste Erinnerung faellig ist.
+  ///
+  /// Der ganze Zeitplan steht in dieser einen Spalte, und das ist Absicht:
+  /// ein `setTimeout` ueberlebt kein Deployment, und ein Zeitgeber je Person
+  /// ergaebe bei sechstausend Mitgliedern sechstausend Uhren im
+  /// Arbeitsspeicher. Hier ist es eine Abfrage - `nextReminderAt <= jetzt` -,
+  /// die jeder Worker stellen kann und die einen Neustart uebersteht.
+  ///
+  /// `NULL` heisst **keine weitere Erinnerung**. Genau dahin fuehrt jede
+  /// Beendigungsbedingung: verifiziert, gebannt, ausgetreten, Begruessung
+  /// geloescht, Erinnerungen abgeschaltet. Ein zweiter Schalter daneben waere
+  /// eine zweite Wahrheit ueber denselben Umstand.
+  nextReminderAt DateTime?
+  /// Wann zuletzt erinnert wurde - fuer die Akte und fuer Rueckfragen.
+  lastReminderAt DateTime?
+  /// Wie oft bereits erinnert wurde.
+  reminderCount  Int       @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -5395,6 +5414,8 @@ model VerificationRequest {
   @@index([guildId, discordId, createdAt])
   @@index([guildId, decidedAt])
   @@index([status, joinedAt])
+  /// Die faellige Abfrage der Erinnerungen: Zustand und Zeitpunkt zusammen.
+  @@index([status, nextReminderAt])
 }
 
 /// Wofuer der Bot eine Nachricht geschrieben hat.
@@ -6662,6 +6683,27 @@ model WrappedGenerationRun {
   startedByDiscordId String?
   startedAt          DateTime?
   finishedAt         DateTime?
+
+  /// Das letzte Lebenszeichen des Arbeiters.
+  ///
+  /// Wird bei jedem Stapel neu gesetzt. Ohne diese Spalte war ein Durchgang,
+  /// dessen Bot mitten im Lauf starb, nicht von einem laufenden zu
+  /// unterscheiden: er stand fuer immer auf `RUNNING`, und `starteDurchgang`
+  /// gab ihn jedem weiteren Klick zurueck, statt neu zu beginnen. Der Knopf
+  /// meldete Erfolg, und nichts geschah.
+  ///
+  /// NULL bei allem, was vor dieser Spalte entstanden ist - und bei allem,
+  /// was noch in der Warteschlange steht.
+  heartbeatAt DateTime?
+
+  /// Warum der Durchgang gescheitert ist.
+  ///
+  /// Gesetzt zusammen mit `status = FAILED`. Der Zustand gab es im Schema
+  /// von Anfang an, geschrieben hat ihn nur nie jemand: ein Durchgang, der
+  /// ausserhalb der einzelnen Momentaufnahme scheiterte, blieb auf `RUNNING`
+  /// stehen. Weil der Takt sich immer den aeltesten offenen Lauf nimmt,
+  /// blockierte ein einziger solcher Lauf jeden spaeteren - dauerhaft.
+  failureReason String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
