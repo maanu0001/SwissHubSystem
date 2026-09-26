@@ -62,6 +62,24 @@ export const clipsSettingsSchema = z.object({
   submissionsPerMember: z.number().int().min(1).max(10).default(1),
 
   /**
+   * Eigene Clipdateien hochladen erlauben.
+   *
+   * Standardmaessig AUS. Ein Upload belegt Plattenplatz auf demselben
+   * Dateisystem wie die Datenbank; das einzuschalten soll eine Entscheidung
+   * sein, die jemand trifft, nachdem er auf den freien Platz gesehen hat -
+   * keine, die er vorfindet.
+   */
+  allowUploads: z.boolean().default(false),
+  /**
+   * Die Obergrenze je Datei, in Megabyte.
+   *
+   * Durchgesetzt wird sie serverseitig in `speichereVideo`. Die harte Grenze
+   * von 500 MB steht dort und laesst sich hier nicht ueberschreiten: die
+   * Platte ist geteilt, und ein volles Dateisystem nimmt die Datenbank mit.
+   */
+  uploadMaxMb: z.number().int().min(5).max(500).default(100),
+
+  /**
    * Eigene Clips waehlen.
    *
    * Standardmaessig aus. Wer fuer sich selbst stimmen darf, tut es, und dann
@@ -200,6 +218,24 @@ const clipsSettingsFields: SettingsField[] = [
     min: 1,
     max: 10,
     group: 'Abstimmung',
+  },
+  {
+    key: 'allowUploads',
+    type: 'boolean',
+    label: 'Eigene Clipdateien hochladen erlauben',
+    description:
+      'Standardmässig aus. Uploads belegen Plattenplatz auf demselben Dateisystem wie die Datenbank - erst einschalten, wenn genug frei ist.',
+    group: 'Einreichung',
+  },
+  {
+    key: 'uploadMaxMb',
+    type: 'number',
+    label: 'Grösse je Clipdatei (MB)',
+    description:
+      'Serverseitig durchgesetzt. Mehr als 500 MB lässt sich nicht einstellen - ein volles Dateisystem nimmt die Datenbank mit.',
+    min: 5,
+    max: 500,
+    group: 'Einreichung',
   },
   {
     key: 'allowSelfVote',

@@ -41,6 +41,26 @@ describe('Content Security Policy fuer eingebettete Clips', () => {
     expect(middleware).toMatch(/frame-src 'self' \$\{EINBETTUNGS_HOSTS\.join\(' '\)\}/u);
   });
 
+  it('laesst eigene Videodateien und die lokale Vorschau zu', () => {
+    /*
+     * Zwei Dinge haengen daran, und keines faellt beim Lesen des Codes auf:
+     *
+     *  - `'self'` - ohne das bliebe ein hochgeladener Clip schwarz, obwohl
+     *    die Route ihn korrekt ausliefert.
+     *  - `blob:` - ohne das bliebe die Vorschau im Einreich-Assistenten
+     *    schwarz. Sie spielt die gewaehlte Datei lokal, bevor irgendetwas
+     *    uebertragen wird.
+     *
+     * Beides sieht nach einem Fehler im Player aus, nicht nach der Policy.
+     */
+    expect(middleware).toContain('"media-src \'self\' blob:"');
+  });
+
+  it('laesst kein Video von fremden Adressen zu', () => {
+    const zeile = /media-src[^"`]*/u.exec(middleware)?.[0] ?? '';
+    expect(zeile).not.toMatch(/https:|\*/u);
+  });
+
   it('gibt keinen Rahmen fuer beliebige https-Adressen frei', () => {
     /*
      * `frame-src https:` oder `frame-src *` waere die Einladung, irgendeine

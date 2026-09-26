@@ -1,5 +1,6 @@
 'use client';
 
+import { ClipRahmen } from './clip-rahmen';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -101,14 +102,11 @@ export function ModerationsListe({
               )}
             >
               <div className="bg-black">
-                <iframe
-                  src={einbettung}
-                  title={eintrag.titel}
-                  className="aspect-video w-full"
-                  allow="fullscreen"
-                  sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
-                  referrerPolicy="strict-origin-when-cross-origin"
-                  loading="lazy"
+                <ClipRahmen
+                  provider={eintrag.provider}
+                  adresse={einbettung}
+                  titel={eintrag.titel}
+                  spaetLaden
                 />
               </div>
 

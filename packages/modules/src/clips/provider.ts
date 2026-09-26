@@ -27,11 +27,22 @@ import { AppError } from '@swisshub/shared';
  * dass jemand sie prueft.
  */
 
-export type ClipProvider = 'twitch' | 'youtube' | 'medal';
+/**
+ * Woher ein Clip kommt.
+ *
+ * `upload` ist kein Anbieter im Sinne der uebrigen: es gibt keine fremde
+ * Adresse zu zerlegen, weil die Datei bei uns liegt. Der Wert steht hier
+ * trotzdem, damit jede Stelle, die einen Clip anzeigt, an einer einzigen
+ * Angabe erkennt, ob sie ein `iframe` oder ein `video`-Element braucht.
+ */
+export type ClipProvider = 'twitch' | 'youtube' | 'medal' | 'upload';
+
+/** Die Anbieter mit fremden Adressen - nur sie brauchen eine Hostliste. */
+type AdressAnbieter = Exclude<ClipProvider, 'upload'>;
 
 export interface ErkannterClip {
   provider: ClipProvider;
-  sourceType: 'TWITCH_CLIP' | 'YOUTUBE' | 'MEDAL';
+  sourceType: 'TWITCH_CLIP' | 'YOUTUBE' | 'MEDAL' | 'UPLOAD';
   /** Die Kennung beim Anbieter - daran wird ein Duplikat erkannt. */
   externalId: string;
   /** Die auf eine Form gebrachte Adresse, ohne Tracking-Parameter. */
@@ -43,7 +54,7 @@ export interface ErkannterClip {
 }
 
 /** Erlaubte Hosts je Anbieter. Alles andere wird abgelehnt. */
-const HOSTS: Record<ClipProvider, ReadonlySet<string>> = {
+const HOSTS: Record<AdressAnbieter, ReadonlySet<string>> = {
   twitch: new Set(['twitch.tv', 'www.twitch.tv', 'm.twitch.tv', 'clips.twitch.tv']),
   youtube: new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'www.youtu.be']),
   medal: new Set(['medal.tv', 'www.medal.tv']),
@@ -246,6 +257,65 @@ function medal(adresse: URL): ErkannterClip {
      * erste Server-Request auf eine von aussen bestimmte Adresse, und genau
      * das vermeidet dieses Modul.
      */
+    thumbnailUrl: null,
+  };
+}
+
+/**
+ * Ein hochgeladener Clip - als `ErkannterClip`, damit der Einreichungsweg
+ * unveraendert bleibt.
+ *
+ * ## Warum hier und nicht im Dienst
+ *
+ * Weil dieses Modul die eine Stelle ist, an der entsteht, was spaeter
+ * angezeigt wird. Eine zweite Stelle, die Adressen fuer Clips baut, waere
+ * eine zweite Vorstellung davon, was eine Clipadresse ist - und die
+ * gefaehrlichere von beiden, weil niemand sie so genau ansieht wie diese.
+ *
+ * ## Der Dateiname ist die Kennung
+ *
+ * Er entsteht aus 16 Zufallsbytes und ist damit eindeutig. Das hat eine
+ * Folge, die Absicht ist: zweimal dieselbe Datei hochgeladen ergibt zwei
+ * Clips. Ein Abgleich am Inhalt waere eine Pruefsumme ueber 100 MB je
+ * Einreichung, und er wuerde zwei Ausschnitte desselben Spiels ohnehin nicht
+ * als dasselbe erkennen. Die Moderation sieht doppelte Einreichungen und
+ * entscheidet - das ist der Weg, den dieses Modul schon fuer inhaltliche
+ * Fragen vorsieht.
+ *
+ * ## Die Adresse ist intern
+ *
+ * `/api/clips/datei/<name>` - ein Route Handler mit festem Content-Type. Die
+ * Datei liegt ausserhalb von `public` und wird nie statisch bedient; eine als
+ * `.mp4` gespeicherte HTML-Datei koennte sonst als Seite auf der eigenen
+ * Domain laufen.
+ */
+export function erkenneUpload(dateiname: string, container: 'mp4' | 'webm'): ErkannterClip {
+  /*
+   * Auch hier geprueft, obwohl der Name selbst erzeugt wurde.
+   *
+   * Diese Funktion ist `export`, und der naechste Aufrufer in zwei Jahren
+   * weiss nicht, woher sein Name kommt. Ein Muster kostet nichts und macht
+   * aus einem kuenftigen Fehler einen sauberen Fehlschlag statt einer
+   * Adresse, die auf etwas anderes zeigt.
+   *
+   * Geprueft wird gegen den **uebergebenen Container**, nicht gegen
+   * `mp4|webm`: so faellt auch der Fall auf, in dem Name und erkannter
+   * Inhalt auseinanderlaufen - eine als `.mp4` abgelegte WebM-Datei wuerde
+   * mit festem Content-Type falsch ausgeliefert.
+   */
+  if (!new RegExp(`^clip-[0-9a-f]{32}\\.${container}$`, 'u').test(dateiname)) {
+    fehler('Diese Datei ist nicht bekannt.');
+  }
+
+  const adresse = `/api/clips/datei/${dateiname}`;
+  return {
+    provider: 'upload',
+    sourceType: 'UPLOAD',
+    externalId: dateiname,
+    canonicalUrl: adresse,
+    embedUrl: adresse,
+    // Ein Vorschaubild waere ein Einzelbild aus dem Video - das braucht einen
+    // Decoder, und den gibt es hier nicht. Ein leerer Platz ist ehrlicher.
     thumbnailUrl: null,
   };
 }

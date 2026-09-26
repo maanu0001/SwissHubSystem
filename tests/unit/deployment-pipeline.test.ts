@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { LEBENSZEICHEN_DATEI } from '../../apps/bot/src/jobs';
 import { MAX_LEGACY_DB_BYTES } from '../../packages/modules/src/level/import/reader';
+import { VIDEO_MAX_BYTES_GRENZE } from '../../packages/modules/src/clips/video-speicher';
 
 /**
  * Was die Deployment-Kette zusammenhaelt.
@@ -113,6 +114,43 @@ describe('Deployment-Workflow', () => {
  * Limit gebunden, das sie decken soll. Diese Pruefung bindet sie: wer
  * `MAX_LEGACY_DB_BYTES` anhebt, ohne den Proxy nachzuziehen, faellt hier auf.
  */
+/**
+ * Die Sicherung deckt auch die Dateien.
+ *
+ * ## Warum das geprueft wird
+ *
+ * Weil der Fehler unsichtbar ist. In der Anleitung stand jahrelang, ein
+ * PostgreSQL-Dump genuege als vollstaendige Sicherung - und solange nur Logos
+ * und Banner im Upload-Verzeichnis lagen, fiel es niemandem auf.
+ *
+ * Mit hochgeladenen Clips ergibt eine Wiederherstellung aus einem reinen Dump
+ * eine Datenbank voller Clips ohne Dateien: die Ausliefer-Route antwortet mit
+ * 404, die Hall of Fame zeigt schwarze Flaechen, und im Log steht nichts.
+ * Gemerkt wird das beim Wiederherstellen - dem einen Moment, in dem man es
+ * nicht mehr aendern kann.
+ */
+describe('Sicherung', () => {
+  const skript = readFileSync(join(process.cwd(), 'deploy/backup.sh'), 'utf8');
+
+  it('spiegelt das Upload-Verzeichnis', () => {
+    expect(skript).toContain('SWISSHUB_UPLOAD_DIR');
+    expect(skript).toMatch(/rsync -a --delete/u);
+  });
+
+  it('kommt auch ohne rsync zurecht', () => {
+    // Nicht jede Installation hat es, und ein Skript, das dann still nur die
+    // Datenbank sichert, waere schlimmer als eines, das abbricht.
+    expect(skript).toMatch(/command -v rsync/u);
+    expect(skript).toMatch(/cp -a -u/u);
+  });
+
+  it('behauptet in der Anleitung nicht mehr, ein Dump genuege', () => {
+    const anleitung = readFileSync(join(process.cwd(), 'docs/DEPLOYMENT.md'), 'utf8');
+    expect(anleitung).not.toMatch(/Dump\s*\ngen(ü|ue)gt als vollst(ä|ae)ndige Sicherung/u);
+    expect(anleitung).toContain('Und die Dateien:');
+  });
+});
+
 describe('Reverse Proxy und Upload-Limits', () => {
   const nginx = readFileSync(join(process.cwd(), 'deploy/nginx/system.swisshub.gg.conf'), 'utf8');
 
@@ -127,6 +165,21 @@ describe('Reverse Proxy und Upload-Limits', () => {
 
   it('laesst den groessten Upload der Anwendung durch', () => {
     expect(grenzeInBytes(nginx)).toBeGreaterThanOrEqual(MAX_LEGACY_DB_BYTES);
+  });
+
+  it('laesst eine hochgeladene Clipdatei bis zur Modulgrenze durch', () => {
+    /*
+     * Der Clip-Upload ist der einzige Endpunkt mit eigener Grenze: 500 MB
+     * darf ein Administrator im Dashboard erlauben, und die globalen 72 MB
+     * wuerden ihn bei 72 abschneiden - mit einem 413, das nach einem Fehler
+     * von SwissHub aussieht.
+     *
+     * Geprueft wird der Block, nicht die Datei als Ganzes: ein
+     * `client_max_body_size` irgendwo sonst wuerde diese Route nicht decken.
+     */
+    const block = /location\s*=\s*\/api\/clips\/upload\s*\{[\s\S]*?\n    \}/u.exec(nginx);
+    expect(block, 'Kein eigener nginx-Block fuer /api/clips/upload').not.toBeNull();
+    expect(grenzeInBytes(block![0])).toBeGreaterThanOrEqual(VIDEO_MAX_BYTES_GRENZE);
   });
 
   it('nennt in der Anleitung dieselbe Zahl wie die Konfiguration', () => {

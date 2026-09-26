@@ -6,7 +6,8 @@ import { getModuleSettings } from '../module-state';
 import { meldeEreignis } from '../automation/emit';
 import { kuendigeClipAn } from './ankuendigung';
 import { CLIPS_MODULE_ID, type ClipsSettings } from './config';
-import { erkenneClip } from './provider';
+import { erkenneClip, erkenneUpload } from './provider';
+import { VIDEO_NAME_MUSTER, listeVideos, loescheVideo, videoAlterMs } from './video-speicher';
 import { aktuelleRunde, verlangeModul } from './wettbewerb';
 import type { ClipCompetition, ClipReportReason } from '@swisshub/database';
 
@@ -44,7 +45,24 @@ const GRUND_TEXT = new Map<string, string>(ABLEHNUNGSGRUENDE.map((e) => [e.key, 
 // --- Einreichen -------------------------------------------------------------
 
 export interface EinreichungsEingabe {
-  url: string;
+  /**
+   * Die Adresse bei Twitch, YouTube oder Medal.
+   *
+   * Entweder das **oder** `upload` - nie beides. Als zwei optionale Felder
+   * statt als Union, weil jede bestehende Aufrufstelle `url` übergibt und
+   * eine Union jede davon zu einer Änderung machen würde, ohne dass an einer
+   * einzigen etwas anderes gemeint wäre.
+   */
+  url?: string | null;
+  /**
+   * Eine bereits abgelegte Clipdatei.
+   *
+   * Die Datei liegt zu diesem Zeitpunkt schon im Upload-Verzeichnis: sie
+   * musste geprüft werden, um ihren Container zu kennen, und geprüft heisst
+   * gelesen. Wer diesen Weg benutzt, ist dafür verantwortlich, die Datei
+   * wieder zu löschen, wenn `reicheEin` wirft - siehe die Server Action.
+   */
+  upload?: { dateiname: string; container: 'mp4' | 'webm' } | null;
   titel: string;
   beschreibung?: string | null;
   gameId?: string | null;
@@ -52,26 +70,30 @@ export interface EinreichungsEingabe {
 }
 
 /**
- * Einen Clip ins Rennen schicken.
+ * Darf diese Person jetzt etwas einreichen?
  *
- * Fuenf Bedingungen, in dieser Reihenfolge - die guenstigste zuerst, damit
- * eine abgelehnte Einreichung nicht erst die Datenbank belastet:
+ * Genau die Bedingungen, die nichts mit dem Clip selbst zu tun haben:
+ * laufende Runde, offene Einreichungen, Serverzeit vor dem Schluss, eigenes
+ * Kontingent nicht aufgebraucht. Gibt die Runde zurück, damit der Aufrufer
+ * sie nicht erneut holen muss.
  *
- *   1. Modul an, Runde laeuft, Einreichungen offen
- *   2. die Adresse ist ein Clip eines erlaubten Anbieters
- *   3. das eigene Einreichungskonto ist nicht aufgebraucht
- *   4. der Clip steht nicht schon in dieser Runde
- *   5. dann erst wird geschrieben
+ * ## Warum das eine eigene Funktion ist
  *
- * Der Clip selbst entsteht unabhaengig vom Wettbewerb. Das ist Absicht: er
- * soll spaeter auch ausserhalb dieser Runde auffindbar sein.
+ * Wegen der Uploads. Eine hochgeladene Datei muss **gelesen** werden, um ihren
+ * Container zu kennen, und damit liegt sie auf der Platte, bevor `reicheEin`
+ * je etwas prüfen kann. Ohne diese Vorprüfung wäre «Runde geschlossen» eine
+ * Antwort, die erst nach 100 MB Schreiben kommt - und fünf Versuche je zehn
+ * Minuten wären ein halbes Gigabyte für nichts.
+ *
+ * Die Server Action fragt deshalb **zuerst** hier und liest die Datei erst
+ * danach. `reicheEin` fragt trotzdem noch einmal: zwischen Vorprüfung und
+ * Einreichung liegt der Upload, und in dieser Zeit kann die Runde schliessen.
  */
-export async function reicheEin(
+export async function pruefeEinreichungsfenster(
   guildId: string,
-  actor: Handelnder,
-  eingabe: EinreichungsEingabe,
+  discordId: string,
   jetzt = new Date(),
-): Promise<{ clipId: string; entryId: string; competition: ClipCompetition }> {
+): Promise<ClipCompetition> {
   await verlangeModul();
 
   const runde = await aktuelleRunde(guildId);
@@ -97,18 +119,10 @@ export async function reicheEin(
     throw new AppError('CONFLICT', { userMessage: 'Die Einreichungen für diese Runde sind geschlossen.' });
   }
 
-  const erkannt = erkenneClip(eingabe.url);
-
-  const titel = sanitizeText(eingabe.titel, 120).trim();
-  if (titel.length < 3) {
-    throw new AppError('VALIDATION_FAILED', { userMessage: 'Gib deinem Clip einen kurzen Titel.' });
-  }
-  const beschreibung = eingabe.beschreibung ? sanitizeText(eingabe.beschreibung, 500).trim() : null;
-
   const eigene = await prisma.clipCompetitionEntry.count({
     where: {
       competitionId: runde.id,
-      submittedByDiscordId: actor.discordId,
+      submittedByDiscordId: discordId,
       status: { in: ['PENDING', 'APPROVED'] },
     },
   });
@@ -120,6 +134,52 @@ export async function reicheEin(
           : `Du hast für diese Runde bereits ${runde.submissionsPerMember} Clips eingereicht.`,
     });
   }
+
+  return runde;
+}
+
+/**
+ * Einen Clip ins Rennen schicken.
+ *
+ * Fuenf Bedingungen, in dieser Reihenfolge - die guenstigste zuerst, damit
+ * eine abgelehnte Einreichung nicht erst die Datenbank belastet:
+ *
+ *   1. Modul an, Runde laeuft, Einreichungen offen
+ *   2. die Adresse ist ein Clip eines erlaubten Anbieters
+ *   3. das eigene Einreichungskonto ist nicht aufgebraucht
+ *   4. der Clip steht nicht schon in dieser Runde
+ *   5. dann erst wird geschrieben
+ *
+ * Der Clip selbst entsteht unabhaengig vom Wettbewerb. Das ist Absicht: er
+ * soll spaeter auch ausserhalb dieser Runde auffindbar sein.
+ */
+export async function reicheEin(
+  guildId: string,
+  actor: Handelnder,
+  eingabe: EinreichungsEingabe,
+  jetzt = new Date(),
+): Promise<{ clipId: string; entryId: string; competition: ClipCompetition }> {
+  const runde = await pruefeEinreichungsfenster(guildId, actor.discordId, jetzt);
+
+  /*
+   * Woher der Clip kommt, entscheidet sich hier - und nur hier.
+   *
+   * Beide Wege enden in einem `ErkannterClip`, und alles danach - Titel,
+   * Kontingent, Spiel, `upsert`, Teilnahme, Moderation, Abstimmung, Finale,
+   * Hall of Fame - sieht keinen Unterschied. Das ist der Grund, warum der
+   * Upload überhaupt so gebaut ist: eine zweite Einreichungsfunktion für
+   * Dateien wäre eine zweite Stelle, an der Kontingent und Rundenschluss
+   * geprüft werden müssten.
+   */
+  const erkannt = eingabe.upload
+    ? erkenneUpload(eingabe.upload.dateiname, eingabe.upload.container)
+    : erkenneClip(eingabe.url ?? '');
+
+  const titel = sanitizeText(eingabe.titel, 120).trim();
+  if (titel.length < 3) {
+    throw new AppError('VALIDATION_FAILED', { userMessage: 'Gib deinem Clip einen kurzen Titel.' });
+  }
+  const beschreibung = eingabe.beschreibung ? sanitizeText(eingabe.beschreibung, 500).trim() : null;
 
   const spiel = await loeseSpielAuf(eingabe.gameId ?? null, eingabe.gameName ?? null);
 
@@ -396,6 +456,26 @@ export async function lehneAb(
       },
     }),
   ]);
+
+  /*
+   * Bei einer hochgeladenen Datei: weg damit.
+   *
+   * Ein abgelehnter Clip wird nie wieder gezeigt - und «unpassender Inhalt»
+   * ist der häufigste Ablehnungsgrund. Ihn auf der Platte zu behalten wäre
+   * eine Kopie von genau dem, was die Moderation entfernt hat.
+   *
+   * Ein neuer Anlauf bleibt möglich: er wäre ein neuer Upload mit neuem
+   * Namen. Die Datei des abgelehnten Versuchs wird dafür nicht gebraucht.
+   *
+   * Nur beim Ablehnen, nicht beim Herausnehmen aus der Runde: dort bleibt der
+   * Clip selbst gültig und kann in einer späteren Runde wieder antreten.
+   *
+   * Nach der Transaktion und ohne `await` auf ein Ergebnis: eine Datei, die
+   * sich nicht löschen lässt, darf die Ablehnung nicht zurückrollen.
+   */
+  if (eintrag.clip.sourceType === 'UPLOAD' && VIDEO_NAME_MUSTER.test(eintrag.clip.externalId)) {
+    await loescheVideo(eintrag.clip.externalId);
+  }
 
   await recordAudit({
     action: AUDIT_ACTIONS.CLIP_REJECTED,
@@ -690,3 +770,73 @@ export const clipEinstellungen = (): Promise<ClipsSettings> =>
   getModuleSettings<ClipsSettings>(CLIPS_MODULE_ID);
 
 export { GRUND_TEXT as ABLEHNUNGSGRUND_TEXT };
+
+/**
+ * Dateien löschen, zu denen es keinen Clip gibt.
+ *
+ * ## Woher solche Dateien kommen
+ *
+ * Eine Clipdatei muss geschrieben werden, bevor die Einreichung sie prüfen
+ * kann - geprüft heisst gelesen. Der Upload-Endpunkt löscht sie deshalb
+ * selbst, wenn die Einreichung danach scheitert. Was er nicht abdeckt, ist der
+ * Abbruch dazwischen: ein Neustart, ein abgebrochener Prozess, ein Timeout des
+ * Reverse Proxy. Dann liegt eine Datei da, deren Namen niemand mehr kennt.
+ *
+ * Einzeln ist das belanglos. Über Monate ist es der Grund, warum eine Platte
+ * voll ist und niemand sagen kann, wovon - und ein volles Dateisystem nimmt
+ * die Datenbank mit.
+ *
+ * ## Die Frist
+ *
+ * Eine Datei wird erst nach einer Stunde als verwaist behandelt. Ohne diese
+ * Frist würde ein Durchgang, der zufällig mitten in einem laufenden Upload
+ * fällt, die Datei unter der Einreichung wegziehen - der Vorgang hat die Datei
+ * dann schon geschrieben, aber der Clip steht noch nicht.
+ *
+ * ## Läuft auf dem bestehenden Takt
+ *
+ * `runClipsTick` ruft das mit. Kein zweiter Zeitplan, kein eigener Dienst: es
+ * gibt genau einen Wecker für dieses Modul, und er läuft ohnehin jede Minute.
+ */
+const WAISENFRIST_MS = 60 * 60 * 1000;
+
+export async function raeumeVerwaisteVideos(jetzt = new Date()): Promise<number> {
+  const dateien = await listeVideos();
+  if (dateien.length === 0) {
+    return 0;
+  }
+
+  /*
+   * Eine Abfrage für alle, nicht eine je Datei.
+   *
+   * `externalId` ist bei Uploads der Dateiname. Bei zweihundert Dateien wären
+   * zweihundert Abfragen je Minute - eine Aufräumarbeit, die mehr kostet als
+   * das, was sie aufräumt.
+   */
+  const bekannt = new Set(
+    (
+      await prisma.clip.findMany({
+        where: { sourceType: 'UPLOAD', externalId: { in: dateien } },
+        select: { externalId: true },
+      })
+    ).map((clip) => clip.externalId),
+  );
+
+  let geloescht = 0;
+  for (const datei of dateien) {
+    if (bekannt.has(datei)) {
+      continue;
+    }
+    const alter = await videoAlterMs(datei, jetzt);
+    if (alter === null || alter < WAISENFRIST_MS) {
+      continue;
+    }
+    await loescheVideo(datei);
+    geloescht += 1;
+  }
+
+  if (geloescht > 0) {
+    log.info('Verwaiste Clipdateien geloescht', { geloescht, gepruef: dateien.length });
+  }
+  return geloescht;
+}

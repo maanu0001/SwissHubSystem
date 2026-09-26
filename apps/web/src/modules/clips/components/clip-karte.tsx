@@ -225,6 +225,7 @@ export function ClipKarte({
         titel={karte.titel}
         einbettung={einbettung}
         quelle={karte.canonicalUrl}
+        provider={karte.provider}
       />
       <MeldeDialog
         offen={meldenOffen}

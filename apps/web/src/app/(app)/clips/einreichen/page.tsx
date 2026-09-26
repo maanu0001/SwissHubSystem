@@ -52,11 +52,15 @@ export default async function ClipEinreichenPage(): Promise<React.JSX.Element> {
     );
   }
 
-  const [eigene, spiele] = await Promise.all([
+  const [eigene, spiele, einstellungen] = await Promise.all([
     clips.eigeneEinreichungen(stand.runde.id, context.user.discordId),
     // Der zentrale Spielekatalog - derselbe, aus dem Turniere und «Was
     // spielen wir?» schoepfen. Eine eigene Liste waere die zweite Wahrheit.
     games.listGames(),
+    // Ob Uploads erlaubt sind und wie gross eine Datei sein darf, entscheidet
+    // das Modul - nicht diese Seite. Sie fragt nur, um den zweiten Weg
+    // ueberhaupt anzuzeigen; annehmen oder ablehnen tut der Endpunkt.
+    clips.einstellungen(),
   ]);
 
   const offeneEigene = eigene.filter(
@@ -77,6 +81,8 @@ export default async function ClipEinreichenPage(): Promise<React.JSX.Element> {
         csrfToken={csrfTokenFor(context)}
         spiele={spiele}
         limitErreicht={offeneEigene.length >= stand.runde.submissionsPerMember}
+        uploadsErlaubt={einstellungen.allowUploads}
+        uploadMaxMb={einstellungen.uploadMaxMb}
       />
     </div>
   );

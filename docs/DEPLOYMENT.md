@@ -473,7 +473,12 @@ sudo crontab -e
 30 3 * * * /usr/local/bin/swisshub-backup
 ```
 
-Wiederherstellen:
+Das Skript sichert **zwei** Dinge:
+
+1. einen PostgreSQL-Dump (`swisshub_<datum>.sql.gz`, 14 Tage aufbewahrt)
+2. einen Spiegel des Upload-Verzeichnisses unter `<BACKUP_DIR>/uploads`
+
+Wiederherstellen - die Datenbank:
 
 ```bash
 gunzip -c /var/backups/swisshub/swisshub_2026-08-19_03-30.sql.gz \
@@ -481,8 +486,44 @@ gunzip -c /var/backups/swisshub/swisshub_2026-08-19_03-30.sql.gz \
     psql -U swisshub -d swisshub
 ```
 
-Es liegt kein Zustand ausschliesslich im Arbeitsspeicher - ein PostgreSQL-Dump
-genügt als vollständige Sicherung.
+Und die Dateien:
+
+```bash
+sudo rsync -a /var/backups/swisshub/uploads/ /var/lib/swisshub/uploads/
+sudo chown -R 1001:1001 /var/lib/swisshub/uploads   # der Benutzer des Containers
+```
+
+#### Warum die Dateien dazugehören
+
+Hier stand früher, ein Dump genüge als vollständige Sicherung. Das war schon
+damals nicht richtig: Logo, Levelkarten-Hintergründe, Profilbanner, die Anhänge
+der Einsprüche und die Momente von Wrapped liegen als Dateien in
+`SWISSHUB_UPLOAD_DIR`, nicht in der Datenbank.
+
+Mit den **hochgeladenen Clips** ist der Unterschied nicht mehr kosmetisch: eine
+Wiederherstellung aus einem reinen Dump ergibt eine Datenbank voller Clips,
+deren Dateien fehlen. Die Ausliefer-Route `/api/clips/datei/<name>` antwortet
+dann für jeden einzelnen mit `404` - eine Hall of Fame aus schwarzen Flächen,
+und im Log steht kein Fehler.
+
+Der Spiegel ist ein Abbild, kein Archiv: die Dateinamen entstehen serverseitig
+aus Zufall und werden nie überschrieben, ein tägliches `tar` wäre also jeden Tag
+dieselben Gigabyte mit einem anderen Datum davor. Was der Spiegel nicht kann:
+eine Datei zurückholen, die seit dem letzten Lauf gelöscht wurde. Das trifft
+genau die von der Moderation abgelehnten Clips - und die soll nach einer
+Wiederherstellung niemand mehr sehen.
+
+#### Wie hochgeladene Dateien geschützt sind
+
+| Frage                        | Antwort                                                                                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Wo liegen sie?               | In `SWISSHUB_UPLOAD_DIR`, **ausserhalb** von `public/` - nie statisch bedient.                                    |
+| Wie heissen sie?             | `clip-<32 Hex>.mp4` bzw. `.webm`, serverseitig erzeugt. Der Name aus dem Browser wird verworfen.                  |
+| Rechte?                      | `0640` - lesbar für den Dienst, für niemanden ausführbar.                                                         |
+| Wie werden sie ausgeliefert? | Route Handler mit festem `Content-Type`, `nosniff`, `Range`-Unterstützung und Anmeldepflicht.                     |
+| Wer darf hochladen?          | Angemeldete Mitglieder mit `clips.submit`, 5 Uploads je 10 Minuten, nur bei offener Runde und freiem Kontingent.  |
+| Wann werden sie gelöscht?    | Wenn die Moderation den Clip ablehnt. Dateien ohne Clip (abgebrochener Upload) räumt der Clip-Takt stündlich weg. |
+| Und der Container-Neubau?    | `SWISSHUB_UPLOAD_DIR` muss auf ein persistentes Volume zeigen - siehe `docker-compose.prod.yml`.                  |
 
 ### Überwachung
 
@@ -502,6 +543,7 @@ genügt als vollständige Sicherung.
 - [ ] Bot-Rolle über Jail-Rolle, Admin-Rollen als _geschützt_ markiert
 - [ ] Jail-Rolle und Log-Channel konfiguriert, Testjail erfolgreich
 - [ ] Backup-Cron eingerichtet und einmal manuell getestet
+- [ ] Der Backup-Lauf hat **beides** erzeugt: den Dump und `<BACKUP_DIR>/uploads`
 - [ ] Firewall aktiv, PostgreSQL nicht öffentlich erreichbar
 - [ ] `curl -s https://system.swisshub.gg/api/health` meldet `"status":"ok"`
 

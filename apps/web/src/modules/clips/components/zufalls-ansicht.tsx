@@ -1,5 +1,6 @@
 'use client';
 
+import { ClipRahmen } from './clip-rahmen';
 import { useState } from 'react';
 import { Loader2, Shuffle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -58,15 +59,12 @@ export function ZufallsAnsicht({
   return (
     <div className="space-y-5">
       <div className="overflow-hidden rounded-3xl border border-border bg-black">
-        <iframe
-          key={karte.entryId}
-          src={adresse}
-          title={karte.titel}
-          className="aspect-video w-full"
-          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          allowFullScreen
-          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
-          referrerPolicy="strict-origin-when-cross-origin"
+        <ClipRahmen
+          schluessel={karte.entryId}
+          provider={karte.provider}
+          adresse={adresse}
+          titel={karte.titel}
+          autoplayErlaubt
         />
       </div>
 

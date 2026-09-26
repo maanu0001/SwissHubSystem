@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EINBETTUNGS_HOSTS, einbettung, erkenneClip } from '@swisshub/modules/clips/provider';
+import { EINBETTUNGS_HOSTS, einbettung, erkenneClip, erkenneUpload } from '@swisshub/modules/clips/provider';
 
 /**
  * Was als Clip durchgeht - und was nicht.
@@ -268,5 +268,66 @@ describe('Medal', () => {
   it('steht in der Liste der einbettbaren Hosts', () => {
     // Ohne das entstuende die Adresse, und der Rahmen blieb leer.
     expect(EINBETTUNGS_HOSTS).toContain('https://medal.tv');
+  });
+});
+
+/**
+ * Hochgeladene Dateien.
+ *
+ * ## Warum das hier steht und nicht bei der Speicherung
+ *
+ * Weil hier entsteht, was die Oberflaeche spaeter anzeigt. Eine zweite Stelle,
+ * die Adressen fuer Clips baut, waere die gefaehrlichere von beiden - niemand
+ * sieht sie so genau an wie diese Datei.
+ */
+describe('Upload als Clip', () => {
+  const NAME = 'clip-0123456789abcdef0123456789abcdef.mp4';
+
+  it('zeigt auf die interne Route, nicht auf eine fremde Adresse', () => {
+    const clip = erkenneUpload(NAME, 'mp4');
+    expect(clip.provider).toBe('upload');
+    expect(clip.sourceType).toBe('UPLOAD');
+    expect(clip.embedUrl).toBe(`/api/clips/datei/${NAME}`);
+    expect(clip.canonicalUrl).toBe(`/api/clips/datei/${NAME}`);
+  });
+
+  it('nimmt den Dateinamen als Kennung', () => {
+    /*
+     * Und damit ist jeder Upload ein eigener Clip: der Name entsteht aus 16
+     * Zufallsbytes. Zweimal dieselbe Datei ergibt zwei Einreichungen - die
+     * Moderation entscheidet, wie bei jedem anderen inhaltlichen Zweifel.
+     */
+    expect(erkenneUpload(NAME, 'mp4').externalId).toBe(NAME);
+  });
+
+  it('raet kein Vorschaubild', () => {
+    // Ein Einzelbild aus dem Video braeuchte einen Decoder.
+    expect(erkenneUpload(NAME, 'mp4').thumbnailUrl).toBeNull();
+  });
+
+  it('nimmt nur Namen, die diese Anwendung selbst erzeugt', () => {
+    const schlecht = [
+      ['Pfadmanipulation', '../../etc/passwd'],
+      ['Pfad im Namen', 'clips/clip-0123456789abcdef0123456789abcdef.mp4'],
+      ['fremde Endung', 'clip-0123456789abcdef0123456789abcdef.html'],
+      ['zu kurzer Zufall', 'clip-0123.mp4'],
+      ['kein Praefix', '0123456789abcdef0123456789abcdef.mp4'],
+      ['Doppelendung', 'clip-0123456789abcdef0123456789abcdef.mp4.html'],
+      ['Nullbyte', 'clip-0123456789abcdef0123456789abcdef.mp4\u0000.html'],
+    ] as const;
+    for (const [was, name] of schlecht) {
+      expect(() => erkenneUpload(name, 'mp4'), was).toThrow();
+    }
+  });
+
+  it('lehnt einen Namen ab, der nicht zum erkannten Container passt', () => {
+    /*
+     * Der Kern: die Route setzt den Content-Type aus dem Namen. Liefen Name
+     * und Inhalt auseinander, wuerde eine WebM-Datei als `video/mp4`
+     * ausgeliefert - und der Player bliebe schwarz, ohne dass irgendwo ein
+     * Fehler stuende.
+     */
+    expect(() => erkenneUpload(NAME, 'webm')).toThrow();
+    expect(() => erkenneUpload('clip-0123456789abcdef0123456789abcdef.webm', 'mp4')).toThrow();
   });
 });
