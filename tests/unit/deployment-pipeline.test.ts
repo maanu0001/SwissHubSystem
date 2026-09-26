@@ -177,7 +177,7 @@ describe('Reverse Proxy und Upload-Limits', () => {
      * Geprueft wird der Block, nicht die Datei als Ganzes: ein
      * `client_max_body_size` irgendwo sonst wuerde diese Route nicht decken.
      */
-    const block = /location\s*=\s*\/api\/clips\/upload\s*\{[\s\S]*?\n    \}/u.exec(nginx);
+    const block = /location\s*=\s*\/api\/clips\/upload\s*\{[\s\S]*?\n {4}\}/u.exec(nginx);
     expect(block, 'Kein eigener nginx-Block fuer /api/clips/upload').not.toBeNull();
     expect(grenzeInBytes(block![0])).toBeGreaterThanOrEqual(VIDEO_MAX_BYTES_GRENZE);
   });
