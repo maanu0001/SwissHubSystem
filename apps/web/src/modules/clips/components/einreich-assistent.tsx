@@ -166,7 +166,7 @@ export function EinreichAssistent({
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                Twitch-Clips und YouTube-Videos. Andere Quellen sind nicht zugelassen.
+                Twitch-Clips, YouTube-Videos und Medal-Clips. Andere Quellen sind nicht zugelassen.
               </p>
             </div>
 

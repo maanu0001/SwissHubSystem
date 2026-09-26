@@ -11,6 +11,7 @@ const EINBETTUNGS_HOSTS = [
   'https://player.twitch.tv',
   'https://www.youtube-nocookie.com',
   'https://www.youtube.com',
+  'https://medal.tv',
 ] as const;
 
 /**
@@ -53,7 +54,7 @@ export function middleware(request: NextRequest): NextResponse {
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
     /*
-     * Die Player von Twitch und YouTube.
+     * Die Player von Twitch, YouTube und Medal.
      *
      * Ohne diese Zeile griffe `default-src 'self'`, und ein eingebetteter
      * Clip zeigte einen leeren Rahmen. Freigegeben sind vier Hosts und sonst

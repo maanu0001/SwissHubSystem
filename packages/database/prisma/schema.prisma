@@ -515,6 +515,10 @@ model DiscordMemberCache {
 enum ClipSourceType {
   TWITCH_CLIP
   YOUTUBE
+  /// Ein oeffentlicher Clip von medal.tv, eingebettet ueber den dokumentierten
+  /// Player. Die Kennung ist `<nummer>/<token>` - beide Teile zusammen, weil
+  /// der Player ohne den Token nichts abspielt.
+  MEDAL
   /// Direkt hochgeladen. Vorgesehen, aber noch nicht umgesetzt - es gibt in
   /// dieser Anwendung keine Infrastruktur fuer Videodateien, und eine
   /// improvisierte waere schlechter als keine.

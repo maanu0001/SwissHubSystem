@@ -143,7 +143,7 @@ describeWithDatabase('Clips einreichen', () => {
     await offeneRunde();
     await expect(
       clips.reicheEin(GUILD, actor(ANNA), { url: 'https://angreifer.example/clip', titel: 'Test' }, JETZT),
-    ).rejects.toThrow(/Twitch und YouTube/u);
+    ).rejects.toThrow(/Twitch, YouTube und Medal/u);
     expect(await prisma.clip.count({})).toBe(0);
   });
 
