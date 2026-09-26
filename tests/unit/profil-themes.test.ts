@@ -139,6 +139,72 @@ describe('Die Animationen', () => {
     expect(block).toMatch(/animation:\s*none\s*!important/u);
   });
 
+  it('bewegt in jedem gesperrten Design mindestens vier Lagen', () => {
+    /*
+     * Der Vorwurf war «zu statisch», und er traf zu: drei Lagen, davon eine
+     * ohne Animation, ergaben ein Bild, das man fuer ein Standbild halten
+     * konnte. Jetzt fuenf Lagen je Design, und mindestens vier davon
+     * bewegen sich.
+     */
+    for (const theme of ALLE.filter((t) => t.premium || t.mindestLevel !== null)) {
+      const klasse = theme.kulisse;
+      const bewegte = [1, 2, 3, 4, 5].filter((nummer) => {
+        const regel = CSS.slice(CSS.indexOf(`.${klasse} .pt-lage-${nummer} {`));
+        const block = regel.slice(0, regel.indexOf('}'));
+        return block.includes('animation:');
+      });
+      expect(bewegte.length, `${theme.id} bewegt nur ${bewegte.length} Lagen`).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('gibt jedem Design eine eigene Bewegungssprache', () => {
+    /*
+     * Sechs Designs mit demselben Keyframe waeren sechs Farbvarianten. Jedes
+     * gesperrte Design muss mindestens eine Bewegung benutzen, die kein
+     * anderes benutzt - sonst unterscheidet es sich nur im Farbton.
+     */
+    const jeTheme = new Map<string, Set<string>>();
+    for (const theme of ALLE.filter((t) => t.premium || t.mindestLevel !== null)) {
+      const ab = CSS.indexOf(`.${theme.kulisse} .pt-lage-1 {`);
+      const bis = CSS.indexOf('/* ---', ab + 10);
+      const block = CSS.slice(ab, bis === -1 ? undefined : bis);
+      const namen = [...block.matchAll(/animation:\s*([a-z-]+)/gu)].map((m) => m[1] as string);
+      jeTheme.set(theme.id, new Set(namen));
+    }
+
+    for (const [id, eigene] of jeTheme) {
+      const andere = new Set([...jeTheme].filter(([k]) => k !== id).flatMap(([, s]) => [...s]));
+      const einzig = [...eigene].filter((name) => !andere.has(name));
+      expect(einzig.length, `${id} hat keine eigene Bewegung`).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('reagiert auf den Zeiger, ohne die Animation zu stoeren', () => {
+    /*
+     * Die Parallaxe sitzt auf `translate`, die Keyframes auf `transform`.
+     * Beides auf `transform` hiesse, dass eines das andere ueberschreibt -
+     * und je nach Reihenfolge waere entweder die Maus oder die Animation
+     * wirkungslos.
+     */
+    expect(CSS).toContain('--pt-maus-x');
+    expect(CSS).toContain('--pt-maus-y');
+    expect(CSS).toMatch(/translate:\s*calc\(var\(--pt-maus-x\)/u);
+    // Und die Tiefe je Lage - sonst waere es keine Parallaxe, sondern ein Schub.
+    for (const nummer of [1, 2, 3, 4, 5]) {
+      expect(CSS).toMatch(new RegExp(`\\.pt-lage-${nummer} \\{\\s*--pt-tiefe:`, 'u'));
+    }
+  });
+
+  it('haelt die Kulisse an, wenn niemand hinsieht', () => {
+    expect(CSS).toContain('.pt-kulisse--ruht .pt-lage');
+    expect(CSS).toContain('animation-play-state: paused');
+  });
+
+  it('schaltet bei reduzierter Bewegung auch die Zeiger-Parallaxe ab', () => {
+    const block = CSS.slice(CSS.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(block).toMatch(/translate:\s*none\s*!important/u);
+  });
+
   it('nimmt auf schmalen Geräten Last weg', () => {
     expect(CSS).toContain('@media (max-width: 640px)');
   });

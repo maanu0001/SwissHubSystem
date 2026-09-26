@@ -116,6 +116,8 @@ export function ThemeGalerie({
                   <span className="pt-lage pt-lage-1" />
                   <span className="pt-lage pt-lage-2" />
                   <span className="pt-lage pt-lage-3" />
+                  <span className="pt-lage pt-lage-4" />
+                  <span className="pt-lage pt-lage-5" />
                 </span>
 
                 <span className="relative z-10 block h-28" />

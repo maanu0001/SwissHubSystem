@@ -1,0 +1,240 @@
+/*
+ * Bronze, Silber, Gold - als drei Materialien, nicht als drei Farbtöne.
+ *
+ * ## Was hier ausdrücklich nicht passiert
+ *
+ * Vorher lag über identischen Karten ein Farbverlauf je Stufe: derselbe
+ * Rahmen, dieselbe Form, dieselbe Fläche, nur in Braun, Grau und Gelb. Von
+ * aussen war das an einer Karte nicht zu erkennen und an drei nebeneinander
+ * eine Farbskala - keine Hierarchie.
+ *
+ * Jede Stufe bringt darum vier eigene Merkmale mit:
+ *
+ *   - **Rahmengeometrie.** Bronze hat weiche Ecken, Silber angeschnittene,
+ *     Gold facettierte. Das ist an einer einzelnen Karte sichtbar.
+ *   - **Materialstruktur.** Bronze ist matt und körnig, Silber gebürstet mit
+ *     gerichteten Linien, Gold poliert mit einem weichen Verlauf.
+ *   - **Lichtverhalten.** Bronze fängt Licht nur am Rand, Silber wirft einen
+ *     harten, schmalen Glanz, Gold einen breiten, der wandert.
+ *   - **Symbolumgebung.** Ein eingeprägtes Feld hinter dem Zeichen, je Stufe
+ *     anders geschnitten und anders beleuchtet.
+ *
+ * ## Warum CSS und keine Bilder
+ *
+ * Ein Medaillenbild je Stufe wäre schneller gemacht und danach für immer
+ * unveränderlich: falsche Auflösung auf dem nächsten Bildschirm, keine
+ * Anpassung an das Profildesign, und drei Dateien im Repository, die niemand
+ * mehr nachzeichnen kann. Verläufe und Masken rechnet der Browser in jeder
+ * Grösse scharf.
+ *
+ * ## Bewegung
+ *
+ * Nur Gold bewegt sich von selbst, und zwar langsam. Drei animierte Stufen
+ * nebeneinander wären Kirmes; eine, die es tut, ist eine Aussage. Silber
+ * und Bronze bekommen ihren Glanz beim Überfahren - das ist Bewegung auf
+ * Zuruf und kostet im Ruhezustand nichts.
+ */
+
+.az-karte {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Die Materialstruktur - je Stufe eine andere, immer unter dem Inhalt. */
+.az-karte::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+}
+
+/* Der Glanz - eine eigene Lage, damit er wandern kann. */
+.az-karte::after {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+
+/* --- Bronze --------------------------------------------------------------
+ * Matt und körnig. Weiche Ecken, warmes Braun, und Licht nur an der oberen
+ * Kante - so verhält sich unpoliertes Metall.
+ */
+.az-bronze {
+  border-radius: 0.75rem;
+  border: 1px solid hsl(24 46% 46% / 0.5);
+  background:
+    linear-gradient(168deg, hsl(26 38% 22% / 0.55) 0%, hsl(22 30% 13% / 0.4) 100%), hsl(24 22% 11% / 0.5);
+  box-shadow:
+    inset 0 1px 0 hsl(32 60% 62% / 0.22),
+    inset 0 -1px 0 hsl(20 40% 8% / 0.6);
+  color: hsl(28 58% 70%);
+}
+.az-bronze::before {
+  /* Körnung: ein feines, ungerichtetes Punktraster. */
+  background-image: radial-gradient(hsl(30 50% 60% / 0.1) 0.5px, transparent 0.9px);
+  background-size: 5px 5px;
+}
+.az-bronze::after {
+  background: linear-gradient(120deg, transparent 42%, hsl(34 70% 66% / 0.14) 50%, transparent 58%);
+}
+
+/* --- Silber --------------------------------------------------------------
+ * Gebürstet. Angeschnittene Ecken, kühles Grau, und ein harter, schmaler
+ * Glanz - gebürstetes Metall wirft Licht in einer Richtung.
+ */
+.az-silber {
+  /* Angeschnittene Ecken statt runder: an einer Karte allein erkennbar. */
+  border-radius: 0.25rem;
+  clip-path: polygon(0.6rem 0, 100% 0, 100% calc(100% - 0.6rem), calc(100% - 0.6rem) 100%, 0 100%, 0 0.6rem);
+  border: 1px solid hsl(210 14% 72% / 0.42);
+  background:
+    linear-gradient(172deg, hsl(212 14% 30% / 0.5) 0%, hsl(214 12% 16% / 0.42) 100%), hsl(213 10% 12% / 0.5);
+  box-shadow: inset 0 1px 0 hsl(210 20% 88% / 0.26);
+  color: hsl(210 18% 82%);
+}
+.az-silber::before {
+  /* Bürstung: gerichtete, sehr feine Linien. */
+  background-image: repeating-linear-gradient(
+    92deg,
+    transparent 0 2px,
+    hsl(210 22% 82% / 0.055) 2px 3px,
+    transparent 3px 5px
+  );
+}
+.az-silber::after {
+  background: linear-gradient(
+    104deg,
+    transparent 46%,
+    hsl(210 30% 94% / 0.24) 49.5%,
+    hsl(0 0% 100% / 0.3) 50%,
+    hsl(210 30% 94% / 0.24) 50.5%,
+    transparent 54%
+  );
+}
+
+/* --- Gold ----------------------------------------------------------------
+ * Poliert. Facettierte Ecken, warmes Gold, ein breiter Glanz, der von selbst
+ * darüberwandert, und ein zweiter Rahmen innen - die Stufe darf aufwendiger
+ * sein als die beiden darunter.
+ */
+.az-gold {
+  border-radius: 0.2rem;
+  clip-path: polygon(
+    0.75rem 0,
+    calc(100% - 0.75rem) 0,
+    100% 0.75rem,
+    100% calc(100% - 0.75rem),
+    calc(100% - 0.75rem) 100%,
+    0.75rem 100%,
+    0 calc(100% - 0.75rem),
+    0 0.75rem
+  );
+  border: 1px solid hsl(44 82% 60% / 0.55);
+  background:
+    linear-gradient(
+      165deg,
+      hsl(44 60% 34% / 0.52) 0%,
+      hsl(40 46% 20% / 0.44) 46%,
+      hsl(38 40% 13% / 0.42) 100%
+    ),
+    hsl(40 26% 11% / 0.5);
+  box-shadow:
+    inset 0 1px 0 hsl(48 92% 78% / 0.34),
+    inset 0 0 0 3px hsl(44 70% 56% / 0.1),
+    0 0 18px hsl(44 88% 56% / 0.1);
+  color: hsl(44 88% 72%);
+}
+.az-gold::before {
+  /* Politur: ein weicher Querverlauf, keine Körnung, keine Linien. */
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    hsl(48 88% 72% / 0.07) 34%,
+    transparent 52%,
+    hsl(48 88% 72% / 0.05) 78%,
+    transparent 100%
+  );
+}
+.az-gold::after {
+  background: linear-gradient(
+    102deg,
+    transparent 40%,
+    hsl(46 94% 74% / 0.16) 47%,
+    hsl(50 100% 88% / 0.3) 50%,
+    hsl(46 94% 74% / 0.16) 53%,
+    transparent 60%
+  );
+  opacity: 1;
+  animation: az-glanz 7s ease-in-out infinite;
+}
+
+/* --- Die Symbolumgebung --------------------------------------------------
+ * Ein eingeprägtes Feld, je Stufe anders geschnitten. Damit unterscheiden
+ * sich die Karten auch dort, wo der Blick zuerst hinfällt.
+ */
+.az-feld {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.az-bronze .az-feld {
+  border-radius: 0.5rem;
+  background: hsl(26 40% 30% / 0.42);
+  box-shadow: inset 0 1px 0 hsl(32 60% 60% / 0.2);
+}
+.az-silber .az-feld {
+  /* Sechseck: die Kante des Feldes nimmt die Kante der Karte auf. */
+  clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%);
+  background: hsl(212 14% 40% / 0.42);
+}
+.az-gold .az-feld {
+  /* Kreis mit Ring - die ruhigste Form, und darum die wertvollste. */
+  border-radius: 999px;
+  background: radial-gradient(circle at 34% 28%, hsl(46 70% 44% / 0.6) 0%, hsl(40 50% 22% / 0.5) 70%);
+  box-shadow:
+    inset 0 0 0 1px hsl(48 90% 74% / 0.34),
+    0 0 10px hsl(44 88% 58% / 0.16);
+}
+
+/* Beim Überfahren zeigen Bronze und Silber ihren Glanz. */
+@media (hover: hover) {
+  .az-bronze:hover::after,
+  .az-silber:hover::after {
+    opacity: 1;
+    animation: az-glanz 1.4s ease-out;
+  }
+}
+
+@keyframes az-glanz {
+  0%,
+  58% {
+    transform: translate3d(-58%, 0, 0);
+  }
+  100% {
+    transform: translate3d(58%, 0, 0);
+  }
+}
+
+/*
+ * Reduzierte Bewegung: der Glanz bleibt, er wandert nur nicht.
+ *
+ * Gold ohne jeden Glanz sähe aus wie ein dunkles Silber - die Stufe wäre
+ * nicht mehr erkennbar. Er steht deshalb still in der Mitte, wo er am
+ * meisten aussagt.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .az-karte::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .az-gold::after {
+    transform: none;
+    opacity: 0.7;
+  }
+}

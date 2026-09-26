@@ -1,5 +1,6 @@
 import type { profile } from '@swisshub/modules';
 import { NavIcon } from '@/components/layout/nav-icon';
+import '../auszeichnungs-stufen.css';
 
 /**
  * Auszeichnungen.
@@ -11,14 +12,21 @@ import { NavIcon } from '@/components/layout/nav-icon';
  * geschafft hat. Der Dienst liefert deshalb gar nicht erst beides: fremde
  * Profile bekommen nur die erreichten.
  *
- * Gold bekommt einen Schein, Silber und Bronze nicht. Drei verschiedene
- * Leuchteffekte nebeneinander waere Kirmes; einer, der etwas bedeutet, ist
- * eine Hierarchie.
+ * ## Die drei Stufen sind drei Materialien
+ *
+ * Hier stand vorher je Stufe ein Satz Tailwind-Klassen: derselbe Rahmen,
+ * dieselbe Form, dieselbe Flaeche, nur in Braun, Grau und Gelb. An einer
+ * einzelnen Karte war die Stufe damit nicht zu erkennen, und an dreien
+ * nebeneinander war es eine Farbskala.
+ *
+ * Die Gestaltung liegt jetzt in `auszeichnungs-stufen.css` - je Stufe eine
+ * eigene Rahmengeometrie, Materialstruktur, Lichtfuehrung und
+ * Symbolumgebung. Hier steht nur noch, welche Klasse welche Stufe bekommt.
  */
 const STUFE_KLASSE: Record<string, string> = {
-  gold: 'border-[hsl(45_92%_58%/0.45)] bg-[hsl(45_92%_58%/0.08)] text-[hsl(45_92%_62%)]',
-  silber: 'border-[hsl(210_16%_70%/0.35)] bg-[hsl(210_16%_70%/0.06)] text-[hsl(210_16%_78%)]',
-  bronze: 'border-[hsl(25_50%_55%/0.35)] bg-[hsl(25_50%_55%/0.06)] text-[hsl(25_55%_65%)]',
+  gold: 'az-karte az-gold',
+  silber: 'az-karte az-silber',
+  bronze: 'az-karte az-bronze',
 };
 
 export function ProfilAuszeichnungen({
@@ -48,15 +56,15 @@ export function ProfilAuszeichnungen({
       {auszeichnungen.map((eintrag) => (
         <li
           key={eintrag.key}
-          className={`flex items-start gap-3 rounded-xl border p-3 ${
+          className={`flex items-start gap-3 p-3 ${
             eintrag.erreicht
               ? (STUFE_KLASSE[eintrag.stufe] ?? STUFE_KLASSE.bronze)
-              : 'border-dashed border-border bg-transparent text-muted-foreground'
+              : 'rounded-xl border border-dashed border-border bg-transparent text-muted-foreground'
           }`}
         >
           <span
-            className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg ${
-              eintrag.erreicht ? 'bg-foreground/5' : 'bg-transparent'
+            className={`az-feld mt-0.5 size-9 shrink-0 ${
+              eintrag.erreicht ? '' : 'rounded-lg bg-transparent'
             }`}
           >
             <NavIcon name={eintrag.symbol} className="size-5" />
