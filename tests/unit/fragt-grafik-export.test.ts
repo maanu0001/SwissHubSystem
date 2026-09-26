@@ -152,12 +152,65 @@ describe('Grafikexport: die Faelle, die niemand von Hand testet', () => {
     }
   });
 
-  it('vertraegt Umlaute, Akzente und Emojis', async () => {
+  it('rendert Umlaute und Akzente als Glyphen', async () => {
     /*
-     * Satori braucht fuer jedes Zeichen eine Glyphe. Fehlt sie, kommt im
-     * besten Fall ein Kaestchen und im schlechteren gar kein Bild - und
-     * «Spielstunden» mit Umlaut ist keine Ausnahme, sondern der Alltag.
+     * Satori braucht fuer jedes Zeichen eine Glyphe. Fehlt sie, bleibt die
+     * Stelle leer - und «Spielstunden» mit Umlaut ist kein Sonderfall, sondern
+     * der Alltag. Geprueft wird deshalb nicht nur, dass ein Bild entsteht,
+     * sondern dass der Umlaut etwas veraendert: waere er eine Leerstelle, waere
+     * das PNG byte-identisch mit dem ohne ihn.
      */
+    const mitUmlaut = await rendere('verteilung', 'quadrat', {
+      ...NORMAL,
+      zeilen: [
+        { label: 'Münchhausen', prozent: 100, stimmen: 1, fuehrt: true },
+        { label: 'B', prozent: 0, stimmen: 0, fuehrt: false },
+      ],
+      gesamt: 1,
+      gewinner: { label: 'Münchhausen', prozent: 100, stimmen: 1 },
+    });
+    const ohneUmlaut = await rendere('verteilung', 'quadrat', {
+      ...NORMAL,
+      zeilen: [
+        { label: 'Munchhausen', prozent: 100, stimmen: 1, fuehrt: true },
+        { label: 'B', prozent: 0, stimmen: 0, fuehrt: false },
+      ],
+      gesamt: 1,
+      gewinner: { label: 'Munchhausen', prozent: 100, stimmen: 1 },
+    });
+    expect(mitUmlaut.byteLength).not.toBe(ohneUmlaut.byteLength);
+  });
+
+  it('bricht an einem Emoji nicht ab - zeichnet es aber auch nicht', async () => {
+    /*
+     * Die ehrliche Fassung dieser Zusage.
+     *
+     * Gemessen: ein PNG mit «Minecraft 🎮🔥» ist byte-identisch mit einem ohne
+     * die Emojis. Satori hat in diesem Container keine Emoji-Schrift, also
+     * entsteht keine Glyphe - und auch kein Ersatzkaestchen.
+     *
+     * Der Export scheitert deshalb **nicht**, und genau das ist hier die
+     * Zusage: ein Mitglied, das ein Emoji in eine Antwort schreibt, bringt die
+     * Grafik nicht zu Fall. Dass das Emoji unsichtbar bleibt, ist eine bekannte
+     * Einschraenkung - eine Emoji-Schrift mitzuliefern waere ein
+     * Mehrfaches der Bildgroesse im Docker-Bild.
+     *
+     * Wuerde jemand eine Emoji-Schrift ergaenzen, faellt dieser Test auf: dann
+     * sind die beiden PNG verschieden, und die Einschraenkung gilt nicht mehr.
+     */
+    const ohne = await rendere('verteilung', 'quadrat', NORMAL);
+    const mit = await rendere('verteilung', 'quadrat', {
+      ...NORMAL,
+      zeilen: NORMAL.zeilen.map((zeile, index) =>
+        index === 0 ? { ...zeile, label: `${zeile.label} 🎮🔥` } : zeile,
+      ),
+      gewinner: { label: `${NORMAL.gewinner!.label} 🎮🔥`, prozent: 42, stimmen: 42 },
+    });
+    expect(mit.byteLength).toBeGreaterThan(1000);
+    expect(mit.byteLength).toBe(ohne.byteLength);
+  });
+
+  it('vertraegt Emojis in jeder Vorlage, ohne zu scheitern', async () => {
     const bunt: SocialDaten = {
       ...NORMAL,
       frageText: 'Wofür würdest du deine Grafikkarte verkaufen? 🎮',
