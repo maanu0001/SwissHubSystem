@@ -283,6 +283,20 @@ export const RATE_LIMITS = {
    */
   clipUpload: { limit: 5, windowMs: 10 * 60 * 1000 },
 
+  /*
+   * SwissHub fragt.
+   *
+   * `fragtWrite` deckt die redaktionelle Arbeit - Fragen schreiben, planen,
+   * Entwuerfe bearbeiten. Grosszuegig, weil jemand, der eine Bibliothek
+   * aufbaut, in zehn Minuten leicht zwanzig Speichervorgaenge hat.
+   *
+   * `fragtPublish` ist strenger: jede Veroeffentlichung ist ein Beitrag im
+   * Kanal, den alle lesen. Fuenf in zehn Minuten sind mehr, als je noetig
+   * waeren - und wenig genug, dass ein klemmender Knopf keinen Kanal flutet.
+   */
+  fragtWrite: { limit: 60, windowMs: 10 * 60 * 1000 },
+  fragtPublish: { limit: 5, windowMs: 10 * 60 * 1000 },
+
   /**
    * Die Vorschau im Studio.
    *

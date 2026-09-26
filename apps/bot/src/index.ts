@@ -26,6 +26,7 @@ import {
 import { createJobRunner } from './jobs';
 import { startIntegrationWatch } from './integration-reload';
 import { registerVoteJailHandler } from './vote-jail';
+import { registerFragtHandler } from './fragt-buttons';
 import { registerCommandHandler, registerCommands } from './commands/register';
 import { registerRaffleButtons } from './raffle-buttons';
 import { registerCalendarInteractions } from './calendar-interactions';
@@ -174,6 +175,8 @@ async function main(): Promise<void> {
 
   // Button-Klicks der Vote-Jail-Abstimmungen entgegennehmen.
   registerVoteJailHandler(client);
+  // Die Antwort-Knoepfe von «SwissHub fragt».
+  registerFragtHandler(client);
   // Verifikation: Beitritt, Nachricht und die beiden Knöpfe der Moderation.
   registerVerification(client);
   registerRejectConfirmation(client);

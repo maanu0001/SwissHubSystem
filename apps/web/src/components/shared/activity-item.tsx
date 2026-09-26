@@ -11,6 +11,7 @@ import {
   KeyRound,
   Lock,
   Megaphone,
+  MessageCircleQuestion,
   LogIn,
   ScrollText,
   Settings,
@@ -163,6 +164,22 @@ const ACTION_VIEW: Record<string, { icon: LucideIcon; tone: Tone; verb: string }
     icon: Megaphone,
     tone: 'warning',
     verb: 'hat eine Nachricht in {target} gelöscht',
+  },
+
+  // --- SwissHub fragt -------------------------------------------------------
+  //
+  // Nur die zwei Aktionen, die im Kanal sichtbar sind. Das Schreiben und Planen
+  // einer Frage ist Vorarbeit und steht in der Verwaltungssicht, nicht im
+  // Community-Verlauf.
+  FRAGT_QUESTION_PUBLISHED: {
+    icon: MessageCircleQuestion,
+    tone: 'info',
+    verb: 'hat die Frage {target} gestellt',
+  },
+  FRAGT_POLL_CLOSED_MANUALLY: {
+    icon: MessageCircleQuestion,
+    tone: 'info',
+    verb: 'hat die Abstimmung {target} geschlossen',
   },
 
   // --- Clips ----------------------------------------------------------------

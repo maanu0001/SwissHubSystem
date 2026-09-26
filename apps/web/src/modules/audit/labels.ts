@@ -319,6 +319,15 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   CLIP_REPORTED: 'Clip gemeldet',
   CLIP_REPORT_RESOLVED: 'Clip-Meldung bearbeitet',
 
+  FRAGT_QUESTION_CREATED: 'Frage angelegt',
+  FRAGT_QUESTION_UPDATED: 'Frage geändert',
+  FRAGT_QUESTION_ARCHIVED: 'Frage archiviert',
+  FRAGT_QUESTION_SCHEDULED: 'Frage geplant',
+  FRAGT_QUESTION_PUBLISHED: 'Frage gestellt',
+  FRAGT_POLL_CLOSED_MANUALLY: 'Abstimmung von Hand geschlossen',
+  FRAGT_DRAFT_FINALIZED: 'Social-Media-Entwurf abgeschlossen',
+  FRAGT_DRAFT_MARKED_PUBLISHED: 'Social-Media-Entwurf als gepostet markiert',
+
   // --- SwissHub Wrapped ------------------------------------------------------
   WRAPPED_CAMPAIGN_CREATED: 'Rückblick angelegt',
   WRAPPED_CAMPAIGN_UPDATED: 'Rückblick geändert',

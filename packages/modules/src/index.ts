@@ -25,6 +25,8 @@ import './clips/config';
 import './wrapped/config';
 // Was spielen wir? - die gemeinsame Spielauswahl.
 import './spielwahl/config';
+// SwissHub fragt - Fragen an die Community, Abstimmung, Social-Media-Content.
+import './fragt/config';
 import { registerGuildResolver } from './guild/config';
 
 // Ab hier löst jeder Discord-Aufruf die Guild aus der Datenbank auf.
@@ -74,6 +76,7 @@ export * as automation from './automation';
 export * as migration from './migration';
 export * as appeals from './appeals';
 export * as clips from './clips';
+export * as fragt from './fragt';
 export * as wrapped from './wrapped';
 export * as spielwahl from './spielwahl';
 // Mitgliederprofile - kein Modul mit Schalter, siehe profile/index.ts.

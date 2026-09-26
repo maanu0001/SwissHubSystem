@@ -124,6 +124,16 @@ export const DASHBOARD_ACTIVITY_ACTIONS: readonly AuditActionName[] = [
   AUDIT_ACTIONS.CLIP_COMPETITION_CANCELLED,
   AUDIT_ACTIONS.CLIP_COMPETITION_REOPENED,
 
+  /*
+   * SwissHub fragt: was die Community sieht.
+   *
+   * Eine veroeffentlichte Frage und ein geschlossene Abstimmung sind
+   * Ereignisse im Kanal - sie gehoeren in die Community-Sicht. Das Schreiben
+   * und Planen einer Frage ist Vorarbeit und bleibt in der Verwaltungssicht.
+   */
+  AUDIT_ACTIONS.FRAGT_QUESTION_PUBLISHED,
+  AUDIT_ACTIONS.FRAGT_POLL_CLOSED_MANUALLY,
+
   AUDIT_ACTIONS.TOURNAMENT_PUBLISHED,
   AUDIT_ACTIONS.TOURNAMENT_STARTED,
   AUDIT_ACTIONS.TOURNAMENT_COMPLETED,

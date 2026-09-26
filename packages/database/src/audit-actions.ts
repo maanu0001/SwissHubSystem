@@ -282,6 +282,29 @@ export const AUDIT_ACTIONS = {
   CLIP_REPORTED: 'CLIP_REPORTED',
   CLIP_REPORT_RESOLVED: 'CLIP_REPORT_RESOLVED',
 
+  // --- SwissHub fragt ------------------------------------------------------
+  //
+  // Protokolliert wird die Verwaltung: wer eine Frage schreibt, aendert,
+  // archiviert, plant, veroeffentlicht, eine Abstimmung von Hand schliesst und
+  // einen Social-Media-Entwurf abschliesst.
+  //
+  // **Nicht** protokolliert wird die einzelne Stimme. Das waeren bei einer
+  // gut laufenden Frage hunderte Eintraege, die das Audit Log fuellen, ohne
+  // eine Frage zu beantworten, die jemand stellt - und sie waeren zugleich
+  // eine namentliche Liste, wer wie gestimmt hat. Genau das soll es nicht
+  // geben.
+  //
+  // Auch nicht protokolliert: die Durchgaenge des Planers. Ein Job, der
+  // nachsieht, ob etwas faellig ist, ist keine Benutzeraktivitaet.
+  FRAGT_QUESTION_CREATED: 'FRAGT_QUESTION_CREATED',
+  FRAGT_QUESTION_UPDATED: 'FRAGT_QUESTION_UPDATED',
+  FRAGT_QUESTION_ARCHIVED: 'FRAGT_QUESTION_ARCHIVED',
+  FRAGT_QUESTION_SCHEDULED: 'FRAGT_QUESTION_SCHEDULED',
+  FRAGT_QUESTION_PUBLISHED: 'FRAGT_QUESTION_PUBLISHED',
+  FRAGT_POLL_CLOSED_MANUALLY: 'FRAGT_POLL_CLOSED_MANUALLY',
+  FRAGT_DRAFT_FINALIZED: 'FRAGT_DRAFT_FINALIZED',
+  FRAGT_DRAFT_MARKED_PUBLISHED: 'FRAGT_DRAFT_MARKED_PUBLISHED',
+
   ANALYTICS_EXPORT: 'ANALYTICS_EXPORT',
   LEVEL_CUSTOM_CARD_CHANGED: 'LEVEL_CUSTOM_CARD_CHANGED',
   MEMBER_ROLE_GRANTED: 'MEMBER_ROLE_GRANTED',

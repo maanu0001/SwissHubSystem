@@ -86,6 +86,15 @@ export const systemRoutes = {
 
   /** Clip of the Week - der Wettbewerb der Community. */
   clips: (): SystemRoute => '/clips',
+
+  // SwissHub fragt - Fragen, Abstimmungen, Social-Media-Content.
+  fragt: (): SystemRoute => '/fragt',
+  fragtBibliothek: (): SystemRoute => '/fragt/bibliothek',
+  fragtGeplant: (): SystemRoute => '/fragt/geplant',
+  fragtAktiv: (): SystemRoute => '/fragt/aktiv',
+  fragtErgebnisse: (): SystemRoute => '/fragt/ergebnisse',
+  fragtErgebnis: (abstimmungId: string): SystemRoute => `/fragt/ergebnisse/${id(abstimmungId)}`,
+  fragtStudio: (entwurfId: string): SystemRoute => `/fragt/studio/${id(entwurfId)}`,
   clipEinreichen: (): SystemRoute => '/clips/einreichen',
   clipsZufall: (): SystemRoute => '/clips/zufall',
   clipModeration: (): SystemRoute => '/clips/moderation',

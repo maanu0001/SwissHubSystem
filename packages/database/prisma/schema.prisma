@@ -7709,3 +7709,236 @@ model MemberShowcase {
   @@unique([profileId, slot])
   @@index([profileId, slot])
 }
+
+// =============================================================================
+// SwissHub fragt
+// =============================================================================
+//
+// Regelmaessige Fragen an die Community, Abstimmung auf Discord, und aus dem
+// Ergebnis ein Entwurf fuer Social Media.
+//
+// Die Trennung in Frage und Abstimmung ist der Kern des Modells: eine Frage
+// steht in der Bibliothek und darf bearbeitet werden, eine Abstimmung ist ein
+// Vorgang in der Vergangenheit und darf es nicht. Ohne diese Trennung wuerde
+// ein spaeter geaenderter Fragetext die Ergebnisse von damals umschreiben -
+// und die Grafik, die schon auf Instagram steht, waere ploetzlich falsch.
+
+enum FragtFragetyp {
+  /// Zwei Antwortmoeglichkeiten. «Controller oder Maus & Tastatur?»
+  ENTWEDER_ODER
+  /// Zwei bis vier Antwortmoeglichkeiten.
+  UMFRAGE
+  /// Mehrere Kandidaten treten gegeneinander an.
+  FAVORIT
+  /// Eine Aussage, ueber die abgestimmt wird - Zustimmung oder nicht.
+  HOT_TAKE
+}
+
+enum FragtFrageStatus {
+  /// In Arbeit. Unvollstaendig erlaubt.
+  DRAFT
+  /// Geprueft und freigegeben. Nur READY-Fragen darf die Automatik waehlen.
+  READY
+  /// Einem Termin zugewiesen.
+  SCHEDULED
+  /// Laeuft gerade auf Discord.
+  ACTIVE
+  /// War schon einmal draussen und ist wieder verfuegbar.
+  CLOSED
+  /// Aus dem Umlauf genommen. Ergebnisse bleiben erhalten.
+  ARCHIVED
+}
+
+enum FragtAbstimmungStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum FragtEntwurfStatus {
+  /// Bearbeitbar.
+  OFFEN
+  /// Abgeschlossen, bereit zum Export.
+  FINALISIERT
+  /// Von Hand auf Instagram gepostet und hier so markiert.
+  VEROEFFENTLICHT
+}
+
+model FragtFrage {
+  id      String @id @default(cuid())
+  guildId String
+
+  text       String
+  untertitel String?
+  kategorie  String
+  typ        FragtFragetyp
+  status     FragtFrageStatus @default(DRAFT)
+  tags       String[]
+
+  /// Wie lange abgestimmt wird, in Stunden.
+  dauerStunden Int @default(48)
+
+  /// Der zugewiesene Termin, wenn `status = SCHEDULED`.
+  geplantAt DateTime?
+
+  /// Bild aus der zentralen Medienverwaltung - der Dateiname, nicht der Inhalt.
+  medienDatei String?
+
+  /// Wann die Frage letztmals auf Discord stand.
+  ///
+  /// Nicht aus den Abstimmungen abgeleitet, sondern hier gefuehrt: die
+  /// automatische Auswahl fragt bei jedem Durchgang danach, und ein Join ueber
+  /// alle Abstimmungen waere fuer diese eine Zahl unverhaeltnismaessig.
+  zuletztGestelltAt DateTime?
+
+  createdByDiscordId String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  archivedAt         DateTime?
+
+  optionen     FragtOption[]
+  abstimmungen FragtAbstimmung[]
+
+  /// Die Automatik sucht nach Status; das Dashboard filtert danach.
+  @@index([guildId, status])
+  /// Der naechste Termin.
+  @@index([guildId, geplantAt])
+  /// Die Automatik bevorzugt, was lange nicht dran war.
+  @@index([guildId, status, zuletztGestelltAt])
+}
+
+model FragtOption {
+  id      String     @id @default(cuid())
+  frageId String
+  frage   FragtFrage @relation(fields: [frageId], references: [id], onDelete: Cascade)
+
+  label String
+  /// Reihenfolge im Embed und in der Grafik.
+  position Int
+
+  createdAt DateTime @default(now())
+
+  stimmen FragtStimme[]
+
+  /// Keine zwei Antworten auf demselben Platz.
+  @@unique([frageId, position])
+  @@index([frageId])
+}
+
+model FragtAbstimmung {
+  id      String @id @default(cuid())
+  guildId String
+
+  frageId String
+  frage   FragtFrage @relation(fields: [frageId], references: [id], onDelete: Cascade)
+
+  status FragtAbstimmungStatus @default(ACTIVE)
+
+  /// Der Fragetext, wie er veroeffentlicht wurde.
+  ///
+  /// Eine Kopie, kein Verweis. Wer die Frage in der Bibliothek spaeter
+  /// umformuliert, aendert damit nicht, was die Leute damals gelesen haben.
+  frageText  String
+  untertitel String?
+  typ        FragtFragetyp
+
+  channelId         String
+  messageId         String?
+  ergebnisMessageId String?
+
+  opensAt  DateTime
+  closesAt DateTime
+  closedAt DateTime?
+
+  /// Das Ergebnis, festgeschrieben beim Schliessen.
+  ///
+  /// Als JSON und nicht nachgerechnet: die Stimmen bleiben stehen, aber die
+  /// Antwortmoeglichkeiten koennen archiviert werden, und eine Grafik, die
+  /// zweimal exportiert wird, muss zweimal dasselbe zeigen.
+  ergebnis   Json?
+  finalVotes Int  @default(0)
+
+  /// Ob der Zwischenstand im Embed steht, wie bei der Veroeffentlichung gesetzt.
+  zwischenstandSichtbar Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stimmen  FragtStimme[]
+  entwuerfe FragtEntwurf[]
+
+  /// Eine Veroeffentlichung je Frage und Termin.
+  ///
+  /// Das ist der Schutz gegen doppelte Embeds. Der Planer rechnet den Termin
+  /// deterministisch aus den Einstellungen aus; zwei gleichzeitige Durchgaenge
+  /// - oder einer nach einem Neustart - kommen auf denselben `opensAt`, und
+  /// genau einer kommt an dieser Bedingung vorbei.
+  @@unique([frageId, opensAt])
+  /// Der Job sucht nach faelligen Abstimmungen.
+  @@index([guildId, status, closesAt])
+  /// Der Button-Klick kommt mit einer Nachrichtenkennung.
+  @@index([messageId])
+}
+
+model FragtStimme {
+  id String @id @default(cuid())
+
+  abstimmungId String
+  abstimmung   FragtAbstimmung @relation(fields: [abstimmungId], references: [id], onDelete: Cascade)
+
+  optionId String
+  option   FragtOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  voterDiscordId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Eine gueltige Stimme je Mitglied und Abstimmung - in der Datenbank.
+  ///
+  /// Der ganze Umgang mit Doppelklicks und Meinungsaenderungen haengt hier:
+  /// eine Stimme zu aendern ist ein `update` dieser einen Zeile, kein
+  /// Loeschen-und-Einfuegen. Zwei gleichzeitige Klicks koennen damit weder
+  /// zwei Stimmen erzeugen noch eine verlieren.
+  @@unique([abstimmungId, voterDiscordId])
+  /// Die Auszaehlung gruppiert danach.
+  @@index([abstimmungId, optionId])
+}
+
+model FragtEntwurf {
+  id String @id @default(cuid())
+
+  abstimmungId String
+  abstimmung   FragtAbstimmung @relation(fields: [abstimmungId], references: [id], onDelete: Cascade)
+
+  status FragtEntwurfStatus @default(OFFEN)
+
+  /// Welche Vorlage - `winner`, `results` oder `duel`.
+  vorlage String
+  /// Welches Format - `story`, `feed` oder `quadrat`.
+  format String
+
+  /// Redaktionelle Texte. Bearbeitbar.
+  ueberschrift String
+  untertitel   String?
+  cta          String
+
+  /// Welche Folien im Carousel stehen, in welcher Reihenfolge.
+  ///
+  /// JSON und keine eigene Tabelle: es sind hoechstens vier Eintraege mit je
+  /// einem Schalter und einer Position, und sie gehoeren immer zu genau einem
+  /// Entwurf. Eine Tabelle dafuer waere ein Join fuer vier Zeilen.
+  folien Json
+
+  /// Bild aus der zentralen Medienverwaltung.
+  medienDatei String?
+
+  veroeffentlichtAt DateTime?
+
+  createdByDiscordId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  /// Ein Entwurf je Abstimmung.
+  @@unique([abstimmungId])
+  @@index([status])
+}

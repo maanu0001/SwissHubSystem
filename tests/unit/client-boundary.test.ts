@@ -68,6 +68,19 @@ const CLIENT_SAFE = [
    *
    * Die Datei importiert nichts. Dass das so bleibt, prueft der Test unten.
    */
+  /*
+   * Die Fragetypen von «SwissHub fragt».
+   *
+   * Reine Kenntnis: welcher Typ wie viele Antworten erlaubt, welche Vorlage er
+   * im Content Studio vorschlaegt, welche Antworten bei einem Hot Take
+   * feststehen. Die Datei importiert zur Laufzeit nichts - nur einen Typ aus
+   * `@swisshub/database`, und `import type` verschwindet beim Uebersetzen.
+   *
+   * Das Formular in der Fragenbibliothek braucht genau diese Regeln, und zwar
+   * dieselben, nach denen der Server prueft. Eine zweite Liste im Browser
+   * waere die Stelle, an der Formular und Ablehnung auseinanderlaufen.
+   */
+  '@swisshub/modules/fragt/typen',
   '@swisshub/modules/spielwahl/baum',
   /*
    * Der Bauplan der Levelkarte.
@@ -183,6 +196,7 @@ const EXPORTE: Record<string, string> = {
   '@swisshub/modules/wrapped/fixtures': 'packages/modules/src/wrapped/fixtures.ts',
   '@swisshub/modules/wrapped/perioden': 'packages/modules/src/wrapped/perioden.ts',
   '@swisshub/modules/wrapped/vorlagen': 'packages/modules/src/wrapped/vorlagen.ts',
+  '@swisshub/modules/fragt/typen': 'packages/modules/src/fragt/typen.ts',
   '@swisshub/modules/spielwahl/baum': 'packages/modules/src/spielwahl/baum.ts',
   '@swisshub/modules/level/karte': 'packages/modules/src/level/card.ts',
   '@swisshub/modules/games/schemas': 'packages/modules/src/games/schemas.ts',

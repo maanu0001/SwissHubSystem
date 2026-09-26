@@ -87,6 +87,23 @@ jobs:
       # Die Voice-Laufzeit ist Python und lief bisher ausserhalb jeder
       # Pruefung. Ihre Tests decken genau die Fehler ab, an denen die
       # Wiedergabe im Betrieb gescheitert ist - ungeprueft waeren sie wertlos.
+      # Der Schritt, der nach dem Ausfall vom 25.09. dazukam.
+      #
+      # `tsc --noEmit` hat den Ausfall nicht verhindert: drei neue Dateien in
+      # `packages/modules` begannen mit `import 'server-only'` und wurden ueber
+      # ein Barrel Teil dessen, was der Bot laedt. `server-only` wirft in jedem
+      # Node-Prozess, der kein Next ist - aber ein Typecheck sieht keinen
+      # Laufzeitimport, und die Tests starten den Bot nicht.
+      #
+      # Dieser Schritt laedt jede Datei des Bots einzeln und startet danach den
+      # echten Einstiegspunkt mit Attrappen-Zugangsdaten. Er stellt keine
+      # Verbindung zu Discord her und zeigt auf keine echte Datenbank.
+      #
+      # Scheitert er, scheitert `validate` - und `Deploy Production` haengt
+      # ueber `needs: validate` daran. Es wird dann nicht ausgerollt.
+      - name: Bot-Startup-Test
+        run: npm run bot:startup-test
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

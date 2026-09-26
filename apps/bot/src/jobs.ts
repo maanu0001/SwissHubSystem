@@ -11,6 +11,7 @@ import {
   automation,
   calendar,
   clips,
+  fragt,
   jail,
   level,
   logs,
@@ -525,6 +526,35 @@ export function createJobRunner(
           return;
         }
         await clips.runClipsTick(guildId);
+      },
+    },
+    {
+      name: 'fragt-tick',
+      /*
+       * SwissHub fragt fortschreiben.
+       *
+       * Im Minutentakt, aus demselben Grund wie bei den Clips: «48 Stunden»
+       * heisst auf die Minute, und in der Minute danach wuerde sonst noch eine
+       * Stimme angenommen.
+       *
+       * Der Durchgang ist zugleich die Wiederherstellung. Was waehrend eines
+       * Ausfalls faellig war, wird nachgeholt - eine Frage veroeffentlicht,
+       * eine Abstimmung geschlossen, eine Nachricht nachgesendet, die beim
+       * ersten Versuch nicht abging. Und zwar ohne dass etwas ein zweites Mal
+       * herausgeht: der Termin wird deterministisch gerechnet, und darauf
+       * liegt eine Eindeutigkeitsbedingung in der Datenbank.
+       */
+      intervalMs: 60 * 1000,
+      async run() {
+        const { isModuleEnabled } = await import('@swisshub/modules');
+        if (!(await isModuleEnabled(fragt.FRAGT_MODULE_ID))) {
+          return;
+        }
+        const guildId = await tryResolveGuildId();
+        if (!guildId) {
+          return;
+        }
+        await fragt.runFragtTick(guildId);
       },
     },
     {
