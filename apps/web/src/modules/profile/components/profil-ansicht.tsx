@@ -5,6 +5,7 @@ import type { profile } from '@swisshub/modules';
 import { Abschnitt } from './abschnitt';
 import { ProfilAuszeichnungen } from './profil-auszeichnungen';
 import { ProfilHero } from './profil-hero';
+import { ProfilKulisse } from './profil-kulisse';
 import { ProfilSpiele } from './profil-spiele';
 import { ProfilSteckbrief, hatSteckbrief } from './profil-steckbrief';
 import { ProfilVitrine } from './profil-vitrine';
@@ -65,11 +66,7 @@ export function ProfilAnsicht({ ansicht }: { ansicht: profile.ProfilAnsicht }): 
        * `aria-hidden`, weil sie nichts erzaehlt. Ein Screenreader soll
        * drei leere Kaesten nicht vorlesen.
        */}
-      <div className={`pt-kulisse ${ansicht.gestaltung.kulisse}`} aria-hidden="true">
-        <div className="pt-lage pt-lage-1" />
-        <div className="pt-lage pt-lage-2" />
-        <div className="pt-lage pt-lage-3" />
-      </div>
+      <ProfilKulisse kulisse={ansicht.gestaltung.kulisse} />
 
       <ProfilHero ansicht={ansicht} />
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Lock, Sparkles } from 'lucide-react';
+import { Check, Lock, Sparkles, Trophy } from 'lucide-react';
 import * as themes from '@swisshub/modules/profil/profil-themes';
 import '../../profil-themes.css';
 
@@ -48,11 +48,19 @@ const KOMPOSITION_TEXT: Record<string, string> = {
 export function ThemeGalerie({
   gewaehlt,
   darfPremium,
+  level,
   zugang = 'keiner',
   onWaehlen,
 }: {
   gewaehlt: string | null;
   darfPremium: boolean;
+  /**
+   * Das erspielte Level - fuer Designs, die daran haengen.
+   *
+   * Nicht optional: ein fehlender Wert wuerde als `undefined` durch den
+   * Vergleich fallen und ein gesperrtes Design offen erscheinen lassen.
+   */
+  level: number;
   /** Woher das Recht kommt - fuer den Hinweis unter der Galerie. */
   zugang?: 'premium' | 'berechtigung' | 'keiner';
   onWaehlen: (id: string | null) => void;
@@ -64,7 +72,17 @@ export function ThemeGalerie({
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3">
         {alle.map((theme) => {
           const aktiv = (gewaehlt ?? 'classic') === theme.id;
-          const gesperrt = theme.premium && !darfPremium;
+          /*
+           * Zwei Gruende, gesperrt zu sein - und sie lesen sich anders.
+           *
+           * «Mit SwissHub Premium» waere beim Prestige-Design eine
+           * Falschauskunft: es laesst sich damit gerade nicht freischalten.
+           * Wer auf Level 12 steht, soll die fehlenden Level sehen und nicht
+           * nach einem Abonnement suchen, das nichts aendert.
+           */
+          const fehltPremium = theme.premium && !darfPremium;
+          const fehltLevel = theme.mindestLevel !== null && level < theme.mindestLevel;
+          const gesperrt = fehltPremium || fehltLevel;
 
           return (
             <li key={theme.id}>
@@ -98,6 +116,8 @@ export function ThemeGalerie({
                   <span className="pt-lage pt-lage-1" />
                   <span className="pt-lage pt-lage-2" />
                   <span className="pt-lage pt-lage-3" />
+                  <span className="pt-lage pt-lage-4" />
+                  <span className="pt-lage pt-lage-5" />
                 </span>
 
                 <span className="relative z-10 block h-28" />
@@ -109,6 +129,12 @@ export function ThemeGalerie({
                       {theme.premium ? (
                         <Sparkles className="size-3.5 text-[#e0a83a]" aria-label="Premium-Design" />
                       ) : null}
+                      {theme.mindestLevel !== null ? (
+                        <Trophy
+                          className="size-3.5 text-[#e0a83a]"
+                          aria-label={`Ab Level ${theme.mindestLevel}`}
+                        />
+                      ) : null}
                     </span>
                     <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
                       {theme.beschreibung}
@@ -119,7 +145,7 @@ export function ThemeGalerie({
                     {gesperrt ? (
                       <span className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
                         <Lock className="size-3" aria-hidden="true" />
-                        Mit SwissHub Premium
+                        {fehltLevel ? `Freischaltbar ab Level ${theme.mindestLevel}` : 'Mit SwissHub Premium'}
                       </span>
                     ) : null}
                   </span>

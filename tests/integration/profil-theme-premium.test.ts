@@ -21,7 +21,8 @@ useTestSchema('test_profil_theme_premium');
  * daran, dass beim Ablaufen **nichts geloescht** wird.
  */
 const { prisma } = await import('@swisshub/database');
-const { profile } = await import('@swisshub/modules');
+const { level: levelModul, profile } = await import('@swisshub/modules');
+const { xpForLevel } = levelModul;
 /*
  * Die Rollenkonfiguration haelt einen kurzen Zwischenspeicher (15 Sekunden).
  * Produktiv verwirft ihn die Einstellungsseite bei jeder Aenderung; im Test
@@ -81,6 +82,21 @@ async function gibPremium(status: 'ACTIVE' | 'CANCEL_AT_PERIOD_END' | 'EXPIRED' 
  * im Discord-Spiegel. Kein Mock der Berechtigungspruefung - sonst pruefte
  * der Test seinen eigenen Mock statt der Engine.
  */
+/**
+ * Ein Level setzen - ueber XP, nicht ueber ein Levelfeld.
+ *
+ * `LevelProfile` speichert XP; das Level entsteht aus der Kurve. Eine
+ * Testhilfe, die ein Level direkt schriebe, pruefte eine Groesse, die es in
+ * der Datenbank nicht gibt.
+ */
+async function setzeLevel(level: number): Promise<void> {
+  await prisma.levelProfile.upsert({
+    where: { discordId: MITGLIED },
+    create: { discordId: MITGLIED, xp: xpForLevel(level) },
+    update: { xp: xpForLevel(level) },
+  });
+}
+
 async function gibThemeBerechtigung(): Promise<void> {
   await prisma.managedRole.upsert({
     where: { discordRoleId: TEAM_ROLLE },
@@ -112,6 +128,7 @@ describeWithDatabase('Premium-Themes', () => {
     await prisma.premiumSubscription.deleteMany({});
     await prisma.rolePermission.deleteMany({});
     await prisma.managedRole.deleteMany({});
+    await prisma.levelProfile.deleteMany({});
     invalidateRoleConfiguration();
 
     /*
@@ -145,9 +162,9 @@ describeWithDatabase('Premium-Themes', () => {
 
   it('speichert ein Premium-Theme mit aktivem Abonnement', async () => {
     await gibPremium('ACTIVE');
-    await profile.speichereGestaltung(MITGLIED, eingabe('prestige'));
+    await profile.speichereGestaltung(MITGLIED, eingabe('aurora'));
     const zeile = await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } });
-    expect(zeile?.premiumTheme).toBe('prestige');
+    expect(zeile?.premiumTheme).toBe('aurora');
   });
 
   it('gewährt die Wahl auch in der Kündigungsfrist', async () => {
@@ -198,7 +215,8 @@ describeWithDatabase('Premium-Themes', () => {
     // erlaubt, sonst könnte jemand seine übrigen Designfelder nicht mehr
     // ändern. Ein *anderes* Premium-Theme dagegen schon.
     await profile.speichereGestaltung(MITGLIED, eingabe('aurora'));
-    await expect(profile.speichereGestaltung(MITGLIED, eingabe('prestige'))).rejects.toThrow();
+    // Ein ANDERES Premium-Design ist ein Wechsel - und der wird abgelehnt.
+    await expect(profile.speichereGestaltung(MITGLIED, eingabe('crimson'))).rejects.toThrow();
 
     expect((await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } }))?.premiumTheme).toBe(
       'aurora',
@@ -318,5 +336,104 @@ describeWithDatabase('Premium-Themes', () => {
 
     expect(await premium.hatAnspruch(MITGLIED, 'PREMIUM_ROLE')).toBe(false);
     expect((await premium.aktiveAnsprueche(MITGLIED)).size).toBe(0);
+  });
+
+  // --- Prestige: erspielt, nicht gekauft ----------------------------------
+
+  /**
+   * Die acht Faelle aus der Anforderung, gegen die echte Datenbank.
+   *
+   * Prestige ist das einzige Design, das an einer erspielten Groesse haengt.
+   * Genau deshalb sind hier die Umgehungsversuche wichtiger als der
+   * Normalfall: ein Abonnement, eine Adminrolle und eine Moderationsrolle
+   * duerfen nichts bewirken, und ein manipulierter Request schon gar nichts.
+   */
+
+  it('Prestige: Level 30 ist gesperrt', async () => {
+    await setzeLevel(30);
+    await expect(profile.speichereGestaltung(MITGLIED, eingabe('prestige'))).rejects.toThrow();
+    expect(await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } })).toBeNull();
+  });
+
+  it('Prestige: Level 31 ist freigeschaltet', async () => {
+    await setzeLevel(31);
+    await profile.speichereGestaltung(MITGLIED, eingabe('prestige'));
+    const zeile = await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } });
+    expect(zeile?.premiumTheme).toBe('prestige');
+  });
+
+  it('Prestige: Premium ohne Level bleibt gesperrt', async () => {
+    // Der wichtigste Fall. Bezahlen hilft hier nicht.
+    await gibPremium('ACTIVE');
+    await setzeLevel(30);
+    await expect(profile.speichereGestaltung(MITGLIED, eingabe('prestige'))).rejects.toThrow();
+  });
+
+  it('Prestige: die allgemeine Theme-Berechtigung umgeht die Voraussetzung nicht', async () => {
+    /*
+     * `members.profile.themes.premium` oeffnet alle Premium-Designs - und
+     * genau das ist der Grund, weshalb Prestige kein Premium-Design ist.
+     * Admins und Moderatoren haengen an dieser Berechtigung.
+     */
+    await gibThemeBerechtigung();
+    await setzeLevel(30);
+    await expect(profile.speichereGestaltung(MITGLIED, eingabe('prestige'))).rejects.toThrow();
+
+    // Gegenprobe: dieselbe Berechtigung oeffnet ein echtes Premium-Design.
+    await profile.speichereGestaltung(MITGLIED, eingabe('aurora'));
+    expect((await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } }))?.premiumTheme).toBe(
+      'aurora',
+    );
+  });
+
+  it('Prestige: Premium UND Berechtigung zusammen reichen nicht', async () => {
+    await gibPremium('ACTIVE');
+    await gibThemeBerechtigung();
+    await setzeLevel(30);
+    await expect(profile.speichereGestaltung(MITGLIED, eingabe('prestige'))).rejects.toThrow();
+  });
+
+  it('Prestige: ohne Levelprofil gilt Level 0', async () => {
+    // Kein Eintrag in `LevelProfile` - wer nie XP gesammelt hat, hat kein
+    // Level, und `0` ist die ehrliche Antwort darauf.
+    await expect(profile.speichereGestaltung(MITGLIED, eingabe('prestige'))).rejects.toThrow();
+  });
+
+  it('Prestige: verlorenes Level nimmt die Wirkung, behaelt aber die Wahl', async () => {
+    await setzeLevel(35);
+    await profile.speichereGestaltung(MITGLIED, eingabe('prestige'));
+
+    // XP-Verfall unter die Grenze.
+    await setzeLevel(29);
+    const ansicht = await profile.ladeProfil(MITGLIED, MITGLIED);
+    expect(ansicht?.gestaltung.theme).toBe('classic');
+
+    // Die Wahl steht weiterhin in der Datenbank.
+    expect((await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } }))?.premiumTheme).toBe(
+      'prestige',
+    );
+  });
+
+  it('Prestige: wiedererlangtes Level laesst dieselbe Wahl wieder wirken', async () => {
+    await setzeLevel(35);
+    await profile.speichereGestaltung(MITGLIED, eingabe('prestige'));
+    await setzeLevel(29);
+    expect((await profile.ladeProfil(MITGLIED, MITGLIED))?.gestaltung.theme).toBe('classic');
+
+    await setzeLevel(31);
+    expect((await profile.ladeProfil(MITGLIED, MITGLIED))?.gestaltung.theme).toBe('prestige');
+  });
+
+  it('Prestige: die Fehlermeldung nennt das Level, nicht ein Abonnement', async () => {
+    /*
+     * «Es laesst sich mit einem aktiven Premium auswaehlen» waere hier eine
+     * Falschauskunft - wer auf Level 12 steht, soll nicht nach einem
+     * Abonnement suchen, das nichts aendert.
+     */
+    await setzeLevel(12);
+    // Geprueft wird die Meldung fuer die Person, nicht die interne Notiz.
+    await expect(profile.speichereGestaltung(MITGLIED, eingabe('prestige'))).rejects.toMatchObject({
+      userMessage: expect.stringContaining('Level 31'),
+    });
   });
 });

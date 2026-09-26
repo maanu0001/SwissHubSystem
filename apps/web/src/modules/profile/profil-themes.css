@@ -63,153 +63,317 @@
 .pt-lage {
   position: absolute;
   inset: -20%;
+  /*
+   * Die Parallaxe sitzt auf `translate`, nicht auf `transform`.
+   *
+   * Das ist der Trick, der beides zusammen moeglich macht: die Keyframes
+   * animieren `transform`, und `translate` ist eine eigene Eigenschaft, die
+   * der Browser danach dazurechnet. Beides auf `transform` zu legen hiesse,
+   * dass die Maus die Animation ueberschreibt oder umgekehrt.
+   *
+   * `--pt-maus-x/y` liefert `profil-kulisse.tsx` als Zahl von -1 bis 1. Ohne
+   * JavaScript - kein Zeiger, reduzierte Bewegung, Serverrendering - bleibt
+   * die Vorgabe 0, und dann steht hier nichts.
+   *
+   * Je Lage ein anderer Faktor: das ergibt die Tiefe. Die vordersten Lagen
+   * laufen weiter als die hinteren, wie beim Blick aus einem Zugfenster.
+   */
+  --pt-maus-x: 0;
+  --pt-maus-y: 0;
+  --pt-tiefe: 0px;
+  translate: calc(var(--pt-maus-x) * var(--pt-tiefe)) calc(var(--pt-maus-y) * var(--pt-tiefe));
+  transition: translate 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.pt-lage-1 {
+  --pt-tiefe: 8px;
+}
+.pt-lage-2 {
+  --pt-tiefe: 18px;
+}
+.pt-lage-3 {
+  --pt-tiefe: 30px;
+}
+.pt-lage-4 {
+  --pt-tiefe: 46px;
+}
+.pt-lage-5 {
+  --pt-tiefe: 64px;
+}
+
+/*
+ * Angehalten, wenn niemand hinsieht.
+ *
+ * Setzt `profil-kulisse.tsx` beim Wechsel in einen Hintergrundtab. Browser
+ * drosseln Animationen dort von selbst, aber nicht zuverlaessig und nicht
+ * auf null.
+ */
+.pt-kulisse--ruht .pt-lage {
+  animation-play-state: paused;
 }
 
 /* --- SwissHub Classic ----------------------------------------------------
- * Keine Bewegung. Der Standard soll nicht wie ein abgeschaltetes Premium
- * aussehen, sondern wie eine ruhige Entscheidung: ein weicher Schein in der
- * Akzentfarbe des Mitglieds.
+ * Ruhig, und das absichtlich. Der Standard soll nicht wie ein abgeschaltetes
+ * Premium aussehen, sondern wie eine Entscheidung: ein weicher Schein in der
+ * Akzentfarbe des Mitglieds, der langsam atmet. Die Parallaxe wirkt auch
+ * hier - Bewegung auf Zuruf statt Bewegung von selbst.
  */
 .pt-classic .pt-lage-1 {
   background:
     radial-gradient(70% 55% at 50% 0%, hsl(var(--profil-akzent) / 0.16) 0%, transparent 65%),
-    linear-gradient(180deg, hsl(var(--profil-flaeche)) 0%, hsl(var(--profil-flaeche)) 100%);
+    radial-gradient(50% 40% at 50% 100%, hsl(var(--profil-akzent) / 0.08) 0%, transparent 70%);
+  animation: pt-atmen 20s ease-in-out infinite;
+}
+.pt-classic .pt-lage-2 {
+  background: radial-gradient(40% 32% at 20% 70%, hsl(var(--profil-akzent) / 0.09) 0%, transparent 72%);
+  animation: pt-driften-a 34s ease-in-out infinite;
 }
 
 /* --- Crimson Pulse -------------------------------------------------------
- * Zwei Lichtlinien, die sich kreuzen, und ein Schein, der atmet. Die Linien
- * sind schmale Verläufe, die langsam quer wandern - kein Blitzen, kein
- * Blinken.
+ * Diagonale Linien, die sichtbar durchlaufen, ein Puls in der Mitte und ein
+ * Dreiecksraster, das sich langsam dreht. Der Charakter ist Schlagzahl:
+ * schnellere Zeiten als bei allen anderen, harte Diagonalen, ein Rhythmus.
  */
 .pt-crimson .pt-lage-1 {
-  background: radial-gradient(60% 50% at 30% 15%, hsl(358 85% 45% / 0.32) 0%, transparent 70%);
-  animation: pt-atmen 14s ease-in-out infinite;
+  background: radial-gradient(60% 50% at 30% 15%, hsl(358 85% 45% / 0.42) 0%, transparent 70%);
+  animation: pt-atmen 9s ease-in-out infinite;
 }
 .pt-crimson .pt-lage-2 {
   background: repeating-linear-gradient(
     105deg,
-    transparent 0 120px,
-    hsl(358 90% 60% / 0.07) 120px 122px,
-    transparent 122px 240px
+    transparent 0 84px,
+    hsl(358 90% 62% / 0.16) 84px 88px,
+    transparent 88px 168px
   );
-  animation: pt-schieben-x 26s linear infinite;
+  animation: pt-schieben-x 11s linear infinite;
 }
 .pt-crimson .pt-lage-3 {
-  background: radial-gradient(45% 40% at 80% 85%, hsl(348 70% 40% / 0.26) 0%, transparent 70%);
-  animation: pt-atmen 18s ease-in-out infinite reverse;
+  background: radial-gradient(45% 40% at 80% 85%, hsl(348 78% 44% / 0.36) 0%, transparent 70%);
+  animation: pt-atmen 13s ease-in-out infinite reverse;
+}
+.pt-crimson .pt-lage-4 {
+  /* Ein Dreiecksraster - zwei gekreuzte Linienscharen. Es dreht sich. */
+  background:
+    repeating-linear-gradient(
+      60deg,
+      transparent 0 46px,
+      hsl(0 85% 58% / 0.09) 46px 47px,
+      transparent 47px 92px
+    ),
+    repeating-linear-gradient(
+      -60deg,
+      transparent 0 46px,
+      hsl(0 85% 58% / 0.09) 46px 47px,
+      transparent 47px 92px
+    );
+  animation: pt-drehen 48s linear infinite;
+}
+.pt-crimson .pt-lage-5 {
+  /* Der Herzschlag: ein breiter Strich, der von unten hochschiesst. */
+  background: linear-gradient(0deg, transparent 0%, hsl(0 95% 60% / 0.2) 50%, transparent 100%);
+  height: 26%;
+  inset: auto 0 -26% 0;
+  animation: pt-steigen 7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 /* --- Midnight Aurora -----------------------------------------------------
- * Drei farbige Schleier mit sehr weichen Kanten, die unabhängig voneinander
- * driften und dabei leicht kippen. Die Überlagerung ergibt die Farbwechsel -
- * animiert wird keine einzige Farbe, nur Position und Neigung.
+ * Fliessende Baender in mehreren raeumlichen Ebenen. Der Charakter ist
+ * Weichheit: keine Kante, keine gerade Linie, und die Baender scheren sich
+ * beim Wandern, wie Licht in der Atmosphaere. Animiert wird keine Farbe -
+ * die Farbwechsel entstehen aus der Ueberlagerung.
  */
 .pt-aurora .pt-lage-1 {
-  background: radial-gradient(50% 32% at 30% 25%, hsl(168 75% 45% / 0.34) 0%, transparent 72%);
-  animation: pt-driften-a 24s ease-in-out infinite;
+  background: radial-gradient(50% 30% at 30% 25%, hsl(168 78% 48% / 0.46) 0%, transparent 70%);
+  animation: pt-nordlicht 17s ease-in-out infinite;
 }
 .pt-aurora .pt-lage-2 {
-  background: radial-gradient(46% 30% at 70% 35%, hsl(262 75% 60% / 0.3) 0%, transparent 72%);
-  animation: pt-driften-b 31s ease-in-out infinite;
+  background: radial-gradient(46% 26% at 70% 35%, hsl(262 78% 62% / 0.42) 0%, transparent 70%);
+  animation: pt-wehen-b 21s ease-in-out infinite;
 }
 .pt-aurora .pt-lage-3 {
-  background: radial-gradient(40% 26% at 50% 70%, hsl(198 80% 55% / 0.24) 0%, transparent 72%);
-  animation: pt-driften-a 38s ease-in-out infinite reverse;
+  background: radial-gradient(40% 22% at 50% 68%, hsl(198 82% 58% / 0.34) 0%, transparent 70%);
+  animation: pt-wehen-a 27s ease-in-out infinite reverse;
+}
+.pt-aurora .pt-lage-4 {
+  /* Ein viertes, schmales Band hoch oben - es gibt dem Himmel eine Decke. */
+  background: linear-gradient(
+    180deg,
+    hsl(150 80% 60% / 0.22) 0%,
+    hsl(190 80% 60% / 0.1) 40%,
+    transparent 70%
+  );
+  height: 46%;
+  inset: -20% 0 auto 0;
+  animation: pt-nordlicht 33s ease-in-out infinite reverse;
+}
+.pt-aurora .pt-lage-5 {
+  background: radial-gradient(30% 18% at 82% 12%, hsl(288 74% 64% / 0.28) 0%, transparent 72%);
+  animation: pt-wehen-a 14s ease-in-out infinite;
 }
 
 /* --- Cyber Blue ----------------------------------------------------------
- * Ein perspektivisches Raster, das nach hinten wandert, plus eine Scanlinie,
- * die einmal je Durchlauf darüberläuft. Das Raster bewegt sich über
- * `background-position` seines eigenen Musters - eine einzige Lage statt
- * hundert Linienelemente.
+ * Technische Raster, die ohne Pause laufen, eine Scanlinie und ein
+ * Datenstrom am Rand. Der Charakter ist Praezision: alles bewegt sich
+ * gleichmaessig, linear, ohne Beschleunigung - Maschinentakt.
  */
 .pt-cyber .pt-lage-1 {
   background:
-    linear-gradient(hsl(196 92% 58% / 0.09) 1px, transparent 1px) 0 0 / 100% 46px,
-    linear-gradient(90deg, hsl(196 92% 58% / 0.07) 1px, transparent 1px) 0 0 / 46px 100%;
-  animation: pt-raster 18s linear infinite;
+    linear-gradient(hsl(196 92% 58% / 0.16) 1px, transparent 1px) 0 0 / 100% 46px,
+    linear-gradient(90deg, hsl(196 92% 58% / 0.12) 1px, transparent 1px) 0 0 / 46px 100%;
+  animation: pt-raster 7s linear infinite;
 }
 .pt-cyber .pt-lage-2 {
-  background: radial-gradient(55% 45% at 50% 0%, hsl(196 95% 50% / 0.26) 0%, transparent 70%);
-  animation: pt-atmen 16s ease-in-out infinite;
+  background: radial-gradient(55% 45% at 50% 0%, hsl(196 95% 50% / 0.38) 0%, transparent 70%);
+  animation: pt-atmen 11s ease-in-out infinite;
 }
 .pt-cyber .pt-lage-3 {
-  background: linear-gradient(180deg, transparent 0%, hsl(190 100% 65% / 0.12) 50%, transparent 100%);
-  height: 30%;
-  inset: -30% 0 auto 0;
-  animation: pt-scan 11s linear infinite;
+  background: linear-gradient(180deg, transparent 0%, hsl(190 100% 68% / 0.26) 50%, transparent 100%);
+  height: 24%;
+  inset: -24% 0 auto 0;
+  animation: pt-scan 6s linear infinite;
+}
+.pt-cyber .pt-lage-4 {
+  /* Ein zweites, feineres Raster in Gegenrichtung: das ergibt Tiefe. */
+  background: linear-gradient(90deg, hsl(186 90% 62% / 0.07) 1px, transparent 1px) 0 0 / 15px 100%;
+  animation: pt-raster-x 9s linear infinite reverse;
+}
+.pt-cyber .pt-lage-5 {
+  /* Senkrechte Striche, die durchlaufen - Datenspuren. */
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 170px,
+    hsl(190 100% 70% / 0.14) 170px 172px,
+    transparent 172px 340px
+  );
+  animation: pt-schieben-x 5s linear infinite;
 }
 
 /* --- Emerald Matrix ------------------------------------------------------
- * Partikel, die nach unten treiben: zwei Punktraster unterschiedlicher
- * Dichte, die mit verschiedenem Tempo fallen. Das erzeugt Tiefe, ohne dass
- * ein einziges Partikel als Element existiert.
+ * Mehrschichtige Datenstroeme: drei Punktraster fallen mit verschiedenem
+ * Tempo, dazu senkrechte Spalten, die durchrieseln. Der Charakter ist
+ * Dichte - viel Kleines statt wenig Grosses.
  */
 .pt-matrix .pt-lage-1 {
-  background-image: radial-gradient(hsl(150 76% 50% / 0.3) 1px, transparent 1.6px);
+  background-image: radial-gradient(hsl(150 78% 52% / 0.44) 1px, transparent 1.6px);
   background-size: 54px 54px;
-  animation: pt-fallen 22s linear infinite;
+  animation: pt-fallen 9s linear infinite;
 }
 .pt-matrix .pt-lage-2 {
-  background-image: radial-gradient(hsl(150 70% 60% / 0.17) 1px, transparent 1.4px);
+  background-image: radial-gradient(hsl(150 72% 62% / 0.3) 1px, transparent 1.4px);
   background-size: 31px 31px;
-  animation: pt-fallen 13s linear infinite;
+  animation: pt-fallen-kurz 5s linear infinite;
 }
 .pt-matrix .pt-lage-3 {
-  background: radial-gradient(60% 50% at 50% 10%, hsl(152 70% 30% / 0.3) 0%, transparent 72%);
-  animation: pt-atmen 20s ease-in-out infinite;
+  background: radial-gradient(60% 50% at 50% 10%, hsl(152 72% 32% / 0.42) 0%, transparent 72%);
+  animation: pt-atmen 14s ease-in-out infinite;
+}
+.pt-matrix .pt-lage-4 {
+  /* Senkrechte Spalten in ungleichen Abstaenden - der Stromcharakter. */
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 62px,
+    hsl(146 84% 54% / 0.1) 62px 64px,
+    transparent 64px 96px,
+    hsl(146 84% 54% / 0.06) 96px 97px,
+    transparent 97px 158px
+  );
+  animation: pt-fallen-lang 16s linear infinite;
+}
+.pt-matrix .pt-lage-5 {
+  background-image: radial-gradient(hsl(160 90% 70% / 0.22) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+  animation: pt-fallen-kurz 3.2s linear infinite;
 }
 
 /* --- Violet Nebula -------------------------------------------------------
- * Räumliche Tiefe aus zwei Ebenen: eine grosse, langsame Wolke und darüber
- * ein feines Sternenfeld, das sich schneller und gegenläufig bewegt. Das ist
- * Parallaxe ohne Scroll-Handler - beide Ebenen laufen einfach verschieden
- * schnell.
+ * Nebelformen, die ineinander wandern, und ein Sternenfeld, das langsam
+ * kreist. Der Charakter ist Weite: grosse, traege Formen und ein Feld, das
+ * sich dreht statt zu schieben.
  */
 .pt-nebula .pt-lage-1 {
   background:
-    radial-gradient(48% 40% at 35% 30%, hsl(276 82% 55% / 0.34) 0%, transparent 72%),
-    radial-gradient(42% 36% at 72% 62%, hsl(310 70% 52% / 0.24) 0%, transparent 72%);
-  animation: pt-driften-b 34s ease-in-out infinite;
+    radial-gradient(48% 38% at 35% 30%, hsl(276 84% 58% / 0.46) 0%, transparent 70%),
+    radial-gradient(42% 34% at 72% 62%, hsl(310 74% 54% / 0.34) 0%, transparent 70%);
+  animation: pt-treiben 23s ease-in-out infinite;
 }
 .pt-nebula .pt-lage-2 {
-  background-image: radial-gradient(hsl(0 0% 100% / 0.5) 0.8px, transparent 1.2px);
+  background-image: radial-gradient(hsl(0 0% 100% / 0.6) 0.8px, transparent 1.2px);
   background-size: 96px 96px;
-  opacity: 0.5;
-  animation: pt-driften-a 20s ease-in-out infinite reverse;
+  opacity: 0.6;
+  animation: pt-drehen 120s linear infinite;
 }
 .pt-nebula .pt-lage-3 {
-  background: radial-gradient(38% 30% at 50% 95%, hsl(258 70% 40% / 0.32) 0%, transparent 70%);
-  animation: pt-atmen 26s ease-in-out infinite;
+  background: radial-gradient(38% 28% at 50% 95%, hsl(258 74% 44% / 0.42) 0%, transparent 70%);
+  animation: pt-atmen 16s ease-in-out infinite;
+}
+.pt-nebula .pt-lage-4 {
+  /* Ein zweites Sternenfeld, dichter und gegenlaeufig - echte Parallaxe. */
+  background-image: radial-gradient(hsl(280 60% 92% / 0.4) 0.7px, transparent 1px);
+  background-size: 42px 42px;
+  animation: pt-drehen 70s linear infinite reverse;
+}
+.pt-nebula .pt-lage-5 {
+  background: radial-gradient(26% 20% at 16% 80%, hsl(196 80% 66% / 0.3) 0%, transparent 72%);
+  animation: pt-treiben 19s ease-in-out infinite reverse;
 }
 
-/* --- Golden Prestige -----------------------------------------------------
- * Zurückhaltend: ein warmer Grundschein und ein einzelner, breiter
- * Lichtreflex, der in langen Abständen einmal schräg darüberläuft. Kein
- * Funkeln - der Effekt lebt davon, dass er selten passiert.
+/* --- Prestige ------------------------------------------------------------
+ * Tiefschwarz und Gold, und das aufwendigste der sieben - es ist das
+ * Design, das man ab Level 31 bekommt, und das soll man sehen.
+ *
+ * Fuenf Lagen: ein warmer Grundschein, ein Goldliniengitter, das sich dreht,
+ * ein breiter Lichtreflex, der schraeg darueberlaeuft, ein zweiter,
+ * schnellerer Reflex quer dazu, und ein feines Goldstaubfeld. Der Charakter
+ * ist Material: es soll aussehen wie poliertes Metall unter wanderndem
+ * Licht, nicht wie ein Farbverlauf mit Funkeln.
  */
 .pt-prestige .pt-lage-1 {
-  background: radial-gradient(60% 48% at 50% 8%, hsl(42 80% 45% / 0.2) 0%, transparent 72%);
-  animation: pt-atmen 22s ease-in-out infinite;
+  background:
+    radial-gradient(62% 46% at 50% 6%, hsl(42 82% 48% / 0.32) 0%, transparent 70%),
+    radial-gradient(44% 34% at 50% 100%, hsl(36 70% 40% / 0.2) 0%, transparent 72%);
+  animation: pt-atmen 15s ease-in-out infinite;
 }
 .pt-prestige .pt-lage-2 {
-  background: linear-gradient(
-    100deg,
-    transparent 40%,
-    hsl(45 95% 70% / 0.14) 48%,
-    hsl(45 100% 80% / 0.2) 50%,
-    hsl(45 95% 70% / 0.14) 52%,
-    transparent 60%
-  );
-  animation: pt-reflex 17s ease-in-out infinite;
+  /* Das Goldgitter: zwei Linienscharen im 30-Grad-Winkel, langsam drehend. */
+  background:
+    repeating-linear-gradient(
+      30deg,
+      transparent 0 58px,
+      hsl(44 76% 58% / 0.13) 58px 59px,
+      transparent 59px 118px
+    ),
+    repeating-linear-gradient(
+      -30deg,
+      transparent 0 58px,
+      hsl(44 76% 58% / 0.1) 58px 59px,
+      transparent 59px 118px
+    );
+  animation: pt-drehen 74s linear infinite;
 }
 .pt-prestige .pt-lage-3 {
-  background: repeating-linear-gradient(
-    90deg,
-    transparent 0 180px,
-    hsl(42 70% 55% / 0.05) 180px 181px,
-    transparent 181px 360px
+  /* Der Hauptreflex - breit, schraeg, in langen Abstaenden. */
+  background: linear-gradient(
+    100deg,
+    transparent 38%,
+    hsl(45 96% 72% / 0.2) 46%,
+    hsl(48 100% 86% / 0.34) 50%,
+    hsl(45 96% 72% / 0.2) 54%,
+    transparent 62%
   );
+  animation: pt-reflex 9s ease-in-out infinite;
+}
+.pt-prestige .pt-lage-4 {
+  /* Ein zweiter, schmalerer Reflex quer dazu und versetzt. */
+  background: linear-gradient(172deg, transparent 44%, hsl(42 100% 80% / 0.18) 50%, transparent 56%);
+  animation: pt-reflex-quer 13s ease-in-out infinite;
+  animation-delay: 3.5s;
+}
+.pt-prestige .pt-lage-5 {
+  /* Goldstaub - fein, dicht, langsam steigend. */
+  background-image: radial-gradient(hsl(46 90% 72% / 0.34) 0.9px, transparent 1.3px);
+  background-size: 68px 68px;
+  animation: pt-steigen-lang 26s linear infinite;
 }
 
 /* --- Die Bewegungen ------------------------------------------------------
@@ -300,6 +464,162 @@
   }
 }
 
+@keyframes pt-drehen {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * Wehen statt Driften.
+ *
+ * Wie `pt-driften-a`, aber mit `skew` dazu: ein Band, das wandert UND sich
+ * dabei schert, sieht aus wie Licht in Bewegung. Eines, das nur wandert,
+ * sieht aus wie ein verschobener Kreis. Der Unterschied ist der Grund,
+ * weshalb Aurora vorher zu statisch wirkte.
+ */
+@keyframes pt-wehen-a {
+  0%,
+  100% {
+    transform: translate3d(-7%, -3%, 0) rotate(-4deg) skewX(-6deg);
+  }
+  50% {
+    transform: translate3d(8%, 4%, 0) rotate(5deg) skewX(7deg);
+  }
+}
+
+@keyframes pt-wehen-b {
+  0%,
+  100% {
+    transform: translate3d(7%, 3%, 0) scale(1.06) skewY(4deg);
+  }
+  33% {
+    transform: translate3d(-4%, -5%, 0) scale(1.16) skewY(-3deg);
+  }
+  66% {
+    transform: translate3d(-8%, 2%, 0) scale(1.1) skewY(6deg);
+  }
+}
+
+/*
+ * Nordlicht - nur Aurora.
+ *
+ * Der Unterschied zu `pt-wehen-a`: die Bewegung ist ueberwiegend
+ * SENKRECHT und ungleichmaessig getaktet. Ein Nordlicht wandert nicht
+ * seitwaerts durchs Bild, es zieht sich in die Hoehe und faellt wieder -
+ * das ist die Bewegung, die Aurora von Nebula unterscheidet.
+ */
+@keyframes pt-nordlicht {
+  0%,
+  100% {
+    transform: translate3d(-3%, 6%, 0) scaleY(0.88) skewX(-5deg);
+    opacity: 0.7;
+  }
+  28% {
+    transform: translate3d(2%, -7%, 0) scaleY(1.22) skewX(6deg);
+    opacity: 1;
+  }
+  61% {
+    transform: translate3d(5%, 2%, 0) scaleY(1.04) skewX(-3deg);
+    opacity: 0.85;
+  }
+}
+
+/*
+ * Treiben - nur Nebula.
+ *
+ * Eine weite, elliptische Bahn: die Wolke kommt nicht an ihren Ausgangsort
+ * zurueck, sondern zieht ueber vier Stationen im Kreis. Das ist der
+ * Unterschied zu `pt-wehen-*`, die hin und her pendeln - und der Grund,
+ * weshalb Nebula weit wirkt und Aurora nah.
+ */
+@keyframes pt-treiben {
+  0%,
+  100% {
+    transform: translate3d(-9%, -4%, 0) scale(1.04);
+  }
+  25% {
+    transform: translate3d(3%, -8%, 0) scale(1.14);
+  }
+  50% {
+    transform: translate3d(9%, 5%, 0) scale(1.08);
+  }
+  75% {
+    transform: translate3d(-2%, 9%, 0) scale(1.16);
+  }
+}
+
+@keyframes pt-raster-x {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(15px, 0, 0);
+  }
+}
+
+@keyframes pt-fallen-kurz {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 31px, 0);
+  }
+}
+
+@keyframes pt-fallen-lang {
+  from {
+    transform: translate3d(0, -12%, 0);
+  }
+  to {
+    transform: translate3d(0, 12%, 0);
+  }
+}
+
+/* Der Herzschlag von Crimson: hochschiessen, verblassen, warten. */
+@keyframes pt-steigen {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  55%,
+  100% {
+    transform: translate3d(0, -420%, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes pt-steigen-lang {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, -68px, 0);
+  }
+}
+
+@keyframes pt-reflex-quer {
+  0%,
+  64% {
+    transform: translate3d(0, -70%, 0);
+    opacity: 0;
+  }
+  70% {
+    opacity: 1;
+  }
+  94%,
+  100% {
+    transform: translate3d(0, 70%, 0);
+    opacity: 0;
+  }
+}
+
 /* --- Weniger Bewegung ----------------------------------------------------
  * Wer `prefers-reduced-motion` gesetzt hat, bekommt **dasselbe Bild ohne
  * Bewegung** - nicht ein abgespecktes. Die Lagen bleiben, sie stehen still,
@@ -309,14 +629,28 @@
 @media (prefers-reduced-motion: reduce) {
   .pt-kulisse .pt-lage {
     animation: none !important;
+    /*
+     * Und keine Parallaxe.
+     *
+     * `profil-kulisse.tsx` bindet den Zeiger ohnehin nicht ein, wenn die
+     * Einstellung gesetzt ist. Diese Zeile ist der zweite Riegel: waere die
+     * Variable je auf einem anderen Weg gesetzt, wirkte sie hier nicht.
+     */
+    translate: none !important;
+    transition: none !important;
   }
   .pt-kulisse .pt-lage[class*='pt-lage-'] {
     opacity: 1;
   }
-  .pt-prestige .pt-lage-2 {
-    opacity: 0;
-  }
-  .pt-cyber .pt-lage-3 {
+  /*
+   * Die Lagen, die nur als Durchlauf existieren, werden ausgeblendet statt
+   * angehalten: ein Reflex, der mitten im Bild steht, waere ein Streifen
+   * ueber dem Profil - kein Standbild, das gut aussieht.
+   */
+  .pt-prestige .pt-lage-3,
+  .pt-prestige .pt-lage-4,
+  .pt-cyber .pt-lage-3,
+  .pt-crimson .pt-lage-5 {
     opacity: 0;
   }
 }
@@ -327,13 +661,24 @@
  * Der Charakter jedes Themes steckt in der ersten Lage - die bleibt.
  */
 @media (max-width: 640px) {
+  /*
+   * Die beiden feinsten Lagen fallen weg.
+   *
+   * Ein 18-Pixel-Punktraster ist auf 375 Pixel Breite kaum zu sehen, kostet
+   * aber jede Bildwiederholung - und das auf dem Geraet mit dem kleinsten
+   * Budget. Die Lagen 1 bis 3 tragen den Charakter jedes Themes; sie
+   * bleiben, mit etwas ruhigeren Zeiten.
+   */
+  .pt-kulisse .pt-lage-4,
+  .pt-kulisse .pt-lage-5 {
+    display: none;
+  }
   .pt-kulisse .pt-lage-2,
   .pt-kulisse .pt-lage-3 {
-    animation-duration: 40s;
+    animation-duration: 24s;
   }
-  .pt-matrix .pt-lage-2,
-  .pt-nebula .pt-lage-2,
-  .pt-cyber .pt-lage-3 {
-    display: none;
+  /* Und die Parallaxe kleiner - auf dem Telefon gibt es ohnehin keinen Zeiger. */
+  .pt-kulisse .pt-lage {
+    --pt-tiefe: 0px;
   }
 }

@@ -5,6 +5,7 @@ import { CLIPS_MODULE_ID } from './config';
 import { getModuleSettings } from '../module-state';
 import { holeOderErstelleRunde, fuehreUebergaengeAus } from './wettbewerb';
 import { kuendigeStartAn, kuendigeVotingAn, kuendigeGewinnerAn } from './ankuendigung';
+import { raeumeVerwaisteVideos } from './service';
 import type { ClipsSettings } from './config';
 
 const log = createLogger('clips:tick');
@@ -44,6 +45,8 @@ export interface TickErgebnis {
   zumVoting: number;
   finalisiert: number;
   angekuendigt: number;
+  /** Hochgeladene Dateien ohne Clip, die dieser Durchgang entfernt hat. */
+  verwaisteGeloescht: number;
 }
 
 export async function runClipsTick(
@@ -63,6 +66,19 @@ export async function runClipsTick(
   const uebergaenge = await fuehreUebergaengeAus(guildId, jetzt);
   const angekuendigt = await kuendigeOffeneAn(guildId, jetzt, gateway);
 
+  /*
+   * Einmal in der Stunde aufraeumen, nicht jede Minute.
+   *
+   * Der Durchgang laeuft jede Minute; ein `readdir` plus ein `stat` je Datei
+   * waere sechzigmal in der Stunde eine Arbeit, die nichts findet. Die Minute
+   * 7 statt 0: um Null laufen die uebrigen Wartungsarbeiten.
+   *
+   * Aus dem Zeitstempel abgeleitet statt gemerkt - ein Zaehler im Speicher
+   * waere nach jedem Neustart auf Null, und ein Feld in der Datenbank waere
+   * eine Tabelle fuer eine Zahl.
+   */
+  const verwaisteGeloescht = jetzt.getMinutes() === 7 ? await raeumeVerwaisteVideos(jetzt) : 0;
+
   if (
     angelegt ||
     uebergaenge.eroeffnet.length > 0 ||
@@ -76,6 +92,7 @@ export async function runClipsTick(
       zumVoting: uebergaenge.zumVoting.length,
       finalisiert: uebergaenge.finalisiert.length,
       angekuendigt,
+      verwaisteGeloescht,
     });
   }
 
@@ -85,6 +102,7 @@ export async function runClipsTick(
     zumVoting: uebergaenge.zumVoting.length,
     finalisiert: uebergaenge.finalisiert.length,
     angekuendigt,
+    verwaisteGeloescht,
   };
 }
 

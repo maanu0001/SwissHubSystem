@@ -583,8 +583,24 @@ export interface AusgabeAnsicht {
   publishedAt: Date | null;
   failureReason: string | null;
   folien: AusgabeFolie[];
-  /** Warum etwas fehlt - aus `diagnostics`. */
-  gruende: Array<{ storyKey: string; label: string; lage: string; erklaerung: string }>;
+  /**
+   * Warum etwas fehlt - aus `diagnostics`.
+   *
+   * Die vier Felder nach `erklaerung` sind optional, weil `diagnostics` eine
+   * JSON-Spalte ist: Ausgaben, die vor dieser Erweiterung erhoben wurden,
+   * haben sie nicht. Sie sollen darum weiter lesbar bleiben und nicht als
+   * beschaedigt gelten - eine erneute Erhebung ergaenzt sie.
+   */
+  gruende: Array<{
+    storyKey: string;
+    label: string;
+    lage: string;
+    erklaerung: string;
+    provider?: string;
+    rohdaten?: number | null;
+    neuErhebenHilft?: boolean;
+    wasHilft?: string;
+  }>;
 }
 
 /**

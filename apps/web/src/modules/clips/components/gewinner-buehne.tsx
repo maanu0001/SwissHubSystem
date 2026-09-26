@@ -1,5 +1,6 @@
 'use client';
 
+import { ClipRahmen } from './clip-rahmen';
 import { useState } from 'react';
 import { Download, Loader2, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
@@ -75,15 +76,7 @@ export function GewinnerBuehne({
       </div>
 
       <div className="overflow-hidden rounded-3xl border border-[hsl(45_92%_52%)]/40 bg-black shadow-xl shadow-[hsl(45_92%_52%)]/5">
-        <iframe
-          src={einbettung}
-          title={karte.titel}
-          className="aspect-video w-full"
-          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          allowFullScreen
-          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
-          referrerPolicy="strict-origin-when-cross-origin"
-        />
+        <ClipRahmen provider={karte.provider} adresse={einbettung} titel={karte.titel} autoplayErlaubt />
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">

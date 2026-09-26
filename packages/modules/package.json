@@ -14,6 +14,7 @@
     "./clips": "./src/clips/index.ts",
     "./clips/provider": "./src/clips/provider.ts",
     "./clips/woche": "./src/clips/woche.ts",
+    "./clips/video-speicher": "./src/clips/video-speicher.ts",
     "./wrapped/daten": "./src/wrapped/daten.ts",
     "./wrapped/texte": "./src/wrapped/texte.ts",
     "./wrapped/archetyp": "./src/wrapped/archetyp.ts",

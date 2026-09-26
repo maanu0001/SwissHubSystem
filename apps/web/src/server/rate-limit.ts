@@ -272,6 +272,16 @@ export const RATE_LIMITS = {
 
   /** Kampagnen anlegen, aendern, Szenen sortieren. */
   wrappedStudio: { limit: 120, windowMs: 10 * 60 * 1000 },
+  /*
+   * Clipdateien hochladen - eng.
+   *
+   * Jeder Versuch kostet Bandbreite und bis zu 100 MB Plattenplatz, bevor
+   * ueberhaupt geprueft ist, ob die Datei ein Video ist. Fuenf Versuche in
+   * zehn Minuten reichen fuer eine Einreichung samt zwei Fehlversuchen und
+   * machen aus dem Endpunkt kein Werkzeug, mit dem sich die Platte fuellen
+   * laesst.
+   */
+  clipUpload: { limit: 5, windowMs: 10 * 60 * 1000 },
 
   /**
    * Die Vorschau im Studio.

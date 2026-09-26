@@ -154,7 +154,7 @@ export async function kuendigeStartAn(
         fields: [
           {
             name: 'Was zählt',
-            value: `${competition.submissionsPerMember === 1 ? 'Ein Clip' : `Bis zu ${competition.submissionsPerMember} Clips`} pro Person · Twitch oder YouTube`,
+            value: `${competition.submissionsPerMember === 1 ? 'Ein Clip' : `Bis zu ${competition.submissionsPerMember} Clips`} pro Person · Twitch, YouTube oder Medal`,
             inline: true,
           },
           {

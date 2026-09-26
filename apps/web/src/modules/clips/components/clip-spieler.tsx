@@ -3,6 +3,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ExternalLink } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
+import { ClipRahmen, MedalHinweis } from './clip-rahmen';
 import { cn } from '@/lib/utils';
 
 /**
@@ -19,13 +20,11 @@ import { cn } from '@/lib/utils';
  * vier Hosts duerfen ueberhaupt in einem Rahmen stehen. Waere die Pruefung
  * oben je zu umgehen, bliebe der Rahmen leer.
  *
- * ## Die Sandbox
+ * ## Rahmen oder Videoelement
  *
- * Skripte braucht der Player, sonst spielt er nicht. `allow-same-origin`
- * meint dabei den Ursprung des Players - twitch.tv, youtube-nocookie.com -,
- * nicht unseren: der Rahmen bekommt damit Zugriff auf seine eigenen Daten
- * und auf keine unserer. Was fehlt, ist Absicht: keine Formulare, keine
- * Navigation der Hauptseite, kein Download.
+ * Entscheidet `ClipRahmen` - an einer Stelle fuer alle fuenf Ansichten, die
+ * einen Clip zeigen. Dort steht auch, warum eine eigene Datei kein `iframe`
+ * bekommt und was die Sandbox des Rahmens erlaubt.
  */
 export function ClipSpieler({
   offen,
@@ -33,13 +32,17 @@ export function ClipSpieler({
   titel,
   einbettung,
   quelle,
+  provider,
 }: {
   offen: boolean;
   aufOeffnenAendern: (offen: boolean) => void;
   titel: string;
   einbettung: string;
   quelle: string;
+  /** `twitch`, `youtube`, `medal` oder `upload` - entscheidet die Darstellung. */
+  provider: string;
 }): React.JSX.Element {
+  const eigeneDatei = provider === 'upload';
   return (
     <Dialog open={offen} onOpenChange={aufOeffnenAendern}>
       <DialogContent className="max-w-3xl">
@@ -49,19 +52,10 @@ export function ClipSpieler({
 
         <div className="overflow-hidden rounded-xl border border-border bg-black">
           {offen ? (
-            <iframe
-              src={einbettung}
-              title={titel}
-              className="aspect-video w-full"
-              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-              allowFullScreen
-              sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
-              referrerPolicy="strict-origin-when-cross-origin"
-              loading="lazy"
-            />
+            <ClipRahmen provider={provider} adresse={einbettung} titel={titel} spaetLaden />
           ) : (
             /*
-             * Ohne geoeffneten Dialog kein Rahmen.
+             * Ohne geoeffneten Dialog kein Player.
              *
              * Der Dialog bleibt sonst im Dokument und der Player laedt im
              * Hintergrund weiter - bei zwanzig Karten auf einer Seite waeren
@@ -71,6 +65,8 @@ export function ClipSpieler({
           )}
         </div>
 
+        <MedalHinweis provider={provider} />
+
         <a
           href={quelle}
           target="_blank"
@@ -78,7 +74,7 @@ export function ClipSpieler({
           className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'w-full sm:w-auto')}
         >
           <ExternalLink className="size-4" aria-hidden="true" />
-          Beim Anbieter öffnen
+          {eigeneDatei ? 'In neuem Tab öffnen' : 'Beim Anbieter öffnen'}
         </a>
       </DialogContent>
     </Dialog>

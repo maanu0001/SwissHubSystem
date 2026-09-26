@@ -129,7 +129,7 @@ function buehnenInhalt({
         titel: eigeneEinreichung ? 'Dein Clip ist im Rennen.' : 'Dein bester Moment dieser Woche.',
         text: eigeneEinreichung
           ? 'Sobald die Einreichungen schliessen, stimmt die Community ab. Bis dahin: schau dir an, was die anderen hochgeladen haben.'
-          : 'Reiche deinen Clip ein - Twitch oder YouTube, Link genügt. Am Freitag entscheidet die Community.',
+          : 'Reiche deinen Clip ein - Twitch, YouTube oder Medal, Link genügt. Am Freitag entscheidet die Community.',
         uhrLabel: 'Einreichen noch',
         Symbol: Clapperboard,
         knopf:

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EINBETTUNGS_HOSTS, einbettung, erkenneClip } from '@swisshub/modules/clips/provider';
+import { EINBETTUNGS_HOSTS, einbettung, erkenneClip, erkenneUpload } from '@swisshub/modules/clips/provider';
 
 /**
  * Was als Clip durchgeht - und was nicht.
@@ -146,5 +146,188 @@ describe('Clip-Anbieter erkennen', () => {
       // Eine geratene Adresse waere ein kaputtes Bild in jeder Karte.
       expect(erkenneClip('https://clips.twitch.tv/EchterClipName').thumbnailUrl).toBeNull();
     });
+  });
+});
+
+/**
+ * Medal.
+ *
+ * Dieselbe Schwelle wie bei Twitch und YouTube: die eingegebene Adresse wird
+ * zerlegt, nie durchgereicht. Was hier ankommt, landet in einem `iframe`.
+ */
+describe('Medal', () => {
+  const NUMMER = '4954893';
+  const TOKEN = 'vpkPnOp0o';
+  const KENNUNG = `${NUMMER}/${TOKEN}`;
+
+  describe('erkennt die Adressformen', () => {
+    it.each([
+      ['die Einbettungsform', `https://medal.tv/clip/${KENNUNG}`],
+      ['die Clipseite', `https://medal.tv/clips/${KENNUNG}`],
+      ['die Seite mit Spiel im Pfad', `https://medal.tv/games/valorant/clips/${KENNUNG}`],
+      ['mit www', `https://www.medal.tv/clips/${KENNUNG}`],
+      ['mit Parametern dran', `https://medal.tv/clips/${KENNUNG}?invite=abc&utm_source=discord`],
+    ])('%s', (_name, adresse) => {
+      const clip = erkenneClip(adresse);
+      expect(clip.provider).toBe('medal');
+      expect(clip.sourceType).toBe('MEDAL');
+      expect(clip.externalId).toBe(KENNUNG);
+    });
+
+    it('nimmt beide Teile als Kennung, nicht die Nummer allein', () => {
+      /*
+       * Ohne den Token liesse sich die Einbettungsadresse nicht wieder
+       * bauen - ein Duplikat waere an der Nummer erkennbar, der Clip danach
+       * aber nicht abspielbar.
+       */
+      expect(erkenneClip(`https://medal.tv/clips/${KENNUNG}`).externalId).toContain('/');
+      expect(erkenneClip(`https://medal.tv/clips/${KENNUNG}`).externalId).not.toBe(NUMMER);
+    });
+
+    it('erkennt denselben Clip über verschiedene Adressen als denselben', () => {
+      // Sonst waere derselbe Clip zweimal einreichbar.
+      const a = erkenneClip(`https://medal.tv/clips/${KENNUNG}`);
+      const b = erkenneClip(`https://medal.tv/games/apex-legends/clips/${KENNUNG}?x=1`);
+      expect(a.externalId).toBe(b.externalId);
+    });
+  });
+
+  describe('lehnt ab, was kein Clip ist', () => {
+    it.each([
+      ['die Startseite', 'https://medal.tv/'],
+      ['ein Profil', 'https://medal.tv/u/irgendwer'],
+      ['eine Spielseite ohne Clip', 'https://medal.tv/games/valorant'],
+      ['ein Clip ohne Token', `https://medal.tv/clips/${NUMMER}`],
+      ['eine Nummer, die keine ist', 'https://medal.tv/clips/nichtszahl/vpkPnOp0o'],
+      ['ein Token mit Sonderzeichen', `https://medal.tv/clips/${NUMMER}/vpk$nOp`],
+      ['ein Token, das zu kurz ist', `https://medal.tv/clips/${NUMMER}/ab`],
+    ])('%s', (_name, adresse) => {
+      expect(() => erkenneClip(adresse)).toThrow();
+    });
+
+    it('nimmt keinen fremden Host, der medal.tv enthaelt', () => {
+      // Der klassische Versuch: `medal.tv.angreifer.example`.
+      expect(() => erkenneClip(`https://medal.tv.angreifer.example/clips/${KENNUNG}`)).toThrow();
+      expect(() => erkenneClip(`https://nichtmedal.tv/clips/${KENNUNG}`)).toThrow();
+    });
+
+    it('nennt in der Meldung, wo der Link herkommt', () => {
+      // Ein Schemafehler hilft niemandem weiter.
+      expect(() => erkenneClip('https://medal.tv/u/irgendwer')).toThrow(/medal\.tv/u);
+    });
+  });
+
+  describe('baut die Einbettung selbst', () => {
+    it('benutzt die dokumentierte Playeradresse', () => {
+      const clip = erkenneClip(`https://medal.tv/clips/${KENNUNG}`);
+      expect(clip.embedUrl).toBe(`https://medal.tv/clip/${KENNUNG}?autoplay=0&loop=0`);
+    });
+
+    it('schaltet Autoplay und Dauerschleife ab', () => {
+      /*
+       * Medals Vorgabe ist automatische, stumme Wiedergabe in Dauerschleife.
+       * In einer Liste mit mehreren Einreichungen waere das eine Seite, auf
+       * der alles gleichzeitig losgeht.
+       */
+      const clip = erkenneClip(`https://medal.tv/clips/${KENNUNG}`);
+      expect(clip.embedUrl).toContain('autoplay=0');
+      expect(clip.embedUrl).toContain('loop=0');
+    });
+
+    it('reicht die eingegebene Adresse nicht durch', () => {
+      // Der Kern des Moduls: aus der Eingabe wird eine Kennung, und aus der
+      // Kennung entsteht alles weitere.
+      const clip = erkenneClip(`https://medal.tv/clips/${KENNUNG}?invite=BOESE&next=//angreifer.example`);
+      expect(clip.embedUrl).not.toContain('BOESE');
+      expect(clip.embedUrl).not.toContain('angreifer');
+      expect(clip.canonicalUrl).not.toContain('BOESE');
+    });
+
+    it('gibt die Einbettung unveraendert weiter - nur Twitch braucht den Parent', () => {
+      const clip = erkenneClip(`https://medal.tv/clips/${KENNUNG}`);
+      expect(einbettung(clip, 'system.swisshub.gg')).toBe(clip.embedUrl);
+    });
+
+    it('raet kein Vorschaubild', () => {
+      /*
+       * Medal hat keine aus der Kennung ableitbare Bildadresse. Eine geratene
+       * waere ein kaputtes Bild an einer Stelle, an der ein leerer Platz
+       * besser aussieht - und ein Abruf waere der erste Server-Request auf
+       * eine von aussen bestimmte Adresse.
+       */
+      expect(erkenneClip(`https://medal.tv/clips/${KENNUNG}`).thumbnailUrl).toBeNull();
+    });
+
+    it('zeigt auf die Clipseite als sicheren aeusseren Link', () => {
+      // Der Rueckfall, wenn die Einbettung leer bleibt.
+      const clip = erkenneClip(`https://medal.tv/clip/${KENNUNG}`);
+      expect(clip.canonicalUrl).toBe(`https://medal.tv/clips/${KENNUNG}`);
+    });
+  });
+
+  it('steht in der Liste der einbettbaren Hosts', () => {
+    // Ohne das entstuende die Adresse, und der Rahmen blieb leer.
+    expect(EINBETTUNGS_HOSTS).toContain('https://medal.tv');
+  });
+});
+
+/**
+ * Hochgeladene Dateien.
+ *
+ * ## Warum das hier steht und nicht bei der Speicherung
+ *
+ * Weil hier entsteht, was die Oberflaeche spaeter anzeigt. Eine zweite Stelle,
+ * die Adressen fuer Clips baut, waere die gefaehrlichere von beiden - niemand
+ * sieht sie so genau an wie diese Datei.
+ */
+describe('Upload als Clip', () => {
+  const NAME = 'clip-0123456789abcdef0123456789abcdef.mp4';
+
+  it('zeigt auf die interne Route, nicht auf eine fremde Adresse', () => {
+    const clip = erkenneUpload(NAME, 'mp4');
+    expect(clip.provider).toBe('upload');
+    expect(clip.sourceType).toBe('UPLOAD');
+    expect(clip.embedUrl).toBe(`/api/clips/datei/${NAME}`);
+    expect(clip.canonicalUrl).toBe(`/api/clips/datei/${NAME}`);
+  });
+
+  it('nimmt den Dateinamen als Kennung', () => {
+    /*
+     * Und damit ist jeder Upload ein eigener Clip: der Name entsteht aus 16
+     * Zufallsbytes. Zweimal dieselbe Datei ergibt zwei Einreichungen - die
+     * Moderation entscheidet, wie bei jedem anderen inhaltlichen Zweifel.
+     */
+    expect(erkenneUpload(NAME, 'mp4').externalId).toBe(NAME);
+  });
+
+  it('raet kein Vorschaubild', () => {
+    // Ein Einzelbild aus dem Video braeuchte einen Decoder.
+    expect(erkenneUpload(NAME, 'mp4').thumbnailUrl).toBeNull();
+  });
+
+  it('nimmt nur Namen, die diese Anwendung selbst erzeugt', () => {
+    const schlecht = [
+      ['Pfadmanipulation', '../../etc/passwd'],
+      ['Pfad im Namen', 'clips/clip-0123456789abcdef0123456789abcdef.mp4'],
+      ['fremde Endung', 'clip-0123456789abcdef0123456789abcdef.html'],
+      ['zu kurzer Zufall', 'clip-0123.mp4'],
+      ['kein Praefix', '0123456789abcdef0123456789abcdef.mp4'],
+      ['Doppelendung', 'clip-0123456789abcdef0123456789abcdef.mp4.html'],
+      ['Nullbyte', 'clip-0123456789abcdef0123456789abcdef.mp4\u0000.html'],
+    ] as const;
+    for (const [was, name] of schlecht) {
+      expect(() => erkenneUpload(name, 'mp4'), was).toThrow();
+    }
+  });
+
+  it('lehnt einen Namen ab, der nicht zum erkannten Container passt', () => {
+    /*
+     * Der Kern: die Route setzt den Content-Type aus dem Namen. Liefen Name
+     * und Inhalt auseinander, wuerde eine WebM-Datei als `video/mp4`
+     * ausgeliefert - und der Player bliebe schwarz, ohne dass irgendwo ein
+     * Fehler stuende.
+     */
+    expect(() => erkenneUpload(NAME, 'webm')).toThrow();
+    expect(() => erkenneUpload('clip-0123456789abcdef0123456789abcdef.webm', 'mp4')).toThrow();
   });
 });

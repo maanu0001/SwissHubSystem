@@ -11,6 +11,7 @@ const EINBETTUNGS_HOSTS = [
   'https://player.twitch.tv',
   'https://www.youtube-nocookie.com',
   'https://www.youtube.com',
+  'https://medal.tv',
 ] as const;
 
 /**
@@ -53,7 +54,7 @@ export function middleware(request: NextRequest): NextResponse {
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
     /*
-     * Die Player von Twitch und YouTube.
+     * Die Player von Twitch, YouTube und Medal.
      *
      * Ohne diese Zeile griffe `default-src 'self'`, und ein eingebetteter
      * Clip zeigte einen leeren Rahmen. Freigegeben sind vier Hosts und sonst
@@ -67,6 +68,20 @@ export function middleware(request: NextRequest): NextResponse {
      * uebereinstimmen, prueft ein Test.
      */
     `frame-src 'self' ${EINBETTUNGS_HOSTS.join(' ')}`,
+    /*
+     * Videos: nur eigene Dateien und `blob:`.
+     *
+     * `'self'` fuer die hochgeladenen Clips, die `/api/clips/datei/<name>`
+     * ausliefert. `blob:` fuer die Vorschau im Einreich-Assistenten: der
+     * Browser spielt die gewaehlte Datei dort lokal ueber
+     * `URL.createObjectURL`, damit man vor dem Upload sieht, ob der Clip
+     * laeuft. Ohne diese Zeile griffe `default-src 'self'`, die Vorschau
+     * bliebe schwarz - und niemand koennte erraten, warum.
+     *
+     * Kein `https:`: ein Video von einer fremden Adresse gibt es hier nicht.
+     * Die Player der Anbieter laufen im Rahmen und haengen an `frame-src`.
+     */
+    "media-src 'self' blob:",
     `connect-src 'self'${isDevelopment ? ' ws: wss:' : ''}`,
     "form-action 'self'",
     `frame-ancestors ${darfInRahmen ? "'self'" : "'none'"}`,

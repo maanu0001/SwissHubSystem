@@ -29,10 +29,17 @@ const SEITE = readFileSync(
 );
 
 const ALLE = themes.alleProfilThemes();
-const PREMIUM = ALLE.filter((theme) => theme.premium);
+/*
+ * Die Designs, die nicht jedem offenstehen.
+ *
+ * Nicht `theme.premium` allein: Prestige haengt am Level und ausdruecklich
+ * NICHT am Abonnement, waere mit dem alten Filter also herausgefallen - und
+ * genau dieses Design soll am gruendlichsten gestaltet sein.
+ */
+const PREMIUM = ALLE.filter((theme) => theme.premium || theme.mindestLevel !== null);
 
 describe('Buehne: die Themes unterscheiden sich', () => {
-  it('bringt mindestens sechs Premium-Designs mit', () => {
+  it('bringt mindestens sechs gesperrte Designs mit', () => {
     expect(PREMIUM.length).toBeGreaterThanOrEqual(6);
   });
 

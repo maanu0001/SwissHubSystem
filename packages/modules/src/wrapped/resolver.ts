@@ -101,16 +101,49 @@ export async function ermittleQuellen(guildId: string, zeitraum: WrappedZeitraum
    * Fuer die uebrigen Quellen gibt es keine «gemessen seit»-Marke - sie
    * entstehen aus fachlichen Zeilen, die es entweder gibt oder nicht. Die
    * frueheste Zeile im Zeitraum ist deshalb kein Beleg fuer Vollstaendigkeit;
-   * hier zaehlt allein, ob es ueberhaupt etwas gibt. Ohne eine einzige Zeile
-   * ist die Quelle `fehlt` - und jede Szene, die daran haengt, entfaellt fuer
-   * alle.
+   * hier zaehlt allein, ob es ueberhaupt etwas gibt.
+   *
+   * ## Diese Zaehlungen muessen mit den Stories uebereinstimmen
+   *
+   * Sie taten es nicht, und das war die Ursache einer Falschauskunft, die
+   * schwerer wog als sie aussieht: die Tafel im Studio zaehlte etwas anderes
+   * als die Story, die daraus eine Folie macht. In beide Richtungen falsch.
+   *
+   * Turniere wurden nach `createdAt` gezaehlt - ein im August entschiedenes
+   * Turnier, im September angelegt, galt als «nicht erhoben», obwohl die
+   * Folie entstand. `stories.ts` hat diese Falle fuer sich behoben; hier
+   * blieb sie stehen.
+   *
+   * Umgekehrt zaehlten Termine, Clip-Runden und Turniere ohne Ruecksicht auf
+   * den Status: ein Entwurf, eine abgesagte Runde, ein laufendes Turnier
+   * ergaben «vollstaendig», und die Story fand danach nichts. Und `games`
+   * zaehlte `SpielwahlSupport` - einzelne Unterstuetzungsstimmen, ohne
+   * Rundenstatus -, waehrend die Story abgeschlossene Runden liest.
+   *
+   * Darum spiegelt jede Zaehlung hier jetzt das Praedikat ihrer Story. Wer
+   * eine Story-Abfrage aendert, aendert die daneben mit.
    */
   const spanne = { gte: zeitraum.start, lt: zeitraum.end };
   const [clips, events, turniere, spiele, xp] = await Promise.all([
-    prisma.clipCompetition.count({ where: { guildId, votingEndsAt: spanne } }),
-    prisma.calendarEvent.count({ where: { guildId, startAt: spanne } }),
-    prisma.tournament.count({ where: { guildId, createdAt: spanne } }),
-    prisma.spielwahlSupport.count({ where: { createdAt: spanne } }),
+    // wie `ladeClipSieger`
+    prisma.clipCompetition.count({ where: { guildId, status: 'COMPLETED', votingEndsAt: spanne } }),
+    // wie `ladeTermine`
+    prisma.calendarEvent.count({
+      where: { guildId, status: { in: ['SCHEDULED', 'ONGOING', 'COMPLETED'] }, startAt: spanne },
+    }),
+    // wie `ladeTurniere`: entschieden im Zeitraum, nicht angelegt
+    prisma.tournament.count({
+      where: {
+        guildId,
+        status: 'COMPLETED',
+        OR: [{ completedAt: spanne }, { completedAt: null, startsAt: spanne }],
+      },
+    }),
+    // wie `ladeSpielauswahl`: abgeschlossene Runden dieser Guild
+    prisma.spielwahlRound.count({
+      where: { status: 'FERTIG', finishedAt: spanne, session: { guildId } },
+    }),
+    // `XpTransaction` hat keine Guild-Spalte - dieses System fuehrt eine Guild.
     prisma.xpTransaction.count({ where: { createdAt: spanne } }),
   ]);
 

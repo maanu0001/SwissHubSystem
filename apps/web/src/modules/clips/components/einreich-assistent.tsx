@@ -3,11 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Link2, Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { clipEinreichenAction, clipVorschauAction } from '@/modules/clips/actions';
+import { ClipRahmen, MedalHinweis } from './clip-rahmen';
 import { cn } from '@/lib/utils';
 
 export interface SpielOption {
@@ -22,7 +23,20 @@ interface Vorschau {
   einbettung: string;
 }
 
-const SCHRITTE = ['Link', 'Details', 'Absenden'] as const;
+const SCHRITTE = ['Quelle', 'Details', 'Absenden'] as const;
+
+/**
+ * Woher der Clip kommt.
+ *
+ * Zwei Wege, ein Assistent. Die Alternative waere eine zweite Seite fuer
+ * Uploads gewesen - mit derselben Titelabfrage, derselben Spielauswahl,
+ * derselben Rechtebestaetigung. Zwei Formulare fuer dieselbe Einreichung
+ * laufen auseinander, sobald eines von beiden geaendert wird.
+ */
+type Quelle = 'link' | 'datei';
+
+/** Was `speichereVideo` annimmt - im Browser nur als Vorauswahl im Dialog. */
+const ERLAUBTE_TYPEN = 'video/mp4,video/webm';
 
 /**
  * Der Weg von der Adresse zum eingereichten Clip.
@@ -45,13 +59,23 @@ export function EinreichAssistent({
   csrfToken,
   spiele,
   limitErreicht,
+  uploadsErlaubt,
+  uploadMaxMb,
 }: {
   csrfToken: string;
   spiele: SpielOption[];
   limitErreicht: boolean;
+  /** Ob das Modul direkte Uploads zulaesst - `allowUploads`. */
+  uploadsErlaubt: boolean;
+  /** Die eingestellte Obergrenze in MB - `uploadMaxMb`. */
+  uploadMaxMb: number;
 }): React.JSX.Element {
   const router = useRouter();
   const [schritt, setSchritt] = useState(0);
+  const [quelle, setQuelle] = useState<Quelle>('link');
+  const [datei, setDatei] = useState<File | null>(null);
+  const [dateiVorschau, setDateiVorschau] = useState<string | null>(null);
+  const [fortschritt, setFortschritt] = useState<number | null>(null);
   const [url, setUrl] = useState('');
   const [vorschau, setVorschau] = useState<Vorschau | null>(null);
   const [titel, setTitel] = useState('');
@@ -79,12 +103,126 @@ export function EinreichAssistent({
     setSchritt(1);
   }
 
+  /**
+   * Eine Datei auswaehlen.
+   *
+   * Geprueft wird hier nur, was ohne Server zu sehen ist: Groesse und
+   * gemeldeter Typ. Das ist eine Bequemlichkeit - wer 400 MB waehlt, soll es
+   * sofort erfahren und nicht nach der Uebertragung. Die verbindliche
+   * Pruefung macht `speichereVideo` an den echten Bytes; ein `accept` im
+   * Dialog und ein `type` aus dem Browser sind beide frei manipulierbar.
+   *
+   * Die Vorschau kommt aus `createObjectURL` - der Browser spielt die Datei
+   * lokal, nichts geht dafuer ueber die Leitung. Wer hier sieht, dass sein
+   * Clip laeuft, weiss es vor dem Upload.
+   */
+  function waehleDatei(gewaehlt: File | null): void {
+    setFehler(null);
+    if (dateiVorschau) {
+      URL.revokeObjectURL(dateiVorschau);
+    }
+    if (!gewaehlt) {
+      setDatei(null);
+      setDateiVorschau(null);
+      return;
+    }
+    if (gewaehlt.size > uploadMaxMb * 1024 * 1024) {
+      setDatei(null);
+      setDateiVorschau(null);
+      setFehler(
+        `Die Datei ist ${Math.round(gewaehlt.size / 1024 / 1024)} MB gross - erlaubt sind ${uploadMaxMb} MB.`,
+      );
+      return;
+    }
+    setDatei(gewaehlt);
+    setDateiVorschau(URL.createObjectURL(gewaehlt));
+    setTitel((vorher) => vorher || gewaehlt.name.replace(/\.[^.]+$/u, '').slice(0, 120));
+    setSchritt(1);
+  }
+
+  /**
+   * Die Datei hochladen und damit einreichen.
+   *
+   * `XMLHttpRequest` statt `fetch`, allein wegen `upload.onprogress`: bei
+   * hundert Megabyte auf einer Haushaltsleitung sind das Minuten, und ein
+   * Knopf, der nur dreht, sieht in dieser Zeit aus wie ein Absturz. `fetch`
+   * kennt fuer den Hinweg keinen Fortschritt.
+   */
+  async function ladeHoch(): Promise<void> {
+    if (!datei) {
+      return;
+    }
+    const rumpf = new FormData();
+    rumpf.set('csrfToken', csrfToken);
+    rumpf.set('video', datei);
+    rumpf.set('titel', titel.trim());
+    rumpf.set('rechteBestaetigt', 'true');
+    if (beschreibung.trim()) {
+      rumpf.set('beschreibung', beschreibung.trim());
+    }
+    if (gameId) {
+      rumpf.set('gameId', gameId);
+    }
+
+    setFortschritt(0);
+    const antwort = await new Promise<{ ok: boolean; meldung: string }>((fertig) => {
+      const anfrage = new XMLHttpRequest();
+      anfrage.open('POST', '/api/clips/upload');
+      anfrage.upload.onprogress = (ereignis) => {
+        if (ereignis.lengthComputable) {
+          setFortschritt(Math.round((ereignis.loaded / ereignis.total) * 100));
+        }
+      };
+      anfrage.onload = () => {
+        try {
+          const daten = JSON.parse(anfrage.responseText) as
+            { ok: true } | { ok: false; error: { message: string } };
+          fertig(daten.ok ? { ok: true, meldung: '' } : { ok: false, meldung: daten.error.message });
+        } catch {
+          /*
+           * Keine JSON-Antwort heisst meist: der Reverse Proxy hat
+           * abgebrochen, bevor die Anwendung die Datei gesehen hat - ein 413
+           * aus nginx. Das ist die einzige Fehlerquelle hier, die nicht von
+           * SwissHub kommt, und die Meldung sagt es deshalb so.
+           */
+          fertig({
+            ok: false,
+            meldung:
+              anfrage.status === 413
+                ? 'Die Datei wurde vom Server abgewiesen, weil sie zu gross ist.'
+                : 'Der Upload ist unterwegs abgebrochen. Versuche es noch einmal.',
+          });
+        }
+      };
+      anfrage.onerror = () =>
+        fertig({ ok: false, meldung: 'Die Verbindung ist abgebrochen. Versuche es noch einmal.' });
+      anfrage.onabort = () => fertig({ ok: false, meldung: 'Der Upload wurde abgebrochen.' });
+      anfrage.send(rumpf);
+    });
+    setFortschritt(null);
+
+    if (!antwort.ok) {
+      setFehler(antwort.meldung);
+      return;
+    }
+    toast.success('Dein Clip ist eingereicht - die Moderation schaut ihn sich an.');
+    router.push('/clips');
+    router.refresh();
+  }
+
   async function reicheEin(): Promise<void> {
     if (laeuft || !rechte) {
       return;
     }
     setLaeuft(true);
     setFehler(null);
+
+    if (quelle === 'datei') {
+      await ladeHoch();
+      setLaeuft(false);
+      return;
+    }
+
     const antwort = await clipEinreichenAction({
       csrfToken,
       url: url.trim(),
@@ -149,47 +287,118 @@ export function EinreichAssistent({
       <div className="rounded-2xl border border-border bg-card p-5 sm:p-6">
         {schritt === 0 ? (
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="clip-url">Link zu deinem Clip</Label>
-              <Input
-                id="clip-url"
-                value={url}
-                inputMode="url"
-                autoComplete="off"
-                placeholder="https://clips.twitch.tv/... oder https://youtu.be/..."
-                onChange={(ereignis) => setUrl(ereignis.target.value)}
-                onKeyDown={(ereignis) => {
-                  if (ereignis.key === 'Enter') {
-                    ereignis.preventDefault();
-                    void pruefeLink();
-                  }
-                }}
-              />
-              <p className="text-xs text-muted-foreground">
-                Twitch-Clips und YouTube-Videos. Andere Quellen sind nicht zugelassen.
-              </p>
-            </div>
+            {/*
+              Die Wahl steht nur da, wenn es etwas zu wählen gibt. Ist der
+              Upload im Modul abgeschaltet, wäre ein zweiter Knopf, der eine
+              Fehlermeldung bringt, schlechter als kein zweiter Knopf.
+            */}
+            {uploadsErlaubt ? (
+              <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Woher kommt der Clip">
+                {(
+                  [
+                    {
+                      wert: 'link',
+                      label: 'Link einfügen',
+                      hinweis: 'Twitch, YouTube, Medal',
+                      Symbol: Link2,
+                    },
+                    {
+                      wert: 'datei',
+                      label: 'Datei hochladen',
+                      hinweis: `MP4 oder WebM, bis ${uploadMaxMb} MB`,
+                      Symbol: Upload,
+                    },
+                  ] as const
+                ).map(({ wert, label, hinweis, Symbol }) => (
+                  <button
+                    key={wert}
+                    type="button"
+                    onClick={() => {
+                      setQuelle(wert);
+                      setFehler(null);
+                    }}
+                    className={cn(
+                      'flex items-start gap-3 rounded-xl border p-4 text-left transition',
+                      quelle === wert
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/40',
+                    )}
+                    aria-pressed={quelle === wert}
+                  >
+                    <Symbol className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{label}</span>
+                      <span className="block text-xs text-muted-foreground">{hinweis}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
-            <Button onClick={() => void pruefeLink()} disabled={laeuft || url.trim().length < 8}>
-              {laeuft ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-              Weiter
-              <ArrowRight className="size-4" aria-hidden="true" />
-            </Button>
+            {quelle === 'datei' ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="clip-datei">Videodatei</Label>
+                <Input
+                  id="clip-datei"
+                  type="file"
+                  accept={ERLAUBTE_TYPEN}
+                  onChange={(ereignis) => waehleDatei(ereignis.target.files?.[0] ?? null)}
+                  className="cursor-pointer file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  MP4 oder WebM, bis {uploadMaxMb} MB. MOV, MKV und AVI spielen Browser nicht zuverlässig ab -
+                  wandle den Clip vorher um. Die Datei bleibt bis zum Absenden auf deinem Gerät.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="clip-url">Link zu deinem Clip</Label>
+                  <Input
+                    id="clip-url"
+                    value={url}
+                    inputMode="url"
+                    autoComplete="off"
+                    placeholder="https://clips.twitch.tv/... oder https://youtu.be/..."
+                    onChange={(ereignis) => setUrl(ereignis.target.value)}
+                    onKeyDown={(ereignis) => {
+                      if (ereignis.key === 'Enter') {
+                        ereignis.preventDefault();
+                        void pruefeLink();
+                      }
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Twitch-Clips, YouTube-Videos und Medal-Clips. Andere Quellen sind nicht zugelassen.
+                  </p>
+                </div>
+
+                <Button onClick={() => void pruefeLink()} disabled={laeuft || url.trim().length < 8}>
+                  {laeuft ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                  Weiter
+                  <ArrowRight className="size-4" aria-hidden="true" />
+                </Button>
+              </>
+            )}
           </div>
         ) : null}
 
-        {schritt === 1 && vorschau ? (
+        {schritt === 1 && (vorschau || dateiVorschau) ? (
           <div className="space-y-4">
             <div className="overflow-hidden rounded-xl border border-border bg-black">
-              <iframe
-                src={vorschau.einbettung}
-                title="Vorschau deines Clips"
-                className="aspect-video w-full"
-                allow="fullscreen"
-                sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
-                referrerPolicy="strict-origin-when-cross-origin"
+              {/*
+                Bei einer Datei spielt der Browser sie lokal - `blob:`-Adresse,
+                nichts geht dafür über die Leitung. Das ist der Sinn der
+                Vorschau an dieser Stelle: sehen, dass der Clip läuft, bevor
+                hundert Megabyte unterwegs sind.
+              */}
+              <ClipRahmen
+                provider={dateiVorschau ? 'upload' : (vorschau?.provider ?? 'youtube')}
+                adresse={dateiVorschau ?? vorschau?.einbettung ?? ''}
+                titel="Vorschau deines Clips"
               />
             </div>
+            <MedalHinweis provider={vorschau?.provider ?? ''} />
 
             <div className="space-y-1.5">
               <Label htmlFor="clip-titel">Titel</Label>
@@ -277,6 +486,27 @@ export function EinreichAssistent({
                 Clip einreichen
               </Button>
             </div>
+
+            {/*
+              Der Fortschritt steht nur beim Upload da - bei einem Link gibt es
+              nichts zu übertragen und ein Balken, der von 0 auf 100 springt,
+              wäre eine Behauptung.
+            */}
+            {fortschritt !== null ? (
+              <div className="space-y-1.5" aria-live="polite">
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-200"
+                    style={{ width: `${fortschritt}%` }}
+                  />
+                </div>
+                <p className="text-xs tabular-nums text-muted-foreground">
+                  {fortschritt < 100
+                    ? `${fortschritt}% übertragen`
+                    : 'Übertragen - der Server prüft die Datei.'}
+                </p>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

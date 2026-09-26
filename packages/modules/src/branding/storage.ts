@@ -155,8 +155,109 @@ export const UPLOAD_KINDS = [
   'gamecover',
   'profilbanner',
   'wrappedmoment',
+  /*
+   * Hochgeladene Clipdateien.
+   *
+   * Sie sind um Groessenordnungen groesser als alles andere hier und tragen
+   * andere Endungen - die Formatkenntnis liegt deshalb in
+   * `clips/video-speicher.ts`. Der Namensraum steht trotzdem hier, weil es
+   * genau eine Liste geben soll, die sagt, welche Praefixe im
+   * Upload-Verzeichnis vorkommen duerfen.
+   */
+  'clip',
 ] as const;
 export type UploadKind = (typeof UPLOAD_KINDS)[number];
+
+/**
+ * Ein neuer Dateiname.
+ *
+ * Zufall plus die Endung, die aus dem **erkannten** Inhalt kommt. Der Name
+ * aus dem Browser wird nie verwendet: damit sind Pfadmanipulation und
+ * ausführbare Endungen ausgeschlossen, ohne dass irgendetwas bereinigt
+ * werden müsste.
+ */
+export function uploadName(kind: UploadKind, extension: string): string {
+  return `${kind}-${randomBytes(16).toString('hex')}.${extension}`;
+}
+
+/**
+ * Der geprüfte absolute Pfad zu einer Datei im Upload-Verzeichnis.
+ *
+ * `muster` beschreibt die Namen, die der Aufrufer selbst erzeugt - Bilder und
+ * Videos haben verschiedene Endungen, aber dieselbe Namensdisziplin. Danach
+ * noch die Einschlussprüfung über `resolve`: ein Muster kann irren, ein
+ * Pfadvergleich nicht.
+ *
+ * `null` heisst «dieser Name gehört nicht hierher» - nie ein Pfad, der
+ * ausserhalb liegt.
+ */
+export function uploadPfad(fileName: string, muster: RegExp): string | null {
+  if (!muster.test(fileName)) {
+    return null;
+  }
+  const ziel = resolve(UPLOAD_DIR, fileName);
+  return ziel.startsWith(resolve(UPLOAD_DIR) + '/') ? ziel : null;
+}
+
+/**
+ * Schreibt eine Datei in das Upload-Verzeichnis.
+ *
+ * Die Fehlerbehandlung ist der Grund, warum das hier steht und nicht an jeder
+ * Aufrufstelle: die drei Fälle unten sind die, die im Betrieb wirklich
+ * auftreten, und sie sind ohne Meldung kaum zu erraten.
+ */
+export async function schreibeUpload(fileName: string, data: Uint8Array): Promise<void> {
+  try {
+    await mkdir(UPLOAD_DIR, { recursive: true });
+    // `mode` 0o640: lesbar für den Dienst, für niemanden ausführbar.
+    await writeFile(join(UPLOAD_DIR, fileName), data, { mode: 0o640 });
+  } catch (error) {
+    // Der häufigste Fall im Betrieb: das Verzeichnis existiert, gehört aber
+    // root (frisch angelegtes Docker-Volume), während der Dienst als
+    // unprivilegierter Benutzer läuft. Ohne diese Meldung wäre nur ein
+    // generischer Fehler sichtbar und die Ursache kaum zu erraten.
+    const code = (error as NodeJS.ErrnoException).code;
+    log.error('Upload-Verzeichnis nicht beschreibbar', { error, uploadDir: UPLOAD_DIR, code });
+
+    if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
+      throw new AppError('INTERNAL', {
+        userMessage:
+          'Das Upload-Verzeichnis auf dem Server ist nicht beschreibbar. Bitte die Rechte von SWISSHUB_UPLOAD_DIR prüfen.',
+        internalMessage: `${code} beim Schreiben nach ${UPLOAD_DIR}`,
+      });
+    }
+    if (code === 'ENOSPC') {
+      throw new AppError('INTERNAL', {
+        userMessage: 'Auf dem Server ist kein Speicherplatz mehr frei.',
+        internalMessage: `ENOSPC beim Schreiben nach ${UPLOAD_DIR}`,
+      });
+    }
+    throw new AppError('INTERNAL', {
+      userMessage: 'Die Datei konnte auf dem Server nicht gespeichert werden.',
+      internalMessage: `${code ?? 'unbekannt'} beim Schreiben nach ${UPLOAD_DIR}`,
+    });
+  }
+}
+
+/**
+ * Löscht eine Datei - still, wenn sie nicht da ist.
+ *
+ * Denn das ist der Zustand, den der Aufrufer herstellen wollte. Ein Fehler
+ * hier würde eine Löschung in der Datenbank zurückrollen und einen Eintrag
+ * stehen lassen, den niemand mehr sehen soll.
+ */
+export async function loescheUpload(fileName: string, muster: RegExp): Promise<void> {
+  const ziel = uploadPfad(fileName, muster);
+  if (!ziel) {
+    log.warn('Upload mit unerwartetem Namen nicht geloescht', { fileName });
+    return;
+  }
+  try {
+    await rm(ziel, { force: true });
+  } catch (error) {
+    log.warn('Upload liess sich nicht loeschen', { fileName, error });
+  }
+}
 
 /**
  * Speichert einen Upload und gibt den erzeugten Dateinamen zurück.
@@ -206,39 +307,8 @@ export async function storeLogoUpload(
     });
   }
 
-  // Zufälliger Name, feste Endung: der Name aus dem Browser wird verworfen.
-  const fileName = `${kind}-${randomBytes(16).toString('hex')}.${EXTENSION[format]}`;
-
-  try {
-    await mkdir(UPLOAD_DIR, { recursive: true });
-    // `mode` 0o640: lesbar für den Dienst, nicht ausführbar.
-    await writeFile(join(UPLOAD_DIR, fileName), data, { mode: 0o640 });
-  } catch (error) {
-    // Der häufigste Fall im Betrieb: das Verzeichnis existiert, gehört aber
-    // root (frisch angelegtes Docker-Volume), während der Dienst als
-    // unprivilegierter Benutzer läuft. Ohne diese Meldung wäre nur ein
-    // generischer Fehler sichtbar und die Ursache kaum zu erraten.
-    const code = (error as NodeJS.ErrnoException).code;
-    log.error('Upload-Verzeichnis nicht beschreibbar', { error, uploadDir: UPLOAD_DIR, code });
-
-    if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
-      throw new AppError('INTERNAL', {
-        userMessage:
-          'Das Upload-Verzeichnis auf dem Server ist nicht beschreibbar. Bitte die Rechte von SWISSHUB_UPLOAD_DIR prüfen.',
-        internalMessage: `${code} beim Schreiben nach ${UPLOAD_DIR}`,
-      });
-    }
-    if (code === 'ENOSPC') {
-      throw new AppError('INTERNAL', {
-        userMessage: 'Auf dem Server ist kein Speicherplatz mehr frei.',
-        internalMessage: `ENOSPC beim Schreiben nach ${UPLOAD_DIR}`,
-      });
-    }
-    throw new AppError('INTERNAL', {
-      userMessage: 'Die Datei konnte auf dem Server nicht gespeichert werden.',
-      internalMessage: `${code ?? 'unbekannt'} beim Schreiben nach ${UPLOAD_DIR}`,
-    });
-  }
+  const fileName = uploadName(kind, EXTENSION[format]);
+  await schreibeUpload(fileName, data);
 
   const version = createHash('sha256').update(data).digest('hex').slice(0, 12);
   log.info('Upload gespeichert', { fileName, bytes: data.byteLength, format, kind });

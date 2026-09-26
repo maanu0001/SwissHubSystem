@@ -1,0 +1,11 @@
+-- Medal als Clip-Quelle.
+--
+-- Nur ein neuer Enum-Wert: additiv, nimmt nichts weg und erzwingt nichts. Die
+-- vorherige Anwendungsfassung laeuft mit diesem Schema weiter, denn sie
+-- schreibt den neuen Wert nie und liest ihn nur, wenn ein Clip damit
+-- eingereicht wurde.
+--
+-- `BEFORE 'UPLOAD'` und nicht am Ende: die Reihenfolge eines Enums bestimmt in
+-- PostgreSQL die Sortierung. `UPLOAD` steht fuer den noch nicht umgesetzten
+-- Direktupload und gehoert hinter die Anbieter, nicht dazwischen.
+ALTER TYPE "ClipSourceType" ADD VALUE IF NOT EXISTS 'MEDAL' BEFORE 'UPLOAD';

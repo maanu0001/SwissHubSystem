@@ -8,6 +8,8 @@ import {
 } from '@swisshub/permissions';
 import { ENTITLEMENTS } from '../premium/entitlements';
 import { hatAnspruch } from '../premium/queries';
+import { levelFromXp } from '../level/curve';
+import type { ThemeVoraussetzungen } from './profil-themes';
 
 /**
  * Wer die Premium-Profildesigns verwenden darf.
@@ -88,4 +90,37 @@ export async function themeZugang(discordId: string): Promise<ThemeZugang> {
 /** Die Ja-Nein-Antwort - fuer Aufrufer, denen die Herkunft egal ist. */
 export async function darfPremiumThemes(discordId: string): Promise<boolean> {
   return (await themeZugang(discordId)) !== 'keiner';
+}
+
+/**
+ * Das erspielte Level einer Person.
+ *
+ * Aus `LevelProfile.xp` ueber `levelFromXp` - dieselbe Kurve, die die
+ * Levelkarte und die Rangliste benutzen. Bewusst keine eigene Rechnung: eine
+ * zweite Umrechnung waere eine zweite Vorstellung davon, was Level 31 ist.
+ *
+ * Ohne Profil gilt Level 0. Wer nie XP gesammelt hat, hat kein Level - und
+ * `0` ist die ehrliche Antwort darauf, nicht ein Fehler.
+ */
+export async function levelVon(discordId: string): Promise<number> {
+  const profil = await prisma.levelProfile.findUnique({
+    where: { discordId },
+    select: { xp: true },
+  });
+  return profil ? levelFromXp(profil.xp) : 0;
+}
+
+/**
+ * Was jemand mitbringt - beides auf einmal.
+ *
+ * Die einzige Stelle, an der Premium und Level gemeinsam beschafft werden.
+ * Jeder Aufrufer von `wirksamesTheme` und `themeFreigeschaltet` geht hier
+ * durch; damit kann keine Stelle das Level vergessen und versehentlich ein
+ * Prestige-Design durchlassen.
+ *
+ * Beide Abfragen parallel: sie haengen nicht voneinander ab.
+ */
+export async function themeVoraussetzungen(discordId: string): Promise<ThemeVoraussetzungen> {
+  const [hatPremium, level] = await Promise.all([darfPremiumThemes(discordId), levelVon(discordId)]);
+  return { hatPremium, level };
 }
