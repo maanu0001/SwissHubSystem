@@ -161,3 +161,63 @@ describe('Die Statistik rechnet an einer Stelle', () => {
     expect(statistik).toContain('laufend?.sekunden ?? 0');
   });
 });
+
+/**
+ * Nachrichten und Sprachzeit teilen keine Achse mehr.
+ *
+ * Sie standen in einem gemeinsamen Liniendiagramm, und das war irreführend:
+ * 500 Nachrichten am Tag neben 2 Sprachstunden ergeben eine Kurve am oberen
+ * Rand und eine Linie, die auf der Null zu kleben scheint. Die Sprachzeit sah
+ * damit aus wie «fast nichts».
+ *
+ * Geprüft wird an der Quelle, weil sich eine Achsenskalierung in einer
+ * serverseitig gezeichneten SVG nicht sinnvoll aus dem DOM lesen lässt - und
+ * weil der Fehler ein struktureller war: zwei Reihen in einem Diagramm.
+ */
+describe('Statistik: zwei Einheiten, zwei Diagramme', () => {
+  const seite = lies('apps/web/src/app/(app)/analytics/statistik/page.tsx');
+
+  it('hat getrennte Reihen fuer Nachrichten und Sprachzeit', () => {
+    expect(seite).toContain('const nachrichtenReihen: Reihe[]');
+    expect(seite).toContain('const spracheReihen: Reihe[]');
+    // Und die gemeinsame Reihe gibt es nicht mehr.
+    expect(seite).not.toContain('aktivitaetsReihen');
+  });
+
+  it('zeichnet je Diagramm genau eine Reihe', () => {
+    for (const name of ['nachrichtenReihen', 'spracheReihen']) {
+      // Einmal deklariert, einmal in die Legende, einmal in das Diagramm.
+      const treffer = seite.split(name).length - 1;
+      expect(treffer, `${name} kommt ${treffer}x vor`).toBe(3);
+    }
+  });
+
+  it('haelt die Sprachzeit in Sekunden und rundet erst in der Beschriftung', () => {
+    // Fruehes Umrechnen auf Stunden verliert je Punkt ein bisschen - dieselbe
+    // Begruendung wie bei `stunden()` in format.ts.
+    expect(seite).toContain('werte: punkte.map((punkt) => punkt.sprachSekunden)');
+    expect(seite).toContain('formatWert={dauer}');
+    // Die alte Umrechnung mit Zehnteln ist weg.
+    expect(seite).not.toContain('sprachSekunden / 360');
+  });
+
+  it('stellt die beiden Diagramme auf dem Desktop nebeneinander und mobil untereinander', () => {
+    const ab = seite.indexOf('Nachrichten über Zeit');
+    expect(ab).toBeGreaterThan(0);
+    // Das Raster steht vor den beiden Panels.
+    const davor = seite.slice(Math.max(0, ab - 400), ab);
+    expect(davor).toContain('lg:grid-cols-2');
+  });
+
+  it('beschriftet die Sprachzeit-Achse in Stunden und Minuten', () => {
+    // Das ist der Formatierer, den das Diagramm bekommt.
+    expect(dauer(2 * 3600 + 15 * 60)).toBe('2 h 15 min');
+    expect(dauer(45 * 60)).toBe('45 min');
+    expect(dauer(0)).toBe('0 h');
+  });
+
+  it('nennt beide Diagramme im Zugaenglichkeitstext getrennt', () => {
+    expect(seite).toMatch(/beschreibung=\{`Nachrichten im Zeitraum/u);
+    expect(seite).toMatch(/beschreibung=\{`Sprachzeit im Zeitraum/u);
+  });
+});

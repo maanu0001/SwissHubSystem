@@ -153,19 +153,39 @@ export default async function StatistikPage({
   const reichtBisJetzt = zeitraum.bis.getTime() >= Date.now() - 5 * 60_000;
 
   const labels = punkte.map((punkt) => punkt.label);
-  const aktivitaetsReihen: Reihe[] = [
+  /*
+   * Nachrichten und Sprachzeit in ZWEI Diagrammen, nicht in einem.
+   *
+   * Sie standen auf einer gemeinsamen Achse, und das war irreführend: 500
+   * Nachrichten am Tag neben 2 Sprachstunden ergeben eine Kurve am oberen
+   * Rand und eine Linie, die auf der Null zu kleben scheint. Die Sprachzeit
+   * sah damit aus wie «fast nichts», obwohl sie der zweite Pfeiler der
+   * Aktivität ist.
+   *
+   * Zwei Einheiten, die sich nicht ineinander umrechnen lassen, gehören
+   * nicht auf eine Achse. Jede bekommt ihre eigene Skalierung.
+   */
+  const nachrichtenReihen: Reihe[] = [
     {
       id: 'nachrichten',
       label: 'Nachrichten',
       werte: punkte.map((punkt) => punkt.nachrichten),
       farbe: 'text-primary',
     },
+  ];
+  /*
+   * In SEKUNDEN, nicht in Stunden.
+   *
+   * Gerundet wird erst in der Beschriftung - `dauer` macht daraus `2 h
+   * 15 min`. Wer hier auf Stunden umrechnet, verliert je Punkt ein bisschen
+   * und wundert sich über die Summe; dieselbe Begründung steht bei
+   * `stunden()` in `format.ts`.
+   */
+  const spracheReihen: Reihe[] = [
     {
       id: 'sprache',
-      label: 'Sprachstunden',
-      // Eine Nachkommastelle statt ganzer Stunden - sonst verschwindet ein
-      // Abend mit vierzig Minuten Gespräch in einer Null.
-      werte: punkte.map((punkt) => Math.round(punkt.sprachSekunden / 360) / 10),
+      label: 'Sprachzeit',
+      werte: punkte.map((punkt) => punkt.sprachSekunden),
       farbe: 'text-success',
     },
   ];
@@ -302,16 +322,39 @@ export default async function StatistikPage({
         </div>
       </section>
 
-      <Panel title="Aktivität über Zeit" description={zeitraum.label} className="min-w-0">
-        <div className="space-y-3">
-          <Legende reihen={aktivitaetsReihen} />
-          <LinienDiagramm
-            reihen={aktivitaetsReihen}
-            labels={labels}
-            beschreibung={`Nachrichten und Sprachstunden im Zeitraum ${zeitraum.label}`}
-          />
-        </div>
-      </Panel>
+      {/*
+        Nebeneinander auf dem Desktop, untereinander auf dem Telefon. Die
+        beiden Diagramme sind gleich hoch und gleich beschriftet, damit sie
+        sich vergleichen lassen - was sie nicht dürfen, ist dieselbe Achse
+        teilen.
+      */}
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+        <Panel title="Nachrichten über Zeit" description={zeitraum.label} className="min-w-0">
+          <div className="space-y-3">
+            <Legende reihen={nachrichtenReihen} />
+            <LinienDiagramm
+              reihen={nachrichtenReihen}
+              labels={labels}
+              hoehe={200}
+              beschreibung={`Nachrichten im Zeitraum ${zeitraum.label}`}
+            />
+          </div>
+        </Panel>
+
+        <Panel title="Sprachzeit über Zeit" description={zeitraum.label} className="min-w-0">
+          <div className="space-y-3">
+            <Legende reihen={spracheReihen} />
+            <LinienDiagramm
+              reihen={spracheReihen}
+              labels={labels}
+              hoehe={200}
+              // Sekunden als `2 h 15 min` - eine Achse in Sekunden liest niemand.
+              formatWert={dauer}
+              beschreibung={`Sprachzeit im Zeitraum ${zeitraum.label}`}
+            />
+          </div>
+        </Panel>
+      </div>
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         <Panel title="Mitgliederentwicklung" description="Letzter bekannter Stand je Tag">
