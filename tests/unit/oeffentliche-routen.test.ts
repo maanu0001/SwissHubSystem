@@ -36,6 +36,14 @@ const OEFFENTLICH = new Set([
   'login',
   'premium',
   'setup',
+  /*
+   * `/streamer` - die oeffentliche Streamer-Uebersicht und die Streamer-Seiten.
+   *
+   * Genau das ist ihr Zweck: ein Link, den ein Streamer in seine Twitch-Bio
+   * setzen kann und der bei jedem funktioniert. Die Verwaltung liegt getrennt
+   * davon unter `/streamer-hub` **innerhalb** von `(app)`.
+   */
+  'streamer',
   'turniere',
   'u',
   'wrapped',
@@ -77,6 +85,44 @@ describe('Oeffentliche Routen', () => {
       const name = relative(APP, datei).split(sep).join('/');
       expect(quelle, `${name} verlangt eine Anmeldung`).not.toMatch(/requireMember\s*\(/u);
       expect(quelle, `${name} verlangt eine Berechtigung`).not.toMatch(/requirePagePermission\s*\(/u);
+    }
+  });
+
+  it('verlangt auf den oeffentlichen Streamer-Seiten keine Anmeldung', () => {
+    /*
+     * Dieselbe Gegenprobe wie bei `/u`, aus demselben Grund: ein
+     * `requireMember()` hier waere das Ende der Streamer-Links, und es faellt
+     * niemandem auf, solange alle Entwickler angemeldet sind.
+     */
+    for (const datei of dateienUnter(join(APP, 'streamer'))) {
+      const quelle = ohneKommentare(readFileSync(datei, 'utf8'));
+      const name = relative(APP, datei).split(sep).join('/');
+      expect(quelle, `${name} verlangt eine Anmeldung`).not.toMatch(/requireMember\s*\(/u);
+      expect(quelle, `${name} verlangt eine Berechtigung`).not.toMatch(/requirePagePermission\s*\(/u);
+    }
+  });
+
+  it('prueft auf jeder oeffentlichen Streamer-Ansicht denselben Schalter', () => {
+    /*
+     * Drei oeffentliche Ansichten: Uebersicht, Streamer-Seite, Bannerbild. Alle
+     * drei muessen 404 antworten, wenn das Modul aus ist oder die
+     * Veroeffentlichung nicht freigegeben - sonst haette ein abgeschalteter
+     * Streamer Hub noch einen oeffentlichen Auftritt.
+     *
+     * Geprueft wird der gemeinsame Aufruf und nicht die Einzelbedingung: eine
+     * Ansicht, die `oeffentlichAktiv` selbst auswertet, vergisst die
+     * Modulpruefung.
+     */
+    const ansichten = [
+      'streamer/page.tsx',
+      'streamer/[slug]/page.tsx',
+      'api/streamer/banner/[slug]/route.ts',
+    ];
+    for (const pfad of ansichten) {
+      const quelle = ohneKommentare(readFileSync(join(APP, pfad), 'utf8'));
+      expect(quelle, `${pfad} prueft nicht auf oeffentlichErlaubt()`).toMatch(
+        /oeffentlichErlaubt\s*\(\s*\)/u,
+      );
     }
   });
 

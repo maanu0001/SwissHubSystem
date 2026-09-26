@@ -81,6 +81,13 @@ const CLIENT_SAFE = [
    * waere die Stelle, an der Formular und Ablehnung auseinanderlaufen.
    */
   '@swisshub/modules/fragt/typen',
+  /*
+   * Die Aussenseite des Streamer Hubs: Plattformliste, Kanalerkennung, die
+   * Formen der oeffentlichen Daten. Das Bewerbungsformular prueft damit eine
+   * Kanaladresse nach derselben Regel, nach der der Server sie annimmt - zwei
+   * Regeln waeren die Stelle, an der Formular und Server auseinanderlaufen.
+   */
+  '@swisshub/modules/streamer/typen',
   '@swisshub/modules/spielwahl/baum',
   /*
    * Der Bauplan der Levelkarte.
@@ -197,6 +204,7 @@ const EXPORTE: Record<string, string> = {
   '@swisshub/modules/wrapped/perioden': 'packages/modules/src/wrapped/perioden.ts',
   '@swisshub/modules/wrapped/vorlagen': 'packages/modules/src/wrapped/vorlagen.ts',
   '@swisshub/modules/fragt/typen': 'packages/modules/src/fragt/typen.ts',
+  '@swisshub/modules/streamer/typen': 'packages/modules/src/streamer/typen.ts',
   '@swisshub/modules/spielwahl/baum': 'packages/modules/src/spielwahl/baum.ts',
   '@swisshub/modules/level/karte': 'packages/modules/src/level/card.ts',
   '@swisshub/modules/games/schemas': 'packages/modules/src/games/schemas.ts',

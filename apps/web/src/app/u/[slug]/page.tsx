@@ -3,9 +3,10 @@ import { notFound } from 'next/navigation';
 import { branding } from '@swisshub/config/client';
 import Link from 'next/link';
 import { ShieldOff } from 'lucide-react';
-import { profile } from '@swisshub/modules';
+import { profile, streamer } from '@swisshub/modules';
 import { OeffentlicheProfilseite } from '@/modules/profile/components/oeffentlich/oe-seite';
 import { TeilenKnopf } from '@/modules/profile/components/teilen-knopf';
+import { ProfilStreamingAbschnitt } from '@/modules/streamer/components/profil-streaming';
 
 /**
  * Das oeffentliche Profil.
@@ -103,9 +104,23 @@ export default async function OeffentlichesProfilPage({
   }
   const oeffentlich = antwort.profil;
 
+  /*
+   * Streaming kommt erst hier dazu, nicht in `ladeOeffentlichesProfil`.
+   *
+   * Das Profilmodul soll nicht wissen, dass es einen Streamer Hub gibt - und
+   * der Dienst entscheidet selbst, wem er antwortet: nur einem freigegebenen
+   * Streamer mit aktivem Kanal, sonst `null`. Die Abschnittseinstellungen des
+   * Profils gelten hier nicht, weil diese Daten nicht aus dem Profil kommen;
+   * sie sind auf `/streamer` ohnehin oeffentlich.
+   */
+  const streaming = await streamer.ladeProfilStreaming(oeffentlich.identitaet.discordId, oeffentlich.slug);
+
   return (
     <>
-      <OeffentlicheProfilseite profil={oeffentlich} />
+      <OeffentlicheProfilseite
+        profil={oeffentlich}
+        streaming={streaming ? <ProfilStreamingAbschnitt streaming={streaming} verzug={80} /> : undefined}
+      />
       <div className="mt-8 flex justify-center">
         <TeilenKnopf slug={oeffentlich.slug} variante="dezent" />
       </div>

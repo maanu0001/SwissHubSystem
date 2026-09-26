@@ -17,6 +17,7 @@
     "./clips/woche": "./src/clips/woche.ts",
     "./clips/video-speicher": "./src/clips/video-speicher.ts",
     "./fragt/typen": "./src/fragt/typen.ts",
+    "./streamer/typen": "./src/streamer/typen.ts",
     "./wrapped/daten": "./src/wrapped/daten.ts",
     "./wrapped/texte": "./src/wrapped/texte.ts",
     "./wrapped/archetyp": "./src/wrapped/archetyp.ts",

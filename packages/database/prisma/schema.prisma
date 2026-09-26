@@ -7424,9 +7424,9 @@ model MemberProfile {
   /// Bann und jeder Timeout auch. Hier steht nur der Zustand, dort die
   /// Geschichte: wer, wann, warum. Das ist dieselbe Aufteilung wie beim
   /// Jail - der Zustand am Mitglied, der Verlauf in der Akte.
-  publicLockedAt         DateTime?
+  publicLockedAt          DateTime?
   /// Der Grund - intern. Er wird oeffentlich **nie** ausgegeben.
-  publicLockReason       String?
+  publicLockReason        String?
   /// Wer gesperrt hat.
   publicLockedByDiscordId String?
   /// Geplantes Ende einer befristeten Sperre. `NULL` = bis jemand aufhebt.
@@ -7434,7 +7434,7 @@ model MemberProfile {
   /// Eigene Spalte und nicht nur `expiresAt` an der Massnahme, weil danach
   /// gefiltert wird: «welche Sperren sind faellig» ist eine Abfrage, keine
   /// Auswertung im Anwendungscode.
-  publicLockUntil        DateTime?
+  publicLockUntil         DateTime?
 
   // --- Privatsphaere ---------------------------------------------------------
   // Je Abschnitt und nicht pauschal: wer seine Spiele zeigen will, muss dafuer
@@ -7512,8 +7512,8 @@ model AwardDefinition {
   id String @id @default(cuid())
 
   /// Der stabile Schluessel - steht so in `MemberAward.key`.
-  key   String @unique
-  label String
+  key         String @unique
+  label       String
   /// Ein Satz, der erklaert, wofuer es sie gibt.
   description String
   /// Name eines Lucide-Symbols.
@@ -7811,7 +7811,7 @@ model FragtOption {
   frageId String
   frage   FragtFrage @relation(fields: [frageId], references: [id], onDelete: Cascade)
 
-  label String
+  label    String
   /// Reihenfolge im Embed und in der Grafik.
   position Int
 
@@ -7855,7 +7855,7 @@ model FragtAbstimmung {
   /// Antwortmoeglichkeiten koennen archiviert werden, und eine Grafik, die
   /// zweimal exportiert wird, muss zweimal dasselbe zeigen.
   ergebnis   Json?
-  finalVotes Int  @default(0)
+  finalVotes Int   @default(0)
 
   /// Ob der Zwischenstand im Embed steht, wie bei der Veroeffentlichung gesetzt.
   zwischenstandSichtbar Boolean @default(false)
@@ -7863,7 +7863,7 @@ model FragtAbstimmung {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  stimmen  FragtStimme[]
+  stimmen   FragtStimme[]
   entwuerfe FragtEntwurf[]
 
   /// Eine Veroeffentlichung je Frage und Termin.
@@ -7915,7 +7915,7 @@ model FragtEntwurf {
   /// Welche Vorlage - `winner`, `results` oder `duel`.
   vorlage String
   /// Welches Format - `story`, `feed` oder `quadrat`.
-  format String
+  format  String
 
   /// Redaktionelle Texte. Bearbeitbar.
   ueberschrift String
@@ -7941,4 +7941,305 @@ model FragtEntwurf {
   /// Ein Entwurf je Abstimmung.
   @@unique([abstimmungId])
   @@index([status])
+}
+
+// =============================================================================
+// Streamer Hub
+// =============================================================================
+//
+// ## Die Entscheidung, an der alles haengt
+//
+// Ein Streamer ist **kein eigenes Konto**. `StreamerProfil` haengt an einer
+// `discordId` und erweitert damit ein Mitglied, das es schon gibt. Name,
+// Anzeigename, Avatar, Banner, Lieblingsspiele und Social Links stehen in
+// `MemberProfile` und stehen dort weiterhin - hier wird nichts davon kopiert.
+//
+// Der Unterschied zaehlt beim ersten Umbenennen: waere der Name hier noch
+// einmal gespeichert, hiesse dieselbe Person auf der Streamer-Seite anders als
+// im Profil, und niemand wuesste, welcher der beiden Namen der richtige ist.
+//
+// Gespeichert wird deshalb nur, was es vorher nicht gab: die Kanaele, die
+// Streaming-Sprachen, der Freigabestand und was beim Streamen tatsaechlich
+// passiert ist.
+
+enum StreamerPlattform {
+  TWITCH
+  YOUTUBE
+}
+
+/// Der Weg einer Bewerbung.
+///
+/// `SUSPENDED` ist kein `REJECTED`: eine Ablehnung betrifft eine Bewerbung,
+/// eine Pausierung einen bereits freigegebenen Streamer. Beide wieder
+/// zusammenzulegen hiesse, die Vorgeschichte zu verlieren.
+enum StreamerStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+/// Wie die Inhaberschaft eines Kanals belegt ist.
+///
+/// `OAUTH` heisst: die Person hat sich bei der Plattform angemeldet und die
+/// Plattform hat uns gesagt, wem das Konto gehoert. Das ist ein Beweis.
+///
+/// `MANUELL` heisst: ein Mensch hat hingesehen und entschieden. Das ist kein
+/// Beweis, und die Oberflaeche sagt das auch so - eine Kennzeichnung, die
+/// beides gleich aussehen laesst, waere schlimmer als keine.
+enum StreamerVerifikation {
+  KEINE
+  OAUTH
+  MANUELL
+}
+
+enum StreamerSpotlightStatus {
+  DRAFT
+  FINAL
+  VEROEFFENTLICHT
+}
+
+/// Ein Streamer - die Erweiterung eines bestehenden Mitglieds.
+model StreamerProfil {
+  id        String @id @default(cuid())
+  /// Die eine Verknuepfung zum Mitglied. Ein Mitglied, ein Streamer-Profil.
+  discordId String @unique
+
+  status StreamerStatus @default(DRAFT)
+
+  /// Wofuer dieser Kanal steht - ein eigener Text, kein Duplikat der Bio.
+  ///
+  /// Die Profil-Bio beschreibt eine Person auf SwissHub, das hier beschreibt
+  /// einen Kanal. Wer beides gleich haelt, laesst das Feld leer: die
+  /// oeffentliche Seite faellt dann auf die Bio zurueck.
+  beschreibung String?
+
+  /// Streaming-Sprachen als ISO-639-1-Kuerzel - dieselbe Form wie
+  /// `MemberProfile.languages`, aber eine andere Frage: woher jemand kommt und
+  /// worin jemand streamt, ist nicht dasselbe.
+  sprachen String[] @default([])
+
+  /// Will diese Person auf Discord angekuendigt werden?
+  ///
+  /// Vorgabe `true`, weil die Bewerbung selbst die Zustimmung ist - wer sich
+  /// als Community-Streamer bewirbt, moechte gefunden werden. Abschalten kann
+  /// sie es selbst, und ein Moderator kann es ihr abschalten.
+  ankuendigungAktiv Boolean @default(true)
+
+  /// Warum abgelehnt wurde - **intern**. Wird nie oeffentlich ausgeliefert.
+  ///
+  /// Die Person selbst sieht ihn: eine Ablehnung ohne Grund ist keine
+  /// Auskunft. Ein Besucher sieht ihn nicht.
+  ablehnungsGrund String?
+
+  eingereichtAm    DateTime?
+  entschiedenAm    DateTime?
+  entschiedenVon   String?
+  pausiertAm       DateTime?
+  pausiertVon      String?
+  /// Intern, wie der Ablehnungsgrund.
+  pausierungsGrund String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  kanaele    StreamerKanal[]
+  spotlights StreamerSpotlight[]
+
+  /// Die oeffentliche Uebersicht filtert darueber: freigegeben und nichts sonst.
+  @@index([status])
+  /// Die Bewerbungsliste - aelteste zuerst.
+  @@index([status, eingereichtAm])
+}
+
+/// Ein Kanal auf einer Plattform.
+model StreamerKanal {
+  id       String         @id @default(cuid())
+  profilId String
+  profil   StreamerProfil @relation(fields: [profilId], references: [id], onDelete: Cascade)
+
+  plattform StreamerPlattform
+
+  /// Die Kennung **der Plattform**, nicht der Name.
+  ///
+  /// Bei Twitch die numerische `user_id`, bei YouTube die `UC...`-Kanal-ID.
+  /// Ein Name ist aenderbar und wird wiederverwendet; die Kennung nicht. Wer
+  /// auf den Namen abstellt, folgt nach einer Umbenennung dem naechsten
+  /// Inhaber.
+  externeId String
+
+  /// Der anzeigbare Name auf der Plattform, als Anzeige und zum Wiederfinden.
+  handle      String
+  anzeigename String?
+
+  verifikation   StreamerVerifikation @default(KEINE)
+  verifiziertAm  DateTime?
+  /// Wer manuell freigegeben hat - bei `OAUTH` leer, dort war es die Plattform.
+  verifiziertVon String?
+
+  /// Ein einzelner Kanal laesst sich abschalten, ohne den Streamer zu pausieren.
+  aktiv Boolean @default(true)
+
+  /// Was die letzte Abfrage ergeben hat - der Zustand, nicht die Geschichte.
+  zuletztGeprueftAm DateTime?
+  /// Der letzte Fehler der Plattform-Abfrage. Sagt dem Dashboard, warum ein
+  /// Kanal seit Stunden offline aussieht.
+  letzterFehler     String?
+  letzterFehlerAm   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions StreamerSession[]
+
+  /// **Die Bedingung gegen fremde Kanaele.**
+  ///
+  /// Ein Kanal gehoert hoechstens einem Streamer-Profil. Wer einen Kanal
+  /// eintraegt, den jemand anders schon hat, bekommt einen Konflikt von der
+  /// Datenbank und nicht von einer Pruefung, die jemand vergessen kann.
+  @@unique([plattform, externeId])
+  /// Ein Profil hat je Plattform hoechstens einen Kanal - zwei Twitch-Kanaele
+  /// derselben Person waeren zwei Bewerbungen.
+  @@unique([profilId, plattform])
+  /// Der Live-Job holt sich die aktiven Kanaele je Plattform.
+  @@index([plattform, aktiv])
+}
+
+/// Eine tatsaechliche Stream-Session, wie die Plattform sie meldet.
+///
+/// ## Warum das eine Tabelle ist und kein Feld am Kanal
+///
+/// Weil «genau eine Ankuendigung je Stream» sonst nicht zu halten waere. Ein
+/// `istLive`-Feld am Kanal weiss nach einem Bot-Neustart nicht, ob schon
+/// angekuendigt wurde. Eine Zeile mit der Session-Kennung der Plattform weiss
+/// es - und die Eindeutigkeit darauf macht eine zweite Zeile unmoeglich.
+///
+/// Twitch liefert `stream.id`, YouTube die Video-ID des Livestreams. Beide
+/// bleiben ueber einen kurzen Verbindungsabbruch hinweg dieselben; genau
+/// deshalb wird darauf abgestellt und nicht auf «war vorhin offline».
+model StreamerSession {
+  id      String        @id @default(cuid())
+  kanalId String
+  kanal   StreamerKanal @relation(fields: [kanalId], references: [id], onDelete: Cascade)
+
+  /// Die Session-Kennung der Plattform. Der Anker der Idempotenz.
+  externeSessionId String
+
+  titel           String?
+  /// Der Name des Spiels, wie die Plattform ihn meldet - kein Fremdschluessel
+  /// in den Spielkatalog. Twitch-Kategorien sind nicht deckungsgleich mit
+  /// unserem Katalog, und ein erzwungener Bezug liesse die Haelfte leer.
+  spiel           String?
+  vorschaubildUrl String?
+  /// Nur, wenn die Plattform sie meldet. `null` heisst: nicht bekannt - und
+  /// wird als «nicht bekannt» angezeigt, nicht als Null.
+  zuschauer       Int?
+  sprache         String?
+  streamUrl       String?
+
+  gestartetAm         DateTime
+  /// Wann die Plattform diese Session zuletzt gemeldet hat.
+  zuletztGesehenAm    DateTime
+  /// Gesetzt, sobald die Plattform sie nicht mehr meldet. `null` = laeuft noch.
+  beendetAm           DateTime?
+  /// Der hoechste gemessene Zuschauerwert dieser Session - die einzige
+  /// Reichweitenzahl, die wir wirklich beobachtet haben.
+  zuschauerHoehepunkt Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ankuendigung StreamerAnkuendigung?
+
+  /// **Der Anker gegen doppelte Ankuendigungen.**
+  @@unique([kanalId, externeSessionId])
+  /// «Wer ist jetzt live» - die Abfrage der oeffentlichen Uebersicht.
+  @@index([beendetAm, gestartetAm])
+  @@index([kanalId, gestartetAm])
+}
+
+/// Eine gesendete Live-Ankuendigung.
+model StreamerAnkuendigung {
+  id        String          @id @default(cuid())
+  /// Eine Ankuendigung je Session. Die Bedingung ist die Zusage.
+  sessionId String          @unique
+  session   StreamerSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  channelId  String
+  /// `null` heisst: der Platz ist belegt, gesendet wurde noch nicht. So
+  /// gewinnt genau ein Durchgang das Recht zu senden - auch bei zwei
+  /// Bot-Instanzen.
+  messageId  String?
+  gesendetAm DateTime?
+
+  /// Warum es nicht geklappt hat. Bleibt stehen, damit ein Fehlschlag im
+  /// Dashboard sichtbar ist und nicht nur im Log.
+  fehler   String?
+  versuche Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Die Obergrenze je Zeitraum zaehlt hierueber.
+  @@index([gesendetAm])
+}
+
+/// Ein Social-Media-Entwurf fuer einen Streamer.
+model StreamerSpotlight {
+  id       String         @id @default(cuid())
+  profilId String
+  profil   StreamerProfil @relation(fields: [profilId], references: [id], onDelete: Cascade)
+
+  status StreamerSpotlightStatus @default(DRAFT)
+
+  /// Redaktioneller Text - und nur der.
+  ///
+  /// Es gibt hier bewusst **keine** Spalte fuer einen Kanalnamen, eine
+  /// Zuschauerzahl oder eine Spielliste. Die kommen beim Zeichnen aus dem
+  /// Profil und den Kanaelen. Was nicht gespeichert ist, kann auch nicht
+  /// abweichen von dem, was stimmt.
+  ueberschrift String?
+  beschreibung String?
+  cta          String?
+
+  /// Wer den Entwurf angelegt hat.
+  erstelltVon String?
+
+  /// Auf Discord veroeffentlicht - hoechstens einmal.
+  discordChannelId  String?
+  discordMessageId  String?
+  veroeffentlichtAm DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profilId, createdAt])
+  @@index([status])
+}
+
+/// Der taegliche API-Verbrauch je Plattform.
+///
+/// ## Warum das in der Datenbank steht
+///
+/// Weil die YouTube Data API ein Tageskontingent hat (Vorgabe 10 000
+/// Einheiten) und weil ein Zaehler im Speicher bei jedem Bot-Neustart auf null
+/// stuende. Dann waere das Kontingent mittags aufgebraucht, die Live-Erkennung
+/// still, und im Dashboard staende nichts darueber.
+///
+/// Der Zaehler laeuft auf den Tag in UTC - so rechnet Google ab (Reset um
+/// Mitternacht Pacific Time; UTC ist die konservativere Annahme, weil der Tag
+/// dadurch frueher wechselt als das Kontingent).
+model StreamerApiVerbrauch {
+  id        String            @id @default(cuid())
+  plattform StreamerPlattform
+  /// Der Tag in UTC als `YYYY-MM-DD` - als Text, weil darauf verglichen wird
+  /// und nicht gerechnet.
+  tag       String
+  einheiten Int               @default(0)
+  abfragen  Int               @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([plattform, tag])
 }

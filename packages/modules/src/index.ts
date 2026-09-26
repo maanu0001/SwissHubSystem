@@ -27,6 +27,8 @@ import './wrapped/config';
 import './spielwahl/config';
 // SwissHub fragt - Fragen an die Community, Abstimmung, Social-Media-Content.
 import './fragt/config';
+// Streamer Hub - Community-Streamer, Live-Erkennung, Spotlights.
+import './streamer/config';
 import { registerGuildResolver } from './guild/config';
 
 // Ab hier löst jeder Discord-Aufruf die Guild aus der Datenbank auf.
@@ -77,6 +79,7 @@ export * as migration from './migration';
 export * as appeals from './appeals';
 export * as clips from './clips';
 export * as fragt from './fragt';
+export * as streamer from './streamer';
 export * as wrapped from './wrapped';
 export * as spielwahl from './spielwahl';
 // Mitgliederprofile - kein Modul mit Schalter, siehe profile/index.ts.

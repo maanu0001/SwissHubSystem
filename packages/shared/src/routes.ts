@@ -93,6 +93,21 @@ export const systemRoutes = {
   fragtGeplant: (): SystemRoute => '/fragt/geplant',
   fragtAktiv: (): SystemRoute => '/fragt/aktiv',
   fragtErgebnisse: (): SystemRoute => '/fragt/ergebnisse',
+
+  // Streamer Hub. Die Verwaltung liegt unter `/streamer-hub`, die
+  // oeffentlichen Seiten unter `/streamer` - getrennt, weil die zweite ohne
+  // Anmeldung erreichbar ist und nicht im geschuetzten Bereich liegen darf.
+  streamerHub: (): SystemRoute => '/streamer-hub',
+  streamerHubStreamer: (): SystemRoute => '/streamer-hub/streamer',
+  streamerHubBewerbungen: (): SystemRoute => '/streamer-hub/bewerbungen',
+  streamerHubBewerbung: (): SystemRoute => '/streamer-hub/bewerbung',
+  streamerHubAnkuendigungen: (): SystemRoute => '/streamer-hub/ankuendigungen',
+  streamerHubStudio: (): SystemRoute => '/streamer-hub/studio',
+  streamerHubSpotlight: (spotlightId: string): SystemRoute => `/streamer-hub/studio/${id(spotlightId)}`,
+  /** Die oeffentliche Uebersicht - ohne Anmeldung. */
+  streamerOeffentlich: (): SystemRoute => '/streamer',
+  /** Die oeffentliche Seite eines Streamers, ueber den Profil-Slug. */
+  streamerOeffentlichProfil: (slug: string): SystemRoute => `/streamer/${id(slug)}`,
   fragtErgebnis: (abstimmungId: string): SystemRoute => `/fragt/ergebnisse/${id(abstimmungId)}`,
   fragtStudio: (entwurfId: string): SystemRoute => `/fragt/studio/${id(entwurfId)}`,
   clipEinreichen: (): SystemRoute => '/clips/einreichen',

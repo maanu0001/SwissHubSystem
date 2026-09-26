@@ -4,10 +4,12 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { AUDIT_ACTIONS, safeRecordAudit } from '@swisshub/database';
 import { conflict, forbidden } from '@swisshub/shared';
-import { ai } from '@swisshub/modules';
+import { ai, streamer } from '@swisshub/modules';
 import {
   AI_INTEGRATION_ID,
   DISCORD_INTEGRATION_ID,
+  TWITCH_INTEGRATION_ID,
+  YOUTUBE_INTEGRATION_ID,
   deleteSecret,
   getField,
   getIntegration,
@@ -58,6 +60,8 @@ function revalidateIntegrations(): void {
   revalidatePath('/system/integrationen/discord');
   revalidatePath('/system/integrationen/ai');
   revalidatePath('/system/integrationen/bots');
+  revalidatePath('/system/integrationen/twitch');
+  revalidatePath('/system/integrationen/youtube');
   revalidatePath('/dashboard');
 }
 
@@ -274,6 +278,25 @@ export const testIntegrationAction = defineAction(
       };
     } else if (input.integrationId === AI_INTEGRATION_ID) {
       ergebnis = await ai.testAiConnection();
+    } else if (input.integrationId === TWITCH_INTEGRATION_ID) {
+      /*
+       * Der Test holt ein App Access Token und fragt damit einen Kanal ab.
+       *
+       * Nicht nur das Token: das bestaetigt die Zugangsdaten, aber nicht, dass
+       * Helix antwortet - und genau darauf verlaesst sich die Live-Erkennung.
+       * Abgefragt wird `twitch`, ein Kanal, der niemandem hier gehoert.
+       */
+      ergebnis = await streamer.testeTwitch();
+    } else if (input.integrationId === YOUTUBE_INTEGRATION_ID) {
+      /*
+       * Kostet eine Kontingenteinheit, und die wird gebucht wie jede andere.
+       *
+       * Ein Test, der nichts abfragt, wuerde einen abgelaufenen Schluessel
+       * nicht finden; ein Test, der seinen Verbrauch nicht bucht, wuerde die
+       * Kontingentrechnung des Moduls unterlaufen. Die Antwort nennt deshalb
+       * auch den Tagesstand.
+       */
+      ergebnis = await streamer.testeYouTube();
     } else {
       throw conflict('Für diese Integration gibt es keinen Test.');
     }

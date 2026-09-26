@@ -1,12 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Bot, KeyRound, Plug, Sparkles, TriangleAlert } from 'lucide-react';
+import { Bot, Clapperboard, KeyRound, Plug, Radio, Sparkles, TriangleAlert } from 'lucide-react';
 import { can } from '@swisshub/auth';
-import { ai } from '@swisshub/modules';
+import { ai, streamer } from '@swisshub/modules';
 import {
   AI_INTEGRATION_ID,
   DISCORD_INTEGRATION_ID,
   INTEGRATIONS,
+  TWITCH_INTEGRATION_ID,
+  YOUTUBE_INTEGRATION_ID,
   checkIntegrations,
   listBots,
   listEnvCandidates,
@@ -39,11 +41,12 @@ export default async function IntegrationenPage(): Promise<React.JSX.Element> {
   const csrfToken = csrfTokenFor(context);
   const darfImportieren = can(context, 'integrations.secrets.manage');
 
-  const [bericht, status, bots, aiSettings, kandidaten] = await Promise.all([
+  const [bericht, status, bots, aiSettings, streamerEinstellungen, kandidaten] = await Promise.all([
     checkIntegrations(),
     readAllStatus(),
     listBots().catch(() => []),
     ai.readAiSettings(),
+    streamer.leseStreamerEinstellungen(),
     darfImportieren ? listEnvCandidates() : Promise.resolve([]),
   ]);
 
@@ -79,6 +82,28 @@ export default async function IntegrationenPage(): Promise<React.JSX.Element> {
       icon: <Sparkles />,
       href: '/system/integrationen/ai',
       zusatz: aiSettings.enabled ? `${aiSettings.provider} · ${aiSettings.model}` : 'Ausgeschaltet',
+    },
+    /*
+     * Twitch und YouTube tragen beide denselben Modulschalter: der Streamer
+     * Hub. Deshalb steht hier nicht «aktiv», sondern woran es haengt - ein
+     * hinterlegter Schluessel bei ausgeschaltetem Modul fragt niemanden ab,
+     * und ein eingeschaltetes Modul ohne Schluessel auch nicht.
+     */
+    {
+      id: TWITCH_INTEGRATION_ID,
+      icon: <Radio />,
+      href: '/system/integrationen/twitch',
+      zusatz: streamerEinstellungen.twitchAktiv
+        ? `Live-Erkennung alle ${streamerEinstellungen.twitchIntervallMinuten} Min.`
+        : 'Live-Erkennung ausgeschaltet',
+    },
+    {
+      id: YOUTUBE_INTEGRATION_ID,
+      icon: <Clapperboard />,
+      href: '/system/integrationen/youtube',
+      zusatz: streamerEinstellungen.youtubeAktiv
+        ? `Live-Erkennung alle ${streamerEinstellungen.youtubeIntervallMinuten} Min.`
+        : 'Live-Erkennung ausgeschaltet',
     },
   ];
 

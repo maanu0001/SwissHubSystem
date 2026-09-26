@@ -120,6 +120,8 @@ export const DISCORD_INTEGRATION_ID = 'discord';
 export const AI_INTEGRATION_ID = 'ai';
 export const MUSIC_INTEGRATION_ID = 'music';
 export const PAYMENT_INTEGRATION_ID = 'payment';
+export const TWITCH_INTEGRATION_ID = 'twitch';
+export const YOUTUBE_INTEGRATION_ID = 'youtube';
 
 export const INTEGRATIONS: IntegrationDefinition[] = [
   {
@@ -328,6 +330,93 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
         type: 'password',
         schema: geheimnis(8, 'wird benötigt'),
         envKey: 'PAYMENT_WEBHOOK_SECRET',
+      },
+    ],
+  },
+  {
+    /*
+     * Twitch - fuer den Streamer Hub.
+     *
+     * Zwei Dinge auf einmal, und beide brauchen dieselbe Anwendung:
+     *
+     * 1. **Live-Status.** Ueber ein App Access Token (`client_credentials`)
+     *    fragt der Bot `/helix/streams` ab - gebuendelt, bis zu 100 Kanaele
+     *    je Anfrage.
+     * 2. **Inhaberschaft.** Ueber den OAuth-Code-Flow meldet sich ein
+     *    Mitglied bei Twitch an, und Twitch sagt uns, wem das Konto gehoert.
+     *    Das ist der Unterschied zwischen «hat einen Kanal eingetippt» und
+     *    «dieser Kanal gehoert ihm».
+     *
+     * Die Redirect-URI muss im Twitch Developer Console **zeichengleich**
+     * eingetragen sein. Sie wird nicht hier konfiguriert, sondern aus
+     * `NEXT_PUBLIC_APP_URL` gebildet - zwei Quellen fuer dieselbe Adresse
+     * waeren eine Fehlerquelle, die sich nur mit «invalid redirect uri»
+     * meldet.
+     */
+    id: TWITCH_INTEGRATION_ID,
+    label: 'Twitch',
+    description:
+      'Zugangsdaten der Twitch-Anwendung: Live-Erkennung für den Streamer Hub und Nachweis der Kanalinhaberschaft. Ein- und ausgeschaltet wird unter System → Module → Streamer Hub.',
+    icon: 'Radio',
+    scope: 'GLOBAL',
+    essential: false,
+    testable: true,
+    fields: [
+      {
+        key: 'clientId',
+        label: 'Client ID',
+        description:
+          'Twitch Developer Console → Applications → Client ID. Kein Geheimnis - sie steht bei jeder OAuth-Anmeldung in der Adresse.',
+        secret: false,
+        required: true,
+        type: 'text',
+        schema: z
+          .string()
+          .trim()
+          .regex(/^[a-z0-9]{20,40}$/u, 'sieht nicht wie eine Twitch Client ID aus'),
+        envKey: 'TWITCH_CLIENT_ID',
+      },
+      {
+        key: 'clientSecret',
+        label: 'Client Secret',
+        description:
+          'Twitch Developer Console → New Secret. Wird verschlüsselt gespeichert und niemals angezeigt.',
+        secret: true,
+        required: true,
+        type: 'password',
+        schema: geheimnis(20, 'sieht nicht wie ein Twitch Client Secret aus'),
+        envKey: 'TWITCH_CLIENT_SECRET',
+      },
+    ],
+  },
+  {
+    /*
+     * YouTube - Data API v3.
+     *
+     * Der unbequeme Teil steht in der Beschreibung des Kontingentfelds: die
+     * Live-Erkennung bei YouTube kostet Kontingent, und wie viel, entscheidet
+     * der gewaehlte Weg. Das gehoert dem Betreiber vor die Augen und nicht in
+     * eine Fussnote.
+     */
+    id: YOUTUBE_INTEGRATION_ID,
+    label: 'YouTube',
+    description:
+      'API-Schlüssel für die YouTube Data API v3: Kanalauflösung und Live-Erkennung im Streamer Hub. Kontingent und Erkennungsart stehen unter System → Module → Streamer Hub.',
+    icon: 'Clapperboard',
+    scope: 'GLOBAL',
+    essential: false,
+    testable: true,
+    fields: [
+      {
+        key: 'apiKey',
+        label: 'API Key',
+        description:
+          'Google Cloud Console → APIs & Dienste → Anmeldedaten → API-Schlüssel, mit aktivierter YouTube Data API v3. Wird verschlüsselt gespeichert.',
+        secret: true,
+        required: true,
+        type: 'password',
+        schema: geheimnis(20, 'sieht nicht wie ein Google API Key aus'),
+        envKey: 'YOUTUBE_API_KEY',
       },
     ],
   },

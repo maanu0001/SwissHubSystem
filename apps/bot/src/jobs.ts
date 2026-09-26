@@ -27,6 +27,7 @@ import {
   voiceHub,
   wrapped,
   spielwahl,
+  streamer,
   getModuleSettings,
 } from '@swisshub/modules';
 
@@ -555,6 +556,36 @@ export function createJobRunner(
           return;
         }
         await fragt.runFragtTick(guildId);
+      },
+    },
+    {
+      name: 'streamer-live',
+      /*
+       * Die Live-Erkennung des Streamer Hubs.
+       *
+       * Der Job laeuft jede Minute, fragt aber nicht jede Minute bei den
+       * Plattformen nach: wann eine Plattform faellig ist, entscheidet
+       * `runStreamerTick` anhand von `zuletztGeprueftAm` an den Kanaelen -
+       * einer Angabe in der Datenbank. Ein Neustart aendert daran nichts, und
+       * ein frisch freigegebener Kanal wird sofort abgefragt statt erst beim
+       * naechsten regulaeren Durchgang.
+       *
+       * Warum die Minute trotzdem: die Ankuendigungen. Eine, die am
+       * Discord-Fehler gescheitert ist, soll beim naechsten Durchgang neu
+       * versucht werden - nicht erst in fuenfzehn Minuten, wenn der Stream
+       * schon laeuft.
+       *
+       * Faellt eine Plattform aus, faellt hier nichts aus: `runStreamerTick`
+       * gibt jeden Fehler als Zustand zurueck und wirft nicht. Der Bot bleibt
+       * am Leben, auch wenn Twitch es nicht ist.
+       */
+      intervalMs: 60 * 1000,
+      async run() {
+        const { isModuleEnabled } = await import('@swisshub/modules');
+        if (!(await isModuleEnabled(streamer.STREAMER_MODULE_ID))) {
+          return;
+        }
+        await streamer.runStreamerTick();
       },
     },
     {

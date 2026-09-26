@@ -45,8 +45,18 @@ import '../../profil-oeffentlich.css';
  */
 export function OeffentlicheProfilseite({
   profil,
+  streaming,
 }: {
   profil: profile.OeffentlichesProfil;
+  /**
+   * Der Streaming-Abschnitt, fertig gebaut - oder nichts.
+   *
+   * Als Knoten und nicht als Daten: dann weiss diese Datei nichts ueber
+   * Streams, Plattformen oder Kanaele, und das Streamer-Modul bringt seinen
+   * Abschnitt selbst mit. Wer ihn liefert, entscheidet die Seite; wer ihn
+   * sehen darf, hat `ladeProfilStreaming` entschieden.
+   */
+  streaming?: React.ReactNode;
 }): React.JSX.Element {
   const { gestaltung, angaben, spiele, socials, auszeichnungen, vitrine } = profil;
   const buehne = gestaltung.buehne;
@@ -67,7 +77,8 @@ export function OeffentlicheProfilseite({
    * Inhaltsbereich mit Abstand darunter, sondern nur den Kopf. Das sieht
    * nach Absicht aus statt nach Fehler.
    */
-  const hatInhalt = hatBio || hatMerkmale || hatSpiele || hatSocials || hatAuszeichnungen;
+  const hatInhalt =
+    Boolean(streaming) || hatBio || hatMerkmale || hatSpiele || hatSocials || hatAuszeichnungen;
 
   /*
    * Der Abstand der Auftritte.
@@ -76,7 +87,11 @@ export function OeffentlicheProfilseite({
    * eine halbe Sekunde insgesamt wuerde sich nach Warten anfuehlen statt
    * nach Ankommen; deshalb wird bei sechs Abschnitten nicht weitergezaehlt.
    */
-  let stufe = 0;
+  /*
+   * Der Streaming-Abschnitt steht vor der Biografie und zaehlt deshalb mit:
+   * er hat seinen Verzug schon bekommen, als die Seite ihn gebaut hat.
+   */
+  let stufe = streaming ? 1 : 0;
   const verzug = (): number => Math.min((stufe += 1), 6) * 80;
 
   return (
@@ -108,6 +123,12 @@ export function OeffentlicheProfilseite({
 
       {hatInhalt ? (
         <div className="po-inhalt mt-6">
+          {/*
+            Ganz oben, weil es das einzige Zeitkritische auf der Seite ist: wer
+            gerade live ist, soll es sehen, bevor er scrollt.
+          */}
+          {streaming}
+
           {hatBio ? (
             <OeAbschnitt titel="Über mich" verzug={verzug()} className="po-breit">
               <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">

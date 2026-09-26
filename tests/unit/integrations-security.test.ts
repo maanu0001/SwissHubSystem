@@ -200,6 +200,8 @@ describe('Integrationskatalog', () => {
       ['music', 'runtimeKey'],
       ['payment', 'apiKey'],
       ['payment', 'webhookSecret'],
+      ['twitch', 'clientSecret'],
+      ['youtube', 'apiKey'],
     ];
     for (const [integrationId, key] of geheim) {
       const feld = getIntegration(integrationId)?.fields.find((eintrag) => eintrag.key === key);

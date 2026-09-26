@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { botDateien, istImportfehler, pruefeImporte } from '../../scripts/bot-startup-test';
@@ -86,5 +86,52 @@ describe('Die Pipeline laesst ohne diesen Test nicht ausrollen', () => {
     expect(startupPos).toBeGreaterThan(0);
     expect(buildPos).toBeGreaterThan(0);
     expect(startupPos).toBeLessThan(buildPos);
+  });
+});
+
+describe('Der Streamer Hub bleibt auf der Bot-Seite der Grenze', () => {
+  /*
+   * Das Modul, das nach dem Ausfall gebaut wurde - und dessen Kern der Bot
+   * laedt: `apps/bot/src/jobs.ts` ruft `streamer.runStreamerTick()`. Was in
+   * `packages/modules/src/streamer` steht, laeuft damit in einem Node-Prozess
+   * ohne Next.
+   *
+   * ## Die Gegenprobe zu diesem Test
+   *
+   * Mit `import 'server-only'` in `packages/modules/src/streamer/live.ts`:
+   * `npx tsc -p apps/web/tsconfig.json --noEmit` bleibt still (Rueckgabewert 0,
+   * keine Ausgabe), `npm run bot:startup-test` bricht mit Rueckgabewert 1 ab und
+   * nennt 26 Bot-Dateien. Nach dem Zuruecknehmen ist der Startup-Test wieder
+   * gruen. Genau diese Blindheit des Typecheckers ist der Grund, warum es den
+   * Startup-Test gibt.
+   */
+  const MODULKERN = 'packages/modules/src/streamer';
+
+  it('importiert in keiner Datei des Modulkerns server-only', () => {
+    for (const datei of readdirSync(join(process.cwd(), MODULKERN))) {
+      const quelle = readFileSync(join(process.cwd(), MODULKERN, datei), 'utf8');
+      /*
+       * Nur echte Importzeilen. Zwei Dateien **erklaeren** im Kopfkommentar,
+       * warum sie kein `server-only` haben - ein Test, der darauf anspringt,
+       * verbietet die Erklaerung statt den Fehler.
+       */
+      expect(quelle, `${datei} importiert server-only`).not.toMatch(/^\s*import\s+['"]server-only['"]/mu);
+    }
+  });
+
+  it('haelt die Oberflaechenteile ausserhalb des Modulkerns', () => {
+    /*
+     * Die Spotlight-Grafik, die Server Actions und die Seiten gehoeren in
+     * `apps/web` - dort duerfen sie alles, was Next kann. Der Weg, auf dem der
+     * Ausfall entstand, war die Gegenrichtung: etwas Next-Spezifisches im
+     * gemeinsamen Paket, exportiert ueber den Barrel.
+     */
+    const barrel = readFileSync(join(process.cwd(), MODULKERN, 'index.ts'), 'utf8');
+    expect(barrel).not.toMatch(/next\//u);
+    expect(barrel).not.toMatch(/apps\/web/u);
+
+    // Und der Bot ruft genau eine Funktion des Moduls - den Durchgang.
+    const jobs = readFileSync(join(process.cwd(), 'apps/bot/src/jobs.ts'), 'utf8');
+    expect(jobs).toContain('streamer.runStreamerTick');
   });
 });

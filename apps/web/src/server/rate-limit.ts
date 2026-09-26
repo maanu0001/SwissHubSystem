@@ -297,6 +297,23 @@ export const RATE_LIMITS = {
   fragtWrite: { limit: 60, windowMs: 10 * 60 * 1000 },
   fragtPublish: { limit: 5, windowMs: 10 * 60 * 1000 },
 
+  /*
+   * Streamer Hub.
+   *
+   * `streamerBewerbung` ist der einzige Eintrag, den ein gewoehnliches
+   * Mitglied ausloest - und er kostet Anfragen bei Twitch beziehungsweise
+   * YouTube, denn jede Speicherung schlaegt die Kanaele nach. Deshalb
+   * knapper als die uebrigen Schreibvorgaenge: wer sein Formular fuenfzigmal
+   * in zehn Minuten speichert, sucht nicht seinen Kanal.
+   *
+   * `streamerVerify` ist der OAuth-Anstoss. Streng, weil jeder Versuch eine
+   * Weiterleitung zu Twitch bedeutet.
+   */
+  streamerBewerbung: { limit: 15, windowMs: 10 * 60 * 1000 },
+  streamerVerify: { limit: 10, windowMs: 10 * 60 * 1000 },
+  streamerReview: { limit: 60, windowMs: 10 * 60 * 1000 },
+  streamerPublish: { limit: 5, windowMs: 10 * 60 * 1000 },
+
   /**
    * Die Vorschau im Studio.
    *
