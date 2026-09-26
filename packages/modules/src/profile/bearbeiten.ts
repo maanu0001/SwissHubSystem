@@ -11,8 +11,8 @@ import {
   type ShowcaseEingabe,
   type SocialsEingabe,
 } from './schemas';
-import { profilTheme } from './profil-themes';
-import { darfPremiumThemes } from './theme-zugang';
+import { profilTheme, themeFreigeschaltet } from './profil-themes';
+import { themeVoraussetzungen } from './theme-zugang';
 import { SPIELFELDER_VERSION } from './spielfelder';
 import { findeFreienSlug, slugVorschlag } from './slug';
 
@@ -83,11 +83,33 @@ export async function speichereGestaltung(discordId: string, eingabe: Gestaltung
     select: { premiumTheme: true },
   });
 
-  if (gewaehlt.premium && vorher?.premiumTheme !== eingabe.premiumTheme) {
-    if (!(await darfPremiumThemes(discordId))) {
+  /*
+   * Geprueft wird nur bei einer AENDERUNG auf ein forderndes Design.
+   *
+   * Wer sein Design behaelt, soll nicht bei jedem Speichern eines
+   * Spielenamens erneut geprueft werden. Und wer die Voraussetzung verloren
+   * hat, behaelt die gespeicherte Wahl - sie wirkt nur nicht mehr, und das
+   * entscheidet `wirksamesTheme` beim Zeichnen.
+   */
+  const fordertEtwas = gewaehlt.premium || gewaehlt.mindestLevel !== null;
+  if (fordertEtwas && vorher?.premiumTheme !== eingabe.premiumTheme) {
+    const mitbringen = await themeVoraussetzungen(discordId);
+    if (!themeFreigeschaltet(gewaehlt, mitbringen)) {
+      /*
+       * Die Meldung nennt den Grund, der wirklich vorliegt.
+       *
+       * «Es laesst sich mit einem aktiven Premium auswaehlen» waere beim
+       * Prestige-Design eine Falschauskunft - es laesst sich damit gerade
+       * NICHT auswaehlen. Wer auf Level 12 steht, soll erfahren, dass 31
+       * fehlen, und nicht nach einem Abonnement suchen, das nichts aendert.
+       */
+      const grund =
+        gewaehlt.mindestLevel !== null && mitbringen.level < gewaehlt.mindestLevel
+          ? `«${gewaehlt.label}» wird ab Level ${gewaehlt.mindestLevel} freigeschaltet. Du bist auf Level ${mitbringen.level} - das lässt sich nicht kaufen, nur erspielen.`
+          : `«${gewaehlt.label}» ist ein Premium-Design. Es lässt sich mit einem aktiven SwissHub Premium auswählen.`;
       throw new AppError('FORBIDDEN', {
-        userMessage: `«${gewaehlt.label}» ist ein Premium-Design. Es lässt sich mit einem aktiven SwissHub Premium auswählen.`,
-        internalMessage: `Profil-Theme ${gewaehlt.id} ohne Premium und ohne Berechtigung`,
+        userMessage: grund,
+        internalMessage: `Profil-Theme ${gewaehlt.id} abgelehnt: premium=${mitbringen.hatPremium}, level=${mitbringen.level}, mindestLevel=${gewaehlt.mindestLevel ?? '-'}`,
       });
     }
   }

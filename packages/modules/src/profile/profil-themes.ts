@@ -38,6 +38,15 @@
  * sie an einer Stelle ab.
  */
 
+/**
+ * Ab welchem Level Prestige freigeschaltet ist.
+ *
+ * Steht hier und nur hier. Eine zweite Zahl an einer zweiten Stelle waere
+ * eine zweite Wahrheit - und auffallen wuerde die falsche erst, wenn jemand
+ * auf Level 31 ohne sein Design dasteht.
+ */
+export const PRESTIGE_MINDESTLEVEL = 31;
+
 export type ProfilThemeId = 'classic' | 'crimson' | 'aurora' | 'cyber' | 'matrix' | 'nebula' | 'prestige';
 
 export interface ProfilTheme {
@@ -46,6 +55,22 @@ export interface ProfilTheme {
   beschreibung: string;
   /** Braucht es ein aktives Abonnement? */
   premium: boolean;
+  /**
+   * Das Level, ab dem dieses Design freigeschaltet ist - oder `null`.
+   *
+   * ## Warum ein eigenes Feld und nicht `premium: true`
+   *
+   * Weil Prestige **nicht** kaeuflich sein soll. Haengte es an `premium`,
+   * bekaeme es jeder mit Abonnement und jeder mit der Berechtigung
+   * `members.profile.themes.premium` - also auch jedes Teammitglied. Genau
+   * das soll nicht sein: Prestige ist erspielt, nicht bezahlt und nicht
+   * verliehen.
+   *
+   * Die beiden Voraussetzungen stehen deshalb getrennt und werden mit UND
+   * verknuepft, nicht mit ODER. Ein Design mit `premium: false` und
+   * `mindestLevel: 31` kennt keinen Weg ueber das Abonnement.
+   */
+  mindestLevel: number | null;
   /**
    * Die CSS-Variablen der Seite.
    *
@@ -150,6 +175,7 @@ const THEMES: readonly ProfilTheme[] = [
     label: 'SwissHub Classic',
     beschreibung: 'Die Hausgestaltung. Deine Akzentfarbe bestimmt das Bild.',
     premium: false,
+    mindestLevel: null,
     // Kein Ueberschreiben: hier gilt, was das Mitglied unter «Design»
     // gewaehlt hat. Deshalb ist der Standard auch kein Rueckschritt.
     tokens: null,
@@ -167,6 +193,7 @@ const THEMES: readonly ProfilTheme[] = [
     label: 'Crimson Pulse',
     beschreibung: 'SwissHub-Rot auf Schwarz. Lichtlinien, die langsam atmen.',
     premium: true,
+    mindestLevel: null,
     tokens: {
       '--profil-flaeche': '354 24% 8%',
       '--profil-rand': '354 30% 18%',
@@ -188,6 +215,7 @@ const THEMES: readonly ProfilTheme[] = [
     label: 'Midnight Aurora',
     beschreibung: 'Tiefe Nacht, durch die farbige Schleier ziehen.',
     premium: true,
+    mindestLevel: null,
     tokens: {
       '--profil-flaeche': '230 26% 9%',
       '--profil-rand': '225 28% 19%',
@@ -209,6 +237,7 @@ const THEMES: readonly ProfilTheme[] = [
     label: 'Cyber Blue',
     beschreibung: 'Kühles Blau, ein wanderndes Raster, kein Neon-Kitsch.',
     premium: true,
+    mindestLevel: null,
     tokens: {
       '--profil-flaeche': '215 40% 8%',
       '--profil-rand': '204 55% 20%',
@@ -230,6 +259,7 @@ const THEMES: readonly ProfilTheme[] = [
     label: 'Emerald Matrix',
     beschreibung: 'Schwarz und Smaragd. Partikel, die nach unten treiben.',
     premium: true,
+    mindestLevel: null,
     tokens: {
       '--profil-flaeche': '155 22% 6%',
       '--profil-rand': '152 32% 16%',
@@ -251,6 +281,7 @@ const THEMES: readonly ProfilTheme[] = [
     label: 'Violet Nebula',
     beschreibung: 'Violette Weite mit Tiefe - zwei Ebenen, die sich versetzt bewegen.',
     premium: true,
+    mindestLevel: null,
     tokens: {
       '--profil-flaeche': '268 30% 10%',
       '--profil-rand': '272 34% 22%',
@@ -269,9 +300,18 @@ const THEMES: readonly ProfilTheme[] = [
   },
   {
     id: 'prestige',
-    label: 'Golden Prestige',
-    beschreibung: 'Schwarz und Gold. Ein Lichtreflex, der einmal darüberläuft.',
-    premium: true,
+    label: 'Prestige',
+    beschreibung: 'Tiefschwarz und Gold. Erspielt, nicht gekauft - freigeschaltet ab Level 31.',
+    /*
+     * `premium: false` ist hier kein Versehen.
+     *
+     * Dieses Design haengt ausschliesslich am Level. Waere `premium: true`
+     * gesetzt, wuerde es die ODER-Verknuepfung der Premium-Pruefung
+     * mitnehmen und damit fuer Abonnenten, Admins und Moderatoren offen
+     * stehen - das Gegenteil des Gedachten.
+     */
+    premium: false,
+    mindestLevel: PRESTIGE_MINDESTLEVEL,
     tokens: {
       '--profil-flaeche': '40 14% 7%',
       '--profil-rand': '40 28% 18%',
@@ -328,7 +368,56 @@ export function istProfilTheme(id: string): boolean {
  * Es braucht dafuer keinen Zeitgeber und keinen Nachlauf - die Frage wird
  * beim Zeichnen gestellt, nicht beim Ablaufen beantwortet.
  */
-export function wirksamesTheme(gewaehlt: string | null | undefined, hatPremium: boolean): ProfilTheme {
+/**
+ * Was jemand mitbringt, um ein Design zu verwenden.
+ *
+ * Beide Felder zusammen, weil beide Voraussetzungen zusammen gepruefet
+ * werden muessen. Ein Aufrufer, der nur eine haette, koennte die andere
+ * nicht pruefen - und genau dieser Fall ist der Fehler, den es hier nicht
+ * geben soll.
+ */
+export interface ThemeVoraussetzungen {
+  /** Aktives Abonnement oder die Theme-Berechtigung. */
+  hatPremium: boolean;
+  /** Das erspielte Level. */
+  level: number;
+}
+
+/**
+ * Ist dieses Design fuer diese Person freigeschaltet?
+ *
+ * Die eine Stelle, an der beide Bedingungen zusammenkommen - und zwar mit
+ * UND:
+ *
+ *   - `premium` verlangt Abonnement oder Berechtigung.
+ *   - `mindestLevel` verlangt das Level. **Premium hilft hier nicht.**
+ *
+ * Ein Design kann beides fordern, eines von beiden, oder nichts. Prestige
+ * fordert nur das Level, und darum kommt niemand mit einem Abonnement, einer
+ * Adminrolle oder einer Moderationsrolle daran vorbei.
+ */
+export function themeFreigeschaltet(theme: ProfilTheme, mitbringen: ThemeVoraussetzungen): boolean {
+  if (theme.premium && !mitbringen.hatPremium) {
+    return false;
+  }
+  if (theme.mindestLevel !== null && mitbringen.level < theme.mindestLevel) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Welches Theme tatsaechlich gilt.
+ *
+ * Nimmt bewusst das ganze `ThemeVoraussetzungen`-Buendel und nicht nur ein
+ * `hatPremium`: die frueher Fassung tat genau das, und ein Aufrufer, der das
+ * Level nicht kannte, konnte es auch nicht pruefen. Die Signatur zwingt
+ * jetzt jede Stelle, beides zu beschaffen.
+ */
+export function wirksamesTheme(
+  gewaehlt: string | null | undefined,
+  mitbringen: ThemeVoraussetzungen,
+): ProfilTheme {
   const theme = profilTheme(gewaehlt);
-  return theme.premium && !hatPremium ? STANDARD_THEME : theme;
+  return themeFreigeschaltet(theme, mitbringen) ? theme : STANDARD_THEME;
 }

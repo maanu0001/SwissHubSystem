@@ -7,7 +7,7 @@ import * as angaben from './angaben';
 import * as auszeichnungen from './auszeichnungen';
 import * as gestaltung from './gestaltung';
 import * as profilThemes from './profil-themes';
-import { darfPremiumThemes, themeZugang } from './theme-zugang';
+import { levelVon, themeVoraussetzungen, themeZugang } from './theme-zugang';
 import * as showcase from './showcase';
 import { verliehenAn } from './verleihung';
 import { auszeichnungsArtenNach } from './auszeichnungs-arten';
@@ -393,13 +393,20 @@ export async function ladeProfilFuer(
    */
   const gewaehltesTheme = profilThemes.profilTheme(profil.premiumTheme);
   /*
-   * Gefragt wird die zentrale Regel: Abonnement **oder** Berechtigung.
+   * Gefragt wird die zentrale Regel - und nur, wenn es etwas zu pruefen gibt.
    *
-   * Und nur dann, wenn ueberhaupt ein Premium-Design gespeichert ist - fuer
-   * Classic braucht es keine Abfrage, und Classic ist der Normalfall.
+   * Classic fordert nichts, und Classic ist der Normalfall. Fordert das
+   * gespeicherte Design etwas (Abonnement, Level oder beides), werden die
+   * Voraussetzungen beschafft; sonst nicht. Eine Abfrage je Profilaufruf
+   * fuer eine Frage ohne Folgen waere schlechter Tausch.
+   *
+   * `themeVoraussetzungen` holt Premium UND Level. Vorher stand hier nur
+   * `hatPremium`, und damit war das Prestige-Design fuer jeden Abonnenten
+   * offen - genau der Weg, den es nicht geben soll.
    */
-  const hatPremium = gewaehltesTheme.premium && (await darfPremiumThemes(discordId));
-  const theme = profilThemes.wirksamesTheme(profil.premiumTheme, hatPremium);
+  const fordertEtwas = gewaehltesTheme.premium || gewaehltesTheme.mindestLevel !== null;
+  const mitbringen = fordertEtwas ? await themeVoraussetzungen(discordId) : { hatPremium: false, level: 0 };
+  const theme = profilThemes.wirksamesTheme(profil.premiumTheme, mitbringen);
 
   return {
     identitaet: {
@@ -749,6 +756,14 @@ export interface EditorDaten {
      */
     darfPremium: boolean;
     /**
+     * Das erspielte Level.
+     *
+     * Fuer die Designs, die daran haengen - die Galerie schreibt damit
+     * «Freischaltbar ab Level 31» statt «Mit SwissHub Premium», was beim
+     * Prestige-Design eine Falschauskunft waere.
+     */
+    level: number;
+    /**
      * Woher das Recht auf die Premium-Designs kommt.
      *
      * Fuer die Galerie, damit sie den Unterschied benennen kann: «dein
@@ -830,6 +845,8 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
    */
   const zugang = await themeZugang(discordId);
   const darfPremium = zugang !== 'keiner';
+  // Und das Level - fuer die Designs, die nicht am Abonnement haengen.
+  const level = await levelVon(discordId);
 
   // Die Auszeichnungen fuer die Vitrine: alle, die es gibt. Ob sie erreicht
   // sind, entscheidet die Anzeige - eine nicht erreichte faellt dort still
@@ -855,6 +872,7 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
       bannerBild: werte.bannerPath ? bannerQuelle(discordId, werte.bannerPath) : null,
       premiumTheme: werte.premiumTheme,
       darfPremium,
+      level,
       themeZugang: zugang,
     },
     privatsphaere: {

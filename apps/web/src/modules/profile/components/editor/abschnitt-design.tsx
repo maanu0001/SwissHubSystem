@@ -120,6 +120,7 @@ export function AbschnittDesign({
         <ThemeGalerie
           gewaehlt={entwurf.premiumTheme}
           darfPremium={start.darfPremium}
+          level={start.level}
           zugang={start.themeZugang}
           onWaehlen={(id) => aendern({ premiumTheme: id })}
         />

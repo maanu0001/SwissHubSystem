@@ -26,10 +26,23 @@ const CSS = readFileSync(join(process.cwd(), 'apps/web/src/modules/profile/profi
 const ALLE = themes.alleProfilThemes();
 
 describe('Theme-Registry', () => {
-  it('kennt ein Standarddesign und mehrere Premium-Designs', () => {
+  it('kennt ein Standarddesign und mehrere gesperrte Designs', () => {
     expect(themes.STANDARD_THEME.id).toBe('classic');
     expect(themes.STANDARD_THEME.premium).toBe(false);
-    expect(ALLE.filter((theme) => theme.premium).length).toBeGreaterThanOrEqual(6);
+    expect(themes.STANDARD_THEME.mindestLevel).toBeNull();
+
+    /*
+     * Gezaehlt wird «fordert etwas», nicht «premium».
+     *
+     * Vorher stand hier `theme.premium` und die Zahl 6. Seit Prestige am
+     * Level haengt und ausdruecklich NICHT an `premium`, sind es fuenf
+     * Premium-Designs und eines mit Levelbindung - zusammen weiterhin
+     * sechs, die nicht jedem offenstehen.
+     */
+    const fordernd = ALLE.filter((theme) => theme.premium || theme.mindestLevel !== null);
+    expect(fordernd.length).toBeGreaterThanOrEqual(6);
+    expect(ALLE.filter((theme) => theme.premium).length).toBe(5);
+    expect(ALLE.filter((theme) => theme.mindestLevel !== null).length).toBe(1);
   });
 
   it('fällt bei einem unbekannten Schlüssel sicher auf den Standard zurück', () => {
@@ -132,14 +145,18 @@ describe('Die Animationen', () => {
 });
 
 describe('Premium entscheidet über die Wirkung, nicht über die Wahl', () => {
+  /** Jemand mit Abonnement, aber ohne erspieltes Level. */
+  const nurPremium = { hatPremium: true, level: 0 };
+  const nichts = { hatPremium: false, level: 0 };
+
   it('zeigt ein Premium-Theme nur mit aktivem Abonnement', () => {
-    expect(themes.wirksamesTheme('crimson', true).id).toBe('crimson');
-    expect(themes.wirksamesTheme('crimson', false).id).toBe('classic');
+    expect(themes.wirksamesTheme('crimson', nurPremium).id).toBe('crimson');
+    expect(themes.wirksamesTheme('crimson', nichts).id).toBe('classic');
   });
 
   it('lässt das Standarddesign auch ohne Abonnement gelten', () => {
-    expect(themes.wirksamesTheme(null, false).id).toBe('classic');
-    expect(themes.wirksamesTheme('classic', false).id).toBe('classic');
+    expect(themes.wirksamesTheme(null, nichts).id).toBe('classic');
+    expect(themes.wirksamesTheme('classic', nichts).id).toBe('classic');
   });
 
   it('gibt dieselbe Wahl nach der Rückkehr wieder frei', () => {
@@ -149,9 +166,81 @@ describe('Premium entscheidet über die Wirkung, nicht über die Wahl', () => {
      * einfach wieder. Deshalb braucht es keinen Zeitgeber, der beim
      * Ablaufen aufräumt, und niemand muss neu wählen.
      */
+    const gespeichert = 'crimson';
+    expect(themes.wirksamesTheme(gespeichert, nurPremium).id).toBe('crimson');
+    expect(themes.wirksamesTheme(gespeichert, nichts).id).toBe('classic');
+    expect(themes.wirksamesTheme(gespeichert, nurPremium).id).toBe('crimson');
+  });
+});
+
+/**
+ * Prestige haengt am Level und an nichts sonst.
+ *
+ * Der Kern der Anforderung: es soll erspielt sein. Kein Abonnement, keine
+ * Adminrolle, keine Moderationsrolle und keine allgemeine
+ * Theme-Berechtigung darf daran vorbeiführen - und ein manipulierter Request
+ * schon gar nicht.
+ *
+ * Geprueft wird die reine Funktion. Dass der Server sie auch wirklich fragt,
+ * steht im Integrationstest `profil-theme-premium.test.ts`.
+ */
+describe('Prestige: erspielt, nicht gekauft', () => {
+  const PRESTIGE = themes.PRESTIGE_MINDESTLEVEL;
+
+  it('ist auf Level 30 gesperrt', () => {
+    expect(themes.wirksamesTheme('prestige', { hatPremium: false, level: 30 }).id).toBe('classic');
+  });
+
+  it('ist auf Level 31 freigeschaltet', () => {
+    expect(themes.wirksamesTheme('prestige', { hatPremium: false, level: 31 }).id).toBe('prestige');
+  });
+
+  it('verlangt genau die dokumentierte Grenze', () => {
+    expect(PRESTIGE).toBe(31);
+    expect(themes.profilTheme('prestige').mindestLevel).toBe(PRESTIGE);
+  });
+
+  it('bleibt Premium-Abonnenten ohne Level verschlossen', () => {
+    // Der wichtigste Fall: bezahlen hilft hier nicht.
+    expect(themes.wirksamesTheme('prestige', { hatPremium: true, level: 30 }).id).toBe('classic');
+  });
+
+  it('haengt nicht am Premium-Kennzeichen', () => {
+    /*
+     * Waere `premium: true` gesetzt, nähme Prestige die ODER-Verknüpfung der
+     * Premium-Pruefung mit und stände jedem Abonnenten und jedem
+     * Teammitglied offen. Genau das soll nicht sein.
+     */
+    expect(themes.profilTheme('prestige').premium).toBe(false);
+  });
+
+  it('ist das einzige Design mit Levelbindung', () => {
+    const mitLevel = themes
+      .alleProfilThemes()
+      .filter((theme) => theme.mindestLevel !== null)
+      .map((theme) => theme.id);
+    expect(mitLevel).toEqual(['prestige']);
+  });
+
+  it('nimmt die Wirkung weg, wenn das Level verloren geht - behaelt aber die Wahl', () => {
+    /*
+     * XP-Verfall kann unter 31 zurückfallen. Die gespeicherte Wahl bleibt;
+     * nur die Wirkung endet, und sie kommt beim Wiedererreichen zurück.
+     */
     const gespeichert = 'prestige';
-    expect(themes.wirksamesTheme(gespeichert, true).id).toBe('prestige');
-    expect(themes.wirksamesTheme(gespeichert, false).id).toBe('classic');
-    expect(themes.wirksamesTheme(gespeichert, true).id).toBe('prestige');
+    expect(themes.wirksamesTheme(gespeichert, { hatPremium: false, level: 35 }).id).toBe('prestige');
+    expect(themes.wirksamesTheme(gespeichert, { hatPremium: false, level: 29 }).id).toBe('classic');
+    expect(themes.wirksamesTheme(gespeichert, { hatPremium: false, level: 35 }).id).toBe('prestige');
+  });
+
+  it('prueft beide Voraussetzungen mit UND, nicht mit ODER', () => {
+    /*
+     * Ein gedachtes Design, das beides fordert, darf mit nur einem davon
+     * nicht durchkommen. Die Regel steht in `themeFreigeschaltet`.
+     */
+    const beides = { ...themes.profilTheme('prestige'), premium: true };
+    expect(themes.themeFreigeschaltet(beides, { hatPremium: true, level: 30 })).toBe(false);
+    expect(themes.themeFreigeschaltet(beides, { hatPremium: false, level: 31 })).toBe(false);
+    expect(themes.themeFreigeschaltet(beides, { hatPremium: true, level: 31 })).toBe(true);
   });
 });
