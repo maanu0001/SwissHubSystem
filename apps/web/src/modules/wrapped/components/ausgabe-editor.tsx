@@ -50,7 +50,23 @@ export interface EditorAusgabe {
   status: 'DRAFT' | 'FINALIZED' | 'PUBLISHED' | 'ARCHIVED';
   variante: string;
   folien: EditorFolie[];
-  gruende: Array<{ storyKey: string; label: string; lage: string; erklaerung: string }>;
+  /*
+   * Spiegelt `AusgabeAnsicht['gruende']` aus `@swisshub/modules/wrapped`.
+   *
+   * Die vier letzten Felder sind optional: `diagnostics` ist eine JSON-Spalte,
+   * und Ausgaben, die vor dieser Erweiterung erhoben wurden, haben sie nicht.
+   * Sie bleiben lesbar, und eine erneute Erhebung ergaenzt sie.
+   */
+  gruende: Array<{
+    storyKey: string;
+    label: string;
+    lage: string;
+    erklaerung: string;
+    provider?: string;
+    rohdaten?: number | null;
+    neuErhebenHilft?: boolean;
+    wasHilft?: string;
+  }>;
 }
 
 export interface EditorRechte {
@@ -245,11 +261,35 @@ export function AusgabeEditor({
                 {ausgabe.gruende.map((grund) => (
                   <li key={grund.storyKey} className="flex gap-2 text-xs">
                     <Info className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    <span className="min-w-0">
-                      <span className="font-medium">{grund.label}</span>{' '}
-                      <span className="text-muted-foreground">
-                        ({LAGE_TEXT[grund.lage] ?? grund.lage}) — {grund.erklaerung}
+                    <span className="min-w-0 space-y-1">
+                      <span className="block">
+                        <span className="font-medium">{grund.label}</span>{' '}
+                        <span className="text-muted-foreground">
+                          ({LAGE_TEXT[grund.lage] ?? grund.lage}) — {grund.erklaerung}
+                        </span>
                       </span>
+                      {/*
+                        Die Auskunft, die vorher fehlte: wer zustaendig ist, ob
+                        im Zeitraum Rohdaten lagen, und ob «Neu erheben» etwas
+                        aendern wuerde. Ohne sie ist von aussen nicht zu
+                        unterscheiden, ob nie gemessen wurde oder ob die
+                        Erhebung klemmt - und genau das hat mehrfach zu der
+                        Annahme gefuehrt, das Wrapped sei defekt.
+                      */}
+                      {grund.provider ? (
+                        <span className="block text-[11px] text-muted-foreground/80">
+                          Zuständig: <code className="font-mono">{grund.provider}</code>
+                          {grund.rohdaten === null || grund.rohdaten === undefined
+                            ? null
+                            : ` · Rohdaten im Zeitraum: ${grund.rohdaten}`}
+                        </span>
+                      ) : null}
+                      {grund.wasHilft ? (
+                        <span className="block text-[11px] text-muted-foreground/80">
+                          {grund.neuErhebenHilft ? 'Neu erheben hilft: ' : 'Neu erheben hilft nicht. '}
+                          {grund.wasHilft}
+                        </span>
+                      ) : null}
                     </span>
                   </li>
                 ))}

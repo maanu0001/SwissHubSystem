@@ -104,14 +104,84 @@ export interface StoryEntfaellt {
 
 export type StoryAusgang = StoryFolie | StoryEntfaellt;
 
+/**
+ * Woher eine Story ihre Zahlen nimmt.
+ *
+ * Steht hier, damit der Editor bei einer entfallenen Folie nicht nur sagen
+ * kann, DASS sie entfaellt, sondern auch, wer zustaendig ist und ob im
+ * Zeitraum ueberhaupt Rohdaten lagen. Genau diese zwei Auskuenfte fehlten,
+ * und ohne sie ist von aussen nicht zu unterscheiden, ob nie etwas gemessen
+ * wurde oder ob die Erhebung klemmt.
+ */
+export interface StoryHerkunft {
+  /** Die Funktion, die laedt - und dahinter die Tabelle. */
+  provider: string;
+  /**
+   * Wie viele Rohdatenzeilen der Zeitraum hergab.
+   *
+   * Aus dem bereits geladenen Kontext, ohne zusaetzliche Abfrage. `null`
+   * heisst: diese Story braucht keine Daten (Intro, Outro).
+   */
+  rohdaten(kontext: StoryKontext): number | null;
+}
+
 export interface WrappedStory {
   key: string;
   label: string;
   beschreibung: string;
   perioden: readonly WrappedPeriodenArt[];
+  /** Woher die Zahlen kommen - fuer die Diagnose entfallener Folien. */
+  herkunft: StoryHerkunft;
   /** Intro und Outro stehen fest - sie werden nicht nach Punkten sortiert. */
   fest?: 'anfang' | 'ende';
   erhebe(kontext: StoryKontext): StoryAusgang;
+}
+
+/**
+ * Ob ein erneutes Erheben etwas aendern kann.
+ *
+ * Die Antwort ist fast immer nein, und das ist der Kern des Problems, das
+ * mehrere Runden gekostet hat: der Knopf «Neu erheben» wurde gedrueckt,
+ * nichts aenderte sich, und das sah aus wie ein Defekt. Es ist keiner. Eine
+ * Erhebung rechnet vorhandene Zeilen neu zusammen - sie kann keine Messung
+ * nachholen, die im Zeitraum nicht lief, und kein Turnier erfinden, das nicht
+ * stattgefunden hat.
+ *
+ * Darum sagt der Editor das jetzt ausdruecklich, statt es offen zu lassen.
+ */
+export function neuErhebenHilft(lage: WrappedDatenlage): { hilft: boolean; wasHilft: string } {
+  switch (lage) {
+    case 'nicht_erhoben':
+      return {
+        hilft: false,
+        wasHilft:
+          'Ein erneutes Erheben aendert nichts - im Zeitraum wurde nicht gemessen, und das laesst sich nicht nachholen. Kuenftige Zeitraeume sind abgedeckt, sobald die Messung laeuft.',
+      };
+    case 'nur_teilweise_erhoben':
+      return {
+        hilft: false,
+        wasHilft:
+          'Ein erneutes Erheben aendert nichts - die Messung begann mitten im Zeitraum. Die Folie entfaellt absichtlich, statt eine zu kleine Zahl als Jahreswert auszugeben.',
+      };
+    case 'nichts_passiert':
+      return {
+        hilft: false,
+        wasHilft:
+          'Ein erneutes Erheben aendert nichts - die Daten sind vorhanden und lesbar, im Zeitraum ist dazu nur nichts geschehen.',
+      };
+    case 'zu_wenig_vergleich':
+      return {
+        hilft: false,
+        wasHilft:
+          'Ein erneutes Erheben aendert nichts - es fehlt Vergleichszeit vor dem Zeitraum. Mit laengerer Historie entsteht die Folie von selbst.',
+      };
+    case 'kein_platz':
+      return {
+        hilft: false,
+        wasHilft:
+          'Ein erneutes Erheben aendert nichts - die Daten waren da, andere Folien waren aussagekraeftiger. Eine Folie im Editor abschalten macht hier Platz.',
+      };
+  }
 }
 
 // --- Hilfen -----------------------------------------------------------------
@@ -171,6 +241,7 @@ const INTRO: WrappedStory = {
   label: 'Eröffnung',
   beschreibung: 'Marke, Zeitraum, ein Satz. Steht immer am Anfang.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: { provider: '—', rohdaten: () => null },
   fest: 'anfang',
   erhebe: (kontext) => ({
     art: 'folie',
@@ -196,6 +267,10 @@ const COMMUNITY: WrappedStory = {
   label: 'Community',
   beschreibung: 'Aktive Mitglieder und Zuwachs.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: {
+    provider: 'ladeGemeinschaftszahlen (AnalyticsUserDaily)',
+    rohdaten: (kontext) => kontext.zahlen.tageMitDaten,
+  },
   erhebe: (kontext) => {
     const { zahlen } = kontext;
     if (zahlen.tageMitDaten === 0) {
@@ -223,6 +298,10 @@ const VOICE_TOTAL: WrappedStory = {
   label: 'Sprachzeit',
   beschreibung: 'Die gesamte Zeit im Sprachkanal, als grosse Zahl.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: {
+    provider: 'ladeGemeinschaftszahlen (AnalyticsUserDaily.voiceSeconds)',
+    rohdaten: (kontext) => kontext.zahlen.voiceSeconds,
+  },
   erhebe: (kontext) => {
     const fehlt = pruefeQuelle(kontext.quellen.voice, 'Die Sprachzeit');
     if (fehlt) {
@@ -258,6 +337,10 @@ const VOICE_RECORD: WrappedStory = {
   label: 'Voice-Rekord',
   beschreibung: 'Der stärkste Tag - nur mit belegbarem Vergleich.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: {
+    provider: 'bisherigerTagesRekord (AnalyticsGuildDaily)',
+    rohdaten: (kontext) => kontext.rekord?.tage ?? 0,
+  },
   erhebe: (kontext) => {
     const fehlt = pruefeQuelle(kontext.quellen.voice, 'Die Sprachzeit');
     if (fehlt) {
@@ -304,6 +387,10 @@ const MESSAGES: WrappedStory = {
   label: 'Nachrichten',
   beschreibung: 'Geschriebene Nachrichten im Zeitraum.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: {
+    provider: 'ladeGemeinschaftszahlen (AnalyticsUserDaily.messages)',
+    rohdaten: (kontext) => kontext.zahlen.messages,
+  },
   erhebe: (kontext) => {
     const fehlt = pruefeQuelle(kontext.quellen.messages, 'Die Nachrichtenzahl');
     if (fehlt) {
@@ -327,6 +414,10 @@ const TOURNAMENT_WINNER: WrappedStory = {
   label: 'Turniersieger',
   beschreibung: 'Das grösste abgeschlossene Turnier mit seinem Sieger.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: {
+    provider: 'ladeTurniere (Tournament, status COMPLETED)',
+    rohdaten: (kontext) => kontext.turniere.length,
+  },
   erhebe: (kontext) => {
     // Das groesste zuerst - ein Turnier mit sechzehn Teams erzaehlt mehr als
     // eines mit dreien.
@@ -359,6 +450,10 @@ const TOURNAMENT_OVERVIEW: WrappedStory = {
   label: 'Turnierbilanz',
   beschreibung: 'Turniere und Matches im Zeitraum.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: {
+    provider: 'ladeTurniere (Tournament, status COMPLETED)',
+    rohdaten: (kontext) => kontext.turniere.length,
+  },
   erhebe: (kontext) => {
     if (kontext.turniere.length === 0) {
       return entfaellt('nichts_passiert', 'Es wurde kein Turnier abgeschlossen.');
@@ -389,6 +484,7 @@ const EVENT_OVERVIEW: WrappedStory = {
   label: 'Events',
   beschreibung: 'Termine und Anmeldungen.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: { provider: 'ladeTermine (CalendarEvent)', rohdaten: (kontext) => kontext.termine.termine },
   erhebe: (kontext) => {
     const { termine } = kontext;
     if (termine.termine === 0) {
@@ -417,6 +513,10 @@ const CLIP_WINNER: WrappedStory = {
   label: 'Clip of the Week',
   beschreibung: 'Der meistgewählte Clip des Zeitraums.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: {
+    provider: 'ladeClipSieger (ClipCompetition, status COMPLETED)',
+    rohdaten: (kontext) => kontext.clips.length,
+  },
   erhebe: (kontext) => {
     const bester = [...kontext.clips].sort((a, b) => b.stimmen - a.stimmen)[0];
     if (!bester) {
@@ -442,6 +542,10 @@ const GAME_PICK: WrappedStory = {
   label: 'Meistgewähltes Spiel',
   beschreibung: 'Was «Was spielen wir?» am häufigsten ausgewählt hat.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: {
+    provider: 'ladeSpielauswahl (SpielwahlRound, status FERTIG)',
+    rohdaten: (kontext) => kontext.spiele.length,
+  },
   erhebe: (kontext) => {
     const [bestes, zweites] = kontext.spiele;
     if (!bestes) {
@@ -483,6 +587,10 @@ const COMMUNITY_MOMENT: WrappedStory = {
   label: 'Community Moment',
   beschreibung: 'Ein besonderer Moment - mit Bild, von Hand gepflegt.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: {
+    provider: 'WrappedMoment (includeMonthly/includeYearly im Zeitraum)',
+    rohdaten: (kontext) => kontext.momente.length,
+  },
   erhebe: (kontext) => {
     // Hoechste Prioritaet zuerst, bei Gleichstand der juengste.
     const bester = [...kontext.momente].sort(
@@ -515,6 +623,10 @@ const MONTH_OVERVIEW: WrappedStory = {
   label: 'Das Jahr nach Monaten',
   beschreibung: 'Zwölf Balken - und der stärkste Monat.',
   perioden: ['YEARLY'],
+  herkunft: {
+    provider: 'ladeMonatsverlauf (AnalyticsUserDaily je Monat)',
+    rohdaten: (kontext) => kontext.monate?.length ?? 0,
+  },
   erhebe: (kontext) => {
     const fehlt = pruefeQuelle(kontext.quellen.voice, 'Die Sprachzeit');
     if (fehlt) {
@@ -561,6 +673,10 @@ const YEAR_NUMBERS: WrappedStory = {
   label: 'Das Jahr in Zahlen',
   beschreibung: 'Sprachzeit und aktive Mitglieder über das ganze Jahr.',
   perioden: ['YEARLY'],
+  herkunft: {
+    provider: 'ladeGemeinschaftszahlen (AnalyticsUserDaily)',
+    rohdaten: (kontext) => kontext.zahlen.tageMitDaten,
+  },
   erhebe: (kontext) => {
     const fehlt = pruefeQuelle(kontext.quellen.voice, 'Die Sprachzeit');
     if (fehlt) {
@@ -588,6 +704,7 @@ const OUTRO: WrappedStory = {
   label: 'Abschluss',
   beschreibung: 'Dank und Adresse. Steht immer am Ende.',
   perioden: ['MONTHLY', 'YEARLY'],
+  herkunft: { provider: '—', rohdaten: () => null },
   fest: 'ende',
   erhebe: (kontext) => ({
     art: 'folie',
@@ -636,7 +753,20 @@ export const FOLIEN_OBERGRENZE: Record<WrappedPeriodenArt, number> = {
 export interface AuswahlErgebnis {
   folien: Array<StoryFolie & { storyKey: string; position: number }>;
   /** Je uebersprungener Story ein Grund - fuer den Editor. */
-  gruende: Array<{ storyKey: string; label: string; lage: WrappedDatenlage; erklaerung: string }>;
+  gruende: Array<{
+    storyKey: string;
+    label: string;
+    lage: WrappedDatenlage;
+    erklaerung: string;
+    /** Wer die Daten liefert. */
+    provider: string;
+    /** Wie viele Rohdatenzeilen der Zeitraum hergab - `null` bei Stories ohne Daten. */
+    rohdaten: number | null;
+    /** Ob «Neu erheben» etwas aendern koennte. */
+    neuErhebenHilft: boolean;
+    /** Was stattdessen hilft. */
+    wasHilft: string;
+  }>;
 }
 
 /**
@@ -668,11 +798,16 @@ export function waehleFolien(kontext: StoryKontext): AuswahlErgebnis {
     }
     const ausgang = story.erhebe(kontext);
     if (ausgang.art === 'entfaellt') {
+      const rat = neuErhebenHilft(ausgang.lage);
       gruende.push({
         storyKey: story.key,
         label: story.label,
         lage: ausgang.lage,
         erklaerung: ausgang.erklaerung,
+        provider: story.herkunft.provider,
+        rohdaten: story.herkunft.rohdaten(kontext),
+        neuErhebenHilft: rat.hilft,
+        wasHilft: rat.wasHilft,
       });
       continue;
     }
@@ -693,11 +828,16 @@ export function waehleFolien(kontext: StoryKontext): AuswahlErgebnis {
 
   for (const uebrig of sortiert.slice(genommen.length)) {
     const story = storyNach(uebrig.storyKey);
+    const rat = neuErhebenHilft('kein_platz');
     gruende.push({
       storyKey: uebrig.storyKey,
       label: story?.label ?? uebrig.storyKey,
       lage: 'kein_platz',
       erklaerung: `Nicht aufgenommen - die Ausgabe fasst höchstens ${FOLIEN_OBERGRENZE[kontext.periode.art]} Folien, und andere Folien waren in diesem Zeitraum aussagekräftiger.`,
+      provider: story?.herkunft.provider ?? 'unbekannt',
+      rohdaten: story?.herkunft.rohdaten(kontext) ?? null,
+      neuErhebenHilft: rat.hilft,
+      wasHilft: rat.wasHilft,
     });
   }
 
