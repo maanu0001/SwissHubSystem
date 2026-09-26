@@ -6,9 +6,6 @@ export * from './rate-limit';
 export * from './idempotency';
 export * from './settings-store';
 export * from './config-revision';
-// Wie gefaehrlich eine Migration ist - die Deployment-Pipeline entscheidet
-// damit, ob sie einen Wiederherstellungspunkt verlangt.
-export * from './migrations-bewertung';
 
 export { Prisma } from '@prisma/client';
 export type {

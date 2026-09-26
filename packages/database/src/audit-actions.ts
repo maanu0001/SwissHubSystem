@@ -385,34 +385,6 @@ export const AUDIT_ACTIONS = {
   SPIELWAHL_SESSION_CLOSED: 'SPIELWAHL_SESSION_CLOSED',
   SPIELWAHL_PARTICIPANT_REMOVED: 'SPIELWAHL_PARTICIPANT_REMOVED',
   SPIELWAHL_HOST_TRANSFERRED: 'SPIELWAHL_HOST_TRANSFERRED',
-
-  // --- Backup & Recovery ---------------------------------------------------
-  //
-  // Bewusst sparsam. Das Audit Log ist eine Beweiskette und kein Betriebslog:
-  // ein taeglicher Sicherungslauf gehoert NICHT hierher. Stuende er darin,
-  // bestaenden in einem Jahr dreihundert Zeilen daraus, und ein Log, das man
-  // nicht mehr liest, ist keine Beweiskette. Die Erfolgs- und
-  // Fehlerprotokolle der Anlage stehen getrennt unter
-  // /var/lib/swisshub-backup/log/ und mit eigener Aufbewahrung.
-  //
-  // Hier steht ausschliesslich, was ein MENSCH entschieden hat.
-  BACKUP_MANUAL_STARTED: 'BACKUP_MANUAL_STARTED',
-  BACKUP_SETTINGS_CHANGED: 'BACKUP_SETTINGS_CHANGED',
-  BACKUP_VERIFY_STARTED: 'BACKUP_VERIFY_STARTED',
-  BACKUP_RESTORE_TEST_STARTED: 'BACKUP_RESTORE_TEST_STARTED',
-  /** Ein produktiver Restore wurde ANGEFORDERT. Loest nichts aus. */
-  BACKUP_RESTORE_REQUESTED: 'BACKUP_RESTORE_REQUESTED',
-  /** Die zweite Person hat zugestimmt. Ab hier darf er ausgefuehrt werden. */
-  BACKUP_RESTORE_APPROVED: 'BACKUP_RESTORE_APPROVED',
-  BACKUP_RESTORE_REJECTED: 'BACKUP_RESTORE_REJECTED',
-  /**
-   * Eine Selbstfreigabe wurde abgelehnt.
-   *
-   * Gehoert ins Log, weil der VERSUCH selbst eine Auskunft ist: er heisst
-   * entweder, dass jemand das Prinzip nicht kennt, oder dass jemand es
-   * umgehen wollte. Beides will man wissen.
-   */
-  BACKUP_RESTORE_SELF_APPROVAL_DENIED: 'BACKUP_RESTORE_SELF_APPROVAL_DENIED',
 } as const;
 
 /**

@@ -25,10 +25,6 @@ import './clips/config';
 import './wrapped/config';
 // Was spielen wir? - die gemeinsame Spielauswahl.
 import './spielwahl/config';
-// Backup & Recovery - der Bereich, an dem man die Fehlschlaege der Sicherung
-// sieht. Kern und standardmaessig an: «ausgeschaltet» ist hier kein sinnvoller
-// Zustand.
-import './backup/config';
 import { registerGuildResolver } from './guild/config';
 
 // Ab hier löst jeder Discord-Aufruf die Guild aus der Datenbank auf.
@@ -80,7 +76,6 @@ export * as appeals from './appeals';
 export * as clips from './clips';
 export * as wrapped from './wrapped';
 export * as spielwahl from './spielwahl';
-export * as backup from './backup';
 // Mitgliederprofile - kein Modul mit Schalter, siehe profile/index.ts.
 export * as profile from './profile';
 /*
