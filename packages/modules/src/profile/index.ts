@@ -11,6 +11,7 @@
  * Mitgliedsakte der Moderation (`members/`). Diese Dateien lesen daraus,
  * doppeln aber nichts davon.
  */
+export * from './abschnitte';
 export * from './angaben';
 export * from './auszeichnungen';
 export * from './auszeichnungs-arten';
@@ -18,6 +19,7 @@ export * from './berechnete-arten';
 export * from './bearbeiten';
 export * from './entdecken';
 export * from './gestaltung';
+export * from './links';
 export * from './schemas';
 export * from './service';
 export * from './showcase';

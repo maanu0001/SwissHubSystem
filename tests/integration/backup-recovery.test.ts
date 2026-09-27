@@ -97,7 +97,13 @@ describeWithDatabase('Backup & Recovery gegen eine echte Datenbank', () => {
     };
     const ergebnis = spawnSync(join(BIN, programm), argumente, {
       encoding: 'utf8',
-      env: umgebung,
+      /*
+       * Bewusst **nur** diese Werte, ohne `process.env`: das Skript soll in
+       * einer sauberen Umgebung laufen. Die Umwandlung ist noetig, weil Next
+       * `NODE_ENV` in `ProcessEnv` als verpflichtend erklaert, sobald seine
+       * Typen im Projekt geladen sind - hier soll es gerade nicht gesetzt sein.
+       */
+      env: umgebung as unknown as NodeJS.ProcessEnv,
       maxBuffer: 64 * 1024 * 1024,
     });
     return {

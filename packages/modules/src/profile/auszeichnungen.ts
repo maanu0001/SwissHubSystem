@@ -498,6 +498,14 @@ export interface Auszeichnung {
  * prueft dagegen. Zwei Listen liefen auseinander, und die Pruefung waere
  * die, die es nicht merkt.
  */
+/**
+ * Wie viele Auszeichnungen ein Mitglied hervorheben darf.
+ *
+ * Drei. Mehr ist keine Hervorhebung, sondern die Liste noch einmal - und auf
+ * der Gamer Card ist der Platz ohnehin bei drei zu Ende.
+ */
+export const MAX_HERVORGEHOBENE_AUSZEICHNUNGEN = 3;
+
 export const AUSZEICHNUNGS_SYMBOLE: readonly string[] = [
   'Award',
   'Trophy',

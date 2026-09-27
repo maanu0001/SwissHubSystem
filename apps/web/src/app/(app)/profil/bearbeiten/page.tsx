@@ -39,7 +39,7 @@ export default async function ProfilBearbeitenPage(): Promise<React.JSX.Element>
     <div className="space-y-5">
       <PageHeader
         title="Profil bearbeiten"
-        description="Sechs Abschnitte, jeder speichert für sich. Die Vorschau oben zeigt, wie dein Kopf aussieht."
+        description="Sieben Abschnitte, jeder speichert für sich. Die Vorschau oben zeigt, wie dein Kopf aussieht."
       />
       <ProfilEditor
         csrfToken={csrfTokenFor(context)}

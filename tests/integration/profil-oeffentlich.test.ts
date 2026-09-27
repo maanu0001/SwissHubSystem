@@ -246,6 +246,7 @@ describeWithDatabase('Oeffentliche Profile', () => {
     const oeffentlich = profile.baueOeffentlichesProfil(
       mitZusatz as unknown as NonNullable<typeof ansicht>,
       'anna',
+      { abschnitte: [], indexierbar: true },
     );
 
     expect(JSON.stringify(oeffentlich)).not.toContain('darf niemals herausgehen');

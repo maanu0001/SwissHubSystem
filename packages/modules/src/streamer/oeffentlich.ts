@@ -540,6 +540,26 @@ export async function ladeProfilStreaming(
     return null;
   }
 
+  /*
+   * Und der Schalter des Mitglieds.
+   *
+   * §15 laesst jeden Abschnitt einzeln ein- und ausblenden, und der
+   * Streaming-Abschnitt ist einer davon. Die Pruefung steht hier und nicht in
+   * der Seite: eine Komponente, die filtert, hat die Daten schon im HTML.
+   *
+   * Vorgabe ist `PUBLIC` - der Abschnitt stand seit dem Streamer Hub auf jeder
+   * oeffentlichen Profilseite, und eine Migration soll daran nichts aendern.
+   * Wer den Hub nicht im Profil haben will, schaltet ihn ab; auf `/streamer`
+   * bleibt er, denn dort ist die Freigabe selbst die Zustimmung.
+   */
+  const mitgliedsprofil = await prisma.memberProfile.findUnique({
+    where: { discordId },
+    select: { visibilityStreaming: true },
+  });
+  if (mitgliedsprofil && mitgliedsprofil.visibilityStreaming !== 'PUBLIC') {
+    return null;
+  }
+
   const streamer = await prisma.streamerProfil.findFirst({
     where: { discordId, status: 'APPROVED', kanaele: { some: { aktiv: true } } },
     select: AUSWAHL,

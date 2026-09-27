@@ -96,6 +96,15 @@ export const RATE_LIMITS = {
    * bremst Automatisierung, nicht das Einrichten.
    */
   profilWrite: { limit: 90, windowMs: 10 * 60 * 1000 },
+  /**
+   * Die oeffentliche Profiladresse aendern.
+   *
+   * Eng, und zwar nicht wegen der Last: jede Aenderung laesst einen Alias
+   * zurueck, der den alten Namen dauerhaft belegt. Wer in einer Schleife
+   * wechselt, reserviert damit Adressen fuer alle anderen mit. Fuenf in einer
+   * Stunde reichen fuer jede ehrliche Ueberlegung.
+   */
+  profilSlug: { limit: 5, windowMs: 60 * 60 * 1000 },
   /** Ein Profilbanner hochladen - jedes Mal ein paar Megabyte. */
   profilUpload: { limit: 10, windowMs: 30 * 60 * 1000 },
   /**

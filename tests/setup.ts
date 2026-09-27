@@ -4,7 +4,19 @@
  * Es werden ausschliesslich Platzhalterwerte gesetzt - Tests sprechen niemals
  * mit dem echten Discord oder einer produktiven Datenbank.
  */
-process.env.NODE_ENV = 'test';
+/*
+ * `NODE_ENV` ueber eine Zuweisung auf das Umgebungsobjekt.
+ *
+ * Next erklaert `process.env.NODE_ENV` in seinen Typen als **nur lesbar** -
+ * zu Recht, denn in der laufenden Anwendung darf es niemand aendern. Sobald
+ * ein Test eine Datei aus `apps/web/src/app` anfasst, gilt diese Erklaerung
+ * auch hier, und die einfache Zuweisung waere ein Typfehler in einer Datei,
+ * die nichts damit zu tun hat.
+ *
+ * Vitest setzt den Wert ohnehin selbst; diese Zeile ist die Zusicherung fuer
+ * den Fall, dass die Testdatei ausserhalb von Vitest geladen wird.
+ */
+(process.env as Record<string, string | undefined>).NODE_ENV = 'test';
 // Datenbankgestützte Tests nutzen `SWISSHUB_TEST_DATABASE_URL` (siehe
 // `tests/helpers/database.ts`) und werden ohne sie übersprungen. Die übrigen
 // Tests sprechen nie mit einer echten Datenbank - der Platzhalter genügt.

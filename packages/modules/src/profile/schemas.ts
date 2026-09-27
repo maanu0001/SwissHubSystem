@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { AUSZEICHNUNGS_SYMBOLE } from './auszeichnungen';
+import { ABSCHNITT_SCHLUESSEL, istAbschnittSchluessel } from './abschnitte';
+import { AUSZEICHNUNGS_SYMBOLE, MAX_HERVORGEHOBENE_AUSZEICHNUNGEN } from './auszeichnungen';
 import { ABSPRACHE, PLATTFORMEN, SPIELZEITEN, SPRACHEN, mehrfachSchema } from './angaben';
 import { istAkzent, istBannervorlage, istThema } from './gestaltung';
 import { istProfilTheme } from './profil-themes';
@@ -224,10 +225,83 @@ export const privatsphaereSchema = z.object({
   visibilitySocials: sichtbarkeit,
   visibilityCareer: sichtbarkeit,
   visibilityActivity: sichtbarkeit,
+  /*
+   * Die Abschnitte, die mit Public Profile 2.0 dazugekommen sind.
+   *
+   * `default` und nicht erforderlich: der Abschnitt speichert als Ganzes, aber
+   * ein aelterer Client - ein offener Tab, ein zwischengespeichertes Bundle -
+   * schickt sie nicht mit. Ohne Vorgabe waere sein Speichern eine
+   * Fehlermeldung; mit einer Vorgabe waere es eine stille Aenderung. Deshalb
+   * steht hier der **bisherige** Wert als Vorgabe, derselbe wie in der
+   * Datenbank: dann aendert ein alter Client genau nichts an ihnen.
+   */
+  visibilityStreaming: sichtbarkeit.default('PUBLIC'),
+  visibilityAwards: sichtbarkeit.default('PUBLIC'),
+  visibilityLevel: sichtbarkeit.default('PUBLIC'),
+  visibilityTournaments: sichtbarkeit.default('MEMBERS'),
+  /**
+   * Suchmaschinen zulassen.
+   *
+   * Kein Zugriffsschutz, und die Oberflaeche sagt das auch: «nicht indexiert»
+   * heisst, dass wir `noindex` senden - nicht, dass der Link nicht
+   * funktioniert.
+   */
+  publicIndexable: z.boolean().default(true),
   discoverable: z.boolean(),
 });
 
 export type PrivatsphaereEingabe = z.infer<typeof privatsphaereSchema>;
+
+/**
+ * Was der Dienst annimmt - die **Eingabe**-Seite des Schemas.
+ *
+ * Der Unterschied zu `PrivatsphaereEingabe` sind genau die Felder mit
+ * `default`: hier sind sie optional. Das ist die Zusage aus §16, dass ein
+ * Speichervorgang nichts unbemerkt ueberschreibt - ein fehlendes Feld kommt als
+ * `undefined` bei Prisma an, und Prisma laesst die Spalte dann stehen.
+ *
+ * Die Server Action schickt trotzdem immer alle: sie parst durch das Schema,
+ * und dort setzt `default` sie ein. Diese Signatur ist fuer die anderen
+ * Aufrufer - Tests, Skripte, kuenftige Bot-Befehle -, die einen Abschnitt
+ * aendern wollen, ohne jedes Feld zu kennen.
+ */
+export type PrivatsphaereSchreiben = z.input<typeof privatsphaereSchema>;
+
+/**
+ * Die Reihenfolge der oeffentlichen Abschnitte.
+ *
+ * Geprueft wird nur, dass die Schluessel bekannt sind und nicht zu viele
+ * kommen. Vollstaendigkeit prueft das Schema **nicht**: `ordneAbschnitte`
+ * ergaenzt Fehlendes beim Lesen, und ein Formular, das eine vollstaendige
+ * Liste verlangt, wuerde beim naechsten neuen Abschnitt fehlschlagen.
+ */
+export const abschnitteSchema = z.object({
+  reihenfolge: z
+    .array(z.string().refine(istAbschnittSchluessel, 'Diesen Abschnitt gibt es nicht.'))
+    .max(ABSCHNITT_SCHLUESSEL.length * 2, 'Die Liste ist zu lang.'),
+});
+
+export type AbschnitteEingabe = z.infer<typeof abschnitteSchema>;
+
+/**
+ * Welche Auszeichnungen hervorgehoben werden.
+ *
+ * Nur Schluessel, hoechstens drei. Ob sie tatsaechlich erreicht sind, prueft
+ * **nicht** dieses Schema, sondern der Dienst - und zwar beim Speichern *und*
+ * beim Anzeigen. Zweimal, weil eine Auszeichnung nach dem Speichern
+ * zurueckgezogen werden kann: gepruefte Auswahl allein waere ab dann eine
+ * Behauptung.
+ */
+export const hervorhebungSchema = z.object({
+  keys: z
+    .array(z.string().trim().min(1).max(64))
+    .max(MAX_HERVORGEHOBENE_AUSZEICHNUNGEN, `Höchstens ${MAX_HERVORGEHOBENE_AUSZEICHNUNGEN} Auszeichnungen.`),
+});
+
+export type HervorhebungEingabe = z.infer<typeof hervorhebungSchema>;
+
+/** Die Wunschadresse des oeffentlichen Profils. */
+export const slugSchema = z.object({ slug: z.string().trim().min(1).max(64) });
 
 /** Die Suche in «Mitglieder entdecken». */
 export const entdeckenSchema = z.object({

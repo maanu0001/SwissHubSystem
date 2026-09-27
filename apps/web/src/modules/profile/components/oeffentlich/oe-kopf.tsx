@@ -2,6 +2,7 @@ import { CalendarDays, Rocket } from 'lucide-react';
 import type { profile } from '@swisshub/modules';
 import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { OeAbzeichen } from './oe-bausteine';
+import { OeHauptlinks, OeStatus } from './oe-abschnitte';
 
 /**
  * Der Kopf der oeffentlichen Profilseite.
@@ -113,10 +114,36 @@ export function OeKopf({ profil }: { profil: profile.OeffentlichesProfil }): Rea
               Server-Booster
             </OeAbzeichen>
           ) : null}
+          {/*
+            Der Mitspieler-Status.
+
+            Ganz vorn in der Zeile, wenn es einen gibt: «Sucht Mitspieler» ist
+            die eine Angabe, auf die jemand reagieren kann.
+          */}
+          <OeStatus angaben={angaben} />
           {(angaben?.plattformen ?? []).slice(0, 3).map((plattform) => (
             <OeAbzeichen key={plattform}>{plattform}</OeAbzeichen>
           ))}
+          {/*
+            Sprachen daneben, hoechstens drei.
+
+            Auf einer Visitenkarte ist «spricht Deutsch und Englisch» eine der
+            ersten Fragen - deshalb hier und nicht nur im Steckbrief weiter
+            unten. Mehr als drei sprengen die Zeile auf dem Telefon.
+          */}
+          {(angaben?.sprachen ?? []).slice(0, 3).map((sprache) => (
+            <OeAbzeichen key={sprache}>{sprache}</OeAbzeichen>
+          ))}
         </div>
+
+        {/*
+          Die hervorgehobenen Links direkt unter dem Kopf.
+
+          Der Ort, an dem jemand nach dem Stream oder dem Steam-Profil sucht -
+          ohne zu scrollen. Dieselben Links stehen weiter unten noch einmal
+          vollstaendig; das ist Absicht und keine Doppelung aus Versehen.
+        */}
+        <OeHauptlinks links={profil.links ?? []} />
       </div>
     </header>
   );

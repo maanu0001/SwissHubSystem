@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { branding } from '@swisshub/config/client';
 import Link from 'next/link';
 import { ShieldOff } from 'lucide-react';
@@ -7,6 +7,7 @@ import { profile, streamer } from '@swisshub/modules';
 import { OeffentlicheProfilseite } from '@/modules/profile/components/oeffentlich/oe-seite';
 import { TeilenKnopf } from '@/modules/profile/components/teilen-knopf';
 import { ProfilStreamingAbschnitt } from '@/modules/streamer/components/profil-streaming';
+import { profilMetadaten } from '@/modules/profile/oe-metadaten';
 
 /**
  * Das oeffentliche Profil.
@@ -41,53 +42,7 @@ async function lade(params: Promise<{ slug: string }>) {
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
-  const antwort = await lade(params);
-  if (antwort.art === 'gesperrt') {
-    /*
-     * Kein Name, keine Beschreibung, kein Vorschaubild.
-     *
-     * Die Metadaten sind der Teil, der nach aussen geht, ohne dass jemand
-     * die Seite oeffnet - in eine Discord-Nachricht, in eine Suchmaschine,
-     * in eine Vorschau. Waeren sie hier vollstaendig, waere die Sperre
-     * genau dort wirkungslos, wo das Profil am weitesten reist.
-     */
-    return {
-      title: 'Profil nicht verfügbar',
-      robots: { index: false, follow: false },
-    };
-  }
-  if (antwort.art === 'keines') {
-    // Auch die Metadaten verraten nichts: dieselbe Antwort wie die Seite.
-    return { title: 'Profil nicht gefunden', robots: { index: false, follow: false } };
-  }
-  const oeffentlich = antwort.profil;
-
-  const name = oeffentlich.identitaet.profilname ?? oeffentlich.identitaet.name;
-  const titel = `${name} · ${branding.name}`;
-  const beschreibung =
-    oeffentlich.angaben?.tagline ??
-    oeffentlich.angaben?.bio?.slice(0, 160) ??
-    `Das ${branding.name}-Profil von ${name}.`;
-  const pfad = `/u/${oeffentlich.slug}`;
-
-  return {
-    title: titel,
-    description: beschreibung,
-    alternates: { canonical: pfad },
-    openGraph: {
-      title: titel,
-      description: beschreibung,
-      url: pfad,
-      type: 'profile',
-      images: [{ url: `${pfad}/karte`, width: 1200, height: 630, alt: titel }],
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title: titel,
-      description: beschreibung,
-      images: [`${pfad}/karte`],
-    },
-  };
+  return profilMetadaten(await lade(params));
 }
 
 export default async function OeffentlichesProfilPage({
@@ -98,6 +53,19 @@ export default async function OeffentlichesProfilPage({
   const antwort = await lade(params);
   if (antwort.art === 'gesperrt') {
     return <Gesperrt />;
+  }
+  if (antwort.art === 'umgezogen') {
+    /*
+     * Die Adresse hat sich geaendert, die Person ist dieselbe.
+     *
+     * `permanentRedirect` (308) und nicht 302: der alte Link steht in Bios und
+     * auf gedruckten Karten, und eine Suchmaschine soll den neuen uebernehmen.
+     *
+     * Das Ziel kommt aus **unserer** Datenbank und wird hier encodiert - nicht
+     * aus der Adresse. Damit kann aus einem praeparierten Slug keine
+     * Weiterleitung auf eine fremde Domain werden.
+     */
+    permanentRedirect(`/u/${encodeURIComponent(antwort.slug)}`);
   }
   if (antwort.art === 'keines') {
     notFound();

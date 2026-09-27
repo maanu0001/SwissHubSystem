@@ -148,6 +148,17 @@ async function ruf(
   kosten: number,
   abruf: Abruf,
   was: string,
+  /*
+   * Der Zeitpunkt des Durchgangs - **nicht** `new Date()`.
+   *
+   * `runStreamerTick` liest den Kontingentstand mit `leseKontingent(jetzt)` und
+   * entscheidet daraus, wie viele Einheiten noch frei sind. Buchte der Verbrauch
+   * danach auf die echte Uhr, waeren es zwei Uhren an derselben Grenze: um
+   * Mitternacht UTC laese ein Durchgang das leere Kontingent des neuen Tages und
+   * schriebe in den alten - oder umgekehrt. Beides gibt eine Sperre, die niemand
+   * erwartet, und genau die soll die Rechnung verhindern.
+   */
+  jetzt: Date,
 ): Promise<Ergebnis<unknown>> {
   const schluessel = await youtubeSchluessel();
   if (!schluessel) {
@@ -155,7 +166,7 @@ async function ruf(
   }
   params.set('key', schluessel);
 
-  await bucheVerbrauch(kosten).catch((fehler) => {
+  await bucheVerbrauch(kosten, jetzt).catch((fehler) => {
     // Der Zaehler ist wichtig, aber nicht wichtiger als die Abfrage selbst.
     log.warn('Kontingentverbrauch konnte nicht gebucht werden', { fehler });
   });
@@ -230,6 +241,7 @@ function alsKanal(eintrag: Record<string, unknown>): YouTubeKanal | null {
 export async function holeKanal(
   auswahl: { kanalId?: string; handle?: string },
   abruf: Abruf = globalThis.fetch,
+  jetzt: Date = new Date(),
 ): Promise<Ergebnis<YouTubeKanal | null>> {
   const params = new URLSearchParams({ part: 'id,snippet,contentDetails' });
   if (auswahl.kanalId) {
@@ -240,7 +252,7 @@ export async function holeKanal(
     return { art: 'ok', wert: null };
   }
 
-  const antwort = await ruf('/channels', params, KOSTEN.channelsList, abruf, 'Kanalabfrage');
+  const antwort = await ruf('/channels', params, KOSTEN.channelsList, abruf, 'Kanalabfrage', jetzt);
   if (antwort.art === 'fehler') {
     return antwort;
   }
@@ -254,13 +266,14 @@ async function holePlaylistVideos(
   playlistId: string,
   anzahl: number,
   abruf: Abruf,
+  jetzt: Date,
 ): Promise<Ergebnis<string[]>> {
   const params = new URLSearchParams({
     part: 'contentDetails',
     playlistId,
     maxResults: String(Math.min(Math.max(anzahl, 1), 10)),
   });
-  const antwort = await ruf('/playlistItems', params, KOSTEN.playlistItemsList, abruf, 'Playlist');
+  const antwort = await ruf('/playlistItems', params, KOSTEN.playlistItemsList, abruf, 'Playlist', jetzt);
   if (antwort.art === 'fehler') {
     return antwort;
   }
@@ -293,7 +306,11 @@ async function holePlaylistVideos(
  * minutenlang «live». Nur das zweite zu pruefen reicht auch nicht - eine
  * Aufzeichnung hat ebenfalls einen `actualStartTime`.
  */
-async function holeLiveVideos(videoIds: readonly string[], abruf: Abruf): Promise<Ergebnis<YouTubeLive[]>> {
+async function holeLiveVideos(
+  videoIds: readonly string[],
+  abruf: Abruf,
+  jetzt: Date,
+): Promise<Ergebnis<YouTubeLive[]>> {
   if (videoIds.length === 0) {
     return { art: 'ok', wert: [] };
   }
@@ -306,7 +323,7 @@ async function holeLiveVideos(videoIds: readonly string[], abruf: Abruf): Promis
       id: buendel.join(','),
       maxResults: String(VIDEO_BUENDEL),
     });
-    const antwort = await ruf('/videos', params, KOSTEN.videosList, abruf, 'Videoabfrage');
+    const antwort = await ruf('/videos', params, KOSTEN.videosList, abruf, 'Videoabfrage', jetzt);
     if (antwort.art === 'fehler') {
       return antwort;
     }
@@ -357,7 +374,7 @@ async function holeLiveVideos(videoIds: readonly string[], abruf: Abruf): Promis
 }
 
 /** Der teure Weg: die Suche. 100 Einheiten je Kanal. */
-async function sucheLive(kanalId: string, abruf: Abruf): Promise<Ergebnis<string[]>> {
+async function sucheLive(kanalId: string, abruf: Abruf, jetzt: Date): Promise<Ergebnis<string[]>> {
   const params = new URLSearchParams({
     part: 'id',
     channelId: kanalId,
@@ -365,7 +382,7 @@ async function sucheLive(kanalId: string, abruf: Abruf): Promise<Ergebnis<string
     type: 'video',
     maxResults: '2',
   });
-  const antwort = await ruf('/search', params, KOSTEN.searchList, abruf, 'Live-Suche');
+  const antwort = await ruf('/search', params, KOSTEN.searchList, abruf, 'Live-Suche', jetzt);
   if (antwort.art === 'fehler') {
     return antwort;
   }
@@ -413,9 +430,14 @@ export interface LiveErgebnis {
  */
 export async function holeLive(
   kanaele: readonly LiveAbfrage[],
-  optionen: { genau: boolean; kontingentRest: number },
+  /*
+   * `jetzt` gehoert in dieselbe Angabe wie `kontingentRest`: die Zahl gilt fuer
+   * **diesen** Tag, und der Verbrauch muss auf denselben gebucht werden.
+   */
+  optionen: { genau: boolean; kontingentRest: number; jetzt?: Date },
   abruf: Abruf = globalThis.fetch,
 ): Promise<LiveErgebnis> {
+  const jetzt = optionen.jetzt ?? new Date();
   const live = new Map<string, YouTubeLive>();
   const unbekannt = new Map<string, string>();
   let verbraucht = 0;
@@ -432,9 +454,9 @@ export async function holeLive(
 
     let videoIds: Ergebnis<string[]>;
     if (optionen.genau) {
-      videoIds = await sucheLive(kanal.kanalId, abruf);
+      videoIds = await sucheLive(kanal.kanalId, abruf, jetzt);
     } else if (kanal.uploadsPlaylistId) {
-      videoIds = await holePlaylistVideos(kanal.uploadsPlaylistId, 5, abruf);
+      videoIds = await holePlaylistVideos(kanal.uploadsPlaylistId, 5, abruf, jetzt);
     } else {
       /*
        * Ohne Uploads-Playlist gibt es den guenstigen Weg nicht. Nicht
@@ -464,7 +486,7 @@ export async function holeLive(
       continue;
     }
 
-    const videos = await holeLiveVideos(videoIds.wert, abruf);
+    const videos = await holeLiveVideos(videoIds.wert, abruf, jetzt);
     verbraucht += KOSTEN.videosList;
     if (videos.art === 'fehler') {
       unbekannt.set(kanal.kanalId, videos.grund);

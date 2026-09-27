@@ -135,3 +135,62 @@ describe('Der Streamer Hub bleibt auf der Bot-Seite der Grenze', () => {
     expect(jobs).toContain('streamer.runStreamerTick');
   });
 });
+
+describe('Das Profilmodul bleibt auf der Bot-Seite der Grenze', () => {
+  /*
+   * Das Profilmodul ruft der Bot nicht auf - und laedt es trotzdem. Denn
+   * `packages/modules/src/index.ts` enthaelt `export * as profile from
+   * './profile'`, und jede Bot-Datei mit `import { ... } from
+   * '@swisshub/modules'` zieht diesen Barrel vollstaendig nach. Genau so
+   * entstand der Ausfall: nicht durch einen Aufruf, sondern durch einen
+   * Export.
+   *
+   * ## Die Gegenprobe zu diesem Test
+   *
+   * Mit `import 'server-only'` in `packages/modules/src/profile/links.ts`
+   * (eine der neuen Dateien) bleibt `npx tsc -p apps/web/tsconfig.json
+   * --noEmit` still - Rueckgabewert 0, **null** Ausgabezeilen. `npm run
+   * bot:startup-test` bricht im selben Zustand mit Rueckgabewert 1 ab und
+   * nennt 26 Bot-Dateien. Nach dem Zuruecknehmen ist er wieder gruen. Ein
+   * gruener Typecheck sagt ueber diese Grenze also nichts.
+   */
+  const MODULKERN = 'packages/modules/src/profile';
+
+  it('importiert in keiner Datei des Modulkerns server-only', () => {
+    for (const datei of readdirSync(join(process.cwd(), MODULKERN))) {
+      const quelle = readFileSync(join(process.cwd(), MODULKERN, datei), 'utf8');
+      expect(quelle, `${datei} importiert server-only`).not.toMatch(/^\s*import\s+['"]server-only['"]/mu);
+    }
+  });
+
+  it('haelt Browser- und Next-Abhaengigkeiten aus dem Modulkern heraus', () => {
+    /*
+     * Die Gamer Card, die QR-Grafik und die Open-Graph-Karte brauchen
+     * `next/og` beziehungsweise eine QR-Bibliothek. Sie liegen deshalb in
+     * `apps/web/src`, nicht hier. Was der Modulkern liefert, sind die Daten -
+     * `baueOeffentlichesProfil` gibt ein einfaches Objekt zurueck.
+     */
+    for (const datei of readdirSync(join(process.cwd(), MODULKERN))) {
+      const quelle = readFileSync(join(process.cwd(), MODULKERN, datei), 'utf8');
+      const importe = quelle.match(/^\s*import[^;]*from\s+['"]([^'"]+)['"]/gmu) ?? [];
+      for (const zeile of importe) {
+        expect(zeile, `${datei}: ${zeile}`).not.toMatch(/['"]next\//u);
+        expect(zeile, `${datei}: ${zeile}`).not.toMatch(/['"]react['"]/u);
+        expect(zeile, `${datei}: ${zeile}`).not.toMatch(/qrcode/u);
+      }
+    }
+  });
+
+  it('haelt die QR-Bibliothek ausserhalb des Bot-Pfads', () => {
+    /*
+     * `qrcode-generator` steht nur in `apps/web/package.json`. Wanderte der
+     * Aufruf in den Modulkern, muesste der Bot eine Bibliothek mitziehen, die
+     * er nie braucht - und ein fehlendes Paket im Bot-Container waere wieder
+     * eine Neustartschleife statt einer Fehlermeldung.
+     */
+    const botPaket = readFileSync(join(process.cwd(), 'apps/bot/package.json'), 'utf8');
+    expect(botPaket).not.toMatch(/qrcode/u);
+    const modulPaket = readFileSync(join(process.cwd(), 'packages/modules/package.json'), 'utf8');
+    expect(modulPaket).not.toMatch(/qrcode/u);
+  });
+});

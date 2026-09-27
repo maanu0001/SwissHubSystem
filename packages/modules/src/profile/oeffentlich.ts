@@ -27,6 +27,7 @@
  * steht ohnehin in jeder Discord-Nachricht dieser Person.
  */
 import { prisma } from '@swisshub/database';
+import { ordneAbschnitte, type AbschnittSchluessel } from './abschnitte';
 import { ladeProfilFuer, type ProfilAnsicht } from './service';
 import { istGueltigerSlug } from './slug';
 
@@ -47,9 +48,31 @@ export interface OeffentlichesProfil {
   level: ProfilAnsicht['level'];
   spiele?: ProfilAnsicht['spiele'];
   socials?: ProfilAnsicht['socials'];
+  /** Die Link-in-Bio-Liste - Plattformkonten und freie Links in einer Reihe. */
+  links?: ProfilAnsicht['links'];
   vitrine: ProfilAnsicht['vitrine'];
   /** Nur die erreichten - der Fortschritt zu unerreichten gehoert niemandem sonst. */
   auszeichnungen: ProfilAnsicht['auszeichnungen'];
+  /** Hoechstens drei, vom Mitglied gewaehlt - eine Auswahl aus der Liste oben. */
+  hervorgehobene: ProfilAnsicht['hervorgehobene'];
+  /** Turniererfolge - fehlt, wenn sie nicht freigegeben sind. */
+  turniere?: ProfilAnsicht['turniere'];
+  /**
+   * Die Reihenfolge der Abschnitte - vollstaendig und bereinigt.
+   *
+   * Nicht die gespeicherte Liste: `ordneAbschnitte` hat unbekannte Schluessel
+   * entfernt und fehlende angehaengt. Die Seite kann sich darauf verlassen,
+   * dass jeder Abschnitt genau einmal vorkommt.
+   */
+  abschnitte: AbschnittSchluessel[];
+  /**
+   * Darf eine Suchmaschine diese Seite aufnehmen?
+   *
+   * Steht im DTO, weil die Seite daraus ihre `robots`-Metadaten baut. **Kein
+   * Zugriffsschutz** - der Link funktioniert fuer jeden, der ihn hat, und das
+   * sagt die Oberflaeche auch so.
+   */
+  indexierbar: boolean;
 }
 
 /**
@@ -63,7 +86,11 @@ export interface OeffentlichesProfil {
  * Was hier passiert, ist die Umwandlung in ein Objekt, das nur benannte
  * Felder hat.
  */
-export function baueOeffentlichesProfil(ansicht: ProfilAnsicht, slug: string): OeffentlichesProfil {
+export function baueOeffentlichesProfil(
+  ansicht: ProfilAnsicht,
+  slug: string,
+  seite: { abschnitte: readonly string[]; indexierbar: boolean },
+): OeffentlichesProfil {
   return {
     slug,
     identitaet: {
@@ -79,10 +106,15 @@ export function baueOeffentlichesProfil(ansicht: ProfilAnsicht, slug: string): O
     level: ansicht.level,
     ...(ansicht.spiele ? { spiele: ansicht.spiele } : {}),
     ...(ansicht.socials ? { socials: ansicht.socials } : {}),
+    ...(ansicht.links ? { links: ansicht.links } : {}),
+    ...(ansicht.turniere ? { turniere: ansicht.turniere } : {}),
     vitrine: ansicht.vitrine,
     // Nur Erreichtes. Eine Liste dessen, was jemand *nicht* geschafft hat,
     // gehoert ins eigene Profil und nicht auf eine oeffentliche Seite.
     auszeichnungen: ansicht.auszeichnungen.filter((eintrag) => eintrag.erreicht),
+    hervorgehobene: ansicht.hervorgehobene,
+    abschnitte: ordneAbschnitte(seite.abschnitte),
+    indexierbar: seite.indexierbar,
   };
 }
 
@@ -114,8 +146,11 @@ export function alsAnsicht(oeffentlich: OeffentlichesProfil): ProfilAnsicht {
     level: oeffentlich.level,
     ...(oeffentlich.spiele ? { spiele: oeffentlich.spiele } : {}),
     ...(oeffentlich.socials ? { socials: oeffentlich.socials } : {}),
+    ...(oeffentlich.links ? { links: oeffentlich.links } : {}),
+    ...(oeffentlich.turniere ? { turniere: oeffentlich.turniere } : {}),
     vitrine: oeffentlich.vitrine,
     auszeichnungen: oeffentlich.auszeichnungen,
+    hervorgehobene: oeffentlich.hervorgehobene,
     eigenes: false,
     verborgen: [],
   };
@@ -167,7 +202,18 @@ export async function ladeOeffentlichesProfil(slug: string): Promise<Oeffentlich
  * ohne Datum und ohne Anlass.
  */
 export type OeffentlicheAntwort =
-  { art: 'profil'; profil: OeffentlichesProfil } | { art: 'gesperrt' } | { art: 'keines' };
+  | { art: 'profil'; profil: OeffentlichesProfil }
+  | { art: 'gesperrt' }
+  /**
+   * Der Slug war einmal gueltig und gehoert derselben Person - unter einem
+   * neuen Namen. Der Aufrufer leitet weiter.
+   *
+   * Das Ziel ist immer ein eigener Slug aus unserer Datenbank, niemals etwas
+   * aus der Adresse: eine Weiterleitung, deren Ziel aus der Eingabe stammt,
+   * waere eine offene Weiterleitung.
+   */
+  | { art: 'umgezogen'; slug: string }
+  | { art: 'keines' };
 
 export async function ladeOeffentlichesProfilOderSperre(slug: string): Promise<OeffentlicheAntwort> {
   if (!istGueltigerSlug(slug)) {
@@ -176,9 +222,25 @@ export async function ladeOeffentlichesProfilOderSperre(slug: string): Promise<O
 
   const zeile = await prisma.memberProfile.findUnique({
     where: { publicSlug: slug },
-    select: { discordId: true, visibilityProfile: true, publicLockedAt: true },
+    select: {
+      discordId: true,
+      visibilityProfile: true,
+      publicLockedAt: true,
+      publicIndexable: true,
+      publicSections: true,
+    },
   });
-  if (!zeile || zeile.visibilityProfile !== 'PUBLIC') {
+  if (!zeile) {
+    /*
+     * Kein Profil unter dieser Adresse - vielleicht gab es eines.
+     *
+     * Erst hier und nicht vorher: der laufende Slug gewinnt immer. Sonst
+     * koennte ein alter Alias eine aktuelle Adresse verdecken, und zwar genau
+     * dann, wenn jemand einen frueheren Namen neu vergeben bekommt.
+     */
+    return aliasZiel(slug);
+  }
+  if (zeile.visibilityProfile !== 'PUBLIC') {
     return { art: 'keines' };
   }
 
@@ -198,7 +260,81 @@ export async function ladeOeffentlichesProfilOderSperre(slug: string): Promise<O
     return { art: 'keines' };
   }
 
-  return { art: 'profil', profil: baueOeffentlichesProfil(ansicht, slug) };
+  return {
+    art: 'profil',
+    profil: baueOeffentlichesProfil(ansicht, slug, {
+      abschnitte: zeile.publicSections,
+      indexierbar: zeile.publicIndexable,
+    }),
+  };
+}
+
+/**
+ * Wohin ein frueherer Slug fuehrt.
+ *
+ * Gibt `umgezogen` zurueck, wenn es einen Alias gibt **und** das Profil
+ * dahinter heute oeffentlich und nicht gesperrt ist. Sonst dieselbe 404 wie
+ * fuer jede unbekannte Adresse: eine Weiterleitung auf eine Seite, die es
+ * nicht mehr gibt, waere eine Auskunft darueber, dass dort einmal jemand war.
+ */
+async function aliasZiel(slug: string): Promise<OeffentlicheAntwort> {
+  const alias = await prisma.memberProfileSlugAlias.findUnique({
+    where: { slug },
+    select: { discordId: true },
+  });
+  if (!alias) {
+    return { art: 'keines' };
+  }
+  const ziel = await prisma.memberProfile.findUnique({
+    where: { discordId: alias.discordId },
+    select: { publicSlug: true, visibilityProfile: true, publicLockedAt: true },
+  });
+  if (
+    !ziel?.publicSlug ||
+    ziel.publicSlug === slug ||
+    ziel.visibilityProfile !== 'PUBLIC' ||
+    ziel.publicLockedAt !== null
+  ) {
+    return { art: 'keines' };
+  }
+  return { art: 'umgezogen', slug: ziel.publicSlug };
+}
+
+/**
+ * Die Profile, die in eine oeffentliche Sitemap duerfen.
+ *
+ * Vier Bedingungen, und alle vier stehen in der Abfrage:
+ *
+ *  - ein Slug ist vergeben (ohne ihn gibt es keine Adresse),
+ *  - das Profil steht auf `PUBLIC`,
+ *  - es ist nicht von der Moderation gesperrt,
+ *  - und seine Besitzerin hat der Indexierung zugestimmt.
+ *
+ * **In der Datenbank und nicht im Filter danach.** Eine Liste, die erst alle
+ * Profile holt und dann siebt, ist eine Liste, die einmal vollstaendig im
+ * Speicher lag - und die naechste Stelle, die sie weiterreicht, siebt
+ * moeglicherweise nicht.
+ */
+export async function indexierbareProfile(
+  grenze: number,
+): Promise<Array<{ slug: string; geaendertAm: Date }>> {
+  const zeilen = await prisma.memberProfile.findMany({
+    where: {
+      publicSlug: { not: null },
+      visibilityProfile: 'PUBLIC',
+      publicLockedAt: null,
+      publicIndexable: true,
+    },
+    select: { publicSlug: true, updatedAt: true },
+    orderBy: { updatedAt: 'desc' },
+    take: grenze,
+  });
+
+  return zeilen.flatMap((zeile) =>
+    // `publicSlug` ist im Typ nullbar, obwohl die Abfrage es ausschliesst. Ein
+    // `!` waere hier eine Behauptung; `flatMap` ist der Weg, der ohne auskommt.
+    zeile.publicSlug ? [{ slug: zeile.publicSlug, geaendertAm: zeile.updatedAt }] : [],
+  );
 }
 
 /** Der Slug eines Mitglieds - fuer den Teilen-Knopf im eigenen Profil. */

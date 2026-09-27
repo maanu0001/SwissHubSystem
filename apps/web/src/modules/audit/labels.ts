@@ -300,6 +300,7 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   PROFILE_AWARD_TYPE_RESTORED: 'Auszeichnung zurückgeholt',
   PROFILE_AWARD_TYPE_DELETED: 'Auszeichnung entfernt',
   PROFILE_ADMIN_EDITED: 'Fremdes Profil bearbeitet',
+  PROFILE_SLUG_CHANGED: 'Profiladresse geändert',
   PROFILE_THEME_CHANGED: 'Profil-Design gewechselt',
   PROFILE_COMPUTED_AWARD_EDITED: 'Gerechnete Auszeichnung angepasst',
   PROFILE_COMPUTED_AWARD_ARCHIVED: 'Gerechnete Auszeichnung abgeschaltet',

@@ -1,9 +1,16 @@
-import { EyeOff, Link2 } from 'lucide-react';
+import { EyeOff } from 'lucide-react';
 import type { profile } from '@swisshub/modules';
 import { NavIcon } from '@/components/layout/nav-icon';
-import { ProfilSpiele } from '../profil-spiele';
 import { ProfilVitrine } from '../profil-vitrine';
 import { OeAbschnitt, OeAbzeichen, OeMerkmale } from './oe-bausteine';
+import {
+  OeGaming,
+  OeHervorgehobene,
+  OeLevel,
+  OeLinkAbschnitt,
+  OeSwissHub,
+  OeTurniere,
+} from './oe-abschnitte';
 import { OeKopf } from './oe-kopf';
 import '../../profil-themes.css';
 import '../../profil-oeffentlich.css';
@@ -37,11 +44,25 @@ import '../../profil-oeffentlich.css';
  * sonst nichts - aus einer Profilspalte kann damit nie ein Stylesheet
  * werden.
  *
+ * ## Woher die Reihenfolge kommt
+ *
+ * Aus `profil.abschnitte` - der Liste, die das Mitglied im Editor sortiert
+ * hat. `ordneAbschnitte` hat sie schon bereinigt: jeder Abschnitt kommt genau
+ * einmal vor, unbekannte Schluessel sind weg, fehlende hinten dazu. Diese Datei
+ * geht die Liste durch und zeichnet, was es zu zeichnen gibt.
+ *
+ * Das ist **keine** Builder-Engine. Die Menge der Abschnitte ist fest, ihr
+ * Inhalt kommt aus dem Profil, und was ein Abschnitt zeigt, entscheidet seine
+ * Komponente - nicht die gespeicherte Liste. Verschieben laesst sich die
+ * Reihenfolge und sonst nichts.
+ *
  * ## Warum Abschnitte verschwinden statt leer dazustehen
  *
  * Ein Profil ohne Spiele zeigt keinen Spielekasten mit «keine». Was nicht
  * da ist, ist nicht da. Auf einer Seite, die jemand teilt, ist eine Reihe
- * leerer Kaesten kein Hinweis, sondern eine Blamage.
+ * leerer Kaesten kein Hinweis, sondern eine Blamage. Jede Abschnittskomponente
+ * gibt deshalb `null` zurueck, wenn ihr Inhalt fehlt - und diese Datei zaehlt
+ * am Ende, ob ueberhaupt etwas uebrig blieb.
  */
 export function OeffentlicheProfilseite({
   profil,
@@ -54,31 +75,26 @@ export function OeffentlicheProfilseite({
    * Als Knoten und nicht als Daten: dann weiss diese Datei nichts ueber
    * Streams, Plattformen oder Kanaele, und das Streamer-Modul bringt seinen
    * Abschnitt selbst mit. Wer ihn liefert, entscheidet die Seite; wer ihn
-   * sehen darf, hat `ladeProfilStreaming` entschieden.
+   * sehen darf, hat `ladeProfilStreaming` entschieden - dort sitzt auch der
+   * Sichtbarkeitsschalter dieses Abschnitts.
+   *
+   * Der Grund fuer diese Richtung ist ein Modulzyklus: das Streamer-Modul liest
+   * das Mitgliedsprofil (Banner, Spiele, Sprachen). Wuerde das Profilmodul
+   * umgekehrt den Streamer Hub laden, zeigten beide aufeinander.
    */
   streaming?: React.ReactNode;
 }): React.JSX.Element {
-  const { gestaltung, angaben, spiele, socials, auszeichnungen, vitrine } = profil;
-  const buehne = gestaltung.buehne;
-
-  const hatBio = Boolean(angaben?.bio);
-  const hatMerkmale =
-    (angaben?.sprachen?.length ?? 0) > 0 ||
-    (angaben?.plattformen?.length ?? 0) > 0 ||
-    (angaben?.spielzeiten?.length ?? 0) > 0;
-  const hatSpiele = (spiele?.length ?? 0) > 0;
-  const hatSocials = (socials?.length ?? 0) > 0;
-  const hatAuszeichnungen = auszeichnungen.length > 0;
-
   /*
-   * Ob ueberhaupt etwas unter dem Kopf steht.
+   * `socials` wird hier nicht mehr gezeichnet.
    *
-   * Ein Profil, das nur aus Name und Avatar besteht, bekommt keinen leeren
-   * Inhaltsbereich mit Abstand darunter, sondern nur den Kopf. Das sieht
-   * nach Absicht aus statt nach Fehler.
+   * Die Konten stehen im Link-in-Bio-Abschnitt - mit eigenem Titel,
+   * Reihenfolge und Hervorhebung. Im DTO bleiben sie daneben, weil die
+   * **interne** Ansicht sie im Steckbrief zeigt und die Vitrine einen Platz
+   * «Gaming-Konto» kennt. Eine Zeile «Twitch: swisshub» und ein Knopf «Mein
+   * Stream» sind zwei Darstellungen derselben Zeile, nicht zwei Datensaetze.
    */
-  const hatInhalt =
-    Boolean(streaming) || hatBio || hatMerkmale || hatSpiele || hatSocials || hatAuszeichnungen;
+  const { gestaltung, angaben, auszeichnungen, vitrine } = profil;
+  const buehne = gestaltung.buehne;
 
   /*
    * Der Abstand der Auftritte.
@@ -86,13 +102,119 @@ export function OeffentlicheProfilseite({
    * Von oben nach unten, in Schritten von achtzig Millisekunden. Mehr als
    * eine halbe Sekunde insgesamt wuerde sich nach Warten anfuehlen statt
    * nach Ankommen; deshalb wird bei sechs Abschnitten nicht weitergezaehlt.
+   *
+   * `prefers-reduced-motion` schaltet den Auftritt in `profil-oeffentlich.css`
+   * ganz ab - die Verzoegerung bleibt dann ohne Wirkung, statt dass hier eine
+   * zweite Entscheidung darueber getroffen wird.
    */
-  /*
-   * Der Streaming-Abschnitt steht vor der Biografie und zaehlt deshalb mit:
-   * er hat seinen Verzug schon bekommen, als die Seite ihn gebaut hat.
-   */
-  let stufe = streaming ? 1 : 0;
+  let stufe = 0;
   const verzug = (): number => Math.min((stufe += 1), 6) * 80;
+
+  /*
+   * Die Abschnitte, in der Reihenfolge des Mitglieds.
+   *
+   * Gebaut wird **vor** dem Zaehlen: `null`-Abschnitte fallen heraus, und erst
+   * die uebrigen bekommen ihre Verzoegerung. Andernfalls haette ein Profil ohne
+   * Spiele eine Luecke im Rhythmus - sichtbar als Abschnitt, der spaeter
+   * erscheint als der darunter.
+   */
+  const gezeichnet = profil.abschnitte
+    .map((schluessel) => ({ schluessel, knoten: baue(schluessel) }))
+    .filter((eintrag) => Boolean(eintrag.knoten));
+
+  function baue(schluessel: string): React.ReactNode {
+    switch (schluessel) {
+      case 'streaming':
+        return streaming ?? null;
+
+      case 'ueber-mich':
+        return angaben?.bio ? (
+          <OeAbschnitt key="ueber-mich" titel="Über mich" verzug={0} className="po-breit">
+            <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">{angaben.bio}</p>
+          </OeAbschnitt>
+        ) : null;
+
+      case 'gaming':
+        return <OeGaming key="gaming" profil={profil} verzug={0} />;
+
+      case 'links':
+        return <OeLinkAbschnitt key="links" links={profil.links ?? []} verzug={0} />;
+
+      case 'auszeichnungen':
+        return auszeichnungen.length > 0 ? (
+          <OeAbschnitt
+            key="auszeichnungen"
+            titel="Auszeichnungen"
+            notiz={`${auszeichnungen.length}`}
+            verzug={0}
+          >
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(11.5rem,1fr))] gap-2.5">
+              {auszeichnungen.map((auszeichnung) => (
+                <li
+                  key={auszeichnung.key}
+                  className="po-hebt flex items-center gap-2.5 rounded-lg border border-[hsl(var(--profil-rand))] bg-[hsl(var(--profil-flaeche)/0.6)] px-3 py-2.5"
+                  title={auszeichnung.beschreibung}
+                >
+                  <span
+                    className="grid size-8 shrink-0 place-items-center rounded-md [&_svg]:size-4"
+                    style={{
+                      backgroundColor: 'hsl(var(--profil-akzent) / 0.16)',
+                      color: 'hsl(var(--profil-akzent))',
+                    }}
+                    aria-hidden="true"
+                  >
+                    <NavIcon name={auszeichnung.symbol} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-medium">{auszeichnung.label}</span>
+                    <span className="block text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+                      {auszeichnung.stufe}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </OeAbschnitt>
+        ) : null;
+
+      case 'vitrine':
+        return vitrine.length > 0 ? (
+          <div key="vitrine" className="po-breit">
+            <ProfilVitrine karten={vitrine} verzug={0} />
+          </div>
+        ) : null;
+
+      case 'level':
+        return profil.level ? <OeLevel key="level" level={profil.level} verzug={0} /> : null;
+
+      case 'turniere':
+        return profil.turniere ? <OeTurniere key="turniere" turniere={profil.turniere} verzug={0} /> : null;
+
+      case 'steckbrief':
+        return hatSteckbrief(angaben) ? (
+          <OeAbschnitt key="steckbrief" titel="Steckbrief" verzug={0}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <OeMerkmale titel="Sprachen" werte={angaben?.sprachen} />
+              <OeMerkmale titel="Plattformen" werte={angaben?.plattformen} />
+              <OeMerkmale titel="Spielzeiten" werte={angaben?.spielzeiten} />
+              <OeMerkmale titel="Spielart" werte={angaben ? [angaben.spielart] : undefined} />
+            </div>
+          </OeAbschnitt>
+        ) : null;
+
+      default:
+        /*
+         * Unbekannter Schluessel.
+         *
+         * Kann eigentlich nicht vorkommen - `ordneAbschnitte` hat sie entfernt.
+         * Er steht hier trotzdem, weil «eigentlich nicht» in einem `switch`
+         * ohne Zweig ein stiller Absturz waere.
+         */
+        return null;
+    }
+  }
+
+  const hatInhalt = gezeichnet.length > 0 || profil.hervorgehobene.length > 0;
 
   return (
     <div
@@ -124,111 +246,19 @@ export function OeffentlicheProfilseite({
       {hatInhalt ? (
         <div className="po-inhalt mt-6">
           {/*
-            Ganz oben, weil es das einzige Zeitkritische auf der Seite ist: wer
-            gerade live ist, soll es sehen, bevor er scrollt.
+            Die drei hervorgehobenen Auszeichnungen stehen fest oben.
+
+            Sie sind nicht sortierbar, und das ist Absicht: sie gehoeren zum
+            Kopf und nicht zu den Abschnitten - eine Auszeichnungsreihe in der
+            Mitte der Seite waere keine Hervorhebung mehr.
           */}
-          {streaming}
+          <OeHervorgehobene auszeichnungen={profil.hervorgehobene} verzug={verzug()} />
 
-          {hatBio ? (
-            <OeAbschnitt titel="Über mich" verzug={verzug()} className="po-breit">
-              <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                {angaben?.bio}
-              </p>
-            </OeAbschnitt>
-          ) : null}
-
-          {hatSpiele ? (
-            <OeAbschnitt
-              titel="Lieblingsspiele"
-              notiz={`${spiele?.length ?? 0}`}
-              verzug={verzug()}
-              className="po-breit"
-            >
-              <ProfilSpiele spiele={spiele ?? []} />
-            </OeAbschnitt>
-          ) : null}
-
-          {hatAuszeichnungen ? (
-            <OeAbschnitt titel="Auszeichnungen" notiz={`${auszeichnungen.length}`} verzug={verzug()}>
-              <ul className="grid grid-cols-[repeat(auto-fill,minmax(11.5rem,1fr))] gap-2.5">
-                {auszeichnungen.map((auszeichnung) => (
-                  <li
-                    key={auszeichnung.key}
-                    className="po-hebt flex items-center gap-2.5 rounded-lg border border-[hsl(var(--profil-rand))] bg-[hsl(var(--profil-flaeche)/0.6)] px-3 py-2.5"
-                    title={auszeichnung.beschreibung}
-                  >
-                    <span
-                      className="grid size-8 shrink-0 place-items-center rounded-md [&_svg]:size-4"
-                      style={{
-                        backgroundColor: 'hsl(var(--profil-akzent) / 0.16)',
-                        color: 'hsl(var(--profil-akzent))',
-                      }}
-                      aria-hidden="true"
-                    >
-                      <NavIcon name={auszeichnung.symbol} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-medium">{auszeichnung.label}</span>
-                      <span className="block text-[0.65rem] uppercase tracking-wide text-muted-foreground">
-                        {auszeichnung.stufe}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </OeAbschnitt>
-          ) : null}
-
-          {hatMerkmale ? (
-            <OeAbschnitt titel="Steckbrief" verzug={verzug()}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <OeMerkmale titel="Sprachen" werte={angaben?.sprachen} />
-                <OeMerkmale titel="Plattformen" werte={angaben?.plattformen} />
-                <OeMerkmale titel="Spielzeiten" werte={angaben?.spielzeiten} />
-              </div>
-            </OeAbschnitt>
-          ) : null}
-
-          {hatSocials ? (
-            <OeAbschnitt titel="Socials" verzug={verzug()}>
-              <ul className="flex flex-wrap gap-2">
-                {(socials ?? []).map((social) => (
-                  <li key={`${social.plattform}-${social.handle}`}>
-                    {social.adresse ? (
-                      /*
-                       * Fremde Adresse, fremdes Fenster.
-                       *
-                       * `noreferrer` zusaetzlich zu `noopener`: die
-                       * Zielseite muss nicht erfahren, von welchem Profil
-                       * jemand kam.
-                       */
-                      <a
-                        href={social.adresse}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="po-hebt inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--profil-rand))] px-3 py-2 text-sm"
-                      >
-                        <Link2 className="size-3.5 text-[hsl(var(--profil-akzent))]" aria-hidden="true" />
-                        <span className="text-muted-foreground">{social.label}</span>
-                        <span className="font-medium">{social.handle}</span>
-                      </a>
-                    ) : (
-                      <span className="inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--profil-rand))] px-3 py-2 text-sm">
-                        <span className="text-muted-foreground">{social.label}</span>
-                        <span className="font-medium">{social.handle}</span>
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </OeAbschnitt>
-          ) : null}
-
-          {vitrine.length > 0 ? (
-            <div className="po-breit">
-              <ProfilVitrine karten={vitrine} verzug={verzug()} />
-            </div>
-          ) : null}
+          {gezeichnet.map(({ schluessel, knoten }) => (
+            <VerzugHuelle key={schluessel} verzug={verzug()}>
+              {knoten}
+            </VerzugHuelle>
+          ))}
         </div>
       ) : (
         /*
@@ -243,7 +273,44 @@ export function OeffentlicheProfilseite({
           Dieses Profil erzählt noch nichts.
         </p>
       )}
+
+      <OeSwissHub />
     </div>
+  );
+}
+
+/**
+ * Die Verzoegerung von aussen setzen.
+ *
+ * Die Abschnittskomponenten bekommen `verzug={0}`, weil ihre Position erst
+ * feststeht, wenn die leeren herausgefallen sind. Diese Huelle traegt die
+ * CSS-Variable - dieselbe, die `OeAbschnitt` selbst setzen wuerde. `display:
+ * contents` heisst: sie nimmt am Raster nicht teil, `po-breit` des Kindes wirkt
+ * weiter.
+ *
+ * Der Umweg ist die Alternative dazu, jeder Komponente ihre Nummer zu
+ * uebergeben - was sie an eine Reihenfolge binden wuerde, die sie nicht kennt.
+ */
+function VerzugHuelle({
+  verzug,
+  children,
+}: {
+  verzug: number;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="contents" style={{ '--po-verzug': `${verzug}ms` } as React.CSSProperties}>
+      {children}
+    </div>
+  );
+}
+
+/** Steht im Steckbrief ueberhaupt etwas? */
+function hatSteckbrief(angaben: profile.OeffentlichesProfil['angaben']): boolean {
+  return (
+    (angaben?.sprachen?.length ?? 0) > 0 ||
+    (angaben?.plattformen?.length ?? 0) > 0 ||
+    (angaben?.spielzeiten?.length ?? 0) > 0
   );
 }
 

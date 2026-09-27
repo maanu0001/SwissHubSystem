@@ -100,13 +100,13 @@ describe('Environment-Validierung', () => {
   });
 
   it('meldet abgelöste Variablen mit Hinweis auf die neue Stelle', () => {
-    expect(listDeprecatedEnvKeys({} as NodeJS.ProcessEnv)).toEqual([]);
+    expect(listDeprecatedEnvKeys({} as unknown as NodeJS.ProcessEnv)).toEqual([]);
 
     const deprecated = listDeprecatedEnvKeys({
       DISCORD_GUILD_ID: '123456789012345678',
       DISCORD_JAIL_ROLE_ID: '',
       DISCORD_ADMIN_ROLE_ID: '123456789012345678',
-    } as NodeJS.ProcessEnv);
+    } as unknown as NodeJS.ProcessEnv);
 
     expect(deprecated.map((entry) => entry.key)).toEqual(['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID']);
     expect(deprecated[0]?.replacement).toContain('/setup');

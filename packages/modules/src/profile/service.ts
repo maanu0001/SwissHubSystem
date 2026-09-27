@@ -5,6 +5,7 @@ import { levelProgress } from '../level/curve';
 import { getProfile as getLevelProfile, getRank } from '../level/service';
 import * as angaben from './angaben';
 import * as auszeichnungen from './auszeichnungen';
+import { MAX_HERVORGEHOBENE_AUSZEICHNUNGEN } from './auszeichnungen';
 import * as gestaltung from './gestaltung';
 import * as profilThemes from './profil-themes';
 import { levelVon, themeVoraussetzungen, themeZugang } from './theme-zugang';
@@ -12,6 +13,8 @@ import * as showcase from './showcase';
 import { verliehenAn } from './verleihung';
 import { auszeichnungsArtenNach } from './auszeichnungs-arten';
 import * as socials from './socials';
+import * as links from './links';
+import { ordneAbschnitte } from './abschnitte';
 import { zeigeFelder, type AngezeigtesFeld } from './spielfelder';
 
 /**
@@ -66,6 +69,21 @@ const STANDARD = {
   visibilitySocials: 'PRIVATE' as const,
   visibilityCareer: 'MEMBERS' as const,
   visibilityActivity: 'MEMBERS' as const,
+  /*
+   * Dieselben Vorgaben wie in der Datenbank - und zwar Zeichen fuer Zeichen.
+   *
+   * Wer noch kein Profil angelegt hat, wird hier behandelt wie einer, der eines
+   * mit Vorgaben hat. Standen hier andere Werte, saehe ein frisches Profil
+   * anders aus als dasselbe Profil nach dem ersten Speichern - und niemand
+   * wuesste, welcher der beiden Zustaende der gemeinte ist.
+   */
+  visibilityStreaming: 'PUBLIC' as const,
+  visibilityAwards: 'PUBLIC' as const,
+  visibilityLevel: 'PUBLIC' as const,
+  visibilityTournaments: 'MEMBERS' as const,
+  publicIndexable: true,
+  publicSections: [] as string[],
+  highlightAwards: [] as string[],
   discoverable: true,
 };
 
@@ -182,8 +200,34 @@ export interface ProfilAnsicht {
   level: ProfilLevel | null;
   spiele?: ProfilSpiel[];
   socials?: socials.SocialAnzeige[];
+  /**
+   * Die Link-in-Bio-Liste - Plattformkonten und freie Links in einer Reihe.
+   *
+   * ## Warum das neben `socials` steht und keine zweite Verwaltung ist
+   *
+   * Es sind dieselben Zeilen. Beide Formen entstehen aus **einer** Abfrage und
+   * werden von **einer** Aktion geschrieben (`speichereLinks`); was sie
+   * unterscheidet, ist die Darstellung: `socials` ist die Zeile im internen
+   * Steckbrief («Twitch: swisshub»), `links` der Knopf auf der oeffentlichen
+   * Seite, mit eigenem Titel, Reihenfolge und Hervorhebung.
+   *
+   * Zwei Darstellungen derselben Daten sind keine Doppelung. Zwei Schreibwege
+   * waeren eine - und den gibt es nicht.
+   */
+  links?: links.AngezeigterLink[];
   vitrine: showcase.ShowcaseKarte[];
   auszeichnungen: auszeichnungen.Auszeichnung[];
+  /**
+   * Die Auszeichnungen, die das Mitglied hervorgehoben hat - hoechstens drei.
+   *
+   * Eine **Auswahl** aus `auszeichnungen`, keine eigene Liste: was hier steht,
+   * ist auch dort. Ein Schluessel, der nicht erreicht ist, kommt nicht vor -
+   * geprueft wird beim Zusammenstellen und nicht beim Speichern, damit eine
+   * zurueckgezogene Auszeichnung sofort verschwindet.
+   */
+  hervorgehobene: auszeichnungen.Auszeichnung[];
+  /** Turniererfolge - fehlt, wenn der Betrachter sie nicht sehen darf. */
+  turniere?: ProfilTurniere;
   /**
    * Der Stand des oeffentlichen Profils - nur im eigenen.
    *
@@ -286,6 +330,15 @@ export async function ladeProfilFuer(
   const zeigeAngaben = sichtbar(profil.visibilityProfile, betrachter);
   const zeigeSpiele = sichtbar(profil.visibilityGames, betrachter);
   const zeigeSocials = sichtbar(profil.visibilitySocials, betrachter);
+  /*
+   * Die neuen Abschnitte - dieselbe Funktion, dieselbe Regel.
+   *
+   * Ihre Vorgaben stehen in der Datenbank und sind der **bisherige** Zustand:
+   * Level und Auszeichnungen waren schon oeffentlich, Turniererfolge nie.
+   */
+  const zeigeAuszeichnungen = sichtbar(profil.visibilityAwards, betrachter);
+  const zeigeLevel = sichtbar(profil.visibilityLevel, betrachter);
+  const zeigeTurniere = sichtbar(profil.visibilityTournaments, betrachter);
 
   /*
    * Was geladen wird, haengt an der Sichtbarkeit - siehe oben. Was immer
@@ -293,24 +346,45 @@ export async function ladeProfilFuer(
    * sind ohnehin oeffentlich (das Leaderboard zeigt jedes Level), und die
    * Vitrine braucht sie.
    */
-  const [level, spiele, socialZeilen, vitrineZeilen, turniere, clipBilanz, events, verliehen] =
-    await Promise.all([
-      ladeLevel(discordId),
-      profil.id && zeigeSpiele ? ladeSpiele(profil.id) : Promise.resolve([]),
-      profil.id && zeigeSocials
-        ? prisma.memberSocialLink.findMany({
-            where: { profileId: profil.id },
-            orderBy: { sortOrder: 'asc' },
-          })
-        : Promise.resolve([]),
-      profil.id
-        ? prisma.memberShowcase.findMany({ where: { profileId: profil.id }, orderBy: { slot: 'asc' } })
-        : Promise.resolve([]),
-      ladeTurniere(discordId),
-      ladeClipBilanz(discordId),
-      prisma.calendarRegistration.count({ where: { discordId, status: 'CONFIRMED' } }),
-      verliehenAn(discordId),
-    ]);
+  const [
+    level,
+    spiele,
+    socialZeilen,
+    freieLinkZeilen,
+    vitrineZeilen,
+    turniere,
+    clipBilanz,
+    events,
+    verliehen,
+  ] = await Promise.all([
+    ladeLevel(discordId),
+    profil.id && zeigeSpiele ? ladeSpiele(profil.id) : Promise.resolve([]),
+    profil.id && zeigeSocials
+      ? prisma.memberSocialLink.findMany({
+          where: { profileId: profil.id },
+          orderBy: { sortOrder: 'asc' },
+        })
+      : Promise.resolve([]),
+    /*
+     * Die freien Links - dieselbe Sichtbarkeit wie die Plattformkonten.
+     *
+     * «Link-in-Bio» ist im Editor **ein** Schalter, und das ist Absicht: wer
+     * seine Links verbirgt, verbirgt sie, und nicht die Haelfte davon.
+     */
+    profil.id && zeigeSocials
+      ? prisma.memberProfileLink.findMany({
+          where: { profileId: profil.id },
+          orderBy: { sortOrder: 'asc' },
+        })
+      : Promise.resolve([]),
+    profil.id
+      ? prisma.memberShowcase.findMany({ where: { profileId: profil.id }, orderBy: { slot: 'asc' } })
+      : Promise.resolve([]),
+    ladeTurniere(discordId),
+    ladeClipBilanz(discordId),
+    prisma.calendarRegistration.count({ where: { discordId, status: 'CONFIRMED' } }),
+    verliehenAn(discordId),
+  ]);
 
   /*
    * Die Definitionen zu den verliehenen Schluesseln - auch die archivierten.
@@ -354,6 +428,92 @@ export async function ladeProfilFuer(
   const socialAnzeigen = socialZeilen
     .map((zeile) => socials.zeigeSocial(zeile.platform, zeile.handle, zeile.verified))
     .filter((eintrag): eintrag is socials.SocialAnzeige => eintrag !== null);
+
+  /*
+   * Die Link-in-Bio-Liste - aus denselben Zeilen wie `socialAnzeigen`.
+   *
+   * Verborgene fallen hier heraus und nicht in der Anzeige: eine Komponente,
+   * die filtert, hat die Daten schon im HTML. `zeigeSocial` prueft die Kennung
+   * noch einmal gegen das Muster ihrer Plattform - die Spalte ist aelter als
+   * der naechste Stand des Codes, und was hier herauskommt, landet in einem
+   * `href`.
+   *
+   * Dasselbe fuer die freien Links: `pruefeLinkAdresse` laeuft beim Lesen
+   * erneut. Eine Adresse, die heute nicht mehr durchgeht, verschwindet damit
+   * still, statt ausgeliefert zu werden.
+   */
+  const linkListe: links.AngezeigterLink[] = [
+    ...socialZeilen.flatMap((zeile) => {
+      if (zeile.hidden) {
+        return [];
+      }
+      const anzeige = socials.zeigeSocial(zeile.platform, zeile.handle, zeile.verified);
+      if (!anzeige?.adresse) {
+        // Ohne oeffentliche Profilseite gibt es keinen Knopf. Riot, Xbox und
+        // PSN stehen deshalb im Steckbrief, aber nicht im Link-in-Bio.
+        return [];
+      }
+      return [
+        {
+          key: `plattform:${zeile.platform}`,
+          art: 'plattform' as const,
+          label: zeile.label?.trim() || anzeige.label,
+          handle: anzeige.handle,
+          url: anzeige.adresse,
+          symbol: links.linkSymbol('plattform', zeile.platform),
+          hervorgehoben: zeile.featured,
+          verifiziert: anzeige.verifiziert,
+          sortierung: zeile.sortOrder,
+        },
+      ];
+    }),
+    ...freieLinkZeilen.flatMap((zeile) => {
+      if (zeile.hidden) {
+        return [];
+      }
+      const geprueft = links.pruefeLinkAdresse(zeile.url);
+      if (!geprueft.ok) {
+        return [];
+      }
+      return [
+        {
+          key: `frei:${zeile.id}`,
+          art: 'frei' as const,
+          label: zeile.label,
+          handle: null,
+          url: geprueft.url,
+          symbol: links.linkSymbol('frei'),
+          hervorgehoben: zeile.featured,
+          // Ein freier Link kann grundsaetzlich nicht belegt sein.
+          verifiziert: false,
+          sortierung: zeile.sortOrder,
+        },
+      ];
+    }),
+  ]
+    .sort((a, b) => a.sortierung - b.sortierung || a.label.localeCompare(b.label, 'de'))
+    .map(({ sortierung, ...rest }) => {
+      void sortierung;
+      return rest;
+    });
+
+  /*
+   * Die hervorgehobenen Auszeichnungen - aus der Auswahl **und** dem Erreichten.
+   *
+   * Die Spalte ist eine Wunschliste; was tatsaechlich gezeigt wird, entscheidet
+   * sich hier. Wird eine Auszeichnung zurueckgezogen oder abgeschaltet, ist sie
+   * nicht mehr in `erreichte` - und verschwindet damit sofort, ohne dass jemand
+   * die Spalte aufraeumt. Das ist der Grund, warum hier nicht gespeichert wird,
+   * was gezeigt wird.
+   *
+   * Die Reihenfolge ist die der Auswahl, nicht die der Liste: wer seine
+   * wichtigste zuerst nennt, soll sie zuerst sehen.
+   */
+  const erreichbareNachKey = new Map(erreichte.map((eintrag) => [eintrag.key, eintrag]));
+  const hervorgehobene = profil.highlightAwards
+    .map((key) => erreichbareNachKey.get(key))
+    .filter((eintrag): eintrag is auszeichnungen.Auszeichnung => eintrag !== undefined)
+    .slice(0, MAX_HERVORGEHOBENE_AUSZEICHNUNGEN);
 
   const vitrine = baueVitrine(vitrineZeilen, {
     spiele,
@@ -459,9 +619,20 @@ export async function ladeProfilFuer(
           },
         }
       : {}),
-    level,
+    /*
+     * Das Level - oder `null`, wenn es verborgen ist.
+     *
+     * `null` heisst hier zweierlei: «kein Levelprofil» und «nicht freigegeben».
+     * Das ist kein Mangel, sondern die Absicht: ein Besucher soll die beiden
+     * nicht unterscheiden koennen, sonst waere «verborgen» eine Auskunft.
+     *
+     * Geladen wird es trotzdem immer - die Vitrine und die Auszeichnungen
+     * rechnen damit. Verborgen wird es hier, an der Aussenkante.
+     */
+    level: zeigeLevel ? level : null,
     ...(zeigeSpiele ? { spiele } : {}),
-    ...(zeigeSocials ? { socials: socialAnzeigen } : {}),
+    ...(zeigeSocials ? { socials: socialAnzeigen, links: linkListe } : {}),
+    ...(zeigeTurniere ? { turniere } : {}),
     vitrine,
     /*
      * Verliehene zuerst, dann die gerechneten.
@@ -475,10 +646,13 @@ export async function ladeProfilFuer(
      * Verliehene stehen vorn: sie sind seltener, und jemand hat sich etwas
      * dabei gedacht.
      */
-    auszeichnungen: [
-      ...auszeichnungen.ausVerleihungen(verliehen, verliehenArten),
-      ...(eigenes ? auszeichnungen.bewerte(grundlage, arten) : erreichte),
-    ],
+    auszeichnungen: zeigeAuszeichnungen
+      ? [
+          ...auszeichnungen.ausVerleihungen(verliehen, verliehenArten),
+          ...(eigenes ? auszeichnungen.bewerte(grundlage, arten) : erreichte),
+        ]
+      : [],
+    hervorgehobene: zeigeAuszeichnungen ? hervorgehobene : [],
     ...(eigenes
       ? {
           oeffentlich: {
@@ -772,12 +946,43 @@ export interface EditorDaten {
      */
     themeZugang: 'premium' | 'berechtigung' | 'keiner';
   };
+  /**
+   * Die oeffentliche Adresse - und ob es schon eine gibt.
+   *
+   * `null` heisst: das Profil steht nicht oeffentlich, also gibt es noch keine.
+   * Der Editor zeigt dann den Weg dorthin statt ein Feld fuer eine Adresse, die
+   * niemand aufrufen kann.
+   */
+  adresse: {
+    slug: string | null;
+    /** Frueher gueltige Adressen - sie leiten weiter und bleiben belegt. */
+    aliasse: string[];
+  };
+  /** Die Reihenfolge der oeffentlichen Abschnitte - vollstaendig und bereinigt. */
+  abschnitte: string[];
+  /** Die hervorgehobenen Auszeichnungen und was zur Auswahl steht. */
+  hervorhebung: {
+    gewaehlt: string[];
+    /**
+     * Nur tatsaechlich erreichte.
+     *
+     * Eine Auswahlliste mit Auszeichnungen, die man nicht hat, waere eine
+     * Einladung zu einer Fehlermeldung - und §9 verbietet die Vergabe ueber den
+     * Editor. Hier steht deshalb, was jemand hat, und nichts sonst.
+     */
+    erreichbar: Array<{ key: string; label: string; stufe: string; symbol: string }>;
+  };
   privatsphaere: {
     visibilityProfile: string;
     visibilityGames: string;
     visibilitySocials: string;
     visibilityCareer: string;
     visibilityActivity: string;
+    visibilityStreaming: string;
+    visibilityAwards: string;
+    visibilityLevel: string;
+    visibilityTournaments: string;
+    publicIndexable: boolean;
     discoverable: boolean;
   };
   spiele: Array<{
@@ -793,6 +998,22 @@ export interface EditorDaten {
   /** Der zentrale Katalog, ohne die schon eingetragenen Spiele. */
   katalog: Array<{ id: string; name: string; cover: string | null; platforms: string[] }>;
   socials: Array<{ platform: string; handle: string }>;
+  /**
+   * Die Link-in-Bio-Liste, wie der Editor sie bearbeitet.
+   *
+   * Beide Tabellen in einer Reihe, nach `sortOrder` - genau so, wie die
+   * oeffentliche Seite sie zeigt. Der Editor speichert sie als Ganzes zurueck;
+   * das ist der eine Schreibweg.
+   */
+  links: Array<{
+    art: 'plattform' | 'frei';
+    plattform: string | null;
+    handle: string | null;
+    url: string | null;
+    label: string | null;
+    verborgen: boolean;
+    hervorgehoben: boolean;
+  }>;
   vitrine: Array<{ slot: number; kind: string; refId: string | null }>;
   /** Was in die Vitrine gestellt werden darf - je Typ. */
   auswahl: Record<string, Array<{ id: string; label: string }>>;
@@ -804,7 +1025,17 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
   const profil = await prisma.memberProfile.findUnique({ where: { discordId } });
   const profileId = profil?.id ?? null;
 
-  const [spielZeilen, socialZeilen, vitrineZeilen, katalog, turniere, clipSiege, events] = await Promise.all([
+  const [
+    spielZeilen,
+    socialZeilen,
+    freieLinkZeilen,
+    aliasZeilen,
+    vitrineZeilen,
+    katalog,
+    turniere,
+    clipSiege,
+    events,
+  ] = await Promise.all([
     profileId
       ? prisma.memberGameProfile.findMany({
           where: { profileId },
@@ -815,6 +1046,14 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
     profileId
       ? prisma.memberSocialLink.findMany({ where: { profileId }, orderBy: { sortOrder: 'asc' } })
       : Promise.resolve([]),
+    profileId
+      ? prisma.memberProfileLink.findMany({ where: { profileId }, orderBy: { sortOrder: 'asc' } })
+      : Promise.resolve([]),
+    prisma.memberProfileSlugAlias.findMany({
+      where: { discordId },
+      orderBy: { createdAt: 'desc' },
+      select: { slug: true },
+    }),
     profileId
       ? prisma.memberShowcase.findMany({ where: { profileId }, orderBy: { slot: 'asc' } })
       : Promise.resolve([]),
@@ -853,6 +1092,24 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
   // weg, statt hier eine Auswahl zu verbieten, die morgen zutrifft.
   const { alleAuszeichnungsArten } = await import('./auszeichnungen');
 
+  /*
+   * Was zur Hervorhebung zur Auswahl steht: die tatsaechlich erreichten.
+   *
+   * Dafuer laeuft die eigene Profilansicht - dieselbe Quelle, aus der die Seite
+   * ihre Auszeichnungen nimmt. Eine zweite Rechnung waere eine zweite
+   * Vorstellung davon, was «erreicht» heisst, und die falsche faellt erst auf,
+   * wenn jemand etwas auswaehlt und es nicht erscheint.
+   */
+  const eigeneAnsicht = await ladeProfilFuer(discordId, 'eigen');
+  const erreichbar = (eigeneAnsicht?.auszeichnungen ?? [])
+    .filter((eintrag) => eintrag.erreicht)
+    .map((eintrag) => ({
+      key: eintrag.key,
+      label: eintrag.label,
+      stufe: eintrag.stufe,
+      symbol: eintrag.symbol,
+    }));
+
   return {
     allgemein: {
       displayName: werte.displayName,
@@ -875,12 +1132,29 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
       level,
       themeZugang: zugang,
     },
+    adresse: {
+      // Ohne oeffentliches Profil gibt es keine Adresse zu zeigen - und keine
+      // zu aendern.
+      slug: werte.visibilityProfile === 'PUBLIC' ? (profil?.publicSlug ?? null) : null,
+      aliasse: aliasZeilen.map((zeile) => zeile.slug),
+    },
+    abschnitte: ordneAbschnitte(werte.publicSections),
+    hervorhebung: {
+      // Gespeichert ist eine Wunschliste; hier steht nur, was davon noch gilt.
+      gewaehlt: werte.highlightAwards.filter((key) => erreichbar.some((eintrag) => eintrag.key === key)),
+      erreichbar,
+    },
     privatsphaere: {
       visibilityProfile: werte.visibilityProfile,
       visibilityGames: werte.visibilityGames,
       visibilitySocials: werte.visibilitySocials,
       visibilityCareer: werte.visibilityCareer,
       visibilityActivity: werte.visibilityActivity,
+      visibilityStreaming: werte.visibilityStreaming,
+      visibilityAwards: werte.visibilityAwards,
+      visibilityLevel: werte.visibilityLevel,
+      visibilityTournaments: werte.visibilityTournaments,
+      publicIndexable: werte.publicIndexable,
       discoverable: werte.discoverable,
     },
     spiele: spielZeilen.map((zeile) => ({
@@ -904,6 +1178,33 @@ export async function ladeEditor(discordId: string): Promise<EditorDaten> {
         platforms: spiel.platforms,
       })),
     socials: socialZeilen.map((zeile) => ({ platform: zeile.platform, handle: zeile.handle })),
+    links: [
+      ...socialZeilen.map((zeile) => ({
+        art: 'plattform' as const,
+        plattform: zeile.platform,
+        handle: zeile.handle,
+        url: null,
+        label: zeile.label,
+        verborgen: zeile.hidden,
+        hervorgehoben: zeile.featured,
+        sortierung: zeile.sortOrder,
+      })),
+      ...freieLinkZeilen.map((zeile) => ({
+        art: 'frei' as const,
+        plattform: null,
+        handle: null,
+        url: zeile.url,
+        label: zeile.label,
+        verborgen: zeile.hidden,
+        hervorgehoben: zeile.featured,
+        sortierung: zeile.sortOrder,
+      })),
+    ]
+      .sort((a, b) => a.sortierung - b.sortierung)
+      .map(({ sortierung, ...rest }) => {
+        void sortierung;
+        return rest;
+      }),
     vitrine: vitrineZeilen.map((zeile) => ({
       slot: zeile.slot,
       kind: zeile.kind,

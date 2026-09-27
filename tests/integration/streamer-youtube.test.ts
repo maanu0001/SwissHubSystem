@@ -179,6 +179,31 @@ describeWithDatabase('Streamer Hub: YouTube', () => {
     expect((await streamer.leseKontingent(new Date(START.getTime() + 60_000))).einheiten).toBe(2);
   });
 
+  it('bucht den Verbrauch auf den Tag des Durchgangs, nicht auf den heutigen', async () => {
+    /*
+     * Zwei Uhren an derselben Grenze.
+     *
+     * `runStreamerTick` liest den Kontingentstand mit `leseKontingent(jetzt)`
+     * und rechnet daraus den freien Rest aus. Buchte der Verbrauch danach auf
+     * `new Date()`, waere die Rechnung um Mitternacht UTC falsch: der Durchgang
+     * laese das leere Kontingent des neuen Tages und schriebe in den alten.
+     * Heraus kaeme eine Sperre, die niemand erwartet - und die Rechnung ist
+     * genau dafuer da, sie zu verhindern.
+     *
+     * Dieser Test ist die Gegenprobe dazu: der Durchgang laeuft mit einem
+     * Zeitpunkt in der Vergangenheit, und der heutige Tag muss danach leer
+     * sein. Ohne den weitergegebenen Zeitpunkt steht der Verbrauch dort.
+     */
+    await kanalAnlegen();
+    const { abruf } = youtube({ playlist: [VIDEO], videos: { [VIDEO]: { zustand: 'live' } } });
+    const durchgang = new Date(START.getTime() + 60_000);
+
+    await streamer.runStreamerTick(durchgang, { abruf, gateway: gateway().modul });
+
+    expect((await streamer.leseKontingent(durchgang)).einheiten).toBe(2);
+    expect((await streamer.leseKontingent(new Date())).einheiten).toBe(0);
+  });
+
   it('nennt einen beendeten Stream nicht live, auch wenn die API noch «live» sagt', async () => {
     /*
      * Nach dem Ende eines Streams zieht `liveBroadcastContent` mit

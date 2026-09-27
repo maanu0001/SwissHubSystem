@@ -54,6 +54,15 @@ const actor = (discordId: string): { discordId: string; username: string } => ({
   username: `nutzer-${discordId.slice(-2)}`,
 });
 
+/*
+ * Der Zeitpunkt, zu dem dieser Durchlauf spielt.
+ *
+ * Jeder Aufruf bekommt ihn ausdruecklich mit - auch `stimmeAb`, das ihn seit
+ * immer annimmt und ohne Angabe die **echte** Uhr nimmt. Solange dieses Datum
+ * in der Zukunft lag, fiel das nicht auf; danach lief das Voting der Runde ab,
+ * und zwei Tests meldeten «Das Voting fuer diese Runde ist beendet» - eine
+ * Zeitbombe, kein Fehler im Modul.
+ */
 const JETZT = new Date('2026-09-23T12:00:00Z');
 
 /** Ein MP4-Kopf: Boxlaenge, `ftyp`, Marke, dann Fuellung. */
@@ -198,10 +207,22 @@ describeWithDatabase('Clip-Uploads von Ende zu Ende', () => {
     );
 
     // Abstimmung - der Upload bekommt zwei Stimmen, der Link eine.
-    await prisma.clipCompetition.update({ where: { id: rundeId }, data: { status: 'VOTING' } });
-    await clips.stimmeAb(GUILD, actor(BEN), eigener.entryId);
-    await clips.stimmeAb(GUILD, actor(MOD), eigener.entryId);
-    await clips.stimmeAb(GUILD, actor(ANNA), perLink.entryId);
+    /*
+     * In die Abstimmungsphase - Status **und** Fenster.
+     *
+     * Nur den Status zu setzen genuegte, solange `stimmeAb` die echte Uhr nahm
+     * und diese zufaellig im Fenster der Runde lag. Der Zeitpunkt gehoert
+     * ausdruecklich dazu: die Runde entsteht am 23.09.2026, ihre Abstimmung
+     * beginnt nach dem Wochenplan spaeter, und ohne diese Zeile stimmt hier
+     * niemand ab.
+     */
+    await prisma.clipCompetition.update({
+      where: { id: rundeId },
+      data: { status: 'VOTING', votingStartsAt: new Date(JETZT.getTime() - 1000) },
+    });
+    await clips.stimmeAb(GUILD, actor(BEN), eigener.entryId, JETZT);
+    await clips.stimmeAb(GUILD, actor(MOD), eigener.entryId, JETZT);
+    await clips.stimmeAb(GUILD, actor(ANNA), perLink.entryId, JETZT);
 
     // Finale.
     await prisma.clipCompetition.update({
@@ -224,9 +245,10 @@ describeWithDatabase('Clip-Uploads von Ende zu Ende', () => {
     await clips.gibFrei(eigener.entryId, actor(MOD));
     await prisma.clipCompetition.update({
       where: { id: rundeId },
-      data: { status: 'VOTING' },
+      // Status und Fenster - siehe oben.
+      data: { status: 'VOTING', votingStartsAt: new Date(JETZT.getTime() - 1000) },
     });
-    await clips.stimmeAb(GUILD, actor(BEN), eigener.entryId);
+    await clips.stimmeAb(GUILD, actor(BEN), eigener.entryId, JETZT);
     await prisma.clipCompetition.update({
       where: { id: rundeId },
       data: { votingEndsAt: new Date(JETZT.getTime() - 1000) },

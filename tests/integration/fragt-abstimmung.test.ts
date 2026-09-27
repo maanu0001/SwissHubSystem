@@ -44,6 +44,21 @@ const MOD = '100000000000000009';
 const FREITAG_18 = new Date('2026-09-25T16:00:00.000Z');
 /** Freitag, 18:05 Zuerich - der Planer laeuft kurz nach dem Termin. */
 const KURZ_DANACH = new Date('2026-09-25T16:05:00.000Z');
+/**
+ * Freitag, 19:00 Zuerich - mitten in der laufenden Abstimmung.
+ *
+ * ## Warum das ueberhaupt dastehen muss
+ *
+ * Weil `stimmeAb` ohne vierten Wert die **echte** Uhr nimmt. Die Abstimmung
+ * oeffnet am 25.09.2026 und schliesst 48 Stunden spaeter; solange dieser Tag
+ * in der Zukunft lag, war das unauffaellig. Am 27.09.2026 um 18:00 lief die
+ * Frist ab, und acht Tests, die niemand angefasst hatte, meldeten
+ * `art: 'beendet'` - eine Zeitbombe, kein Fehler im Modul.
+ *
+ * Deshalb bekommt jeder Stimmvorgang seinen Zeitpunkt ausdruecklich. Das Modul
+ * kann das seit immer; der Test hat es nur nicht genutzt.
+ */
+const WAEHREND = new Date('2026-09-25T17:00:00.000Z');
 
 const actor = (discordId: string): { discordId: string; username: string } => ({
   discordId,
@@ -262,7 +277,7 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
 
   it('zaehlt eine Stimme', async () => {
     const { abstimmungId, optionen } = await stelle('Frage', ['Minecraft', 'CS2']);
-    const ausgang = await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA });
+    const ausgang = await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND);
 
     expect(ausgang).toEqual({ art: 'gezaehlt', label: 'Minecraft' });
     expect((await fragt.zaehleStimmen(abstimmungId)).gesamt).toBe(1);
@@ -273,7 +288,9 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
 
     // Gleichzeitig, nicht nacheinander - der Doppelklick ist ein Wettlauf.
     const ausgaenge = await Promise.all(
-      Array.from({ length: 10 }, () => fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA })),
+      Array.from({ length: 10 }, () =>
+        fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND),
+      ),
     );
 
     expect(await prisma.fragtStimme.count({ where: { abstimmungId } })).toBe(1);
@@ -284,8 +301,8 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
   it('ersetzt die Stimme bei einer Meinungsaenderung', async () => {
     const { abstimmungId, optionen } = await stelle('Frage', ['Controller', 'Maus']);
 
-    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA });
-    const geaendert = await fragt.stimmeAb(abstimmungId, optionen[1]!.id, { discordId: ANNA });
+    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND);
+    const geaendert = await fragt.stimmeAb(abstimmungId, optionen[1]!.id, { discordId: ANNA }, WAEHREND);
 
     expect(geaendert).toEqual({ art: 'geaendert', label: 'Maus', vorher: 'Controller' });
     // Eine Zeile, nicht zwei - und sie zeigt auf die neue Antwort.
@@ -305,8 +322,8 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
     const { abstimmungId, optionen } = await stelle('Frage', ['A', 'B']);
 
     await Promise.all([
-      fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }),
-      fragt.stimmeAb(abstimmungId, optionen[1]!.id, { discordId: ANNA }),
+      fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND),
+      fragt.stimmeAb(abstimmungId, optionen[1]!.id, { discordId: ANNA }, WAEHREND),
     ]);
 
     expect(await prisma.fragtStimme.count({ where: { abstimmungId } })).toBe(1);
@@ -338,7 +355,9 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
     const erste = await stelle('Erste', ['A', 'B']);
     const zweite = await stelle('Zweite', ['C', 'D'], new Date(FREITAG_18.getTime() + 60_000));
 
-    expect(await fragt.stimmeAb(erste.abstimmungId, zweite.optionen[0]!.id, { discordId: ANNA })).toEqual({
+    expect(
+      await fragt.stimmeAb(erste.abstimmungId, zweite.optionen[0]!.id, { discordId: ANNA }, WAEHREND),
+    ).toEqual({
       art: 'unbekannt',
     });
     expect(await prisma.fragtStimme.count({ where: { abstimmungId: erste.abstimmungId } })).toBe(0);
@@ -357,9 +376,9 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
 
   it('schreibt das Ergebnis fest und ersetzt die Nachricht', async () => {
     const { abstimmungId, optionen } = await stelle('Frage', ['Minecraft', 'CS2']);
-    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA });
-    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: BEN });
-    await fragt.stimmeAb(abstimmungId, optionen[1]!.id, { discordId: CARLA });
+    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND);
+    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: BEN }, WAEHREND);
+    await fragt.stimmeAb(abstimmungId, optionen[1]!.id, { discordId: CARLA }, WAEHREND);
 
     const { modul, edit } = gateway();
     const ausgang = await fragt.schliesse(abstimmungId, new Date(), modul);
@@ -389,7 +408,7 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
      * Audit-Eintraege.
      */
     const { abstimmungId, optionen } = await stelle('Frage', ['A', 'B']);
-    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA });
+    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND);
 
     const { modul, edit } = gateway();
     const ausgaenge = [];
@@ -404,7 +423,7 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
 
   it('legt beim Schliessen einen Social-Media-Entwurf an', async () => {
     const { abstimmungId, optionen } = await stelle('Frage', ['A', 'B', 'C']);
-    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA });
+    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND);
     await fragt.schliesse(abstimmungId, new Date(), gateway().modul);
 
     const entwurf = await prisma.fragtEntwurf.findUniqueOrThrow({ where: { abstimmungId } });
@@ -416,8 +435,8 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
 
   it('haelt einen Gleichstand als Gleichstand fest', async () => {
     const { abstimmungId, optionen } = await stelle('Frage', ['Controller', 'Maus']);
-    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA });
-    await fragt.stimmeAb(abstimmungId, optionen[1]!.id, { discordId: BEN });
+    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND);
+    await fragt.stimmeAb(abstimmungId, optionen[1]!.id, { discordId: BEN }, WAEHREND);
 
     const ausgang = await fragt.schliesse(abstimmungId, new Date(), gateway().modul);
     if (ausgang.art !== 'geschlossen') {
@@ -446,7 +465,7 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
      * Nachricht der Frage zeigt dort schon das Ergebnis.
      */
     const { abstimmungId, optionen } = await stelle('Frage', ['A', 'B']);
-    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA });
+    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND);
 
     const { modul, send } = gateway();
     await fragt.schliesse(abstimmungId, new Date(), modul);
@@ -480,7 +499,7 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
 
   it('schliesst faellige Abstimmungen im Durchgang', async () => {
     const { abstimmungId, optionen } = await stelle('Laeuft ab', ['A', 'B']);
-    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA });
+    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND);
 
     // Zwei Tage und eine Minute spaeter - aber kein neuer Termin faellig.
     const spaeter = new Date(FREITAG_18.getTime() + 48 * 3_600_000 + 60_000);
@@ -568,7 +587,7 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
      * Ergebnisgrafik waere rueckwirkend falsch.
      */
     const { abstimmungId, optionen } = await stelle('Schon gestellt', ['A', 'B']);
-    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA });
+    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND);
     const abstimmung = await prisma.fragtAbstimmung.findUniqueOrThrow({ where: { id: abstimmungId } });
     await fragt.schliesse(abstimmungId, new Date(), gateway().modul);
 
@@ -640,7 +659,7 @@ describeWithDatabase('SwissHub fragt: abstimmen', () => {
 
   it('nennt die eigene Stimme nur der Person selbst', async () => {
     const { abstimmungId, optionen } = await stelle('Frage', ['A', 'B']);
-    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA });
+    await fragt.stimmeAb(abstimmungId, optionen[0]!.id, { discordId: ANNA }, WAEHREND);
 
     expect(await fragt.eigeneStimme(abstimmungId, ANNA)).toMatchObject({ label: 'A' });
     // Ben hat nicht gestimmt - und erfaehrt nichts ueber Anna.

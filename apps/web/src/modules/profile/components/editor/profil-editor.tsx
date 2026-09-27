@@ -12,9 +12,12 @@ import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { AbschnittAllgemein } from './abschnitt-allgemein';
 import { AbschnittDesign } from './abschnitt-design';
 import { AbschnittGames } from './abschnitt-games';
+import { AbschnittHervorhebung } from './abschnitt-hervorhebung';
+import { AbschnittKarte } from './abschnitt-karte';
+import { AbschnittLinks } from './abschnitt-links';
 import { AbschnittPrivatsphaere } from './abschnitt-privatsphaere';
+import { AbschnittReihenfolge } from './abschnitt-reihenfolge';
 import { AbschnittShowcase } from './abschnitt-showcase';
-import { AbschnittSocials } from './abschnitt-socials';
 import { useSchliessSchutz } from './felder';
 
 /**
@@ -42,14 +45,25 @@ import { useSchliessSchutz } from './felder';
  */
 const ABSCHNITTE = [
   { key: 'allgemein', label: 'Allgemein' },
-  { key: 'games', label: 'Meine Games' },
-  { key: 'socials', label: 'Socials' },
   { key: 'design', label: 'Design' },
+  { key: 'games', label: 'Gaming' },
+  { key: 'links', label: 'Links' },
   { key: 'showcase', label: 'Showcase' },
-  { key: 'privatsphaere', label: 'Privatsphäre' },
+  { key: 'privatsphaere', label: 'Sichtbarkeit' },
+  { key: 'karte', label: 'Profilkarte' },
 ] as const;
 
 type AbschnittKey = (typeof ABSCHNITTE)[number]['key'];
+
+/**
+ * Was «ungespeichert» melden kann.
+ *
+ * Mehr als die Reiter: «Showcase» enthaelt drei Einheiten, die fuer sich
+ * speichern, und jede soll ihren Punkt am Reiter setzen koennen. Ohne diese
+ * Erweiterung waere eine halb bearbeitete Reihenfolge eine Aenderung, vor deren
+ * Verlust niemand warnt.
+ */
+type SchmutzigKey = AbschnittKey | 'hervorhebung' | 'reihenfolge';
 
 export function ProfilEditor({
   csrfToken,
@@ -77,7 +91,7 @@ export function ProfilEditor({
     : 'allgemein';
 
   const [offen, setOffen] = useState<AbschnittKey>(start);
-  const [schmutzig, setSchmutzig] = useState<Partial<Record<AbschnittKey, boolean>>>({});
+  const [schmutzig, setSchmutzig] = useState<Partial<Record<SchmutzigKey, boolean>>>({});
   const [allgemein, setAllgemein] = useState(daten.allgemein);
   const [design, setDesign] = useState(daten.gestaltung);
 
@@ -85,18 +99,36 @@ export function ProfilEditor({
   useSchliessSchutz(offeneAenderungen);
 
   const merke =
-    (key: AbschnittKey) =>
+    (key: SchmutzigKey) =>
     (wert: boolean): void =>
       setSchmutzig((vorher) => ({ ...vorher, [key]: wert }));
 
+  /*
+   * Welche Schmutzig-Schluessel zu einem Reiter gehoeren.
+   *
+   * «Showcase» hat drei Einheiten; beim Verlassen muss nach allen dreien gefragt
+   * und alle drei muessen zurueckgesetzt werden. Eine Liste hier statt einer
+   * Abfrage je Einheit: sonst waere die naechste Untereinheit die, bei der es
+   * jemand vergisst.
+   */
+  const gehoertZu = (reiter: AbschnittKey): SchmutzigKey[] =>
+    reiter === 'showcase' ? ['showcase', 'hervorhebung', 'reihenfolge'] : [reiter];
+
   const wechseln = (key: AbschnittKey): void => {
+    const eigene = gehoertZu(offen);
     if (
-      schmutzig[offen] &&
+      eigene.some((schluessel) => schmutzig[schluessel]) &&
       !window.confirm('In diesem Abschnitt gibt es ungespeicherte Änderungen. Trotzdem wechseln?')
     ) {
       return;
     }
-    setSchmutzig((vorher) => ({ ...vorher, [offen]: false }));
+    setSchmutzig((vorher) => {
+      const neu = { ...vorher };
+      for (const schluessel of eigene) {
+        neu[schluessel] = false;
+      }
+      return neu;
+    });
     setOffen(key);
   };
 
@@ -143,7 +175,7 @@ export function ProfilEditor({
               }`}
             >
               {abschnitt.label}
-              {schmutzig[abschnitt.key] ? (
+              {gehoertZu(abschnitt.key).some((schluessel) => schmutzig[schluessel]) ? (
                 <span
                   className="absolute right-1 top-2 size-1.5 rounded-full bg-warning"
                   aria-label="ungespeichert"
@@ -169,8 +201,8 @@ export function ProfilEditor({
         {offen === 'games' ? (
           <AbschnittGames csrfToken={csrfToken} start={daten.spiele} katalog={daten.katalog} />
         ) : null}
-        {offen === 'socials' ? (
-          <AbschnittSocials csrfToken={csrfToken} start={daten.socials} onSchmutzig={merke('socials')} />
+        {offen === 'links' ? (
+          <AbschnittLinks csrfToken={csrfToken} start={daten.links} onSchmutzig={merke('links')} />
         ) : null}
         {offen === 'design' ? (
           <AbschnittDesign
@@ -181,18 +213,50 @@ export function ProfilEditor({
           />
         ) : null}
         {offen === 'showcase' ? (
-          <AbschnittShowcase
-            csrfToken={csrfToken}
-            start={daten.vitrine}
-            auswahl={daten.auswahl}
-            onSchmutzig={merke('showcase')}
-          />
+          /*
+           * Drei Dinge, eine Frage: was zeigt mein Profil, und in welcher
+           * Reihenfolge. Die Vitrine (drei Plaetze), die hervorgehobenen
+           * Auszeichnungen und die Reihenfolge der Abschnitte - jede Einheit
+           * speichert fuer sich, damit ein Fehler in der einen die andere nicht
+           * mitreisst.
+           */
+          <div className="space-y-8">
+            <AbschnittShowcase
+              csrfToken={csrfToken}
+              start={daten.vitrine}
+              auswahl={daten.auswahl}
+              onSchmutzig={merke('showcase')}
+            />
+            <section className="space-y-3 border-t border-border pt-6">
+              <h3 className="text-sm font-semibold">Hervorgehobene Auszeichnungen</h3>
+              <AbschnittHervorhebung
+                csrfToken={csrfToken}
+                start={daten.hervorhebung}
+                onSchmutzig={merke('hervorhebung')}
+              />
+            </section>
+            <section className="space-y-3 border-t border-border pt-6">
+              <h3 className="text-sm font-semibold">Reihenfolge der Abschnitte</h3>
+              <AbschnittReihenfolge
+                csrfToken={csrfToken}
+                start={daten.abschnitte}
+                onSchmutzig={merke('reihenfolge')}
+              />
+            </section>
+          </div>
         ) : null}
         {offen === 'privatsphaere' ? (
           <AbschnittPrivatsphaere
             csrfToken={csrfToken}
             start={daten.privatsphaere}
             onSchmutzig={merke('privatsphaere')}
+          />
+        ) : null}
+        {offen === 'karte' ? (
+          <AbschnittKarte
+            csrfToken={csrfToken}
+            adresse={daten.adresse}
+            hatOeffentlichesProfil={daten.privatsphaere.visibilityProfile === 'PUBLIC'}
           />
         ) : null}
       </div>

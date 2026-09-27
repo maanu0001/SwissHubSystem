@@ -136,6 +136,29 @@ const CLIENT_SAFE = [
   '@swisshub/modules/profil/showcase',
   '@swisshub/modules/profil/socials',
   '@swisshub/modules/profil/spielfelder',
+  /*
+   * Public Profile 2.0: die Link-Registry und die Abschnittsliste.
+   *
+   * `links.ts` prueft eine freie Adresse - und der Editor prueft sie waehrend
+   * des Tippens mit **derselben** Funktion, die der Server danach anwendet. Zwei
+   * Regeln waeren der Fehler: das Formular liesse etwas durch, das der Server
+   * ablehnt, und es saehe nach einem Fehler im Formular aus.
+   *
+   * `abschnitte.ts` ist die Liste der Abschnitte und ihre Sortierung. Der
+   * Editor zeigt sie, der Server bereinigt damit die gespeicherte Reihenfolge -
+   * beide muessen dieselbe Menge kennen.
+   */
+  '@swisshub/modules/profil/links',
+  '@swisshub/modules/profil/abschnitte',
+  /*
+   * Die Slug-Regeln.
+   *
+   * Der Editor sagt beim Tippen, warum eine Wunschadresse nicht geht - mit
+   * derselben Funktion, die der Dienst danach anwendet. Eine zweite Regel im
+   * Browser waere die Stelle, an der Anzeige und Wirkung auseinanderlaufen: ein
+   * Name, den das Formular annimmt und der Server ablehnt.
+   */
+  '@swisshub/modules/profil/slug',
 ];
 
 /**
@@ -217,6 +240,9 @@ const EXPORTE: Record<string, string> = {
   '@swisshub/modules/profil/showcase': 'packages/modules/src/profile/showcase.ts',
   '@swisshub/modules/profil/socials': 'packages/modules/src/profile/socials.ts',
   '@swisshub/modules/profil/spielfelder': 'packages/modules/src/profile/spielfelder.ts',
+  '@swisshub/modules/profil/links': 'packages/modules/src/profile/links.ts',
+  '@swisshub/modules/profil/abschnitte': 'packages/modules/src/profile/abschnitte.ts',
+  '@swisshub/modules/profil/slug': 'packages/modules/src/profile/slug.ts',
 };
 
 /** Alle Wert-Importe einer Datei - auch die relativen. */

@@ -7463,12 +7463,59 @@ model MemberProfile {
   /// seine Besitzerin in einer Suchliste stehen moechte.
   discoverable Boolean @default(true)
 
+  /// Darf das oeffentliche Profil von Suchmaschinen indexiert werden?
+  ///
+  /// ## Warum das keine vierte Stufe von `visibilityProfile` ist
+  ///
+  /// Weil es eine andere Frage beantwortet. `visibilityProfile` sagt, **wer**
+  /// die Seite sehen darf; das hier sagt, ob sie in einer Suchmaschine stehen
+  /// soll. «Nicht indexiert» ist deshalb kein Zugriffsschutz - der Link
+  /// funktioniert weiterhin fuer jeden, der ihn hat - und es waere eine
+  /// Taeuschung, es als Sichtbarkeitsstufe darzustellen.
+  ///
+  /// Vorgabe `true`, weil oeffentliche Profile bisher indexierbar waren. Eine
+  /// Migration soll nichts an dem aendern, was jemand schon entschieden hat -
+  /// auch nicht zu seinen Gunsten.
+  publicIndexable Boolean @default(true)
+
+  /// Die Reihenfolge der Abschnitte auf der oeffentlichen Seite.
+  ///
+  /// Schluessel aus `profile/abschnitte.ts`, leer heisst «Vorgabe». Freie
+  /// Liste statt Aufzaehlungstyp: ein neuer Abschnitt soll keine Migration
+  /// brauchen. Unbekannte Schluessel werden beim Lesen uebergangen, fehlende
+  /// hinten angehaengt - so bleibt die Seite vollstaendig, auch wenn diese
+  /// Spalte veraltet ist.
+  publicSections String[] @default([])
+
+  /// Bis zu drei Auszeichnungen, die oben hervorgehoben werden.
+  ///
+  /// **Eine Auswahl, keine Verleihung.** Was hier steht, wird beim Anzeigen
+  /// gegen die tatsaechlich erreichten Auszeichnungen geprueft; ein Schluessel,
+  /// der nicht erreicht ist, verschwindet still. Damit kann aus dieser Spalte
+  /// nie eine Auszeichnung entstehen, die es nicht gibt.
+  highlightAwards String[] @default([])
+
+  // --- Sichtbarkeit der neuen Abschnitte -------------------------------------
+  // Die Vorgaben sind der **bisherige** Zustand und nicht der vorsichtigste:
+  // Level und Auszeichnungen standen schon bisher auf jeder oeffentlichen
+  // Profilseite, der Streaming-Abschnitt seit dem Streamer Hub. Sie jetzt auf
+  // MEMBERS zu setzen waere keine Vorsicht, sondern eine stille Aenderung an
+  // Seiten, die Leute geteilt haben.
+  //
+  // Turniererfolge waren nie oeffentlich - deshalb MEMBERS. Eine Migration
+  // veroeffentlicht nichts, was niemand freigegeben hat.
+  visibilityStreaming   ProfileVisibility @default(PUBLIC)
+  visibilityAwards      ProfileVisibility @default(PUBLIC)
+  visibilityLevel       ProfileVisibility @default(PUBLIC)
+  visibilityTournaments ProfileVisibility @default(MEMBERS)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   games     MemberGameProfile[]
   socials   MemberSocialLink[]
   showcases MemberShowcase[]
+  links     MemberProfileLink[]
 
   /// Die Entdecken-Liste filtert darueber.
   @@index([discoverable, availability])
@@ -7673,6 +7720,16 @@ model MemberSocialLink {
   verified   Boolean   @default(false)
   verifiedAt DateTime?
 
+  /// Ein eigener Titel fuer den Knopf - «Mein Stream», «Zock mit mir».
+  ///
+  /// Leer heisst: der Name der Plattform. Nur Darstellung; der Link entsteht
+  /// weiterhin ausschliesslich aus `platform` und `handle`.
+  label    String?
+  /// Im oeffentlichen Profil ausblenden, ohne den Eintrag zu verlieren.
+  hidden   Boolean @default(false)
+  /// Als grosser Call-to-Action hervorheben. Die Obergrenze prueft der Dienst.
+  featured Boolean @default(false)
+
   sortOrder Int @default(0)
 
   createdAt DateTime @default(now())
@@ -7680,6 +7737,75 @@ model MemberSocialLink {
 
   @@unique([profileId, platform])
   @@index([profileId, sortOrder])
+}
+
+/// Ein freier Link im Link-in-Bio-Bereich.
+///
+/// ## Warum das nicht in `MemberSocialLink` steht
+///
+/// Weil es etwas anderes ist. Dort steht eine **Kennung** auf einer bekannten
+/// Plattform, und die Adresse baut die Registry daraus - deshalb kann aus
+/// einer Eingabe dort kein fremdes Ziel werden. Hier steht eine vollstaendige
+/// Adresse, und die muss anders geprueft werden: nur `https`, kein
+/// `javascript:`, kein `data:`, keine Zugangsdaten im Host.
+///
+/// Zwei Formen mit zwei Pruefungen in eine Tabelle zu legen hiesse, in jeder
+/// Abfrage zu unterscheiden, welche gilt. Und `@@unique([profileId, platform])`
+/// dort liesse ohnehin nur einen freien Link zu.
+///
+/// Verwaltet werden beide gemeinsam: der Editor zeigt eine Liste, und
+/// `sortOrder` zaehlt ueber beide Tabellen hinweg.
+model MemberProfileLink {
+  id        String        @id @default(cuid())
+  profileId String
+  profile   MemberProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// Die vollstaendige Adresse. Ausschliesslich `https`, geprueft beim
+  /// Schreiben **und** beim Anzeigen - die Spalte ist aelter als der naechste
+  /// Stand des Codes.
+  url   String
+  /// Der Titel des Knopfes. Ohne ihn stuende dort eine nackte Adresse.
+  label String
+
+  hidden   Boolean @default(false)
+  featured Boolean @default(false)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Denselben Link zweimal ist kein Link-in-Bio, sondern ein Versehen.
+  @@unique([profileId, url])
+  @@index([profileId, sortOrder])
+}
+
+/// Eine frueher gueltige Profiladresse.
+///
+/// ## Warum es diese Tabelle gibt
+///
+/// Ein Profil-Link steht in einer Twitch-Bio, auf einem Flyer, in einem
+/// QR-Code auf einer gedruckten Karte. Wer seinen Slug aendert, kann die nicht
+/// einsammeln. Der alte Slug bleibt deshalb hier stehen und leitet weiter.
+///
+/// **Und er wird nie wieder vergeben.** Das ist der eigentliche Zweck: ohne
+/// diese Tabelle koennte jemand anders `manu` uebernehmen, und ein alter Link
+/// fuehrte auf ein fremdes Profil. `slug` ist deshalb ueber alle Profile
+/// hinweg eindeutig, und die Slug-Pruefung sieht hier ebenso nach wie in
+/// `MemberProfile.publicSlug`.
+model MemberProfileSlugAlias {
+  id String @id @default(cuid())
+
+  /// Der alte Slug - eindeutig, und zwar gegen alle Profile.
+  slug      String @unique
+  /// Wem er gehoerte. Absichtlich die Discord-Kennung und kein Fremdschluessel
+  /// auf `MemberProfile`: verlaesst jemand den Server und wird sein Profil
+  /// entfernt, soll der Slug trotzdem belegt bleiben.
+  discordId String
+
+  createdAt DateTime @default(now())
+
+  @@index([discordId])
 }
 
 /// Ein hervorgehobener Platz im Profil.

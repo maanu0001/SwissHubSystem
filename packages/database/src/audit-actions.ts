@@ -263,6 +263,12 @@ export const AUDIT_ACTIONS = {
   // bezahlten Anspruchs, und bei einer Rueckfrage ist nachvollziehbar,
   // seit wann er genutzt wird.
   PROFILE_THEME_CHANGED: 'PROFILE_THEME_CHANGED',
+  /// Die oeffentliche Profiladresse geaendert.
+  ///
+  /// Gehoert ins Protokoll, weil die alte Adresse danach weiterleitet und
+  /// dauerhaft belegt bleibt. Wer spaeter fragt, warum `manu` nicht zu haben
+  /// ist, findet hier die Antwort.
+  PROFILE_SLUG_CHANGED: 'PROFILE_SLUG_CHANGED',
   /// Eine **gerechnete** Auszeichnung angepasst, abgeschaltet oder
   /// zurueckgesetzt. Verliehen werden kann sie nie - dafuer gibt es keinen
   /// Weg, und deshalb auch keine Aktion.

@@ -80,6 +80,22 @@ export const gestaltungSpeichernAction = defineAction(
   },
 );
 
+/**
+ * Die alte Kontenliste speichern.
+ *
+ * ## Warum sie bleibt, obwohl der Editor sie nicht mehr ruft
+ *
+ * Seit Public Profile 2.0 verwaltet `linksSpeichernAction` dieselben Zeilen -
+ * mit Titel, Reihenfolge, Ausblenden und Hervorheben. Der Abschnitt «Socials»
+ * im Editor ist darin aufgegangen.
+ *
+ * Diese Aktion bleibt trotzdem: sie nimmt weiterhin die schlichte Form
+ * «Plattform plus Kennung» an und legt sie auf denselben Schreibweg um
+ * (`speichereSocials` ruft `speichereLinks`). Ein Aufrufer, den es gibt oder
+ * geben wird - ein Bot-Befehl, ein Skript -, braucht dafuer nicht die ganze
+ * Link-Liste zu kennen. Zwei **Schreibwege** waeren der Fehler; zwei Formen
+ * derselben Eingabe sind es nicht.
+ */
 export const socialsSpeichernAction = defineAction(
   {
     name: 'profil.socials',
@@ -175,6 +191,96 @@ export const showcaseSpeichernAction = defineAction(
     await neuLaden(ctx.user.discordId);
     return { ok: true };
   },
+);
+
+export const linksSpeichernAction = defineAction(
+  {
+    name: 'profil.links',
+    schema: profile.linksSchema,
+    selfService: true,
+    rateLimit: 'profilWrite',
+  },
+  async ({ ctx, input }) => {
+    await profile.speichereLinks(ctx.user.discordId, input);
+    await neuLaden(ctx.user.discordId);
+    return { ok: true };
+  },
+);
+
+export const abschnitteSpeichernAction = defineAction(
+  {
+    name: 'profil.abschnitte',
+    schema: profile.abschnitteSchema,
+    selfService: true,
+    rateLimit: 'profilWrite',
+  },
+  async ({ ctx, input }) => {
+    await profile.speichereAbschnitte(ctx.user.discordId, input);
+    await neuLaden(ctx.user.discordId);
+    return { ok: true };
+  },
+);
+
+export const hervorhebungSpeichernAction = defineAction(
+  {
+    name: 'profil.hervorhebung',
+    schema: profile.hervorhebungSchema,
+    selfService: true,
+    rateLimit: 'profilWrite',
+  },
+  async ({ ctx, input }) => {
+    await profile.speichereHervorhebung(ctx.user.discordId, input);
+    await neuLaden(ctx.user.discordId);
+    return { ok: true };
+  },
+);
+
+/**
+ * Die oeffentliche Adresse aendern.
+ *
+ * ## Warum eine eigene Ratengrenze
+ *
+ * Jede Aenderung laesst einen Alias zurueck, und ein Alias belegt den alten
+ * Namen fuer immer. Wer in einer Schleife wechselt, reserviert damit beliebig
+ * viele Adressen - `profilSlug` ist enger als `profilWrite`, weil die Folge
+ * dieser Aktion bestehen bleibt.
+ */
+export const slugAendernAction = defineAction(
+  {
+    name: 'profil.slug',
+    schema: profile.slugSchema,
+    selfService: true,
+    rateLimit: 'profilSlug',
+  },
+  async ({ ctx, input }) => {
+    const ergebnis = await profile.aendereSlug(ctx.user.discordId, input.slug);
+    await neuLaden(ctx.user.discordId);
+    /*
+     * Auch die alte Adresse neu laden lassen: sie antwortet ab jetzt mit einer
+     * Weiterleitung, und ihr zwischengespeicherter Stand zeigt sonst weiter das
+     * Profil.
+     */
+    revalidatePath('/u/[slug]', 'page');
+    return ergebnis;
+  },
+);
+
+/**
+ * Ist eine Wunschadresse frei?
+ *
+ * Eine Auskunft und keine Aenderung - aber eine, mit der sich der Bestand
+ * durchprobieren liesse. Deshalb dieselbe Anmeldung wie jede andere Aktion und
+ * eine Ratengrenze; und die Antwort ist «frei» oder «vergeben», nie **wem** sie
+ * gehoert.
+ */
+export const slugPruefenAction = defineAction(
+  {
+    name: 'profil.slug.pruefen',
+    schema: profile.slugSchema,
+    selfService: true,
+    rateLimit: 'profilWrite',
+  },
+  async ({ ctx, input }) => profile.pruefeSlugWunsch(ctx.user.discordId, input.slug),
 );
 
 export const bannerEntfernenAction = defineAction(

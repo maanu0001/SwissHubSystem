@@ -415,7 +415,7 @@ export async function runStreamerTick(
              */
             uploadsPlaylistId: `UU${kanal.externeId.slice(2)}`,
           })),
-          { genau: settings.youtubeGenau, kontingentRest: rest },
+          { genau: settings.youtubeGenau, kontingentRest: rest, jetzt },
           optionen.abruf,
         );
         bericht.youtubeEinheiten = ergebnis.verbrauchteEinheiten;

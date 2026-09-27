@@ -32,8 +32,28 @@ const ABSCHNITTE = [
   { key: 'visibilityGames' as const, titel: 'Spiele', text: 'Deine Spiele mit Rang und Rolle.' },
   {
     key: 'visibilitySocials' as const,
-    titel: 'Konten',
-    text: 'Twitch, Steam, Riot ID und die übrigen Kennungen.',
+    titel: 'Links und Konten',
+    text: 'Dein Link-in-Bio-Bereich: Twitch, Steam, Riot ID und deine freien Links.',
+  },
+  {
+    key: 'visibilityStreaming' as const,
+    titel: 'Streaming',
+    text: 'Live-Status und Kanäle aus dem Streamer Hub - nur wenn du dort freigegeben bist.',
+  },
+  {
+    key: 'visibilityAwards' as const,
+    titel: 'Auszeichnungen',
+    text: 'Deine erreichten Auszeichnungen und die drei hervorgehobenen.',
+  },
+  {
+    key: 'visibilityLevel' as const,
+    titel: 'Level und XP',
+    text: 'Dein Level, der Fortschritt und - beim Höchstlevel - dein Prestige-Status.',
+  },
+  {
+    key: 'visibilityTournaments' as const,
+    titel: 'Turniererfolge',
+    text: 'Teilnahmen und Platzierungen aus dem Turniermodul.',
   },
 ];
 
@@ -123,6 +143,46 @@ export function AbschnittPrivatsphaere({
             </div>
           </li>
         ))}
+
+        {/*
+          Suchmaschinen - und die Klarstellung, dass das kein Schutz ist.
+
+          §15 nennt das «nicht indexiert» und verlangt ausdruecklich, dass es
+          nicht als Zugriffsschutz dargestellt wird. Der Text hier sagt es
+          deshalb in einem Satz: der Link funktioniert weiter.
+        */}
+        <li className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Von Suchmaschinen gefunden werden</p>
+            <p className="text-xs text-muted-foreground">
+              Aus: wir senden «noindex», und dein Profil steht nicht in der Sitemap.{' '}
+              <strong className="font-medium text-foreground">Kein Zugriffsschutz</strong> - wer den Link hat,
+              sieht die Seite weiterhin. Wenn du das nicht willst, stelle «Angaben» auf «Mitglieder».
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            {(
+              [
+                [true, 'Ja'],
+                [false, 'Nein'],
+              ] as const
+            ).map(([wert, label]) => (
+              <button
+                key={`index-${label}`}
+                type="button"
+                aria-pressed={entwurf.publicIndexable === wert}
+                onClick={() => aendern({ publicIndexable: wert })}
+                className={`min-h-11 rounded-lg border px-3 text-sm transition-colors ${
+                  entwurf.publicIndexable === wert
+                    ? 'border-primary-bright bg-primary-bright/12'
+                    : 'border-border text-muted-foreground hover:border-foreground/30'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </li>
 
         <li className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">

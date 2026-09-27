@@ -144,6 +144,8 @@ export type {
   JailEntry,
   Notification,
   MemberNote,
+  MemberProfileLink,
+  MemberProfileSlugAlias,
   JailImport,
   JailImportRow,
   JailImportRowAction,
