@@ -3,6 +3,8 @@ import type { Prisma, TournamentStatus } from '@swisshub/database';
 import { resolveGuildId } from '@swisshub/discord';
 import { tournamentSichtbarkeitsFilter, type TournamentViewer } from './access';
 import { AKTIVE_STATUS } from './service';
+import { getModuleSettings } from '../module-state';
+import { TOURNAMENTS_MODULE_ID, type TournamentSettings } from './config';
 
 /**
  * Der verbundene Server als Filter.
@@ -699,3 +701,14 @@ export async function getTeamMitEinladungen(teamId: string) {
     },
   });
 }
+
+/**
+ * Die Einstellungen des Turniermoduls.
+ *
+ * Eine Zeile, damit jede Stelle dieselbe liest - dieselbe Ueberlegung wie
+ * bei den Clips. Ohne sie stuende `getModuleSettings<TournamentSettings>(...)`
+ * an einem Dutzend Stellen, und die Typangabe waere an jeder einzeln zu
+ * pflegen.
+ */
+export const einstellungen = (): Promise<TournamentSettings> =>
+  getModuleSettings<TournamentSettings>(TOURNAMENTS_MODULE_ID);

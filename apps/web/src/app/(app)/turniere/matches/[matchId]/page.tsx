@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ExternalLink, Hash } from 'lucide-react';
+import { can } from '@swisshub/auth';
+import { tournaments } from '@swisshub/modules';
 import { AppError, formatDateTime, formatDayTime } from '@swisshub/shared';
 import { PageHeader } from '@/components/shared/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +10,9 @@ import { buttonVariants } from '@/components/ui/button';
 import { MatchParticipantPanel, MatchStaffPanel } from '@/modules/tournaments/components/match-panel';
 import { MatchStatusBadge, StreamStatusBadge } from '@/modules/tournaments/components/tournament-badges';
 import { rundenName } from '@/modules/tournaments/components/bracket-view';
+import { MatchRoom } from '@/modules/gameserver/components/match-room';
 import { csrfTokenFor, requireMember } from '@/server/auth';
+import { ladeMatchRoom } from '@/server/gameserver';
 import { ladeMatchMitZugriff, turnierHref } from '@/server/tournaments';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +38,15 @@ export default async function MatchSeite({
   const { matchId } = await params;
   const context = await requireMember();
   const { match, zugriff, slot } = await ladeMatchMitZugriff(context, matchId);
+
+  /*
+   * Der Match Room, falls dieses Match einen Server hat.
+   *
+   * `null` heisst: keiner - und dann sieht die Seite aus wie immer. Das ist
+   * der Punkt der ganzen Erweiterung: ein Turnier ohne Gameserver merkt
+   * nichts davon.
+   */
+  const raum = await ladeMatchRoom(matchId, context.user.discordId);
 
   if (!slot && !zugriff.asStaff) {
     // Bewusst dieselbe Meldung wie bei einem nicht vorhandenen Match: sonst
@@ -141,6 +154,15 @@ export default async function MatchSeite({
           </ul>
         ) : null}
       </section>
+
+      {raum ? (
+        <MatchRoom
+          raum={raum}
+          csrfToken={csrfTokenFor(context)}
+          darfUebersteuern={zugriff.asStaff && can(context, tournaments.TOURNAMENT_PERMISSIONS.vetoOverride)}
+          darfSteuern={zugriff.asStaff && can(context, tournaments.TOURNAMENT_PERMISSIONS.matchControl)}
+        />
+      ) : null}
 
       {slot ? (
         <MatchParticipantPanel

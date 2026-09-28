@@ -3881,6 +3881,19 @@ model TournamentMatch {
   readyA Boolean @default(false)
   readyB Boolean @default(false)
 
+  /// Wann die Leitung darauf hingewiesen wurde, dass das Resultat aussteht.
+  ///
+  /// Steht hier und nicht im Ereignisprotokoll. Vorher suchte der Durchgang
+  /// die Antwort mit einer JSON-Pfadabfrage im Protokoll - je ueberfaelligem
+  /// Match eine, im Minutentakt, auf einer Tabelle, die mit jedem Turnier
+  /// waechst und fuer `detail` keinen Index hat. Bei hundert langen Matches
+  /// waren das hundert sequentielle Scans in der Minute.
+  ///
+  /// Als Spalte am Match ist dieselbe Frage ein Feld, das ohnehin geladen
+  /// ist. Der Eintrag im Protokoll bleibt - er ist die Chronik, nicht der
+  /// Merkzettel.
+  overdueNotifiedAt DateTime?
+
   discordChannelId String?
   /// Der Kanal fehlt auf Discord. Vom Abgleich gesetzt.
   channelMissing   Boolean @default(false)
@@ -3898,6 +3911,7 @@ model TournamentMatch {
 
   games       TournamentMatchGame[]
   submissions TournamentResultSubmission[]
+  serverAssignments MatchServerAssignment[]
   disputes    TournamentDispute[]
   casters     TournamentMatchCaster[]
 
@@ -8556,4 +8570,502 @@ model MissionVorlage {
   updatedAt DateTime @updatedAt
 
   missionen Mission[]
+}
+
+// ---------------------------------------------------------------------------
+// Gameserver-Orchestrierung
+// ---------------------------------------------------------------------------
+
+/// Welches Spiel ein Server bedient.
+///
+/// Die Kennung eines Game Adapters, nicht der Eintrag im Spielkatalog: der
+/// Katalog kennt hunderte Spiele, fuer die es keinen Adapter gibt, und ein
+/// Adapter ist eine Zusage ueber Code, nicht ueber einen Namen.
+enum GameServerGame {
+  CS2
+}
+
+/// Wo ein Server in seinem Leben steht.
+///
+/// Der Server, nicht das Match - die beiden laufen bewusst getrennt. Ein
+/// Server kann laufen, waehrend das Match noch auf das Veto wartet, und ein
+/// Match kann zu Ende sein, waehrend der Server noch Dateien herausgibt.
+enum GameServerStatus {
+  /// Angelegt, aber beim Anbieter noch nichts passiert.
+  PENDING
+  /// Der Anbieter erstellt die Maschine.
+  PROVISIONING
+  /// Die Maschine laeuft, der Agent hat sich noch nicht gemeldet.
+  BOOTING
+  /// Der Agent meldet sich, der Spielserver laeuft noch nicht.
+  AGENT_READY
+  /// Der Spielserver laeuft und antwortet.
+  RUNNING
+  /// Wird abgebaut.
+  STOPPING
+  /// Beim Anbieter entfernt.
+  REMOVED
+  /// Etwas ist schiefgegangen. `lastError` sagt was.
+  FAILED
+}
+
+/// Wo ein Match in der Serverbereitstellung steht.
+///
+/// **Bewusst getrennt von `TournamentMatchStatus`.** Jener Status ist die
+/// Wahrheit des Turniers: geplant, live, entschieden - und zwanzig Stellen
+/// im Bestand verzweigen darueber. Ihn um vierzehn Serverzustaende zu
+/// erweitern hiesse, jede dieser Stellen anzufassen und das Turnier von
+/// einer Infrastruktur abhaengig zu machen, die die meisten Turniere gar
+/// nicht benutzen.
+///
+/// Stattdessen steht hier die Wahrheit der **Bereitstellung**. Ein Match
+/// ohne Serverzuweisung hat sie schlicht nicht, und alles laeuft wie bisher.
+enum MatchServerPhase {
+  WAITING_FOR_SERVER
+  PROVISIONING
+  SERVER_BOOTING
+  AGENT_CONNECTING
+  CONFIGURING
+  READY_FOR_VETO
+  VETO_RUNNING
+  WAITING_FOR_PLAYERS
+  READY_CHECK
+  LIVE
+  MATCH_FINISHED
+  RESULT_PROCESSING
+  ARCHIVING
+  CLEANUP_PENDING
+  SERVER_REMOVED
+
+  // --- Fehlerzustaende ---------------------------------------------------
+  PROVISION_FAILED
+  CONFIG_FAILED
+  SERVER_ERROR
+  MATCH_INTERRUPTED
+  RESULT_ERROR
+  ARCHIVE_ERROR
+}
+
+/// Ein Schritt im Map-Veto.
+enum MatchVetoStepKind {
+  BAN
+  PICK
+  /// Die letzte verbleibende Map - niemand waehlt sie, sie bleibt uebrig.
+  DECIDER
+}
+
+/// Welche Seite am Zug ist.
+enum MatchVetoActor {
+  A
+  B
+  /// Der Decider gehoert keiner Seite.
+  SYSTEM
+}
+
+/// Was fuer eine Datei ein Match hinterlassen hat.
+enum GameServerFileKind {
+  DEMO
+  SERVER_LOG
+  MATCH_DATA
+}
+
+/// Ein angebundenes Virtual Datacenter.
+///
+/// Die Zugangsdaten stehen **nicht** hier, sondern im verschluesselten
+/// Integrationsspeicher - diese Zeile haelt nur, was ohne Geheimnis
+/// auskommt: welcher Treiber, welche Region, ob die Verbindung zuletzt
+/// gestanden hat.
+model GameServerProvider {
+  id String @id @default(cuid())
+
+  /// Anzeigename, frei waehlbar.
+  name String @unique
+
+  /// Welcher Treiber diesen Anbieter bedient - ein Schluessel aus der
+  /// Treiber-Registry, kein Anbietername aus einem Formular.
+  driver String
+
+  /// Vorgabe-Region, falls der Anbieter mehrere kennt.
+  region String?
+
+  /// Aus ist der Vorgabewert: ein Anbieter, den jemand einrichtet, soll
+  /// nicht in derselben Sekunde anfangen, Maschinen zu erzeugen.
+  enabled Boolean @default(false)
+
+  /// Was die letzte Verbindungspruefung ergeben hat. `null` heisst: nie
+  /// geprueft - und wird als «nie geprueft» angezeigt, nicht als «in
+  /// Ordnung».
+  lastCheckAt      DateTime?
+  lastCheckOk      Boolean?
+  lastCheckMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  templates GameServerTemplate[]
+  instances GameServerInstance[]
+}
+
+/// Ein vorbereiteter Maschinenzuschnitt.
+model GameServerTemplate {
+  id String @id @default(cuid())
+
+  name String
+
+  providerId String
+  provider   GameServerProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  game GameServerGame
+
+  /// Die Kennung der Vorlage beim Anbieter. Was genau darin steht, weiss
+  /// nur der Treiber - fuer SwissHub ist es eine undurchsichtige Zeichenkette.
+  imageRef String
+
+  region String?
+
+  cpuCores Int @default(4)
+  memoryMb Int @default(8192)
+  diskGb   Int @default(40)
+
+  /// Der Port, auf dem der Spielserver lauscht.
+  gamePort Int @default(27015)
+  /// Der Port des GOTV-Relays. 0 heisst: keins.
+  tvPort   Int @default(27020)
+  /// Der Port, auf dem der SwissHub-Agent lauscht.
+  agentPort Int @default(9443)
+
+  /// Obergrenze der Laufzeit in Minuten. Danach raeumt der Durchgang auf,
+  /// auch wenn niemand daran gedacht hat.
+  maxRuntimeMinutes Int @default(240)
+  /// Wie lange nach dem Match gewartet wird, bevor geloescht wird.
+  cleanupDelayMinutes Int @default(15)
+
+  /// Freie Zusatzangaben fuer den Treiber - Netzwerk, Sicherheitsgruppen,
+  /// was der jeweilige Anbieter eben braucht. Nie Geheimnisse.
+  driverOptions Json @default("{}")
+
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profiles  GameProfile[]
+  instances GameServerInstance[]
+
+  @@unique([providerId, name])
+  @@index([game, enabled])
+}
+
+/// Die spielbezogenen Turniereinstellungen.
+model GameProfile {
+  id String @id @default(cuid())
+
+  name String @unique
+
+  game GameServerGame
+
+  templateId String?
+  template   GameServerTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  region String?
+
+  /// Der Map-Pool. Wird fuer das Veto gebraucht und muss gross genug sein,
+  /// damit ein BO3 ueberhaupt durchlaufen kann - das prueft der Dienst.
+  mapPool String[] @default([])
+
+  /// Wie viele Slots der Server hat. Mehr als die Spieler, weil Caster und
+  /// Turnierleitung auch hineinkommen muessen.
+  slots Int @default(12)
+
+  overtime         Boolean @default(true)
+  knifeRound       Boolean @default(true)
+  tacticalPauses   Int     @default(4)
+  technicalPauses  Int     @default(2)
+  gotvEnabled      Boolean @default(true)
+  demoRecording    Boolean @default(true)
+  restoreSupport   Boolean @default(true)
+
+  warmupSeconds Int @default(300)
+
+  /// Wer bereit melden muss: CAPTAIN oder ALL.
+  readyRule String @default("CAPTAIN")
+
+  /// Wie das Serverpasswort entsteht: RANDOM, NONE oder FIXED.
+  passwordStrategy String  @default("RANDOM")
+  /// Nur bei FIXED. Kein Geheimnis im Sinne der Verschluesselung - es steht
+  /// ohnehin in jedem Match Room, den die Teams sehen.
+  fixedPassword    String?
+
+  /// Freie Zusatzangaben fuer den Game Adapter.
+  adapterOptions Json @default("{}")
+
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments MatchServerAssignment[]
+  instances   GameServerInstance[]
+
+  @@index([game, enabled])
+}
+
+/// Eine tatsaechlich erzeugte Maschine.
+model GameServerInstance {
+  id String @id @default(cuid())
+
+  providerId String
+  provider   GameServerProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  templateId String?
+  template   GameServerTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  profileId String?
+  profile   GameProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  game GameServerGame
+
+  /// Der Name, unter dem die Maschine beim Anbieter steht - aus Turnier und
+  /// Match gebildet, damit sie sich in einer fremden Oberflaeche zuordnen
+  /// laesst.
+  name String @unique
+
+  /// Die Kennung beim Anbieter. `null`, solange der Anbieter noch keine
+  /// vergeben hat.
+  providerRef String?
+
+  status GameServerStatus @default(PENDING)
+
+  region String?
+
+  /// Die Adresse, unter der Spieler den Server erreichen.
+  publicHost String?
+  gamePort   Int?
+  tvPort     Int?
+  agentPort  Int?
+
+  /// **Verschluesselt.** Das RCON-Passwort dieser einen Maschine, erzeugt
+  /// beim Provisionieren, nie im Frontend, nie im Protokoll, beim Loeschen
+  /// mit der Zeile weg.
+  rconPasswordEnc String?
+  /// **Verschluesselt.** Das Token, mit dem sich der Agent ausweist.
+  agentTokenEnc   String?
+  /// Das Serverpasswort fuer die Spieler. Bewusst im Klartext: es steht
+  /// ohnehin im Match Room, und ein Geheimnis, das man vorliest, ist keins.
+  serverPassword  String?
+
+  /// Der letzte Heartbeat des Agents. `null` heisst: noch keiner.
+  lastHeartbeatAt DateTime?
+  /// Was der letzte Heartbeat gemeldet hat.
+  cpuPercent  Float?
+  memoryMb    Int?
+  diskFreeMb  Int?
+  playerCount Int?
+  currentMap  String?
+
+  /// Wofuer die Maschine erzeugt wurde. Der Warm Pool wuerde hier `null`
+  /// eintragen - eine Maschine ohne Match, die auf eines wartet.
+  tournamentId String?
+
+  /// Warum die Maschine nicht geloescht wird, obwohl sie koennte.
+  heldByDiscordId String?
+  heldReason      String?
+
+  provisionStartedAt DateTime?
+  provisionEndedAt   DateTime?
+  deleteAfterAt      DateTime?
+  removedAt          DateTime?
+
+  lastError String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments MatchServerAssignment[]
+  files       GameServerFile[]
+  heartbeats  ServerHeartbeat[]
+  attempts    ProvisioningAttempt[]
+
+  /// «Was laeuft gerade» - die Abfrage der Uebersicht und der Grenzwerte.
+  @@index([status, game])
+  @@index([tournamentId, status])
+  @@index([status, deleteAfterAt])
+}
+
+/// Die Zuordnung einer Maschine zu einem Match.
+///
+/// Eine eigene Tabelle statt Spalten am Match: ein Match kann im Lauf eines
+/// Abends eine zweite Maschine bekommen, wenn die erste abgestuerzt ist, und
+/// beide Zuordnungen sollen nachvollziehbar bleiben. Die Eindeutigkeit steht
+/// trotzdem in der Datenbank - siehe `generation`.
+model MatchServerAssignment {
+  id String @id @default(cuid())
+
+  matchId String
+  match   TournamentMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  /// Der wievielte Server fuer dieses Match. Beginnt bei 1 und steigt, wenn
+  /// die Leitung einen Ersatz anfordert. Zusammen mit `matchId` der
+  /// Idempotenzschluessel des Provisionierens.
+  generation Int @default(1)
+
+  instanceId String?
+  instance   GameServerInstance? @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+
+  profileId String?
+  profile   GameProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  phase MatchServerPhase @default(WAITING_FOR_SERVER)
+
+  /// Wann die Bereitstellung fruehestens anfangen soll.
+  provisionAfterAt DateTime?
+
+  /// Die Zeitpunkte des Ablaufs - fuer die Dauerstatistik der Uebersicht.
+  readyAt     DateTime?
+  liveAt      DateTime?
+  finishedAt  DateTime?
+  archivedAt  DateTime?
+
+  /// Was der Adapter als Ergebnis gemeldet hat, bevor es ins Turnier ging.
+  /// Roh aufbewahrt: geht bei der Uebernahme etwas schief, laesst sich
+  /// nachsehen, was der Server tatsaechlich gesagt hat.
+  rawResult Json?
+
+  /// Das Resultat kam an, ist aber nicht eindeutig. Dann entscheidet ein
+  /// Mensch - nicht der Bracket.
+  resultReview       Boolean @default(false)
+  resultReviewReason String?
+
+  lastError String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vetoActions MatchVetoAction[]
+  files       GameServerFile[]
+
+  /// **Der Riegel gegen doppeltes Provisionieren.**
+  @@unique([matchId, generation])
+  @@index([phase, provisionAfterAt])
+  @@index([instanceId])
+}
+
+/// Ein Schritt im Map-Veto, wie er tatsaechlich passiert ist.
+///
+/// Persistiert je Schritt statt als fertige Liste am Match: ein Neustart der
+/// WebApp oder des Bots mitten im Veto darf den Stand nicht verlieren, und
+/// hinterher soll nachvollziehbar sein, wer wann welche Map gebannt hat.
+model MatchVetoAction {
+  id String @id @default(cuid())
+
+  assignmentId String
+  assignment   MatchServerAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  /// Der wievielte Schritt, 0-basiert. Zusammen mit der Zuordnung eindeutig -
+  /// zwei gleichzeitige Klicks koennen nicht beide denselben Schritt belegen.
+  stepIndex Int
+
+  kind  MatchVetoStepKind
+  actor MatchVetoActor
+
+  map String
+
+  /// Wer geklickt hat. `null` beim Decider und bei einer Zeitueberschreitung.
+  byDiscordId String?
+  /// Hat die Turnierleitung das anstelle des Teams entschieden?
+  byAdmin     Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([assignmentId, stepIndex])
+  @@index([assignmentId, createdAt])
+}
+
+/// Eine Datei, die ein Match hinterlassen hat.
+model GameServerFile {
+  id String @id @default(cuid())
+
+  assignmentId String
+  assignment   MatchServerAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  instanceId String?
+  instance   GameServerInstance? @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+
+  kind GameServerFileKind
+
+  /// Der Name, unter dem die Datei auf dem Server lag.
+  remoteName String
+  /// Wo sie jetzt liegt - relativ zum Ablageverzeichnis, nie ein absoluter
+  /// Pfad aus einer fremden Antwort.
+  storedPath String
+
+  sizeBytes Int
+  /// SHA-256 des uebertragenen Inhalts. Er beantwortet die Frage, ob die
+  /// Datei vollstaendig angekommen ist, bevor die Maschine geloescht wird.
+  checksum  String
+
+  /// Zu welcher Map die Datei gehoert. `null` bei serverweiten Dateien.
+  mapIndex Int?
+
+  createdAt DateTime @default(now())
+
+  @@unique([assignmentId, kind, remoteName])
+  @@index([assignmentId, kind])
+}
+
+/// Ein Lebenszeichen einer Maschine.
+///
+/// Die aktuellen Werte stehen am Server selbst - diese Tabelle ist der
+/// Verlauf, und sie wird bewusst ausgeduennt: gespeichert wird nur, was in
+/// einem groesseren Abstand liegt als der Heartbeat selbst. Sonst waeren es
+/// bei dreissig Servern und zwanzig Sekunden Takt 130'000 Zeilen am Tag,
+/// von denen niemand je eine liest.
+model ServerHeartbeat {
+  id String @id @default(cuid())
+
+  instanceId String
+  instance   GameServerInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  cpuPercent  Float?
+  memoryMb    Int?
+  diskFreeMb  Int?
+  playerCount Int?
+  currentMap  String?
+  gameRunning Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([instanceId, createdAt])
+  /// Das Aufraeumen faehrt ueber das Alter, quer ueber alle Maschinen.
+  @@index([createdAt])
+}
+
+/// Ein Versuch, eine Maschine zu erzeugen.
+///
+/// Auch die gescheiterten - gerade die. Ohne sie liesse sich hinterher nicht
+/// sagen, ob der Anbieter langsam war oder gar nicht geantwortet hat.
+model ProvisioningAttempt {
+  id String @id @default(cuid())
+
+  instanceId String?
+  instance   GameServerInstance? @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+
+  /// Wofuer der Versuch war. Kein Fremdschluessel: der Versuch soll auch
+  /// dann noch dastehen, wenn das Match laengst geloescht ist.
+  matchId    String?
+  generation Int?
+
+  /// Der wievielte Anlauf. Beginnt bei 1.
+  attempt Int @default(1)
+
+  succeeded Boolean @default(false)
+  /// Wie lange er gedauert hat. `null`, solange er laeuft.
+  durationMs Int?
+  error      String? @db.Text
+
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  @@index([matchId, generation])
+  @@index([startedAt])
 }

@@ -133,6 +133,18 @@ export const DASHBOARD_ACTIVITY_ACTIONS: readonly AuditActionName[] = [
    * nachtraeglich korrigierte Ziele stehen im Protokoll und gehoeren dort
    * hin - auf dem Dashboard waeren sie Buchhaltung.
    */
+  /*
+   * Gameserver: nur was jemand entschieden hat.
+   *
+   * Eine bereitgestellte oder geloeschte Maschine ist Betrieb, keine
+   * Nachricht - sie steht im Protokoll und im Gameserver-Dashboard, wo sie
+   * hingehoert. Auf «Letzte Aktivitaeten» kommen die Eingriffe: eine
+   * uebersteuerte Map-Wahl und ein von Hand uebernommenes Resultat sind
+   * Entscheidungen ueber ein Turnier.
+   */
+  AUDIT_ACTIONS.GAMESERVER_VETO_OVERRIDE,
+  AUDIT_ACTIONS.GAMESERVER_RESULT_REVIEW,
+
   AUDIT_ACTIONS.MISSION_ERSTELLT,
   AUDIT_ACTIONS.MISSION_ABGEBROCHEN,
   AUDIT_ACTIONS.MISSION_ABGESCHLOSSEN,

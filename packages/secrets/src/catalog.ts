@@ -122,6 +122,7 @@ export const MUSIC_INTEGRATION_ID = 'music';
 export const PAYMENT_INTEGRATION_ID = 'payment';
 export const TWITCH_INTEGRATION_ID = 'twitch';
 export const YOUTUBE_INTEGRATION_ID = 'youtube';
+export const GAMESERVER_INTEGRATION_ID = 'gameserver';
 
 export const INTEGRATIONS: IntegrationDefinition[] = [
   {
@@ -330,6 +331,76 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
         type: 'password',
         schema: geheimnis(8, 'wird benötigt'),
         envKey: 'PAYMENT_WEBHOOK_SECRET',
+      },
+    ],
+  },
+  {
+    /*
+     * Das Virtual Datacenter.
+     *
+     * Die Felder sind absichtlich allgemein gehalten - Adresse, Kennung,
+     * Geheimnis, Projekt. Welcher Anbieter dahintersteht, entscheidet der
+     * Treiber in `GameServerProvider.driver`; hier stehen nur die Angaben,
+     * die jedes Datacenter in irgendeiner Form verlangt. Was ein bestimmter
+     * Treiber zusaetzlich braucht, gehoert in `driverOptions` des Templates
+     * und ist dort kein Geheimnis.
+     *
+     * **Keine erfundenen Werte.** Solange kein Treiber fuer das tatsaechlich
+     * betriebene Datacenter existiert, bleiben diese Felder leer und die
+     * Oberflaeche sagt «nicht eingerichtet» - nicht «verbunden».
+     */
+    id: GAMESERVER_INTEGRATION_ID,
+    label: 'Virtual Datacenter',
+    description:
+      'Zugang zum Datacenter, in dem Gameserver für Turniere entstehen. Ein- und ausgeschaltet wird unter System → Module → Turniere.',
+    icon: 'Server',
+    scope: 'GLOBAL',
+    essential: false,
+    testable: true,
+    fields: [
+      {
+        key: 'endpoint',
+        label: 'API-Adresse',
+        description:
+          'Die Basisadresse der API des Datacenters, ohne Pfad. Kein Geheimnis - sie steht in jeder Anfrage.',
+        secret: false,
+        required: true,
+        type: 'url',
+        schema: httpsOderLeer,
+        envKey: 'GAMESERVER_API_URL',
+      },
+      {
+        key: 'identity',
+        label: 'Kennung',
+        description:
+          'Benutzername, Zugriffsschlüssel-ID oder was der Anbieter als nicht geheime Kennung führt.',
+        secret: false,
+        required: true,
+        type: 'text',
+        schema: z.string().trim().min(1).max(200),
+        envKey: 'GAMESERVER_API_IDENTITY',
+      },
+      {
+        key: 'secret',
+        label: 'Geheimnis',
+        description:
+          'Passwort, API-Token oder Zugriffsschlüssel. Wird verschlüsselt gespeichert und nie angezeigt.',
+        secret: true,
+        required: true,
+        type: 'password',
+        schema: geheimnis(8, 'zu kurz für ein API-Geheimnis'),
+        envKey: 'GAMESERVER_API_SECRET',
+      },
+      {
+        key: 'project',
+        label: 'Projekt oder Mandant',
+        description:
+          'Falls der Anbieter mehrere Projekte, Organisationen oder virtuelle Datacenter kennt. Sonst leer lassen.',
+        secret: false,
+        required: false,
+        type: 'text',
+        schema: z.string().trim().max(200),
+        envKey: 'GAMESERVER_API_PROJECT',
       },
     ],
   },

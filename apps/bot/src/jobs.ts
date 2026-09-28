@@ -12,6 +12,7 @@ import {
   calendar,
   clips,
   fragt,
+  gameserver,
   jail,
   level,
   logs,
@@ -499,6 +500,25 @@ export function createJobRunner(
       intervalMs: 60 * 1000,
       async run() {
         await tournaments.runTournamentTick();
+      },
+    },
+    {
+      name: 'gameserver-tick',
+      /*
+       * Die Serverorchestrierung fortschreiben.
+       *
+       * Im Minutentakt, weil eine Maschine zwanzig Minuten vor dem Match
+       * entstehen soll und eine Minute Ungenauigkeit dabei niemandem
+       * auffaellt - fuenf schon.
+       *
+       * Der Durchgang findet im Normalfall nichts zu tun: vier indizierte
+       * Abfragen. Er prueft selbst, ob das Turniermodul eingeschaltet ist
+       * und ob die Gameserver-Funktion ueberhaupt aktiv ist; ohne Anbieter
+       * kostet er nichts.
+       */
+      intervalMs: 60 * 1000,
+      async run() {
+        await gameserver.runGameserverTick();
       },
     },
     {

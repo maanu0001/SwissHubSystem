@@ -81,6 +81,7 @@ export * as migration from './migration';
 export * as appeals from './appeals';
 export * as clips from './clips';
 export * as missions from './missions';
+export * as gameserver from './gameserver';
 export * as fragt from './fragt';
 export * as streamer from './streamer';
 export * as wrapped from './wrapped';

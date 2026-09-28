@@ -202,6 +202,10 @@ describe('Integrationskatalog', () => {
       ['payment', 'webhookSecret'],
       ['twitch', 'clientSecret'],
       ['youtube', 'apiKey'],
+      // Das API-Geheimnis des Datacenters. Mit ihm lassen sich Maschinen
+      // erzeugen und loeschen - es gehoert zu den empfindlichsten Werten im
+      // ganzen Katalog.
+      ['gameserver', 'secret'],
     ];
     for (const [integrationId, key] of geheim) {
       const feld = getIntegration(integrationId)?.fields.find((eintrag) => eintrag.key === key);

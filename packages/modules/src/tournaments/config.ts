@@ -49,6 +49,25 @@ export const TOURNAMENT_PERMISSIONS = {
   statsView: 'tournaments.stats.view',
   archiveView: 'tournaments.archive.view',
 
+  // --- Gameserver ---------------------------------------------------------
+  /*
+   * Bewusst unter `tournaments.` und nicht unter einem eigenen Praefix.
+   *
+   * Der Gameserver ist kein zweites Modul, sondern die Infrastruktur dieses
+   * einen. Ein eigener Praefix haette eine zweite Modulkennung erzeugt, eine
+   * zweite Zeile in der Modulverwaltung und die Frage, was passiert, wenn
+   * jemand das Turniermodul abschaltet und das Gameserver-Modul nicht.
+   */
+  gameserverView: 'tournaments.gameserver.view',
+  gameserverManage: 'tournaments.gameserver.manage',
+  gameProfilesManage: 'tournaments.gameserver.profiles',
+  templatesManage: 'tournaments.gameserver.templates',
+  infrastructureManage: 'tournaments.gameserver.infrastructure',
+  matchControl: 'tournaments.gameserver.matchcontrol',
+  vetoOverride: 'tournaments.gameserver.veto.override',
+  serverCleanup: 'tournaments.gameserver.cleanup',
+  serverHold: 'tournaments.gameserver.hold',
+
   /** Alle Turniere, unabhaengig von der Zustaendigkeit. */
   admin: 'tournaments.admin',
 } as const;
@@ -105,6 +124,37 @@ export const tournamentSettingsSchema = z.object({
 
   /** Keine neuen Anmeldungen, laufende Turniere bleiben bedienbar. */
   maintenanceMode: z.boolean().default(false),
+
+  // --- Gameserver ---------------------------------------------------------
+  /*
+   * Die Grenzwerte der Serverbereitstellung.
+   *
+   * Sie stehen hier und nicht im Game Profile, weil sie nicht dem Spiel
+   * gehoeren, sondern dem Datacenter: wie viele Maschinen gleichzeitig
+   * laufen duerfen, ist eine Frage an den Geldbeutel und an das Kontingent,
+   * nicht an Counter-Strike.
+   *
+   * Die Vorgaben sind bewusst niedrig. Ein Grenzwert, der beim ersten
+   * Turnier greift, ist ein Gespraech; einer, der nie greift, ist keiner -
+   * und die Rechnung kommt trotzdem.
+   */
+  gameserverEnabled: z.boolean().default(false),
+  /** Wie viele Maschinen insgesamt laufen duerfen. */
+  gameserverMaxTotal: z.number().int().min(0).max(200).default(30),
+  /** Wie viele davon fuer ein einzelnes Spiel. */
+  gameserverMaxPerGame: z.number().int().min(0).max(200).default(20),
+  /** Wie viele Bereitstellungen gleichzeitig laufen duerfen. */
+  gameserverMaxParallelProvisioning: z.number().int().min(1).max(50).default(5),
+  /** Wie viele Maschinen ein einzelnes Turnier belegen darf. */
+  gameserverMaxPerTournament: z.number().int().min(1).max(100).default(8),
+  /** Nach wie vielen Minuten ohne Match eine Maschine verschwindet. */
+  gameserverIdleTimeoutMinutes: z.number().int().min(5).max(1440).default(60),
+  /** Wie lange eine Bereitstellung dauern darf, bevor sie als gescheitert gilt. */
+  gameserverProvisioningTimeoutMinutes: z.number().int().min(2).max(120).default(15),
+  /** Wie viele Minuten vor Matchbeginn die Maschine entstehen soll. */
+  gameserverProvisionLeadMinutes: z.number().int().min(1).max(180).default(20),
+  /** Wie lange Heartbeats aufbewahrt werden. */
+  gameserverHeartbeatRetentionHours: z.number().int().min(1).max(720).default(72),
 });
 
 export type TournamentSettings = z.infer<typeof tournamentSettingsSchema>;
@@ -540,6 +590,61 @@ export const tournamentsModule: ModuleDefinition = registerModule({
       module: TOURNAMENTS_MODULE_ID,
     },
 
+    {
+      key: TOURNAMENT_PERMISSIONS.gameserverView,
+      label: 'Gameserver ansehen',
+      description: 'Den Zustand der Server, laufende Bereitstellungen und die Infrastruktur sehen.',
+      module: TOURNAMENTS_MODULE_ID,
+    },
+    {
+      key: TOURNAMENT_PERMISSIONS.gameserverManage,
+      label: 'Gameserver verwalten',
+      description: 'Server von Hand anfordern, freigeben und einem Match zuweisen.',
+      module: TOURNAMENTS_MODULE_ID,
+    },
+    {
+      key: TOURNAMENT_PERMISSIONS.gameProfilesManage,
+      label: 'Game Profiles verwalten',
+      description: 'Die spielbezogenen Turniereinstellungen anlegen und ändern.',
+      module: TOURNAMENTS_MODULE_ID,
+    },
+    {
+      key: TOURNAMENT_PERMISSIONS.templatesManage,
+      label: 'Server-Templates verwalten',
+      description: 'Maschinenzuschnitte anlegen und ändern.',
+      module: TOURNAMENTS_MODULE_ID,
+    },
+    {
+      key: TOURNAMENT_PERMISSIONS.infrastructureManage,
+      label: 'Infrastruktur konfigurieren',
+      description: 'Anbieter anbinden, Grenzwerte setzen, Verbindung prüfen.',
+      module: TOURNAMENTS_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: TOURNAMENT_PERMISSIONS.matchControl,
+      label: 'Match Control',
+      description: 'Ein laufendes Match starten, pausieren, fortsetzen, wiederherstellen, abbrechen.',
+      module: TOURNAMENTS_MODULE_ID,
+    },
+    {
+      key: TOURNAMENT_PERMISSIONS.vetoOverride,
+      label: 'Map-Veto übersteuern',
+      description: 'Anstelle eines Teams bannen oder picken, wenn es nicht erreichbar ist.',
+      module: TOURNAMENTS_MODULE_ID,
+    },
+    {
+      key: TOURNAMENT_PERMISSIONS.serverCleanup,
+      label: 'Server aufräumen',
+      description: 'Eine Maschine sofort löschen, auch vor Ablauf der Schonfrist.',
+      module: TOURNAMENTS_MODULE_ID,
+    },
+    {
+      key: TOURNAMENT_PERMISSIONS.serverHold,
+      label: 'Server behalten',
+      description: 'Eine Maschine vom automatischen Aufräumen ausnehmen.',
+      module: TOURNAMENTS_MODULE_ID,
+    },
     {
       key: TOURNAMENT_PERMISSIONS.admin,
       label: 'Alle Turniere verwalten',

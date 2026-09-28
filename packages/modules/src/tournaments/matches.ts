@@ -341,7 +341,7 @@ async function finalisiereResultat(
         resultReason: ergebnis.reason,
         status,
         completedAt: new Date(),
-        ...(match.startedAt === null ? { startedAt: new Date() } : {}),
+        ...(match.startedAt === null ? { startedAt: new Date(), overdueNotifiedAt: null } : {}),
       },
     });
 
@@ -706,7 +706,13 @@ export async function setReady(matchId: string, slot: Slot, bereit: boolean): Pr
   if (match.readyA && match.readyB && ['READY', 'SCHEDULED'].includes(match.status)) {
     return prisma.tournamentMatch.update({
       where: { id: matchId },
-      data: { status: 'LIVE', startedAt: new Date() },
+      /*
+       * Eine neue Uhr, also ein neuer Merkzettel: `overdueNotifiedAt`
+       * gehoert zu **diesem** Durchlauf. Bliebe der alte Vermerk stehen,
+       * bekaeme die Leitung fuer ein wieder aufgenommenes Match nie mehr
+       * einen Hinweis, dass das Resultat aussteht.
+       */
+      data: { status: 'LIVE', startedAt: new Date(), overdueNotifiedAt: null },
     });
   }
   return match;
@@ -715,7 +721,8 @@ export async function setReady(matchId: string, slot: Slot, bereit: boolean): Pr
 export async function startMatch(matchId: string, actor: TournamentActor): Promise<TournamentMatch> {
   const match = await prisma.tournamentMatch.update({
     where: { id: matchId },
-    data: { status: 'LIVE', startedAt: new Date() },
+    // Neue Uhr, neuer Merkzettel - siehe `setReady`.
+    data: { status: 'LIVE', startedAt: new Date(), overdueNotifiedAt: null },
   });
   await tournamentEvent(match.tournamentId, 'MATCH_SCHEDULED', actor, {
     match: match.matchNumber,

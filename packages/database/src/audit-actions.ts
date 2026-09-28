@@ -292,6 +292,26 @@ export const AUDIT_ACTIONS = {
    * keine je Fortschritt. Ein Fortschrittsbalken ist keine Entscheidung, und
    * das Protokoll ist die Chronik der Entscheidungen.
    */
+  /*
+   * Gameserver-Orchestrierung.
+   *
+   * Was hier steht, ist eine Entscheidung oder ein Eingriff - nicht ein
+   * Lebenszeichen. Heartbeats, Statuswechsel und Fortschritt stehen
+   * ausdruecklich **nicht** im Protokoll: bei dreissig Maschinen im
+   * Zwanzigsekundentakt waeren das 130'000 Zeilen am Tag, und die Chronik
+   * der Entscheidungen waere darin nicht mehr zu finden.
+   */
+  GAMESERVER_PROVISIONED: 'GAMESERVER_PROVISIONED',
+  GAMESERVER_DELETED: 'GAMESERVER_DELETED',
+  GAMESERVER_HELD: 'GAMESERVER_HELD',
+  GAMESERVER_RELEASED: 'GAMESERVER_RELEASED',
+  GAMESERVER_PROFILE_CHANGED: 'GAMESERVER_PROFILE_CHANGED',
+  GAMESERVER_TEMPLATE_CHANGED: 'GAMESERVER_TEMPLATE_CHANGED',
+  GAMESERVER_INFRASTRUCTURE_CHANGED: 'GAMESERVER_INFRASTRUCTURE_CHANGED',
+  GAMESERVER_MATCH_ACTION: 'GAMESERVER_MATCH_ACTION',
+  GAMESERVER_VETO_OVERRIDE: 'GAMESERVER_VETO_OVERRIDE',
+  GAMESERVER_RESULT_APPLIED: 'GAMESERVER_RESULT_APPLIED',
+  GAMESERVER_RESULT_REVIEW: 'GAMESERVER_RESULT_REVIEW',
   MISSION_ERSTELLT: 'MISSION_ERSTELLT',
   MISSION_GEAENDERT: 'MISSION_GEAENDERT',
   MISSION_ABGEBROCHEN: 'MISSION_ABGEBROCHEN',

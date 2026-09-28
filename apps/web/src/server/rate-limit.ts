@@ -288,6 +288,25 @@ export const RATE_LIMITS = {
    */
   missionenVerwalten: { limit: 120, windowMs: 10 * 60 * 1000 },
 
+  /** Anbieter, Templates und Game Profiles einrichten. */
+  gameserverVerwalten: { limit: 120, windowMs: 10 * 60 * 1000 },
+  /*
+   * Map-Veto.
+   *
+   * Eng: ein Veto hat sieben Schritte, und mehr als ein paar Fehlversuche je
+   * Schritt gibt es nicht. Wer hier ans Limit stoesst, klickt nicht - er
+   * probiert.
+   */
+  gameserverVeto: { limit: 40, windowMs: 5 * 60 * 1000 },
+  /*
+   * Match Control.
+   *
+   * Jede Aktion spricht eine laufende Maschine an. Grosszuegig genug fuer
+   * einen unruhigen Matchabend, eng genug, dass niemand einen Server im
+   * Sekundentakt neu startet.
+   */
+  gameserverMatchControl: { limit: 60, windowMs: 10 * 60 * 1000 },
+
   /** Kampagnen anlegen, aendern, Szenen sortieren. */
   wrappedStudio: { limit: 120, windowMs: 10 * 60 * 1000 },
   /*

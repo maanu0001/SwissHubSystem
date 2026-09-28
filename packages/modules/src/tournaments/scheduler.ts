@@ -210,6 +210,9 @@ export async function findeUeberfaellige(
       status: { in: ['LIVE', 'AWAITING_RESULT'] },
       startedAt: { not: null, lt: grenze },
       tournament: { status: 'RUNNING' },
+      // Was bereits gemeldet wurde, faellt schon in der Abfrage heraus -
+      // nicht erst in einer Schleife danach.
+      overdueNotifiedAt: null,
     },
     select: { id: true, matchNumber: true, tournamentId: true, startedAt: true },
     orderBy: { startedAt: 'asc' },
@@ -265,14 +268,18 @@ export async function runTournamentTick(jetzt = new Date()): Promise<void> {
   // keine Turnierleitung.
   const ueberfaellig = await findeUeberfaellige(jetzt);
   for (const match of ueberfaellig) {
-    const schonGemeldet = await prisma.tournamentEvent.findFirst({
-      where: {
-        tournamentId: match.tournamentId,
-        kind: 'MATCH_SCHEDULED',
-        detail: { path: ['ueberfaellig'], equals: match.id },
-      },
+    /*
+     * «Schon gemeldet?» steht am Match, nicht im Protokoll.
+     *
+     * `findeUeberfaellige` laesst bereits alles weg, was einen Vermerk
+     * traegt - hier bleibt nur der Vermerk selbst, und der wird bedingt
+     * gesetzt: von zwei gleichzeitigen Durchgaengen meldet genau einer.
+     */
+    const gewonnen = await prisma.tournamentMatch.updateMany({
+      where: { id: match.id, overdueNotifiedAt: null },
+      data: { overdueNotifiedAt: jetzt },
     });
-    if (schonGemeldet) {
+    if (gewonnen.count !== 1) {
       continue;
     }
     await tournamentEvent(match.tournamentId, 'MATCH_SCHEDULED', ZEITSTEUERUNG, {

@@ -126,6 +126,17 @@ export function tournamentSections(context: AuthContext): TournamentSection[] {
   if (can(context, p.disputesManage) || can(context, p.admin)) {
     sections.push({ href: '/turniere/einsprueche', label: 'Einsprüche' });
   }
+  /*
+   * Gameserver stehen hier und nicht in einer eigenen Modulnavigation.
+   *
+   * Sie sind die Infrastruktur dieses Moduls, kein zweites Modul: dieselbe
+   * Modulkennung, dieselbe Zuständigkeit, dieselben Turniere. Ein eigener
+   * Eintrag in der Seitenleiste hätte die Frage aufgeworfen, was passiert,
+   * wenn jemand das Turniermodul abschaltet und die Gameserver nicht.
+   */
+  if (can(context, p.gameserverView)) {
+    sections.push({ href: '/turniere/gameserver', label: 'Gameserver' });
+  }
   if (can(context, p.streamManage) || can(context, p.admin)) {
     sections.push({ href: '/turniere/livestream', label: 'Livestream' });
   }
