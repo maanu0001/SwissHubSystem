@@ -69,6 +69,53 @@ sechs Methoden - `pruefe`, `createServer`, `getServer`, `startServer`,
 `stopServer`, `deleteServer`; mehr braucht der Orchestrator nicht, und
 weniger reicht nicht.
 
+#### Stand der Recherche zu hosttech (September 2026)
+
+Das Virtual Datacenter wird von **hosttech.ch** betrieben, laut Anbieter auf
+KVM-Basis - also weder ein eigenes Proxmox noch VMware Cloud Director.
+
+Öffentlich auffindbar ist:
+
+- hosttech bewirbt für das vDC eine **RESTful API**, über die alle Funktionen
+  des Cloud Control Panels erreichbar sein sollen, sowie zusätzliche
+  API-Methoden für Skripte.
+- Die **DNS-API** (`api.ns1.hosttech.eu`) ist öffentlich dokumentiert und hat
+  mehrere Open-Source-Clients (libdns, lego, cert-manager). **Sie kann keine
+  VMs.** Wer nach «hosttech API» sucht, findet zuerst diese - sie ist nicht
+  gemeint.
+
+**Nicht auffindbar** ist die eigentliche Referenz der vDC-Compute-API:
+weder eine öffentliche Endpunktliste noch ein Terraform-Provider noch ein
+API-Client für Server. Ohne sie lässt sich kein Treiber schreiben, der nicht
+geraten wäre - und geraten wird hier nichts.
+
+#### Was bei hosttech anzufragen ist
+
+1. **Die API-Referenz des Virtual Datacenter für Compute** - Basis-URL,
+   Version, Endpunktliste. Ausdrücklich die vDC-/Server-API, **nicht** die
+   DNS-API.
+2. **Das Authentifizierungsverfahren** - API-Token, Benutzer/Passwort oder
+   OAuth; wo der Schlüssel erzeugt wird und ob er sich auf ein Projekt
+   einschränken lässt.
+3. **Ob die Plattform eine bekannte Standard-API spricht** - Apache
+   CloudStack, OpenStack (Nova), oder eine hauseigene. Das ist die wichtigste
+   Frage: bei CloudStack oder OpenStack gibt es bewährte Clients, und der
+   Treiber wird ein Bruchteil der Arbeit.
+4. **Die konkreten Aufrufe** für: VM aus Template erstellen, Status abfragen,
+   starten, stoppen, löschen.
+5. **Wie eine Startkonfiguration übergeben wird** - cloud-init/user-data
+   oder etwas anderes. SwissHub braucht genau einen Weg, dem Agenten sein
+   Token mitzugeben.
+6. **Wie eine VM-Vorlage entsteht** und unter welcher Kennung sie in der API
+   erscheint (das wird der Wert im Feld «Kennung der Vorlage beim Anbieter»).
+7. **Wie die öffentliche IP-Adresse gemeldet wird** und ob sie sofort oder
+   erst nach dem Start feststeht.
+8. **Wie Firewall-Regeln gesetzt werden** - über die API oder nur im Panel.
+9. **Grenzwerte**: wie viele VMs parallel erstellt werden dürfen, ob es ein
+   Rate Limit auf der API gibt und wie es sich meldet.
+10. **Ob ein Testprojekt möglich ist**, in dem SwissHub provisionieren darf,
+    ohne die produktive Umgebung zu berühren.
+
 **Stand heute:** Es gibt genau einen Treiber, `simulation`. Er erzeugt
 **keine** echten Maschinen und sagt das auch: in der Infrastrukturübersicht
 steht neben ihm «Simulation». Er ist für Tests und zum Einrichten da.
@@ -168,6 +215,29 @@ RCON-Eingabefeld. Die RCON-Passwörter sind je Maschine zufällig, liegen
 verschlüsselt und verschwinden mit der Maschine.
 
 ---
+
+## Die Erweiterung ist freiwillig
+
+Ohne Konfiguration passiert **nichts** - und zwar wirklich nichts:
+
+- Der Durchgang im Bot prüft einmal `konfigurationsStand()` und ist fertig.
+  Keine Abfrage an ein Datacenter, keine Warnung, kein Protokolleintrag.
+  Diese Funktion wirft nie; fällt die Datenbank aus, meldet sie
+  «unbekannt» statt einer Ausnahme.
+- Die Matchansicht lädt den Match Room in einem `try`. Ein Match ohne
+  Serverzuweisung sieht aus wie immer - und eines, bei dem beim Laden etwas
+  schiefgeht, ebenfalls. Eine Seite, die es seit Monaten gibt, darf an einer
+  neuen Erweiterung nicht scheitern.
+- Die Gameserver-Übersicht sagt in einem Satz, was fehlt, und wo man es
+  einträgt. Kein rotes Banner: ein Turnier ohne Gameserver ist ein normales
+  Turnier.
+- Ein eingetragener Anbieter, für den es keinen Treiber gibt, ist eine
+  Lücke in der Liste - kein Absturz.
+- Fehlt `MASTER_ENCRYPTION_KEY`, scheitert eine Bereitstellung mit genau
+  diesem Satz in der Zuordnung, statt mit einer Ausnahme.
+
+`tests/integration/gameserver-optional.test.ts` prüft das gegen eine
+Datenbank, in der nichts eingerichtet ist - und ohne Hauptschlüssel.
 
 ## Ein zweites Spiel ergänzen
 

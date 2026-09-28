@@ -24,6 +24,7 @@ import { createLogger } from '@swisshub/logger';
 import { getModuleSettings, isModuleEnabled } from '../module-state';
 import { TOURNAMENTS_MODULE_ID, type TournamentSettings } from '../tournaments/config';
 import { brauchteTreiber } from './anbieter';
+import { konfigurationsStand } from './bereitschaft';
 import { ladeZugang, provisioniere, raeumeAuf, type OrchestratorEinstellungen } from './orchestrator';
 
 const log = createLogger('gameserver:tick');
@@ -56,6 +57,23 @@ export async function runGameserverTick(jetzt = new Date()): Promise<GameserverT
     abgelaufen: 0,
     geloescht: 0,
   };
+
+  /*
+   * **Der wichtigste Absatz dieser Datei.**
+   *
+   * Der Durchgang laeuft im Minutentakt auf jedem Server, auf dem SwissHub
+   * laeuft - auch dort, wo nie ein Gameserver eingerichtet wird. Er muss
+   * deshalb in diesem Fall **nichts** tun und **nichts** melden: kein
+   * Fehler, keine Warnung, keine Abfrage, die eine nicht vorhandene
+   * Infrastruktur anspricht.
+   *
+   * `konfigurationsStand()` wirft nie und beantwortet genau das. Ist etwas
+   * offen, ist der Durchgang hier zu Ende - lautlos.
+   */
+  const stand = await konfigurationsStand();
+  if (!stand.bereit) {
+    return ergebnis;
+  }
 
   if (!(await isModuleEnabled(TOURNAMENTS_MODULE_ID))) {
     return ergebnis;

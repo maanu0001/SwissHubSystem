@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { tournaments } from '@swisshub/modules';
+import { gameserver, tournaments } from '@swisshub/modules';
 import { StatCard } from '@/components/shared/stat-card';
 import { Panel } from '@/components/shared/panel';
 import { Badge } from '@/components/ui/badge';
@@ -13,16 +13,22 @@ export const dynamic = 'force-dynamic';
 /**
  * Die Übersicht.
  *
- * Sie beantwortet drei Fragen in dieser Reihenfolge: läuft die Sache
- * überhaupt, wie viele Server sind gerade da, und wartet etwas auf eine
- * Entscheidung. Alles Weitere steht in den anderen Bereichen.
+ * ## Was sie zuerst beantwortet
+ *
+ * «Läuft das hier überhaupt?» - und zwar ehrlich. Gameserver sind eine
+ * freiwillige Erweiterung; die meisten Installationen werden nie eine
+ * haben. «Nicht eingerichtet» ist deshalb kein Fehler, sondern eine
+ * Auskunft, und diese Seite sagt sie in einem Satz, mit der Liste dessen,
+ * was fehlt, und der Stelle, an der man es einträgt.
+ *
+ * Was sie **nicht** tut: so aussehen, als wäre etwas kaputt. Kein rotes
+ * Banner, keine Fehlermeldung. Ein Turnier ohne Gameserver ist ein normales
+ * Turnier.
  */
 export default async function GameserverPage(): Promise<React.JSX.Element> {
   const context = await requirePagePermission(tournaments.TOURNAMENT_PERMISSIONS.gameserverView);
   const infrastruktur = await ladeInfrastruktur();
-
-  const bereit =
-    infrastruktur.eingeschaltet && infrastruktur.anbieterVorhanden && infrastruktur.zugangsdatenVorhanden;
+  const { stand, zahlen } = infrastruktur;
 
   return (
     <div className="space-y-6">
@@ -31,54 +37,62 @@ export default async function GameserverPage(): Promise<React.JSX.Element> {
       <Panel
         title="Betriebsbereitschaft"
         icon="Server"
-        description="Was fehlt, damit Matches automatisch einen Server bekommen."
+        description={
+          !stand.ermittelt
+            ? 'Der Zustand lässt sich gerade nicht ermitteln.'
+            : stand.bereit
+              ? stand.nurSimulation
+                ? 'Eingerichtet - aber nur mit dem Simulationstreiber. Es entstehen keine echten Maschinen.'
+                : 'Eingerichtet. Matches bekommen automatisch einen Server.'
+              : 'Noch nicht eingerichtet. Turniere laufen unverändert weiter - nur ohne automatische Server.'
+        }
       >
-        <ul className="space-y-2 text-sm">
-          <Zeile
-            erfuellt={infrastruktur.eingeschaltet}
-            text="Gameserver-Funktion in den Moduleinstellungen eingeschaltet"
-            hinweis="System → Module → Turniere"
-          />
-          <Zeile
-            erfuellt={infrastruktur.anbieterVorhanden}
-            text="Mindestens ein Anbieter eingerichtet"
-            hinweis="Bereich «Infrastruktur»"
-          />
-          <Zeile
-            erfuellt={infrastruktur.zugangsdatenVorhanden}
-            text="Zugangsdaten des Datacenters hinterlegt"
-            hinweis="System → Integrationen → Virtual Datacenter"
-          />
-        </ul>
-
-        {bereit ? null : (
-          <p className="mt-4 text-sm text-muted-foreground">
-            Solange etwas davon fehlt, laufen Turniere wie bisher - nur ohne automatische Server.
+        {!stand.ermittelt ? (
+          <p className="text-sm text-muted-foreground">
+            Sobald die Datenbank wieder antwortet, steht hier, was noch fehlt.
           </p>
+        ) : stand.luecken.length === 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="success">bereit</Badge>
+            {stand.nurSimulation ? <Badge variant="warning">nur Simulation</Badge> : null}
+          </div>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {stand.luecken.map((luecke) => {
+              const eintrag = gameserver.LUECKEN_TEXT[luecke];
+              return (
+                <li key={luecke} className="flex flex-wrap items-baseline gap-2">
+                  <Badge variant="outline">offen</Badge>
+                  <span>{eintrag.text}</span>
+                  <span className="text-xs text-muted-foreground">{eintrag.wo}</span>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </Panel>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Laufende Server" value={infrastruktur.stand.laufend} icon="Server" />
+        <StatCard label="Laufende Server" value={zahlen.laufend} icon="Server" />
         <StatCard
           label="In Bereitstellung"
-          value={infrastruktur.stand.inBereitstellung}
+          value={zahlen.inBereitstellung}
           icon="RefreshCw"
-          tone={infrastruktur.stand.inBereitstellung > 0 ? 'warning' : 'default'}
+          tone={zahlen.inBereitstellung > 0 ? 'warning' : 'default'}
         />
         <StatCard
           label="Fehlerhaft"
-          value={infrastruktur.stand.fehlerhaft}
+          value={zahlen.fehlerhaft}
           icon="ShieldAlert"
-          tone={infrastruktur.stand.fehlerhaft > 0 ? 'destructive' : 'default'}
+          tone={zahlen.fehlerhaft > 0 ? 'destructive' : 'default'}
           href="/turniere/gameserver/server"
         />
         <StatCard
           label="Wartet auf Entscheidung"
-          value={infrastruktur.stand.wartetAufEntscheidung}
+          value={zahlen.wartetAufEntscheidung}
           hint="Resultat unklar oder Archivierung offen"
           icon="Gavel"
-          tone={infrastruktur.stand.wartetAufEntscheidung > 0 ? 'warning' : 'default'}
+          tone={zahlen.wartetAufEntscheidung > 0 ? 'warning' : 'default'}
         />
       </section>
 
@@ -92,32 +106,14 @@ export default async function GameserverPage(): Promise<React.JSX.Element> {
           <Wert
             name="Durchschnittliche Bereitstellung"
             wert={
-              infrastruktur.stand.durchschnittProvisioningSekunden === null
+              zahlen.durchschnittProvisioningSekunden === null
                 ? 'noch nicht gemessen'
-                : `${infrastruktur.stand.durchschnittProvisioningSekunden} Sek.`
+                : `${zahlen.durchschnittProvisioningSekunden} Sek.`
             }
           />
         </dl>
       </Panel>
     </div>
-  );
-}
-
-function Zeile({
-  erfuellt,
-  text,
-  hinweis,
-}: {
-  erfuellt: boolean;
-  text: string;
-  hinweis: string;
-}): React.JSX.Element {
-  return (
-    <li className="flex flex-wrap items-center gap-2">
-      <Badge variant={erfuellt ? 'success' : 'warning'}>{erfuellt ? 'steht' : 'fehlt'}</Badge>
-      <span>{text}</span>
-      {erfuellt ? null : <span className="text-xs text-muted-foreground">{hinweis}</span>}
-    </li>
   );
 }
 

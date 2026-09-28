@@ -1,9 +1,12 @@
 import 'server-only';
 import { can } from '@swisshub/auth';
+import { createLogger } from '@swisshub/logger';
 import { prisma } from '@swisshub/database';
 import { gameserver, tournaments } from '@swisshub/modules';
 import { GAMESERVER_INTEGRATION_ID, hasSecret } from '@swisshub/secrets';
 import type { AuthContext } from '@swisshub/auth';
+
+const logger = createLogger('web:gameserver');
 
 /**
  * Was die Gameserver-Seiten laden.
@@ -46,6 +49,14 @@ export function gameserverAbschnitte(context: AuthContext): GameserverAbschnitt[
 }
 
 export interface InfrastrukturAnsicht {
+  /**
+   * Was fehlt, damit Matches automatisch einen Server bekommen.
+   *
+   * Nie geworfen: `konfigurationsStand()` gibt auch dann eine Antwort, wenn
+   * die Datenbank nicht erreichbar ist - dann steht «unbekannt» da und
+   * nicht «nicht eingerichtet».
+   */
+  stand: Awaited<ReturnType<typeof gameserver.konfigurationsStand>>;
   /** Ist überhaupt ein Anbieter eingerichtet? */
   anbieterVorhanden: boolean;
   /** Liegen Zugangsdaten im verschlüsselten Speicher? */
@@ -67,7 +78,7 @@ export interface InfrastrukturAnsicht {
     lastCheckMessage: string | null;
     templateAnzahl: number;
   }>;
-  stand: Awaited<ReturnType<typeof gameserver.infrastrukturStand>>;
+  zahlen: Awaited<ReturnType<typeof gameserver.infrastrukturStand>>;
   grenzen: {
     maxTotal: number;
     maxPerGame: number;
@@ -87,16 +98,18 @@ export interface InfrastrukturAnsicht {
 export async function ladeInfrastruktur(): Promise<InfrastrukturAnsicht> {
   const settings = await tournaments.einstellungen();
 
-  const [anbieter, stand, zugang] = await Promise.all([
+  const [anbieter, zahlen, zugang, stand] = await Promise.all([
     prisma.gameServerProvider.findMany({
       orderBy: { name: 'asc' },
       include: { _count: { select: { templates: true } } },
     }),
     gameserver.infrastrukturStand(),
     hasSecret(GAMESERVER_INTEGRATION_ID, 'secret'),
+    gameserver.konfigurationsStand(),
   ]);
 
   return {
+    stand,
     anbieterVorhanden: anbieter.length > 0,
     zugangsdatenVorhanden: zugang,
     eingeschaltet: settings.gameserverEnabled,
@@ -113,7 +126,7 @@ export async function ladeInfrastruktur(): Promise<InfrastrukturAnsicht> {
       lastCheckMessage: eintrag.lastCheckMessage,
       templateAnzahl: eintrag._count.templates,
     })),
-    stand,
+    zahlen,
     grenzen: {
       maxTotal: settings.gameserverMaxTotal,
       maxPerGame: settings.gameserverMaxPerGame,
@@ -171,6 +184,27 @@ export interface MatchRoomAnsicht {
  * maskieren wäre Theater.
  */
 export async function ladeMatchRoom(matchId: string, discordId: string): Promise<MatchRoomAnsicht | null> {
+  try {
+    return await leseMatchRoom(matchId, discordId);
+  } catch (fehler) {
+    /*
+     * **Der Grund für dieses try.**
+     *
+     * Diese Funktion wird auf *jeder* Matchseite aufgerufen - auch auf
+     * Matches, die mit Gameservern nie etwas zu tun hatten. Würfe sie,
+     * nähme sie eine Seite mit, die es seit Monaten gibt und die
+     * funktioniert.
+     *
+     * `null` heisst hier dasselbe wie «dieses Match hat keinen Server»:
+     * die Seite sieht aus wie immer. Dass etwas schiefging, steht im
+     * Protokoll, nicht im Weg.
+     */
+    logger.warn('Match Room nicht lesbar', { matchId, fehler });
+    return null;
+  }
+}
+
+async function leseMatchRoom(matchId: string, discordId: string): Promise<MatchRoomAnsicht | null> {
   const zuordnung = await prisma.matchServerAssignment.findFirst({
     where: { matchId },
     orderBy: { generation: 'desc' },

@@ -38,7 +38,7 @@ import { createLogger } from '@swisshub/logger';
 import { AppError } from '@swisshub/shared';
 import { GAMESERVER_INTEGRATION_ID, encryptSecret, decryptSecret, getSecret } from '@swisshub/secrets';
 import { TOURNAMENTS_MODULE_ID } from '../tournaments/config';
-import { brauchteTreiber, type Zugangsdaten } from './anbieter';
+import { anbieterTreiber, brauchteTreiber, type Zugangsdaten } from './anbieter';
 import { gameAdapter } from './adapter';
 import { agentZugriff, type AgentTransport } from './agent-client';
 import { erzeugeAgentToken, erzeugeRconPasswort, erzeugeServerPasswort } from './agent-protokoll';
@@ -196,7 +196,23 @@ export async function provisioniere(
     return { ok: false, grund: grenze.grund };
   }
 
-  const treiber = brauchteTreiber(anbieter.driver);
+  /*
+   * Fehlt der Treiber, bricht das hier ab - lesbar und ohne Ausnahme.
+   *
+   * `brauchteTreiber` wirft; das faengt der Durchgang zwar ab, aber die
+   * Zuordnung bliebe ohne Begruendung wartend. Besser: die Frage hier
+   * stellen und die Antwort in die Zeile schreiben, damit sie in der
+   * Oberflaeche steht.
+   */
+  const treiber = anbieterTreiber(anbieter.driver);
+  if (!treiber) {
+    return merkeFehler(
+      assignmentId,
+      'PROVISION_FAILED',
+      `Für den Anbieter «${anbieter.name}» gibt es keinen Treiber («${anbieter.driver}»). Ohne Treiber lassen sich keine Server erstellen.`,
+    );
+  }
+
   const zugang = await ladeZugang();
 
   const agentToken = erzeugeAgentToken();
@@ -216,6 +232,31 @@ export async function provisioniere(
   }
   const ports = adapter.benoetigtePorts({ gotvEnabled: profil.gotvEnabled });
 
+  /*
+   * Die Geheimnisse verschluesseln - bevor irgendetwas geschrieben wird.
+   *
+   * `encryptSecret` verlangt `MASTER_ENCRYPTION_KEY`. Fehlt er, waere das
+   * eine Ausnahme mitten im Anlegen; der Durchgang faengt sie zwar, aber die
+   * Zuordnung bliebe ohne Begruendung stehen. Hier gefragt, steht die
+   * Antwort in der Zeile und damit in der Oberflaeche.
+   */
+  let rconVerschluesselt: string;
+  let tokenVerschluesselt: string;
+  try {
+    rconVerschluesselt = encryptSecret(rconPasswort, geheimnisAdresse(`rcon:${name}`));
+    tokenVerschluesselt = encryptSecret(agentToken, geheimnisAdresse(`agent:${name}`));
+  } catch {
+    /*
+     * Die Ausnahme selbst wird nicht weitergereicht: sie nennt den
+     * Schluessel und seine Laenge. Was hier steht, reicht zum Beheben.
+     */
+    return merkeFehler(
+      assignmentId,
+      'PROVISION_FAILED',
+      'Die Zugangsdaten des Servers liessen sich nicht verschlüsseln - vermutlich fehlt MASTER_ENCRYPTION_KEY.',
+    );
+  }
+
   // Die Zeile zuerst: auch ein gescheiterter Versuch soll nachher dastehen.
   const instanz = await prisma.gameServerInstance.create({
     data: {
@@ -229,8 +270,8 @@ export async function provisioniere(
       gamePort: ports.game,
       tvPort: ports.tv,
       agentPort: template.agentPort,
-      rconPasswordEnc: encryptSecret(rconPasswort, geheimnisAdresse(`rcon:${name}`)),
-      agentTokenEnc: encryptSecret(agentToken, geheimnisAdresse(`agent:${name}`)),
+      rconPasswordEnc: rconVerschluesselt,
+      agentTokenEnc: tokenVerschluesselt,
       serverPassword: serverPasswort || null,
       tournamentId: zuordnung.match.tournamentId,
       provisionStartedAt: jetzt,
