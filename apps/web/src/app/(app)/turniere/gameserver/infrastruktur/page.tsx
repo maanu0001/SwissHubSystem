@@ -30,9 +30,43 @@ export default async function InfrastrukturPage(): Promise<React.JSX.Element> {
       <GameserverSectionNav abschnitte={gameserverAbschnitte(context)} />
 
       <Panel
-        title="Zugangsdaten"
+        title="Gesamtlage"
+        icon="Gauge"
+        description="Hosts und Match-Instanzen zusammen - eine Zahl ohne die andere beantwortet «reicht das?» nicht."
+      >
+        <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+          <Kennzahl label="Hosts online" wert={String(infrastruktur.zahlen.hostsOnline)} />
+          <Kennzahl label="Hosts offline" wert={String(infrastruktur.zahlen.hostsOffline)} />
+          <Kennzahl label="Laufen leer" wert={String(infrastruktur.zahlen.hostsDraining)} />
+          <Kennzahl label="In Wartung" wert={String(infrastruktur.zahlen.hostsWartung)} />
+          <Kennzahl label="Aktive Matches" wert={String(infrastruktur.zahlen.laufend)} />
+          <Kennzahl label="Werden erstellt" wert={String(infrastruktur.zahlen.inBereitstellung)} />
+          <Kennzahl label="Freie Plätze" wert={String(infrastruktur.zahlen.plaetzeFrei)} />
+          <Kennzahl
+            label="Wartet auf Entscheidung"
+            wert={String(infrastruktur.zahlen.wartetAufEntscheidung)}
+          />
+          <Kennzahl label="CPU reserviert" wert={infrastruktur.zahlen.cpuReserviert.toFixed(1)} />
+          <Kennzahl
+            label="RAM reserviert"
+            wert={`${String(Math.round(infrastruktur.zahlen.memoryReserviertMb / 1024))} GB`}
+          />
+          <Kennzahl label="Fehlerhaft" wert={String(infrastruktur.zahlen.fehlerhaft)} />
+          <Kennzahl
+            label="Ø Bereitstellung"
+            wert={
+              infrastruktur.zahlen.durchschnittProvisioningSekunden === null
+                ? 'nie gemessen'
+                : `${String(infrastruktur.zahlen.durchschnittProvisioningSekunden)} s`
+            }
+          />
+        </dl>
+      </Panel>
+
+      <Panel
+        title="Zugangsdaten für ganze Maschinen"
         icon="KeyRound"
-        description="Verschlüsselt gespeichert, nie angezeigt. Gepflegt unter System → Integrationen → Virtual Datacenter."
+        description="Nur nötig, wenn SwissHub später selbst Hosts erzeugen soll. Für vorbereitete Hosts braucht es sie nicht. Verschlüsselt gespeichert, nie angezeigt; gepflegt unter System → Integrationen → Virtual Datacenter."
       >
         <Badge variant={infrastruktur.zugangsdatenVorhanden ? 'success' : 'warning'}>
           {infrastruktur.zugangsdatenVorhanden ? 'hinterlegt' : 'nicht eingerichtet'}
@@ -81,6 +115,15 @@ export default async function InfrastrukturPage(): Promise<React.JSX.Element> {
         treiber={gameserver.listeAnbieterTreiber().map((t) => ({ key: t.key, label: t.label }))}
         csrfToken={csrfToken}
       />
+    </div>
+  );
+}
+
+function Kennzahl({ label, wert }: { label: string; wert: string }): React.JSX.Element {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="text-lg font-medium tabular-nums">{wert}</dd>
     </div>
   );
 }

@@ -148,8 +148,29 @@ export interface GameAdapter {
    */
   readonly profilPlattform: string;
 
-  /** Die Ports, die dieses Spiel von aussen braucht. */
+  /**
+   * Die Ports, die dieses Spiel von aussen braucht.
+   *
+   * Seit die Instanzen Container auf einem Host sind, bestimmt der Adapter
+   * nur noch die Ports **im Container** - welche Ports auf dem Host
+   * herausschauen, entscheidet der Port-Allocator. Ein Adapter, der einen
+   * Hostport festlegte, koennte nur eine Instanz je Host.
+   */
   benoetigtePorts(profil: { gotvEnabled: boolean }): { game: number; tv: number | null };
+
+  /**
+   * Was der Container an Umgebungsvariablen braucht.
+   *
+   * **Der Grund fuer diese Methode.** Ein Spielserver-Abbild erwartet seine
+   * Grundeinstellungen als Umgebungsvariablen, und welche das sind, ist
+   * Wissen ueber das Spiel. Stuende es im Orchestrator, muesste man ihn fuer
+   * jedes neue Spiel anfassen - genau das, was die Adapterschicht verhindern
+   * soll. Ein Strukturtest prueft, dass im Orchestrator kein Spielname steht.
+   *
+   * Geheimnisse gehoeren **nicht** hierher: RCON-Passwort und Serverpasswort
+   * setzt der Orchestrator, weil er sie erzeugt und verschluesselt ablegt.
+   */
+  laufzeitUmgebung(kontext: LaufzeitKontext): Record<string, string>;
 
   /** Wie viele Maps bei diesem Modus gespielt werden. */
   mapAnzahl(bestOf: number): number;
@@ -191,6 +212,19 @@ export interface GameAdapter {
 
   /** Welche Dateien nach dem Match gesichert werden sollen. */
   dateien(agent: AgentZugriff): Promise<AdapterDatei[]>;
+}
+
+/** Was der Adapter ueber die Instanz weiss, bevor sie laeuft. */
+export interface LaufzeitKontext {
+  /** Wie der Server in der Serverliste heissen soll. */
+  serverName: string;
+  slots: number;
+  tickrate: number;
+  /** Der Port **im Container**, nicht der auf dem Host. */
+  gamePortImContainer: number;
+  gotvEnabled: boolean;
+  /** Die Einstellungen aus dem Game Profile, so wie sie festgehalten wurden. */
+  profil: Record<string, unknown>;
 }
 
 /** Ein Schritt im Veto-Ablauf. */

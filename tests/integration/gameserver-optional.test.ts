@@ -42,7 +42,13 @@ describeWithDatabase('Ohne jede Konfiguration', () => {
     await prisma.matchServerAssignment.deleteMany();
     await prisma.provisioningAttempt.deleteMany();
     await prisma.gameServerInstance.deleteMany();
+    await prisma.hostPortReservation.deleteMany();
+    await prisma.hostImageState.deleteMany();
+    await prisma.serverHeartbeat.deleteMany();
     await prisma.gameProfile.deleteMany();
+    await prisma.gameRuntimeImage.deleteMany();
+    await prisma.gameServerHost.deleteMany();
+    await prisma.hostGroup.deleteMany();
     await prisma.gameServerTemplate.deleteMany();
     await prisma.gameServerProvider.deleteMany();
   });
@@ -52,9 +58,11 @@ describeWithDatabase('Ohne jede Konfiguration', () => {
 
     expect(stand.ermittelt).toBe(true);
     expect(stand.bereit).toBe(false);
-    expect(stand.luecken).toContain('KEIN_ANBIETER');
-    expect(stand.luecken).toContain('KEIN_TEMPLATE');
+    expect(stand.luecken).toContain('KEIN_HOST');
+    expect(stand.luecken).toContain('KEIN_ABBILD');
     expect(stand.luecken).toContain('KEIN_PROFIL');
+    expect(stand.hosts).toBe(0);
+    expect(stand.hostsBereit).toBe(0);
   });
 
   it('nennt jede Lücke im Klartext und sagt, wo man sie schliesst', async () => {
@@ -82,7 +90,14 @@ describeWithDatabase('Ohne jede Konfiguration', () => {
      */
     const ergebnis = await gameserver.runGameserverTick();
 
-    expect(ergebnis).toEqual({ angestossen: 0, fortgeschritten: 0, abgelaufen: 0, geloescht: 0 });
+    expect(ergebnis).toEqual({
+      hostsGefragt: 0,
+      angestossen: 0,
+      fortgeschritten: 0,
+      abgelaufen: 0,
+      unterbrochen: 0,
+      geloescht: 0,
+    });
     expect(await prisma.gameServerInstance.count()).toBe(0);
   });
 
@@ -146,17 +161,25 @@ describeWithDatabase('Mit halber Konfiguration', () => {
     await prisma.matchServerAssignment.deleteMany();
     await prisma.provisioningAttempt.deleteMany();
     await prisma.gameServerInstance.deleteMany();
+    await prisma.hostPortReservation.deleteMany();
+    await prisma.hostImageState.deleteMany();
+    await prisma.serverHeartbeat.deleteMany();
     await prisma.gameProfile.deleteMany();
+    await prisma.gameRuntimeImage.deleteMany();
+    await prisma.gameServerHost.deleteMany();
+    await prisma.hostGroup.deleteMany();
     await prisma.gameServerTemplate.deleteMany();
     await prisma.gameServerProvider.deleteMany();
   });
 
-  it('meldet einen Anbieter ohne Treiber als Lücke - nicht als Absturz', async () => {
+  it('meldet einen Anbieter ohne Treiber nicht mehr als Lücke', async () => {
     /*
-     * Genau der Fall, der nach dem Einrichten eintritt: jemand trägt den
-     * Anbieter ein, für den es den Treiber noch nicht gibt. Das ist eine
-     * Auskunft, kein Fehler - und es darf weder die Seite noch den
-     * Durchgang mitnehmen.
+     * **Eine bewusste Änderung gegenüber dem VM-Modell.**
+     *
+     * Ein Anbieter ist seit den vorbereiteten Hosts keine Voraussetzung
+     * mehr: er wird erst gebraucht, wenn SwissHub selbst Maschinen erzeugen
+     * soll. Ein halb eingetragener Anbieter darf deshalb nicht dazu führen,
+     * dass ein vollständig eingerichteter Host als «nicht bereit» gilt.
      */
     await prisma.gameServerProvider.create({
       data: { name: 'Noch kein Treiber', driver: 'gibt-es-nicht', enabled: true },
@@ -164,52 +187,97 @@ describeWithDatabase('Mit halber Konfiguration', () => {
 
     const stand = await gameserver.konfigurationsStand();
     expect(stand.ermittelt).toBe(true);
-    expect(stand.bereit).toBe(false);
-    expect(stand.luecken).toContain('TREIBER_FEHLT');
+    expect(stand.luecken).not.toContain('TREIBER_FEHLT');
+    expect(stand.luecken).not.toContain('KEINE_ZUGANGSDATEN');
 
     // Und der Durchgang läuft trotzdem durch.
     await expect(gameserver.runGameserverTick()).resolves.toBeDefined();
   });
 
-  it('verlangt vom Simulationstreiber keine Zugangsdaten', async () => {
+  it('zählt einen Host, der sich nie gemeldet hat, nicht als bereit', async () => {
     /*
-     * Er spricht kein Datacenter an. Von ihm Zugangsdaten zu verlangen
-     * hiesse, beim Einrichten eine Hürde aufzubauen, die nichts absichert.
+     * Ein Host, den jemand angelegt, aber nie registriert hat, ist ein
+     * Eintrag in einer Tabelle - kein Server. Wer ihn mitzählte, liesse
+     * Matches auf eine Maschine warten, die es vielleicht gar nicht gibt.
      */
-    await prisma.gameServerProvider.create({
-      data: { name: 'Sim', driver: 'simulation', enabled: true },
+    await prisma.gameServerHost.create({
+      data: { name: 'Nie gemeldet', hostname: '192.0.2.10', allowedGames: ['CS2'] },
     });
 
     const stand = await gameserver.konfigurationsStand();
-    expect(stand.nurSimulation).toBe(true);
-    expect(stand.luecken).not.toContain('KEINE_ZUGANGSDATEN');
+    expect(stand.hosts).toBe(1);
+    expect(stand.hostsBereit).toBe(0);
+    expect(stand.luecken).toContain('KEIN_HOST_BEREIT');
+    expect(stand.luecken).not.toContain('KEIN_HOST');
   });
 
-  it('verlangt von einem echten Anbieter Zugangsdaten', async () => {
-    /*
-     * Die Gegenprobe. Der Simulationstreiber ist die Ausnahme, nicht die
-     * Regel - ein echter Anbieter ohne Zugangsdaten ist eine offene Lücke.
-     *
-     * Geprüft wird über den Simulationstreiber unter einem anderen Namen:
-     * es geht um die Unterscheidung «Simulation oder nicht», und einen
-     * zweiten Treiber gibt es (bewusst) noch nicht.
-     */
-    await prisma.gameServerProvider.create({
-      data: { name: 'Echtes Datacenter', driver: 'gibt-es-nicht', enabled: true },
+  it('zählt einen Host in Wartung nicht als bereit', async () => {
+    await prisma.gameServerHost.create({
+      data: {
+        name: 'In Wartung',
+        hostname: '192.0.2.11',
+        allowedGames: ['CS2'],
+        status: 'MAINTENANCE',
+        registeredAt: new Date(),
+        lastHeartbeatAt: new Date(),
+        dockerAvailable: true,
+      },
     });
 
     const stand = await gameserver.konfigurationsStand();
-    expect(stand.nurSimulation).toBe(false);
-    expect(stand.luecken).toContain('KEINE_ZUGANGSDATEN');
+    expect(stand.hostsBereit).toBe(0);
+    expect(stand.luecken).toContain('KEIN_HOST_BEREIT');
   });
 
-  it('zählt einen ausgeschalteten Anbieter nicht mit', async () => {
-    await prisma.gameServerProvider.create({
-      data: { name: 'Aus', driver: 'simulation', enabled: false },
+  it('zählt einen Host, dessen Lebenszeichen alt ist, nicht als bereit', async () => {
+    await prisma.gameServerHost.create({
+      data: {
+        name: 'Stumm',
+        hostname: '192.0.2.12',
+        allowedGames: ['CS2'],
+        registeredAt: new Date('2026-01-01T00:00:00Z'),
+        lastHeartbeatAt: new Date('2026-01-01T00:00:00Z'),
+        dockerAvailable: true,
+      },
     });
 
+    const stand = await gameserver.konfigurationsStand(new Date('2026-06-01T00:00:00Z'));
+    expect(stand.hostsBereit).toBe(0);
+  });
+
+  it('meldet ein Profil ohne Runtime-Image als eigene Lücke', async () => {
+    /*
+     * Ein Profil ohne Abbild sieht vollständig aus und ist es nicht: beim
+     * ersten Match gäbe es nichts, woraus ein Container entstehen könnte.
+     * Das soll beim Einrichten auffallen, nicht im Turnier.
+     */
+    await prisma.gameRuntimeImage.create({
+      data: { name: 'CS2', game: 'CS2', image: 'ghcr.io/example/cs2', tag: 'x' },
+    });
+    await prisma.gameProfile.create({ data: { name: 'Ohne Abbild', game: 'CS2' } });
+
     const stand = await gameserver.konfigurationsStand();
-    expect(stand.luecken).toContain('ANBIETER_AUS');
-    expect(stand.luecken).not.toContain('KEIN_ANBIETER');
+    expect(stand.luecken).toContain('PROFIL_OHNE_ABBILD');
+    expect(stand.luecken).not.toContain('KEIN_PROFIL');
+    expect(stand.luecken).not.toContain('KEIN_ABBILD');
+  });
+
+  it('bleibt auch mit einem Host ohne lesbare Identität lautlos', async () => {
+    /*
+     * Der Durchgang fragt jeden registrierten Host. Ohne Hauptschlüssel
+     * lässt sich dessen Identität nicht entschlüsseln - und genau dann darf
+     * er nicht werfen, sondern muss den Fehler in die Zeile schreiben.
+     */
+    await prisma.gameServerHost.create({
+      data: {
+        name: 'Ohne Schlüssel',
+        hostname: '192.0.2.13',
+        allowedGames: ['CS2'],
+        registeredAt: new Date(),
+        agentTokenEnc: 'unlesbar',
+      },
+    });
+
+    await expect(gameserver.runGameserverTick()).resolves.toBeDefined();
   });
 });

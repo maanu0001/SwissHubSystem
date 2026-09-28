@@ -16,6 +16,7 @@
   "include": [
     "packages/**/*.ts",
     "apps/bot/src/**/*.ts",
+    "apps/game-agent/src/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.ts",
     "vitest.config.ts"

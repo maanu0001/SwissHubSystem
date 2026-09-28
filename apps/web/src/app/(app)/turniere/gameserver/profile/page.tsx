@@ -19,16 +19,26 @@ export const dynamic = 'force-dynamic';
 export default async function GameProfilesPage(): Promise<React.JSX.Element> {
   const context = await requirePagePermission(tournaments.TOURNAMENT_PERMISSIONS.gameProfilesManage);
 
-  const [profile, templates, csrfToken] = await Promise.all([
+  const [profile, templates, abbilder, gruppen, csrfToken] = await Promise.all([
     prisma.gameProfile.findMany({
       orderBy: [{ enabled: 'desc' }, { name: 'asc' }],
-      include: { template: { select: { name: true } } },
+      include: {
+        template: { select: { name: true } },
+        runtimeImage: { select: { name: true } },
+        preferredGroup: { select: { name: true } },
+      },
     }),
     prisma.gameServerTemplate.findMany({
       where: { enabled: true },
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
     }),
+    prisma.gameRuntimeImage.findMany({
+      where: { enabled: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    }),
+    prisma.hostGroup.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
     csrfTokenFor(context),
   ]);
 
@@ -41,6 +51,11 @@ export default async function GameProfilesPage(): Promise<React.JSX.Element> {
           name: eintrag.name,
           game: eintrag.game,
           templateName: eintrag.template?.name ?? null,
+          abbildName: eintrag.runtimeImage?.name ?? null,
+          gruppeName: eintrag.preferredGroup?.name ?? null,
+          cpuLimit: eintrag.cpuLimit,
+          memoryLimitMb: eintrag.memoryLimitMb,
+          maxRuntimeMinutes: eintrag.maxRuntimeMinutes,
           mapPool: eintrag.mapPool,
           slots: eintrag.slots,
           overtime: eintrag.overtime,
@@ -51,6 +66,8 @@ export default async function GameProfilesPage(): Promise<React.JSX.Element> {
           enabled: eintrag.enabled,
         }))}
         templates={templates}
+        abbilder={abbilder}
+        gruppen={gruppen}
         csrfToken={csrfToken}
       />
     </div>

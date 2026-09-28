@@ -59,6 +59,8 @@ export const TOURNAMENT_PERMISSIONS = {
    * jemand das Turniermodul abschaltet und das Gameserver-Modul nicht.
    */
   gameserverView: 'tournaments.gameserver.view',
+  hostsManage: 'tournaments.gameserver.hosts',
+  runtimeImagesManage: 'tournaments.gameserver.images',
   gameserverManage: 'tournaments.gameserver.manage',
   gameProfilesManage: 'tournaments.gameserver.profiles',
   templatesManage: 'tournaments.gameserver.templates',
@@ -601,6 +603,21 @@ export const tournamentsModule: ModuleDefinition = registerModule({
       label: 'Gameserver verwalten',
       description: 'Server von Hand anfordern, freigeben und einem Match zuweisen.',
       module: TOURNAMENTS_MODULE_ID,
+    },
+    {
+      key: TOURNAMENT_PERMISSIONS.hostsManage,
+      label: 'Gameserver-Hosts verwalten',
+      description:
+        'Hosts anlegen, registrieren, in Wartung schicken, leerlaufen lassen und entfernen. Bestimmt, wo Matches laufen.',
+      module: TOURNAMENTS_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: TOURNAMENT_PERMISSIONS.runtimeImagesManage,
+      label: 'Runtime-Images verwalten',
+      description: 'Container-Abbilder eintragen, Versionen setzen und auf Hosts laden.',
+      module: TOURNAMENTS_MODULE_ID,
+      critical: true,
     },
     {
       key: TOURNAMENT_PERMISSIONS.gameProfilesManage,

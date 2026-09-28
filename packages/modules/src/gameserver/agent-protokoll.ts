@@ -29,6 +29,24 @@
  * was aelter ist als `ZEITFENSTER_SEKUNDEN` oder dessen Nonce er schon
  * gesehen hat.
  *
+ * ## Warum die Kennung im Rumpf steht und nicht im Pfad
+ *
+ * Seit ein Agent nicht mehr eine Maschine, sondern einen **Host** mit vielen
+ * Match-Instanzen bedient, braucht fast jede Aktion eine Instanzkennung.
+ * Der naheliegende Weg waere `/instances/<id>/match/pause` gewesen - und er
+ * haette die wichtigste Eigenschaft dieses Protokolls aufgegeben.
+ *
+ * Die Pfadpruefung ist ein **exakter** Vergleich gegen `ERLAUBTE_PFADE`:
+ * was nicht in der Liste steht, ist 404, noch vor jeder Signaturpruefung.
+ * Ein veraenderliches Pfadsegment zwingt zu einem Muster statt einer Liste,
+ * und ein Muster ist eine Auslegungssache - genau das, was hier nirgends
+ * sein soll.
+ *
+ * Die Kennung steht deshalb im Rumpf. Sie ist dadurch **nicht** weniger
+ * geschuetzt: die Signatur deckt den SHA-256 des Rumpfes ab, also gilt ein
+ * mitgelesener Aufruf fuer genau diese Instanz und keine andere. Die
+ * Pfadliste bleibt eine Liste.
+ *
  * ## Warum das Protokoll hier steht und nicht im Agenten
  *
  * Damit beide Seiten dieselbe Datei lesen. Ein Protokoll, das an zwei
@@ -36,6 +54,7 @@
  * erst auf, wenn eine Signatur nicht passt.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { pruefeSpezifikation, type ContainerSpezifikation } from './runtime';
 
 /**
  * Was der Agent kann. Vollstaendig.
@@ -46,19 +65,53 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
  * passiert.
  */
 export const AGENT_AKTIONEN = {
+  // --- Der Host ----------------------------------------------------------
   health: { methode: 'GET', pfad: '/health' },
-  matchStatus: { methode: 'GET', pfad: '/match/status' },
-  dateien: { methode: 'GET', pfad: '/files/demos' },
+  hostStatus: { methode: 'GET', pfad: '/host/status' },
 
-  gameStart: { methode: 'POST', pfad: '/game/start' },
-  gameStop: { methode: 'POST', pfad: '/game/stop' },
-  gameRestart: { methode: 'POST', pfad: '/game/restart' },
+  // --- Abbilder ----------------------------------------------------------
+  imageListe: { methode: 'GET', pfad: '/images' },
+  imagePull: { methode: 'POST', pfad: '/images/pull' },
 
-  matchConfigure: { methode: 'POST', pfad: '/match/configure' },
-  matchPause: { methode: 'POST', pfad: '/match/pause' },
-  matchUnpause: { methode: 'POST', pfad: '/match/unpause' },
-  matchRestore: { methode: 'POST', pfad: '/match/restore' },
+  // --- Instanzen ---------------------------------------------------------
+  instanzen: { methode: 'GET', pfad: '/instances' },
+  instanzErstellen: { methode: 'POST', pfad: '/instances/create' },
+  instanzStarten: { methode: 'POST', pfad: '/instances/start' },
+  instanzStoppen: { methode: 'POST', pfad: '/instances/stop' },
+  instanzNeustart: { methode: 'POST', pfad: '/instances/restart' },
+  instanzLoeschen: { methode: 'POST', pfad: '/instances/delete' },
+  instanzStatus: { methode: 'POST', pfad: '/instances/status' },
+  dateien: { methode: 'POST', pfad: '/instances/files' },
+
+  // --- Das Match in einer Instanz ----------------------------------------
+  matchConfigure: { methode: 'POST', pfad: '/instances/match/configure' },
+  matchPause: { methode: 'POST', pfad: '/instances/match/pause' },
+  matchUnpause: { methode: 'POST', pfad: '/instances/match/unpause' },
+  matchRestore: { methode: 'POST', pfad: '/instances/match/restore' },
+  matchStatus: { methode: 'POST', pfad: '/instances/match/status' },
 } as const;
+
+/**
+ * Welche Aktionen sich auf **eine** Instanz beziehen.
+ *
+ * Sie verlangen alle `instanceId` in der Nutzlast - und zwar im Rumpf, nicht
+ * im Pfad. Das ist der Grund, warum diese Liste existiert; siehe den Absatz
+ * «Warum die Kennung im Rumpf steht» oben.
+ */
+export const INSTANZ_AKTIONEN = [
+  'instanzErstellen',
+  'instanzStarten',
+  'instanzStoppen',
+  'instanzNeustart',
+  'instanzLoeschen',
+  'instanzStatus',
+  'dateien',
+  'matchConfigure',
+  'matchPause',
+  'matchUnpause',
+  'matchRestore',
+  'matchStatus',
+] as const;
 
 export type AgentAktion = keyof typeof AGENT_AKTIONEN;
 
@@ -210,16 +263,42 @@ export function pruefeAnfrage(eingabe: PruefEingabe): PruefErgebnis {
 /**
  * Die Parameter, die eine Aktion annimmt - und zwar nur diese.
  *
- * `matchRestore` ist die einzige mit einem Wert, und der ist eine Rundenzahl
- * zwischen 1 und 60. Eine Zeichenkette kommt hier nicht durch, und damit
- * auch nichts, was auf dem Server als Befehl enden koennte.
+ * ## Die Regel
+ *
+ * Jede Aktion, die eine Instanz betrifft, verlangt eine **Kennung im
+ * Kennungsformat** - keinen beliebigen Text. Damit kann aus einer
+ * Instanzkennung kein Pfad und kein Argument werden, auch wenn jemand
+ * spaeter einen Weg baut, der sie irgendwo einsetzt.
+ *
+ * `matchRestore` traegt zusaetzlich eine Rundenzahl zwischen 1 und 60,
+ * `instanzErstellen` eine vollstaendige Container-Spezifikation, und die
+ * wird von `pruefeSpezifikation` geprueft - derselben Funktion, die auch
+ * der Agent aufruft, bevor er Docker anfasst.
  */
+/** Eine Kennung, wie sie aus der Datenbank kommt. Nichts anderes. */
+export const KENNUNG_MUSTER = /^[A-Za-z0-9_-]{8,64}$/u;
+
 export function pruefeNutzlast(
   aktion: AgentAktion,
   nutzlast: unknown,
 ): { ok: true } | { ok: false; grund: string } {
+  const objekt =
+    typeof nutzlast === 'object' && nutzlast !== null && !Array.isArray(nutzlast)
+      ? (nutzlast as Record<string, unknown>)
+      : null;
+
+  if ((INSTANZ_AKTIONEN as readonly string[]).includes(aktion)) {
+    if (!objekt) {
+      return { ok: false, grund: 'Diese Aktion verlangt ein Objekt.' };
+    }
+    const kennung = objekt.instanceId;
+    if (typeof kennung !== 'string' || !KENNUNG_MUSTER.test(kennung)) {
+      return { ok: false, grund: 'instanceId fehlt oder ist keine gültige Kennung.' };
+    }
+  }
+
   if (aktion === 'matchRestore') {
-    const runde = (nutzlast as { round?: unknown } | null)?.round;
+    const runde = objekt?.round;
     if (typeof runde !== 'number' || !Number.isInteger(runde) || runde < 1 || runde > 60) {
       return { ok: false, grund: 'restore verlangt eine Rundenzahl zwischen 1 und 60.' };
     }
@@ -227,8 +306,66 @@ export function pruefeNutzlast(
   }
 
   if (aktion === 'matchConfigure') {
-    if (typeof nutzlast !== 'object' || nutzlast === null || Array.isArray(nutzlast)) {
-      return { ok: false, grund: 'configure verlangt ein Objekt.' };
+    const konfiguration = objekt?.config;
+    if (typeof konfiguration !== 'object' || konfiguration === null || Array.isArray(konfiguration)) {
+      return { ok: false, grund: 'configure verlangt eine Matchkonfiguration als Objekt.' };
+    }
+    return { ok: true };
+  }
+
+  if (aktion === 'instanzErstellen') {
+    const spez = objekt?.spec;
+    if (typeof spez !== 'object' || spez === null || Array.isArray(spez)) {
+      return { ok: false, grund: 'create verlangt eine Container-Spezifikation.' };
+    }
+    /*
+     * **Hier steht die eigentliche Absicherung des Containerstarts.**
+     *
+     * Abbild, Kommando, Umgebung, Ports, Limits und Mountpfade werden
+     * einzeln geprueft. Es gibt keinen Zweig, der eine Spezifikation
+     * ungeprueft durchlaesst - auch nicht fuer «vertrauenswuerdige»
+     * Aufrufer, denn die Vertrauensfrage stellt sich an dieser Stelle gar
+     * nicht mehr: wer bis hierher kommt, hat eine gueltige Signatur.
+     */
+    const geprueft = pruefeSpezifikation(spez as ContainerSpezifikation);
+    if (!geprueft.ok) {
+      return geprueft;
+    }
+    return { ok: true };
+  }
+
+  if (aktion === 'instanzLoeschen' || aktion === 'instanzStoppen') {
+    // `force` ist ein Schalter, kein Wert. Alles andere wird ignoriert.
+    const erzwingen = objekt?.force;
+    if (erzwingen !== undefined && typeof erzwingen !== 'boolean') {
+      return { ok: false, grund: 'force muss ja oder nein sein.' };
+    }
+    return { ok: true };
+  }
+
+  if (aktion === 'imagePull') {
+    const abbild = objekt?.image;
+    if (typeof abbild !== 'string' || abbild.length === 0 || abbild.length > 256) {
+      return { ok: false, grund: 'pull verlangt einen Abbildnamen.' };
+    }
+    /*
+     * Dasselbe Muster wie in der Spezifikation - und **kein** zweites,
+     * lockereres. Ein Abbild, das beim Erstellen abgewiesen wuerde, soll
+     * auch nicht vorab geladen werden koennen.
+     */
+    const probe = pruefeSpezifikation({
+      name: 'swisshub-pruefung',
+      image: abbild,
+      command: [],
+      env: {},
+      ports: [{ container: 1, host: 1, protokoll: 'udp' }],
+      cpuLimit: 1,
+      memoryLimitMb: 1024,
+      dataMountPath: '/swisshub/data',
+      configMountPath: '/swisshub/config',
+    });
+    if (!probe.ok) {
+      return { ok: false, grund: 'Der Abbildname ist nicht gültig.' };
     }
     return { ok: true };
   }

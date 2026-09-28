@@ -18,8 +18,41 @@
  */
 import { prisma, type GameServerGame } from '@swisshub/database';
 
-/** Zustaende, in denen eine Maschine Kosten verursacht. */
-export const BELEGENDE_ZUSTAENDE = ['PENDING', 'PROVISIONING', 'BOOTING', 'AGENT_READY', 'RUNNING'] as const;
+/**
+ * Zustaende, in denen eine Instanz Kapazitaet verbraucht.
+ *
+ * Ab der Reservierung, nicht erst ab dem laufenden Container - sonst waeren
+ * zwanzig gleichzeitige Anforderungen alle «unter der Grenze», weil noch
+ * keine fertig ist. Die Zustaende aus der VM-Welt zaehlen weiter mit,
+ * solange es Zeilen daraus gibt.
+ */
+export const BELEGENDE_ZUSTAENDE = [
+  'RESERVED',
+  'CREATING',
+  'STARTING',
+  'CONFIGURING',
+  'READY',
+  'LIVE',
+  'STOPPING',
+  'STOPPED',
+  'ARCHIVING',
+  'PENDING',
+  'PROVISIONING',
+  'BOOTING',
+  'AGENT_READY',
+  'RUNNING',
+] as const;
+
+/** Zustaende, in denen eine Instanz gerade erst entsteht. */
+export const ENTSTEHENDE_ZUSTAENDE = [
+  'RESERVED',
+  'CREATING',
+  'STARTING',
+  'CONFIGURING',
+  'PENDING',
+  'PROVISIONING',
+  'BOOTING',
+] as const;
 
 export interface Grenzwerte {
   maxTotal: number;
@@ -48,7 +81,7 @@ export async function zaehleBelegung(game: GameServerGame, tournamentId: string 
   const [gesamt, jeSpiel, inBereitstellung, jeTurnier] = await Promise.all([
     prisma.gameServerInstance.count({ where: laufend }),
     prisma.gameServerInstance.count({ where: { ...laufend, game } }),
-    prisma.gameServerInstance.count({ where: { status: { in: ['PENDING', 'PROVISIONING', 'BOOTING'] } } }),
+    prisma.gameServerInstance.count({ where: { status: { in: [...ENTSTEHENDE_ZUSTAENDE] } } }),
     tournamentId
       ? prisma.gameServerInstance.count({ where: { ...laufend, tournamentId } })
       : Promise.resolve(0),
@@ -74,7 +107,7 @@ export async function darfProvisionieren(
   if (belegung.gesamt >= grenzen.maxTotal) {
     return {
       erlaubt: false,
-      grund: `Es laufen bereits ${belegung.gesamt} Server - die Gesamtgrenze liegt bei ${grenzen.maxTotal}.`,
+      grund: `Es laufen bereits ${String(belegung.gesamt)} Instanzen - die Gesamtgrenze liegt bei ${String(grenzen.maxTotal)}.`,
       belegung,
     };
   }

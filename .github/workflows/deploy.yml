@@ -119,6 +119,12 @@ jobs:
       - name: Bot-Startup-Test
         run: npm run bot:startup-test
 
+      # Der Game Agent laeuft auf einem fremden Host und wurde bisher von
+      # keiner Pruefung erfasst - seine Importe liefen ins Leere, ohne dass
+      # es auffiel. Er liegt jetzt in der Typpruefung und wird hier gebaut.
+      - name: Game-Agent bauen
+        run: npm run agent:build
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

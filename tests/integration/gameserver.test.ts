@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, expect, it } from 'vitest';
 import { describeWithDatabase, pushSchema, useTestSchema } from '../helpers/database';
+import type { AgentTransport } from '../../packages/modules/src/gameserver/agent-client';
 
 useTestSchema('test_gameserver');
 
@@ -48,23 +49,127 @@ const GRENZEN = {
 
 const MAP_POOL = ['de_mirage', 'de_inferno', 'de_nuke', 'de_ancient', 'de_anubis', 'de_dust2', 'de_vertigo'];
 
-/** Ein Anbieter, ein Template und ein Profil - die Vorbedingung jedes Tests. */
-async function baueInfrastruktur() {
-  const anbieter = await prisma.gameServerProvider.create({
-    data: { name: `Sim ${Math.random().toString(36).slice(2, 8)}`, driver: 'simulation', enabled: true },
-  });
-  const template = await prisma.gameServerTemplate.create({
-    data: { name: 'CS2 Turnier', providerId: anbieter.id, game: 'CS2', imageRef: 'cs2-base' },
-  });
-  const profil = await prisma.gameProfile.create({
+/**
+ * Ein Agent, der antwortet, ohne dass es ihn gibt.
+ *
+ * **Hier entsteht kein Container.** Der Transport schreibt mit, was SwissHub
+ * senden wollte, und antwortet mit dem, was ein Host antworten wuerde. Ein
+ * Test, der Docker startet, ist kein Test - er ist eine Maschine, die
+ * jemand aufraeumen muss.
+ */
+function falscherAgent(optionen: { erstellenScheitert?: boolean; laeuft?: boolean } = {}) {
+  const aufrufe: Array<{ pfad: string; rumpf: unknown }> = [];
+
+  const transport: AgentTransport = async (url, anfrage) => {
+    const pfad = new URL(url).pathname;
+    const rumpf: unknown = anfrage.body ? JSON.parse(anfrage.body) : {};
+    aufrufe.push({ pfad, rumpf });
+
+    if (pfad === '/instances/create' && optionen.erstellenScheitert) {
+      return { status: 500, text: async () => JSON.stringify({ error: 'Kein Platz auf dem Host.' }) };
+    }
+
+    const antwort: Record<string, unknown> =
+      pfad === '/host/status'
+        ? {
+            ok: true,
+            agentVersion: '2.0.0',
+            dockerAvailable: true,
+            cpuPercent: 10,
+            memoryUsedMb: 2048,
+            diskFreeMb: 100_000,
+            uptimeSeconds: 1000,
+            runningCount: 0,
+          }
+        : pfad === '/instances/create'
+          ? { containerRef: `container-${Math.random().toString(36).slice(2, 10)}` }
+          : pfad === '/instances/status'
+            ? {
+                instanceId: (rumpf as { instanceId?: string }).instanceId ?? '',
+                containerRef: 'container-abc',
+                running: optionen.laeuft ?? true,
+                status: 'Up 3 seconds',
+              }
+            : pfad === '/instances'
+              ? { instances: [] }
+              : pfad === '/images'
+                ? { images: [] }
+                : pfad === '/instances/files'
+                  ? { files: [] }
+                  : { ok: true };
+
+    return { status: 200, text: async () => JSON.stringify(antwort) };
+  };
+
+  return { transport, aufrufe };
+}
+
+/**
+ * Ein registrierter Host, ein Runtime-Image und ein Profil.
+ *
+ * Die Vorbedingung jedes Tests - und zugleich die Beschreibung des neuen
+ * Modells: kein Anbieter, keine VM-Vorlage, sondern eine vorbereitete
+ * Maschine mit einem Abbild darauf.
+ */
+async function baueInfrastruktur(ueberschreibungen: Record<string, unknown> = {}) {
+  const kennung = Math.random().toString(36).slice(2, 8);
+
+  const abbild = await prisma.gameRuntimeImage.create({
     data: {
-      name: `CS2 Competitive ${Math.random().toString(36).slice(2, 8)}`,
+      name: `CS2 Stable ${kennung}`,
       game: 'CS2',
-      templateId: template.id,
-      mapPool: MAP_POOL,
+      image: 'ghcr.io/swisshub/cs2',
+      tag: '2026-09',
+      gamePortInContainer: 27015,
+      tvPortInContainer: 27020,
     },
   });
-  return { anbieter, template, profil };
+
+  const host = await prisma.gameServerHost.create({
+    data: {
+      name: `SH-GAME-HOST-${kennung}`,
+      hostname: '192.0.2.50',
+      allowedGames: ['CS2'],
+      registeredAt: new Date(),
+      lastHeartbeatAt: new Date(),
+      dockerAvailable: true,
+      cpuCores: 16,
+      memoryMb: 32_768,
+      diskGb: 500,
+      diskFreeMb: 400_000,
+      maxInstances: 6,
+      maxParallelStarts: 4,
+      ...ueberschreibungen,
+    },
+  });
+
+  /*
+   * Die Identitaet des Hosts, verschluesselt wie im Betrieb. Ohne sie
+   * koennte der Orchestrator den Host nicht ansprechen - und genau das
+   * soll der Test mitpruefen.
+   */
+  await prisma.gameServerHost.update({
+    where: { id: host.id },
+    data: {
+      agentTokenEnc: (await import('@swisshub/secrets')).encryptSecret(
+        'test-agent-token-fuer-den-host',
+        gameserver.hostTokenAdresse(host.id),
+      ),
+    },
+  });
+
+  const profil = await prisma.gameProfile.create({
+    data: {
+      name: `CS2 Competitive ${kennung}`,
+      game: 'CS2',
+      runtimeImageId: abbild.id,
+      mapPool: MAP_POOL,
+      cpuLimit: 2,
+      memoryLimitMb: 4096,
+    },
+  });
+
+  return { host, abbild, profil };
 }
 
 /** Ein Turnier mit einem Match zwischen zwei Teams. */
@@ -133,8 +238,15 @@ describeWithDatabase('Die Bereitstellung', () => {
     await prisma.matchVetoAction.deleteMany();
     await prisma.matchServerAssignment.deleteMany();
     await prisma.provisioningAttempt.deleteMany();
+    await prisma.hostPortReservation.deleteMany();
+    await prisma.serverHeartbeat.deleteMany();
+    await prisma.gameServerFile.deleteMany();
     await prisma.gameServerInstance.deleteMany();
+    await prisma.hostImageState.deleteMany();
     await prisma.gameProfile.deleteMany();
+    await prisma.gameRuntimeImage.deleteMany();
+    await prisma.gameServerHost.deleteMany();
+    await prisma.hostGroup.deleteMany();
     await prisma.gameServerTemplate.deleteMany();
     await prisma.gameServerProvider.deleteMany();
     await prisma.tournamentMatch.deleteMany();
@@ -166,48 +278,108 @@ describeWithDatabase('Die Bereitstellung', () => {
     expect(await prisma.matchServerAssignment.count({ where: { matchId: match.id } })).toBe(1);
   });
 
-  it('stellt eine Maschine bereit und merkt sich den Versuch', async () => {
-    const { profil } = await baueInfrastruktur();
+  it('stellt eine Instanz auf einem Host bereit und merkt sich den Versuch', async () => {
+    const { profil, host } = await baueInfrastruktur();
     const { match } = await baueMatch();
     const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
+    const { transport, aufrufe } = falscherAgent();
 
-    const ergebnis = await gameserver.provisioniere(assignmentId, GRENZEN);
+    const ergebnis = await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
 
     expect(ergebnis.ok, ergebnis.grund).toBe(true);
 
     const instanz = await prisma.gameServerInstance.findFirstOrThrow();
-    expect(instanz.providerRef).toBeTruthy();
-    expect(instanz.publicHost).toBeTruthy();
-    // Die Geheimnisse liegen verschluesselt da und nicht im Klartext.
-    expect(instanz.agentTokenEnc).toMatch(/^v1\./u);
+    expect(instanz.hostId).toBe(host.id);
+    expect(instanz.providerId, 'Eine Instanz auf einem Host hat keinen Anbieter').toBeNull();
+    expect(instanz.containerRef).toBeTruthy();
+    expect(instanz.publicHost).toBe(host.hostname);
+    expect(instanz.status).toBe('STARTING');
+
+    // Die Ports kommen aus dem Bereich des Hosts, nicht aus dem Abbild.
+    expect(instanz.gamePort).toBeGreaterThanOrEqual(host.gamePortFrom);
+    expect(instanz.gamePort).toBeLessThanOrEqual(host.gamePortTo);
+    expect(instanz.tvPort).toBeGreaterThanOrEqual(host.tvPortFrom);
+
+    // Und sie sind reserviert - nicht nur an der Instanz vermerkt.
+    const reservierungen = await prisma.hostPortReservation.findMany({ where: { instanceId: instanz.id } });
+    expect(reservierungen.map((zeile) => zeile.kind).sort()).toEqual(['GAME', 'TV']);
+
+    // Das RCON-Passwort liegt verschluesselt da und nicht im Klartext.
     expect(instanz.rconPasswordEnc).toMatch(/^v1\./u);
+
+    // Der Schnappschuss haelt fest, mit welchen Einstellungen gespielt wird.
+    expect(instanz.profileSnapshot).toBeTruthy();
+    expect(JSON.stringify(instanz.profileSnapshot)).toContain('mapPool');
 
     const versuch = await prisma.provisioningAttempt.findFirstOrThrow();
     expect(versuch.succeeded).toBe(true);
     expect(versuch.durationMs).not.toBeNull();
+
+    // Und der Host hat genau einen Auftrag bekommen: einen Container bauen.
+    expect(aufrufe.map((aufruf) => aufruf.pfad)).toEqual(['/instances/create']);
   });
 
-  it('merkt sich auch einen gescheiterten Versuch', async () => {
+  it('schickt dem Host eine Spezifikation ohne freie Docker-Argumente', async () => {
     /*
-     * Gerade die gescheiterten. Ohne sie liesse sich hinterher nicht sagen,
-     * ob der Anbieter langsam war oder gar nicht geantwortet hat.
+     * Die Zusage der ganzen Laufzeitschicht. Was hier ankommt, ist eine
+     * Aufzaehlung geprüfter Felder - kein Feld, in dem ein `--privileged`
+     * stehen koennte.
      */
     const { profil } = await baueInfrastruktur();
     const { match } = await baueMatch();
     const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
+    const { transport, aufrufe } = falscherAgent();
 
-    gameserver.simulationNaechsterFehler('Kontingent erschöpft');
-    const ergebnis = await gameserver.provisioniere(assignmentId, GRENZEN);
+    await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
+
+    const erstellen = aufrufe.find((aufruf) => aufruf.pfad === '/instances/create');
+    const spez = (erstellen?.rumpf as { spec: Record<string, unknown> }).spec;
+
+    expect(Object.keys(spez).sort()).toEqual([
+      'command',
+      'configMountPath',
+      'cpuLimit',
+      'dataMountPath',
+      'env',
+      'image',
+      'memoryLimitMb',
+      'name',
+      'ports',
+    ]);
+    expect(spez.image).toBe('ghcr.io/swisshub/cs2:2026-09');
+    expect(JSON.stringify(spez)).not.toMatch(/privileged|network|cap-add|--/u);
+
+    // Das RCON-Passwort reist mit - es muss in den Container, und es geht
+    // ueber eine signierte Verbindung. Im Browser taucht es nirgends auf.
+    expect((spez.env as Record<string, string>).SWISSHUB_RCON_PASSWORD).toBeTruthy();
+  });
+
+  it('merkt sich auch einen gescheiterten Versuch und gibt die Ports zurück', async () => {
+    /*
+     * Gerade die gescheiterten. Ohne sie liesse sich hinterher nicht sagen,
+     * ob der Host langsam war oder gar nicht geantwortet hat.
+     *
+     * Und die Ports muessen zurueck: eine Instanz, die scheitert und ihre
+     * Ports behaelt, frisst den Bereich des Hosts auf - nach genug
+     * Fehlversuchen nimmt er gar nichts mehr an.
+     */
+    const { profil } = await baueInfrastruktur();
+    const { match } = await baueMatch();
+    const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
+    const { transport } = falscherAgent({ erstellenScheitert: true });
+
+    const ergebnis = await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
 
     expect(ergebnis.ok).toBe(false);
-    expect(ergebnis.grund).toContain('Kontingent');
 
     const versuch = await prisma.provisioningAttempt.findFirstOrThrow();
     expect(versuch.succeeded).toBe(false);
-    expect(versuch.error).toContain('Kontingent');
+    expect(versuch.error).toBeTruthy();
 
     const zuordnung = await prisma.matchServerAssignment.findUniqueOrThrow({ where: { id: assignmentId } });
     expect(zuordnung.phase).toBe('PROVISION_FAILED');
+
+    expect(await prisma.hostPortReservation.count(), 'Die Ports müssen frei sein').toBe(0);
   });
 
   it('hält sich an die Gesamtgrenze - ohne die Zuordnung zu verbrennen', async () => {
@@ -220,116 +392,216 @@ describeWithDatabase('Die Bereitstellung', () => {
     const { profil } = await baueInfrastruktur();
     const { match } = await baueMatch();
     const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
+    const { transport } = falscherAgent();
 
-    const ergebnis = await gameserver.provisioniere(assignmentId, { ...GRENZEN, maxTotal: 0 });
+    const ergebnis = await gameserver.provisioniere(
+      assignmentId,
+      { ...GRENZEN, maxTotal: 0 },
+      new Date(),
+      transport,
+    );
 
     expect(ergebnis.ok).toBe(false);
     expect(ergebnis.grund).toMatch(/Gesamtgrenze/u);
     expect(await prisma.gameServerInstance.count()).toBe(0);
 
     const zuordnung = await prisma.matchServerAssignment.findUniqueOrThrow({ where: { id: assignmentId } });
-    expect(zuordnung.phase, 'Die Zuordnung muss wartend bleiben').toBe('WAITING_FOR_SERVER');
+    expect(zuordnung.phase, 'Die Zuordnung bleibt wartend').toBe('WAITING_FOR_SERVER');
   });
 
   it('hält sich an die Grenze je Turnier', async () => {
     const { profil } = await baueInfrastruktur();
     const { match } = await baueMatch();
     const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
+    const { transport } = falscherAgent();
 
-    const ergebnis = await gameserver.provisioniere(assignmentId, { ...GRENZEN, maxPerTournament: 0 });
+    const ergebnis = await gameserver.provisioniere(
+      assignmentId,
+      { ...GRENZEN, maxPerTournament: 0 },
+      new Date(),
+      transport,
+    );
     expect(ergebnis.grund).toMatch(/Turnier/u);
   });
 
   it('stellt nichts bereit, solange der Zeitpunkt nicht erreicht ist', async () => {
     const { profil } = await baueInfrastruktur();
     const { match } = await baueMatch();
-    const spaeter = new Date(Date.now() + 3600_000);
+    const spaeter = new Date(Date.now() + 3_600_000);
     const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, spaeter);
+    const { transport } = falscherAgent();
 
-    const ergebnis = await gameserver.provisioniere(assignmentId, GRENZEN);
+    const ergebnis = await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
     expect(ergebnis.ok).toBe(false);
     expect(await prisma.gameServerInstance.count()).toBe(0);
   });
 
-  it('weist einen ausgeschalteten Anbieter ab', async () => {
-    const { anbieter, profil } = await baueInfrastruktur();
-    await prisma.gameServerProvider.update({ where: { id: anbieter.id }, data: { enabled: false } });
+  it('weist ein Profil ohne Runtime-Image lesbar ab', async () => {
+    /*
+     * Ein Profil ohne Abbild sieht vollstaendig aus und ist es nicht. Der
+     * Grund soll in der Zuordnung stehen und damit in der Oberflaeche -
+     * nicht als Ausnahme im Protokoll.
+     */
+    await baueInfrastruktur();
+    const profil = await prisma.gameProfile.create({
+      data: { name: `Ohne Abbild ${Math.random().toString(36).slice(2, 8)}`, game: 'CS2', mapPool: MAP_POOL },
+    });
     const { match } = await baueMatch();
     const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
+    const { transport } = falscherAgent();
 
-    const ergebnis = await gameserver.provisioniere(assignmentId, GRENZEN);
+    const ergebnis = await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
+
     expect(ergebnis.ok).toBe(false);
-    expect(ergebnis.grund).toMatch(/ausgeschaltet/u);
+    expect(ergebnis.grund).toMatch(/Runtime-Image/u);
+
+    const zuordnung = await prisma.matchServerAssignment.findUniqueOrThrow({ where: { id: assignmentId } });
+    expect(zuordnung.lastError).toMatch(/Runtime-Image/u);
   });
 
-  it('löscht eine fällige Maschine und nimmt die Geheimnisse mit', async () => {
+  it('nimmt keinen Host, der das Spiel nicht darf', async () => {
+    const { profil } = await baueInfrastruktur({ allowedGames: [] });
+    const { match } = await baueMatch();
+    const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
+    const { transport } = falscherAgent();
+
+    const ergebnis = await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
+
+    expect(ergebnis.ok).toBe(false);
+    expect(ergebnis.grund).toMatch(/freigegeben/u);
+    expect(await prisma.gameServerInstance.count()).toBe(0);
+  });
+
+  it('nimmt keinen Host, der leerläuft oder in Wartung steht', async () => {
+    for (const status of ['DRAINING', 'MAINTENANCE', 'DISABLED'] as const) {
+      await prisma.hostPortReservation.deleteMany();
+      await prisma.gameServerInstance.deleteMany();
+      await prisma.matchServerAssignment.deleteMany();
+      await prisma.gameProfile.deleteMany();
+      await prisma.gameRuntimeImage.deleteMany();
+      await prisma.gameServerHost.deleteMany();
+
+      const { profil } = await baueInfrastruktur({ status });
+      const { match } = await baueMatch();
+      const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
+      const { transport } = falscherAgent();
+
+      const ergebnis = await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
+      expect(ergebnis.ok, status).toBe(false);
+      expect(await prisma.gameServerInstance.count(), status).toBe(0);
+    }
+  });
+
+  it('entfernt eine fällige Instanz, gibt die Ports frei und nimmt die Geheimnisse mit', async () => {
     const { profil } = await baueInfrastruktur();
     const { match } = await baueMatch();
     const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
-    await gameserver.provisioniere(assignmentId, GRENZEN);
+    const { transport, aufrufe } = falscherAgent();
+
+    await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
 
     const instanz = await prisma.gameServerInstance.findFirstOrThrow();
     await prisma.gameServerInstance.update({
       where: { id: instanz.id },
-      data: { status: 'RUNNING', deleteAfterAt: new Date(Date.now() - 1000) },
+      data: { status: 'READY', deleteAfterAt: new Date(Date.now() - 60_000) },
     });
 
-    const ergebnis = await gameserver.raeumeAuf();
+    aufrufe.length = 0;
+    const ergebnis = await gameserver.raeumeAuf(new Date(), transport);
     expect(ergebnis.geloescht).toBe(1);
 
     const danach = await prisma.gameServerInstance.findUniqueOrThrow({ where: { id: instanz.id } });
     expect(danach.status).toBe('REMOVED');
-    expect(danach.rconPasswordEnc, 'Ein RCON-Passwort ohne Maschine ist nur noch ein Risiko').toBeNull();
-    expect(danach.agentTokenEnc).toBeNull();
+    expect(danach.rconPasswordEnc, 'Ein Passwort für einen Container, den es nicht mehr gibt').toBeNull();
+    expect(danach.containerRef).toBeNull();
+
+    expect(await prisma.hostPortReservation.count()).toBe(0);
+
+    // Erst stoppen, dann entfernen - in dieser Reihenfolge.
+    expect(aufrufe.map((aufruf) => aufruf.pfad)).toEqual(['/instances/stop', '/instances/delete']);
   });
 
-  it('löscht keine Maschine, deren Archivierung schiefging', async () => {
-    /*
-     * Lieber eine Maschine zu viel als eine Demo zu wenig. Eine Datei, die
-     * es nicht mehr gibt, weil die Maschine schneller weg war, laesst sich
-     * nicht nachreichen.
-     */
+  it('entfernt keine Instanz, deren Archivierung schiefging', async () => {
     const { profil } = await baueInfrastruktur();
     const { match } = await baueMatch();
     const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
-    await gameserver.provisioniere(assignmentId, GRENZEN);
+    const { transport } = falscherAgent();
+
+    await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
 
     const instanz = await prisma.gameServerInstance.findFirstOrThrow();
     await prisma.gameServerInstance.update({
       where: { id: instanz.id },
-      data: { status: 'RUNNING', deleteAfterAt: new Date(Date.now() - 1000) },
+      data: { status: 'READY', deleteAfterAt: new Date(Date.now() - 60_000) },
     });
     await prisma.matchServerAssignment.update({
       where: { id: assignmentId },
       data: { phase: 'ARCHIVE_ERROR' },
     });
 
-    const ergebnis = await gameserver.raeumeAuf();
+    const ergebnis = await gameserver.raeumeAuf(new Date(), transport);
     expect(ergebnis.geloescht).toBe(0);
     expect(ergebnis.uebersprungen).toBe(1);
-    expect((await prisma.gameServerInstance.findUniqueOrThrow({ where: { id: instanz.id } })).status).toBe(
-      'RUNNING',
-    );
+
+    const danach = await prisma.gameServerInstance.findUniqueOrThrow({ where: { id: instanz.id } });
+    expect(danach.status, 'Lieber eine Instanz zu viel als eine Demo zu wenig').not.toBe('REMOVED');
   });
 
-  it('löscht keine Maschine, die jemand behalten will', async () => {
+  it('entfernt keine Instanz, die jemand behalten will', async () => {
     const { profil } = await baueInfrastruktur();
     const { match } = await baueMatch();
     const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
-    await gameserver.provisioniere(assignmentId, GRENZEN);
+    const { transport } = falscherAgent();
+
+    await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
 
     const instanz = await prisma.gameServerInstance.findFirstOrThrow();
     await prisma.gameServerInstance.update({
       where: { id: instanz.id },
       data: {
-        status: 'RUNNING',
-        deleteAfterAt: new Date(Date.now() - 1000),
+        status: 'READY',
+        deleteAfterAt: new Date(Date.now() - 60_000),
         heldByDiscordId: '1',
-        heldReason: 'Demo fehlt noch',
+        heldReason: 'Wird noch angesehen',
       },
     });
 
-    expect((await gameserver.raeumeAuf()).geloescht).toBe(0);
+    const ergebnis = await gameserver.raeumeAuf(new Date(), transport);
+    expect(ergebnis.geloescht).toBe(0);
+  });
+
+  it('erstellt eine Instanz neu, ohne das Match anzufassen', async () => {
+    /*
+     * Der Fall aus dem Betrieb: der Container ist kaputt, das Match nicht.
+     * Match, Zuordnung und Veto bleiben - es entsteht ein neuer Container.
+     */
+    const { profil } = await baueInfrastruktur();
+    const { match } = await baueMatch();
+    const { assignmentId } = await gameserver.sorgeFuerZuordnung(match.id, profil.id, null);
+    const { transport } = falscherAgent();
+
+    await gameserver.provisioniere(assignmentId, GRENZEN, new Date(), transport);
+    const erste = await prisma.gameServerInstance.findFirstOrThrow();
+
+    const ergebnis = await gameserver.erstelleInstanzNeu(
+      assignmentId,
+      GRENZEN,
+      { discordId: '1', username: 'leitung' },
+      new Date(),
+      transport,
+    );
+
+    expect(ergebnis.ok, ergebnis.grund).toBe(true);
+
+    const zuordnung = await prisma.matchServerAssignment.findUniqueOrThrow({ where: { id: assignmentId } });
+    expect(zuordnung.matchId, 'Dieselbe Turnier-Match-Kennung').toBe(match.id);
+    expect(zuordnung.instanceId).not.toBe(erste.id);
+
+    const alte = await prisma.gameServerInstance.findUniqueOrThrow({ where: { id: erste.id } });
+    expect(alte.status).toBe('REMOVED');
+
+    // Und die alte Instanz hat ihre Ports abgegeben.
+    expect(await prisma.hostPortReservation.count({ where: { instanceId: erste.id } })).toBe(0);
   });
 });
 

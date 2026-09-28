@@ -30,13 +30,16 @@ export function gameserverAbschnitte(context: AuthContext): GameserverAbschnitt[
   const abschnitte: GameserverAbschnitt[] = [{ href: '/turniere/gameserver', label: 'Übersicht' }];
 
   if (can(context, P.gameserverView)) {
-    abschnitte.push({ href: '/turniere/gameserver/server', label: 'Aktive Server' });
+    abschnitte.push({ href: '/turniere/gameserver/server', label: 'Aktive Matches' });
+  }
+  if (can(context, P.hostsManage) || can(context, P.gameserverView)) {
+    abschnitte.push({ href: '/turniere/gameserver/hosts', label: 'Hosts' });
   }
   if (can(context, P.gameProfilesManage)) {
     abschnitte.push({ href: '/turniere/gameserver/profile', label: 'Game Profiles' });
   }
-  if (can(context, P.templatesManage)) {
-    abschnitte.push({ href: '/turniere/gameserver/templates', label: 'Templates' });
+  if (can(context, P.runtimeImagesManage)) {
+    abschnitte.push({ href: '/turniere/gameserver/images', label: 'Runtime-Images' });
   }
   if (can(context, P.infrastructureManage)) {
     abschnitte.push({ href: '/turniere/gameserver/infrastruktur', label: 'Infrastruktur' });
@@ -47,6 +50,14 @@ export function gameserverAbschnitte(context: AuthContext): GameserverAbschnitt[
 
   return abschnitte;
 }
+
+/*
+ * Die Templates-Seite ist aus der Leiste verschwunden, nicht aus dem
+ * System. Sie gehoert zur Bereitstellung ganzer Maschinen, und die ist
+ * heute eine spaetere Ausbaustufe - wer sie braucht, findet sie unter
+ * Infrastruktur. Eine Leiste mit sieben Eintraegen, von denen einer fuer
+ * den normalen Betrieb nie gebraucht wird, ist eine Leiste zu lang.
+ */
 
 export interface InfrastrukturAnsicht {
   /**
@@ -167,6 +178,31 @@ export interface MatchRoomAnsicht {
     sizeBytes: number;
     mapIndex: number | null;
   }>;
+  /**
+   * Was nur die Turnierleitung sieht.
+   *
+   * `null` fuer alle anderen. Es steht nicht nur ungenutzt im Objekt und
+   * wird im Client ausgeblendet - es wird gar nicht erst geladen. Was nicht
+   * im Objekt ist, kann nicht versehentlich gerendert werden.
+   *
+   * Auch hier kein Geheimnis: Host **name**, nicht Host-Token;
+   * Container-Kennung, nicht RCON-Passwort.
+   */
+  technik: {
+    hostName: string | null;
+    hostId: string | null;
+    instanzName: string | null;
+    containerRef: string | null;
+    imageTag: string | null;
+    gamePort: number | null;
+    queryPort: number | null;
+    tvPort: number | null;
+    cpuLimit: number | null;
+    memoryLimitMb: number | null;
+    instanzStatus: string | null;
+    /** Ein von Hand vorgegebener Host, falls gesetzt. */
+    erzwungenerHostId: string | null;
+  } | null;
 }
 
 /**
@@ -183,9 +219,13 @@ export interface MatchRoomAnsicht {
  * weitergegeben. Ein Geheimnis, das man vorliest, ist keins - es zu
  * maskieren wäre Theater.
  */
-export async function ladeMatchRoom(matchId: string, discordId: string): Promise<MatchRoomAnsicht | null> {
+export async function ladeMatchRoom(
+  matchId: string,
+  discordId: string,
+  mitTechnik = false,
+): Promise<MatchRoomAnsicht | null> {
   try {
-    return await leseMatchRoom(matchId, discordId);
+    return await leseMatchRoom(matchId, discordId, mitTechnik);
   } catch (fehler) {
     /*
      * **Der Grund für dieses try.**
@@ -204,13 +244,32 @@ export async function ladeMatchRoom(matchId: string, discordId: string): Promise
   }
 }
 
-async function leseMatchRoom(matchId: string, discordId: string): Promise<MatchRoomAnsicht | null> {
+async function leseMatchRoom(
+  matchId: string,
+  discordId: string,
+  mitTechnik: boolean,
+): Promise<MatchRoomAnsicht | null> {
   const zuordnung = await prisma.matchServerAssignment.findFirst({
     where: { matchId },
     orderBy: { generation: 'desc' },
     include: {
       instance: {
-        select: { publicHost: true, gamePort: true, serverPassword: true, status: true, currentMap: true },
+        select: {
+          id: true,
+          name: true,
+          publicHost: true,
+          gamePort: true,
+          queryPort: true,
+          tvPort: true,
+          serverPassword: true,
+          status: true,
+          currentMap: true,
+          containerRef: true,
+          imageTag: true,
+          cpuLimit: true,
+          memoryLimitMb: true,
+          host: { select: { id: true, name: true } },
+        },
       },
       files: {
         orderBy: { createdAt: 'asc' },
@@ -245,6 +304,22 @@ async function leseMatchRoom(matchId: string, discordId: string): Promise<MatchR
     eigeneSeite,
     amZug: eigeneSeite !== null && veto?.naechster?.actor === eigeneSeite,
     dateien: zuordnung.files,
+    technik: mitTechnik
+      ? {
+          hostName: instanz?.host?.name ?? null,
+          hostId: instanz?.host?.id ?? null,
+          instanzName: instanz?.name ?? null,
+          containerRef: instanz?.containerRef ?? null,
+          imageTag: instanz?.imageTag ?? null,
+          gamePort: instanz?.gamePort ?? null,
+          queryPort: instanz?.queryPort ?? null,
+          tvPort: instanz?.tvPort ?? null,
+          cpuLimit: instanz?.cpuLimit ?? null,
+          memoryLimitMb: instanz?.memoryLimitMb ?? null,
+          instanzStatus: instanz?.status ?? null,
+          erzwungenerHostId: zuordnung.forcedHostId,
+        }
+      : null,
   };
 }
 
@@ -279,4 +354,238 @@ export function phasenText(phase: string): string {
     ARCHIVE_ERROR: 'Demos oder Logs fehlen',
   };
   return texte[phase] ?? phase;
+}
+
+// ---------------------------------------------------------------------------
+// Hosts
+// ---------------------------------------------------------------------------
+
+/**
+ * Was die Hostliste zeigt.
+ *
+ * **Kein Geheimnis in dieser Form.** Kein Agent-Token, kein
+ * Registrierungs-Token, kein RCON-Passwort. Dass ein Host registriert ist,
+ * steht als `registriert: boolean` da - nicht als Token.
+ */
+export interface HostAnsicht {
+  id: string;
+  name: string;
+  beschreibung: string | null;
+  hostname: string;
+  agentPort: number;
+  region: string | null;
+  gruppe: string | null;
+  status: string;
+  /** Abgeleitet aus dem letzten Lebenszeichen - nicht gespeichert. */
+  gesundheit: string;
+  gesundheitGrund: string;
+  registriert: boolean;
+  /** Steht gerade ein Registrierungs-Token offen, und bis wann? */
+  registrierungOffenBis: Date | null;
+  agentVersion: string | null;
+  lastHeartbeatAt: Date | null;
+  dockerVerfuegbar: boolean | null;
+  cpuCores: number;
+  memoryMb: number;
+  diskGb: number;
+  cpuPercent: number | null;
+  memoryUsedMb: number | null;
+  diskFreeMb: number | null;
+  erlaubteSpiele: string[];
+  maxInstanzen: number;
+  instanzen: number;
+  cpuFrei: number;
+  memoryFreiMb: number;
+  gamePortsFrei: number;
+  portBereiche: { game: string; query: string; tv: string };
+  lastError: string | null;
+}
+
+export async function ladeHosts(jetzt = new Date()): Promise<HostAnsicht[]> {
+  const hosts = await prisma.gameServerHost.findMany({
+    orderBy: { name: 'asc' },
+    include: { group: { select: { name: true } } },
+  });
+
+  return Promise.all(hosts.map((host) => baueHostAnsicht(host, host.group?.name ?? null, jetzt)));
+}
+
+async function baueHostAnsicht(
+  host: Awaited<ReturnType<typeof prisma.gameServerHost.findMany>>[number],
+  gruppe: string | null,
+  jetzt: Date,
+): Promise<HostAnsicht> {
+  const befund = gameserver.hostGesundheit(host, jetzt);
+  const kapazitaet = await gameserver.hostKapazitaet(host);
+
+  return {
+    id: host.id,
+    name: host.name,
+    beschreibung: host.description,
+    hostname: host.hostname,
+    agentPort: host.agentPort,
+    region: host.region,
+    gruppe,
+    status: host.status,
+    gesundheit: befund.wert,
+    gesundheitGrund: befund.grund,
+    registriert: host.registeredAt !== null,
+    registrierungOffenBis: host.registrationTokenHash ? host.registrationExpiresAt : null,
+    agentVersion: host.agentVersion,
+    lastHeartbeatAt: host.lastHeartbeatAt,
+    dockerVerfuegbar: host.dockerAvailable,
+    cpuCores: host.cpuCores,
+    memoryMb: host.memoryMb,
+    diskGb: host.diskGb,
+    cpuPercent: host.cpuPercent,
+    memoryUsedMb: host.memoryUsedMb,
+    diskFreeMb: host.diskFreeMb,
+    erlaubteSpiele: host.allowedGames,
+    maxInstanzen: host.maxInstances,
+    instanzen: kapazitaet.instanzen,
+    cpuFrei: kapazitaet.cpuFrei,
+    memoryFreiMb: kapazitaet.memoryFreiMb,
+    gamePortsFrei: kapazitaet.gamePortsFrei,
+    portBereiche: {
+      game: `${String(host.gamePortFrom)}–${String(host.gamePortTo)}`,
+      query: `${String(host.queryPortFrom)}–${String(host.queryPortTo)}`,
+      tv: `${String(host.tvPortFrom)}–${String(host.tvPortTo)}`,
+    },
+    lastError: host.lastError,
+  };
+}
+
+export interface HostDetail extends HostAnsicht {
+  instanzenDetail: Array<{
+    id: string;
+    name: string;
+    game: string;
+    status: string;
+    gamePort: number | null;
+    matchNummer: number | null;
+    turnier: string | null;
+  }>;
+  abbilder: Array<{
+    id: string;
+    name: string;
+    gewuenscht: string;
+    vorhanden: string | null;
+    aktuell: boolean;
+    laedt: boolean;
+    lastError: string | null;
+  }>;
+  ports: { gesamt: number; jeArt: Record<string, number> };
+}
+
+export async function ladeHostDetail(hostId: string, jetzt = new Date()): Promise<HostDetail | null> {
+  const host = await prisma.gameServerHost.findUnique({
+    where: { id: hostId },
+    include: { group: { select: { name: true } } },
+  });
+  if (!host) {
+    return null;
+  }
+
+  const [basis, instanzen, abbilder, ports] = await Promise.all([
+    baueHostAnsicht(host, host.group?.name ?? null, jetzt),
+    prisma.gameServerInstance.findMany({
+      where: { hostId, status: { not: 'REMOVED' } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        assignments: {
+          orderBy: { generation: 'desc' },
+          take: 1,
+          include: { match: { select: { matchNumber: true, tournament: { select: { name: true } } } } },
+        },
+      },
+    }),
+    prisma.gameRuntimeImage.findMany({
+      where: { enabled: true },
+      orderBy: { name: 'asc' },
+      include: { hostStates: { where: { hostId } } },
+    }),
+    gameserver.portBelegung(hostId),
+  ]);
+
+  return {
+    ...basis,
+    instanzenDetail: instanzen.map((instanz) => ({
+      id: instanz.id,
+      name: instanz.name,
+      game: instanz.game,
+      status: instanz.status,
+      gamePort: instanz.gamePort,
+      matchNummer: instanz.assignments[0]?.match.matchNumber ?? null,
+      turnier: instanz.assignments[0]?.match.tournament.name ?? null,
+    })),
+    abbilder: abbilder.map((abbild) => {
+      const zustand = abbild.hostStates[0];
+      return {
+        id: abbild.id,
+        name: abbild.name,
+        gewuenscht: `${abbild.image}:${abbild.tag}`,
+        vorhanden: zustand?.presentTag ? `${abbild.image}:${zustand.presentTag}` : null,
+        // «Aktuell» heisst: der Host hat genau den Tag, der gewuenscht ist.
+        // Alles andere heisst «Update verfuegbar» und nicht «aktuell».
+        aktuell: zustand?.presentTag === abbild.tag,
+        laedt: zustand?.pulling ?? false,
+        lastError: zustand?.lastError ?? null,
+      };
+    }),
+    ports,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Runtime-Images
+// ---------------------------------------------------------------------------
+
+export interface AbbildAnsicht {
+  id: string;
+  name: string;
+  game: string;
+  image: string;
+  tag: string;
+  command: string[];
+  dataMountPath: string;
+  configMountPath: string;
+  gamePortInContainer: number;
+  queryPortInContainer: number | null;
+  tvPortInContainer: number | null;
+  healthTimeoutSeconds: number;
+  enabled: boolean;
+  profileAnzahl: number;
+  /** Auf wie vielen Hosts das Abbild in der gewuenschten Fassung liegt. */
+  hostsAktuell: number;
+  hostsGesamt: number;
+}
+
+export async function ladeAbbilder(): Promise<AbbildAnsicht[]> {
+  const [abbilder, hosts] = await Promise.all([
+    prisma.gameRuntimeImage.findMany({
+      orderBy: { name: 'asc' },
+      include: { _count: { select: { profiles: true } }, hostStates: true },
+    }),
+    prisma.gameServerHost.count(),
+  ]);
+
+  return abbilder.map((abbild) => ({
+    id: abbild.id,
+    name: abbild.name,
+    game: abbild.game,
+    image: abbild.image,
+    tag: abbild.tag,
+    command: abbild.command,
+    dataMountPath: abbild.dataMountPath,
+    configMountPath: abbild.configMountPath,
+    gamePortInContainer: abbild.gamePortInContainer,
+    queryPortInContainer: abbild.queryPortInContainer,
+    tvPortInContainer: abbild.tvPortInContainer,
+    healthTimeoutSeconds: abbild.healthTimeoutSeconds,
+    enabled: abbild.enabled,
+    profileAnzahl: abbild._count.profiles,
+    hostsAktuell: abbild.hostStates.filter((zustand) => zustand.presentTag === abbild.tag).length,
+    hostsGesamt: hosts,
+  }));
 }

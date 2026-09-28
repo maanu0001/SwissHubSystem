@@ -174,8 +174,48 @@ export const profilSpeichernAction = defineAction(
       name: z.string().trim().min(1).max(80),
       game: GAME,
       templateId: z.string().cuid().nullish(),
+      /** Aus welchem Abbild die Match-Container entstehen. */
+      runtimeImageId: z.string().cuid().nullish(),
+      /** Welche Hostgruppe bevorzugt wird. Ein Wunsch, keine Bedingung. */
+      preferredGroupId: z.string().cuid().nullish(),
       region: z.string().trim().max(60).nullish(),
       mapPool: z.array(z.string().trim().min(1).max(60)).max(30),
+
+      // --- Was eine Match-Instanz bekommt ---------------------------------
+      cpuLimit: z.coerce.number().min(0.5).max(64).default(2),
+      cpuReservation: z.coerce.number().min(0.25).max(64).default(1),
+      memoryLimitMb: z.coerce.number().int().min(512).max(262144).default(4096),
+      memoryReservationMb: z.coerce.number().int().min(256).max(262144).default(2048),
+      diskLimitMb: z.coerce.number().int().min(1024).max(1048576).default(20480),
+      maxRuntimeMinutes: z.coerce.number().int().min(10).max(1440).default(240),
+
+      // --- Matchregeln im Einzelnen ---------------------------------------
+      serverNameTemplate: z
+        .string()
+        .trim()
+        .min(1)
+        .max(120)
+        .default('SwissHub | {tournament} | Match {match}'),
+      defaultBestOf: z.coerce.number().int().min(1).max(9).default(1),
+      pauseSeconds: z.coerce.number().int().min(10).max(900).default(60),
+      techPauseSeconds: z.coerce.number().int().min(30).max(1800).default(300),
+      overtimeMaxRounds: z.coerce.number().int().min(0).max(30).default(6),
+      overtimeStartMoney: z.coerce.number().int().min(0).max(100000).default(16000),
+      restoreMaxRounds: z.coerce.number().int().min(1).max(120).default(60),
+      gotvDelaySeconds: z.coerce.number().int().min(0).max(600).default(105),
+      coachSlots: z.coerce.number().int().min(0).max(10).default(2),
+      casterSlots: z.coerce.number().int().min(0).max(10).default(2),
+      matchPlugin: z
+        .string()
+        .trim()
+        .min(1)
+        .max(40)
+        // Ein Pluginname ist eine Kennung, kein Text: er wird vom Adapter
+        // in eine Konfiguration geschrieben, und was dort steht, soll nicht
+        // von einem Formular abhaengen.
+        .regex(/^[a-z0-9][a-z0-9_-]*$/u, 'Nur Kleinbuchstaben, Ziffern, Bindestrich, Unterstrich.')
+        .default('get5'),
+      tickrate: z.coerce.number().int().min(32).max(128).default(64),
       slots: z.coerce.number().int().min(2).max(64).default(12),
       overtime: z.boolean().default(true),
       knifeRound: z.boolean().default(true),
@@ -223,10 +263,23 @@ export const profilSpeichernAction = defineAction(
     }
 
     const { id, ...daten } = input;
+    if (daten.cpuReservation > daten.cpuLimit) {
+      throw new AppError('VALIDATION_FAILED', {
+        userMessage: 'Die CPU-Reservierung darf nicht über dem Limit liegen.',
+      });
+    }
+    if (daten.memoryReservationMb > daten.memoryLimitMb) {
+      throw new AppError('VALIDATION_FAILED', {
+        userMessage: 'Die Speicher-Reservierung darf nicht über dem Limit liegen.',
+      });
+    }
+
     const werte = {
       ...daten,
       mapPool: eindeutig,
       templateId: daten.templateId || null,
+      runtimeImageId: daten.runtimeImageId || null,
+      preferredGroupId: daten.preferredGroupId || null,
       region: daten.region || null,
       fixedPassword: daten.passwordStrategy === 'FIXED' ? (daten.fixedPassword ?? null) : null,
     };
@@ -373,7 +426,16 @@ export const vetoAbschliessenAction = defineAction(
  * Was jede Aktion auf dem Server bewirkt, entscheidet der Game Adapter; hier
  * steht nur, welche es gibt.
  */
-const MATCH_AKTION = z.enum(['START', 'PAUSE', 'UNPAUSE', 'RESTART', 'RESTORE', 'SERVER_RESTART']);
+const MATCH_AKTION = z.enum([
+  'START',
+  'PAUSE',
+  'UNPAUSE',
+  'RESTART',
+  'RESTORE',
+  'SERVER_RESTART',
+  'INSTANCE_STOP',
+  'INSTANCE_RECREATE',
+]);
 
 export const matchAktionAction = defineAction(
   {
@@ -423,6 +485,24 @@ export const matchAktionAction = defineAction(
       case 'SERVER_RESTART':
         await zugriff.gameRestart();
         break;
+      case 'INSTANCE_STOP':
+        await zugriff.gameStop();
+        break;
+      case 'INSTANCE_RECREATE': {
+        /*
+         * Der Fall aus der Betriebspraxis: der Container ist kaputt, das
+         * Match nicht. Es entsteht ein neuer Container - mit derselben
+         * Turnier-Match-Kennung, derselben Zuordnung und demselben Veto.
+         */
+        const einstellungen = gameserver.leseEinstellungen(await tournaments.einstellungen());
+        const neu = await gameserver.erstelleInstanzNeu(input.assignmentId, einstellungen, akteur(ctx));
+        if (!neu.ok) {
+          throw new AppError('CONFLICT', {
+            userMessage: neu.grund ?? 'Die Instanz liess sich nicht neu erstellen.',
+          });
+        }
+        break;
+      }
       case 'RESTORE': {
         if (input.runde === null || input.runde === undefined) {
           throw new AppError('VALIDATION_FAILED', {
@@ -463,3 +543,390 @@ async function protokolliere(
     metadata,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Hosts
+// ---------------------------------------------------------------------------
+
+const hostsNeuLaden = (hostId?: string): void => {
+  revalidatePath('/turniere/gameserver/hosts');
+  revalidatePath('/turniere/gameserver/infrastruktur');
+  revalidatePath('/turniere/gameserver');
+  if (hostId) {
+    revalidatePath(`/turniere/gameserver/hosts/${hostId}`);
+  }
+};
+
+/**
+ * Die Plausibilitätsprüfung eines Hosts.
+ *
+ * Steht als eigene Funktion da und nicht als Rückruf im Schema: eine Datei
+ * mit `'use server'` darf in ihren exportierten Deklarationen keine
+ * synchronen Funktionsausdrücke tragen - Next hält sie sonst für Server
+ * Actions. Ein Name statt eines Ausdrucks löst das, und lesbarer ist es
+ * ohnehin.
+ */
+function pruefeHostGrenzen(
+  wert: {
+    gamePortFrom: number;
+    gamePortTo: number;
+    queryPortFrom: number;
+    queryPortTo: number;
+    tvPortFrom: number;
+    tvPortTo: number;
+    memoryMb: number;
+    reservedMemoryMb: number;
+    cpuCores: number;
+    reservedCpuCores: number;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  const bereiche = [
+    ['Spielports', wert.gamePortFrom, wert.gamePortTo],
+    ['Query-Ports', wert.queryPortFrom, wert.queryPortTo],
+    ['GOTV-Ports', wert.tvPortFrom, wert.tvPortTo],
+  ] as const;
+
+  for (const [label, von, bis] of bereiche) {
+    if (bis < von) {
+      ctx.addIssue({ code: 'custom', message: `${label}: das Ende liegt vor dem Anfang.` });
+    }
+  }
+
+  for (let i = 0; i < bereiche.length; i += 1) {
+    for (let j = i + 1; j < bereiche.length; j += 1) {
+      const [labelA, vonA, bisA] = bereiche[i] as readonly [string, number, number];
+      const [labelB, vonB, bisB] = bereiche[j] as readonly [string, number, number];
+      if (vonA <= bisB && vonB <= bisA) {
+        /*
+         * Überschneidende Bereiche sind kein technischer Fehler - der
+         * Allocator kommt damit klar, weil die Eindeutigkeit auf
+         * (Host, Port) liegt. Sie sind ein Betriebsfehler: der GOTV-Bereich
+         * frisst dann Spielports, und irgendwann nimmt der Host kein Match
+         * mehr an, obwohl «noch Ports frei» sind.
+         */
+        ctx.addIssue({ code: 'custom', message: `${labelA} und ${labelB} überschneiden sich.` });
+      }
+    }
+  }
+
+  if (wert.reservedMemoryMb > wert.memoryMb && wert.memoryMb > 0) {
+    ctx.addIssue({ code: 'custom', message: 'Die Speicherreserve ist grösser als der Speicher.' });
+  }
+  if (wert.reservedCpuCores > wert.cpuCores && wert.cpuCores > 0) {
+    ctx.addIssue({ code: 'custom', message: 'Die CPU-Reserve ist grösser als die Kernzahl.' });
+  }
+}
+
+/**
+ * Einen Host anlegen oder ändern.
+ *
+ * Die Portbereiche werden hier geprüft, nicht erst beim ersten Match: ein
+ * Bereich, der rückwärts läuft oder sich mit einem anderen überschneidet,
+ * fällt sonst mitten im Turnierabend auf.
+ */
+export const hostSpeichernAction = defineAction(
+  {
+    name: 'gameserver.hostSave',
+    module: MODUL,
+    permission: P.hostsManage,
+    schema: z
+      .object({
+        id: z.string().cuid().nullish(),
+        name: z.string().trim().min(2).max(80),
+        description: z.string().trim().max(300).nullish(),
+        hostname: z
+          .string()
+          .trim()
+          .min(1)
+          .max(253)
+          // Name oder IP - kein Schema, kein Pfad, kein Port. Der Port steht
+          // in einem eigenen Feld, weil er eine Zahl ist.
+          .regex(/^[A-Za-z0-9.:_-]+$/u, 'Nur Name oder IP-Adresse, ohne https:// und ohne Pfad.'),
+        agentPort: z.coerce.number().int().min(1).max(65535).default(9443),
+        region: z.string().trim().max(60).nullish(),
+        groupId: z.string().cuid().nullish(),
+        allowedGames: z.array(GAME).max(10).default([]),
+        cpuCores: z.coerce.number().int().min(0).max(512).default(0),
+        memoryMb: z.coerce.number().int().min(0).max(4194304).default(0),
+        diskGb: z.coerce.number().int().min(0).max(1048576).default(0),
+        reservedCpuCores: z.coerce.number().min(0).max(512).default(1),
+        reservedMemoryMb: z.coerce.number().int().min(0).max(1048576).default(2048),
+        minFreeDiskGb: z.coerce.number().int().min(0).max(100000).default(10),
+        maxInstances: z.coerce.number().int().min(0).max(200).default(6),
+        maxParallelStarts: z.coerce.number().int().min(1).max(50).default(2),
+        gamePortFrom: z.coerce.number().int().min(1024).max(65535),
+        gamePortTo: z.coerce.number().int().min(1024).max(65535),
+        queryPortFrom: z.coerce.number().int().min(1024).max(65535),
+        queryPortTo: z.coerce.number().int().min(1024).max(65535),
+        tvPortFrom: z.coerce.number().int().min(1024).max(65535),
+        tvPortTo: z.coerce.number().int().min(1024).max(65535),
+      })
+      .superRefine(pruefeHostGrenzen),
+    rateLimit: 'gameserverVerwalten',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const { id, ...daten } = input;
+
+    const host = id
+      ? await prisma.gameServerHost.update({ where: { id }, data: daten })
+      : await prisma.gameServerHost.create({ data: daten });
+
+    await safeRecordAudit({
+      action: id ? AUDIT_ACTIONS.GAMESERVER_HOST_UPDATED : AUDIT_ACTIONS.GAMESERVER_HOST_CREATED,
+      module: MODUL,
+      actorDiscordId: ctx.user.discordId,
+      actorUsername: ctx.user.username,
+      targetLabel: host.name,
+      success: true,
+      metadata: { hostId: host.id },
+    });
+
+    hostsNeuLaden(host.id);
+    return { hostId: host.id };
+  },
+);
+
+/**
+ * Ein Registrierungs-Token erzeugen.
+ *
+ * Gibt das Token **einmal** zurück - danach steht in der Datenbank nur noch
+ * sein Hash. Das ist die einzige Aktion in dieser Datei, die überhaupt ein
+ * Geheimnis zurückgibt, und sie tut es, weil ein Registrierungs-Token nur
+ * dann etwas nützt, wenn ein Mensch es lesen kann.
+ *
+ * Es öffnet genau eine Tür: einen bereits angelegten Host anmelden. Es gibt
+ * keinen Zugriff auf Daten, keine Berechtigung in der WebApp und keine
+ * Möglichkeit, einen weiteren Host zu erzeugen.
+ */
+export const hostRegistrierungOeffnenAction = defineAction(
+  {
+    name: 'gameserver.hostRegister',
+    module: MODUL,
+    permission: P.hostsManage,
+    schema: z.object({
+      hostId: z.string().cuid(),
+      gueltigMinuten: z.coerce.number().int().min(5).max(1440).default(60),
+    }),
+    rateLimit: 'gameserverVerwalten',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const angebot = await gameserver.oeffneRegistrierung(input.hostId, akteur(ctx), input.gueltigMinuten);
+    hostsNeuLaden(input.hostId);
+    return { token: angebot.token, ablauf: angebot.ablauf.toISOString() };
+  },
+);
+
+/** Einen Host aktivieren, leerlaufen lassen, in Wartung schicken oder abschalten. */
+export const hostStatusAction = defineAction(
+  {
+    name: 'gameserver.hostStatus',
+    module: MODUL,
+    permission: P.hostsManage,
+    schema: z.object({
+      hostId: z.string().cuid(),
+      status: z.enum(['ACTIVE', 'DRAINING', 'MAINTENANCE', 'DISABLED']),
+    }),
+    rateLimit: 'gameserverVerwalten',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const ergebnis = await gameserver.setzeHostStatus(input.hostId, input.status, akteur(ctx));
+    hostsNeuLaden(input.hostId);
+    return ergebnis;
+  },
+);
+
+/** Einen Host entfernen - geht nur, wenn nichts mehr darauf läuft. */
+export const hostLoeschenAction = defineAction(
+  {
+    name: 'gameserver.hostDelete',
+    module: MODUL,
+    permission: P.hostsManage,
+    schema: z.object({ hostId: z.string().cuid() }),
+    rateLimit: 'gameserverVerwalten',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await gameserver.loescheHost(input.hostId, akteur(ctx));
+    hostsNeuLaden();
+    return { ok: true };
+  },
+);
+
+/**
+ * Die Verbindung zu einem Host prüfen.
+ *
+ * Gibt `{ ok, meldung }` zurück und **kein** Token. Die Entschlüsselung
+ * passiert im Modul, nicht hier - eine Action, die das Token kennt, ist
+ * eine Zeile `return { token }` von einem Geheimnis im Browser entfernt.
+ */
+export const hostVerbindungTestenAction = defineAction(
+  {
+    name: 'gameserver.hostCheck',
+    module: MODUL,
+    permission: P.hostsManage,
+    schema: z.object({ hostId: z.string().cuid() }),
+    rateLimit: 'gameserverVerwalten',
+    freshness: 'critical',
+  },
+  async ({ input }) => {
+    const ergebnis = await gameserver.pruefeHost(input.hostId);
+    hostsNeuLaden(input.hostId);
+    return ergebnis;
+  },
+);
+
+/** Die Abbilder eines Hosts mit dem Katalog abgleichen. */
+export const hostAbbilderSynchronisierenAction = defineAction(
+  {
+    name: 'gameserver.hostImageSync',
+    module: MODUL,
+    permission: P.runtimeImagesManage,
+    schema: z.object({ hostId: z.string().cuid(), laden: z.boolean().default(false) }),
+    rateLimit: 'gameserverVerwalten',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const ergebnis = await gameserver.synchronisiereAbbilder(input.hostId, input.laden, akteur(ctx));
+    hostsNeuLaden(input.hostId);
+    return ergebnis;
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Runtime-Images
+// ---------------------------------------------------------------------------
+
+/**
+ * Ein Runtime-Image eintragen oder ändern.
+ *
+ * Jedes Feld einzeln und geprüft. Es gibt bewusst **kein** Feld für
+ * zusätzliche Docker-Argumente: das wäre die Docker-CLI im Browser, nur mit
+ * mehr Schritten. Das Startkommando ist eine Liste von Argumenten, keine
+ * Zeile - eine Zeile müsste jemand zerlegen, und wer zerlegt, interpretiert.
+ */
+export const abbildSpeichernAction = defineAction(
+  {
+    name: 'gameserver.imageSave',
+    module: MODUL,
+    permission: P.runtimeImagesManage,
+    schema: z.object({
+      id: z.string().cuid().nullish(),
+      name: z.string().trim().min(2).max(80),
+      game: GAME,
+      image: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .regex(
+          /^[a-z0-9][a-z0-9._-]*(?::\d{1,5})?(?:\/[a-z0-9][a-z0-9._-]*)*$/u,
+          'Kein gültiger Abbildname.',
+        ),
+      tag: z
+        .string()
+        .trim()
+        .min(1)
+        .max(128)
+        .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u, 'Kein gültiger Tag.'),
+      command: z.array(z.string().trim().min(1).max(256)).max(32).default([]),
+      dataMountPath: z
+        .string()
+        .trim()
+        // Dasselbe Muster wie in der Laufzeitpruefung - und kein zweites,
+        // lockereres. Was hier durchkommt, muss dort auch durchkommen.
+        .regex(
+          /^\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+$/u,
+          'Absoluter Pfad mit mindestens zwei Ebenen, etwa /swisshub/data.',
+        )
+        .default('/swisshub/data'),
+      configMountPath: z
+        .string()
+        .trim()
+        // Dasselbe Muster wie in der Laufzeitpruefung - und kein zweites,
+        // lockereres. Was hier durchkommt, muss dort auch durchkommen.
+        .regex(
+          /^\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+$/u,
+          'Absoluter Pfad mit mindestens zwei Ebenen, etwa /swisshub/data.',
+        )
+        .default('/swisshub/config'),
+      gamePortInContainer: z.coerce.number().int().min(1).max(65535).default(27015),
+      queryPortInContainer: z.coerce.number().int().min(1).max(65535).nullish(),
+      tvPortInContainer: z.coerce.number().int().min(1).max(65535).nullish(),
+      healthTimeoutSeconds: z.coerce.number().int().min(10).max(900).default(120),
+      enabled: z.boolean().default(true),
+    }),
+    rateLimit: 'gameserverVerwalten',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const { id, ...daten } = input;
+
+    if (daten.dataMountPath === daten.configMountPath) {
+      throw new AppError('VALIDATION_FAILED', {
+        userMessage: 'Daten- und Konfigurationsverzeichnis dürfen nicht dasselbe sein.',
+      });
+    }
+
+    const abbild = id
+      ? await prisma.gameRuntimeImage.update({ where: { id }, data: daten })
+      : await prisma.gameRuntimeImage.create({ data: daten });
+
+    await safeRecordAudit({
+      action: AUDIT_ACTIONS.GAMESERVER_RUNTIME_IMAGE_CHANGED,
+      module: MODUL,
+      actorDiscordId: ctx.user.discordId,
+      actorUsername: ctx.user.username,
+      targetLabel: abbild.name,
+      success: true,
+      metadata: { imageId: abbild.id, image: `${abbild.image}:${abbild.tag}`, neu: !id },
+    });
+
+    revalidatePath('/turniere/gameserver/images');
+    hostsNeuLaden();
+    return { imageId: abbild.id };
+  },
+);
+
+/**
+ * Einem Match einen bestimmten Host vorgeben.
+ *
+ * Der manuelle Override aus der Turnierleitung. Er überspringt die
+ * **Auswahl**, nicht die Prüfungen: ein Host, der das Spiel nicht kann, in
+ * Wartung steht oder voll ist, wird auch von Hand nicht genommen - der
+ * Scheduler prüft ihn genauso wie jeden anderen.
+ *
+ * `null` gibt die Wahl wieder an SwissHub zurück.
+ */
+export const matchHostSetzenAction = defineAction(
+  {
+    name: 'gameserver.matchHost',
+    module: MODUL,
+    permission: P.gameserverManage,
+    schema: z.object({
+      assignmentId: z.string().cuid(),
+      hostId: z.string().cuid().nullable(),
+    }),
+    rateLimit: 'gameserverVerwalten',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const zuordnung = await prisma.matchServerAssignment.update({
+      where: { id: input.assignmentId },
+      data: { forcedHostId: input.hostId },
+      include: { match: { select: { matchNumber: true } } },
+    });
+
+    await protokolliere(ctx, 'GAMESERVER_MATCH_ACTION', `Match ${String(zuordnung.match.matchNumber)}`, {
+      assignmentId: input.assignmentId,
+      aktion: 'HOST_OVERRIDE',
+      hostId: input.hostId,
+    });
+
+    neuLaden();
+    return { ok: true };
+  },
+);

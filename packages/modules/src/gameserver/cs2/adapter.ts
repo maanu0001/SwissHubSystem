@@ -265,6 +265,28 @@ export const cs2Adapter: GameAdapter = registriereAdapter({
     return { game: 27015, tv: profil.gotvEnabled ? 27020 : null };
   },
 
+  /**
+   * Was das CS2-Abbild beim Start erwartet.
+   *
+   * Absichtlich knapp. Alles, was das Match ausmacht - Teams, Maps, Modus,
+   * Pausen - kommt spaeter ueber `matchConfigure` und das Plugin; hier
+   * stehen nur die Dinge, die der Server schon beim Hochfahren braucht und
+   * danach nicht mehr aendern kann.
+   *
+   * Kein Geheimnis in dieser Liste: RCON- und Serverpasswort setzt der
+   * Orchestrator, weil er sie erzeugt und verschluesselt ablegt.
+   */
+  laufzeitUmgebung(kontext) {
+    return {
+      SWISSHUB_GAME_PORT: String(kontext.gamePortImContainer),
+      CS2_SERVERNAME: kontext.serverName.slice(0, 64),
+      CS2_MAXPLAYERS: String(kontext.slots),
+      CS2_TICKRATE: String(kontext.tickrate),
+      CS2_GOTV: kontext.gotvEnabled ? '1' : '0',
+      CS2_GAMEALIAS: 'competitive',
+    };
+  },
+
   mapAnzahl,
   vetoAblauf: cs2VetoAblauf,
   pruefeSpielerKennung: istSteamId64,

@@ -41,9 +41,7 @@ export default async function GameserverPage(): Promise<React.JSX.Element> {
           !stand.ermittelt
             ? 'Der Zustand lässt sich gerade nicht ermitteln.'
             : stand.bereit
-              ? stand.nurSimulation
-                ? 'Eingerichtet - aber nur mit dem Simulationstreiber. Es entstehen keine echten Maschinen.'
-                : 'Eingerichtet. Matches bekommen automatisch einen Server.'
+              ? `Eingerichtet. ${String(stand.hostsBereit)} von ${String(stand.hosts)} Hosts nehmen Matches an.`
               : 'Noch nicht eingerichtet. Turniere laufen unverändert weiter - nur ohne automatische Server.'
         }
       >
@@ -54,7 +52,9 @@ export default async function GameserverPage(): Promise<React.JSX.Element> {
         ) : stand.luecken.length === 0 ? (
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="success">bereit</Badge>
-            {stand.nurSimulation ? <Badge variant="warning">nur Simulation</Badge> : null}
+            <Badge variant="secondary">
+              {stand.hostsBereit} / {stand.hosts} Hosts
+            </Badge>
           </div>
         ) : (
           <ul className="space-y-2 text-sm">
@@ -73,7 +73,14 @@ export default async function GameserverPage(): Promise<React.JSX.Element> {
       </Panel>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Laufende Server" value={zahlen.laufend} icon="Server" />
+        <StatCard
+          label="Hosts online"
+          value={zahlen.hostsOnline}
+          icon="Server"
+          href="/turniere/gameserver/hosts"
+          tone={zahlen.hostsOnline === 0 ? 'warning' : 'default'}
+        />
+        <StatCard label="Aktive Matches" value={zahlen.laufend} icon="Swords" />
         <StatCard
           label="In Bereitstellung"
           value={zahlen.inBereitstellung}

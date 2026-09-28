@@ -13,6 +13,17 @@
  * die in der Oberflaeche steht - kein Fehlerzustand, den jemand wegklicken
  * muss, und schon gar kein Absturz.
  *
+ * ## Was sich mit den Hosts geaendert hat
+ *
+ * Frueher brauchte es einen Anbieter mit Zugangsdaten, denn jedes Match
+ * bekam eine eigene Maschine. Heute braucht es einen **vorbereiteten Host**
+ * - und der entsteht einmal von Hand. Die Compute-API des Datacenters ist
+ * dafuer ausdruecklich **nicht** noetig; sie wird erst gebraucht, wenn
+ * SwissHub selbst Hosts erzeugen soll, und das ist eine spaetere Ausbaustufe.
+ *
+ * Der Anbieter faellt deshalb aus dieser Pruefung heraus. Er bleibt im
+ * System, aber er ist keine Voraussetzung mehr.
+ *
  * ## Die Regel dieser Datei
  *
  * `konfigurationsStand()` wirft **nie**. Jede Abfrage darin ist einzeln
@@ -28,11 +39,10 @@
  */
 import { prisma } from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
-import { GAMESERVER_INTEGRATION_ID, hasSecret } from '@swisshub/secrets';
+import { hasMasterKey } from '@swisshub/secrets';
 import { getModuleSettings, isModuleEnabled } from '../module-state';
 import { TOURNAMENTS_MODULE_ID, type TournamentSettings } from '../tournaments/config';
-import { anbieterTreiber } from './anbieter';
-import { SIMULATION_TREIBER } from './anbieter-simulation';
+import { hostGesundheit } from './hosts';
 
 const log = createLogger('gameserver:bereitschaft');
 
@@ -40,15 +50,15 @@ const log = createLogger('gameserver:bereitschaft');
 export type Luecke =
   | 'MODUL_AUS'
   | 'FUNKTION_AUS'
-  | 'KEIN_ANBIETER'
-  | 'ANBIETER_AUS'
-  | 'TREIBER_FEHLT'
-  | 'KEINE_ZUGANGSDATEN'
-  | 'KEIN_TEMPLATE'
-  | 'KEIN_PROFIL';
+  | 'KEIN_HOST'
+  | 'KEIN_HOST_BEREIT'
+  | 'KEIN_ABBILD'
+  | 'KEIN_PROFIL'
+  | 'PROFIL_OHNE_ABBILD'
+  | 'KEIN_SCHLUESSEL';
 
 export interface KonfigurationsStand {
-  /** Laeuft die Bereitstellung? Nur dann entstehen Maschinen. */
+  /** Laeuft die Bereitstellung? Nur dann entstehen Instanzen. */
   bereit: boolean;
   /**
    * Alles, was fehlt - nicht nur das Erste.
@@ -57,8 +67,9 @@ export interface KonfigurationsStand {
    * den naechsten Mangel erfaehrt, braucht fuenf Anlaeufe.
    */
   luecken: Luecke[];
-  /** Arbeitet nur ein Simulationstreiber? Dann entstehen keine echten Maschinen. */
-  nurSimulation: boolean;
+  /** Wie viele Hosts es gibt und wie viele davon Matches annehmen koennen. */
+  hosts: number;
+  hostsBereit: number;
   /**
    * Konnte der Stand ueberhaupt ermittelt werden?
    *
@@ -72,7 +83,8 @@ export interface KonfigurationsStand {
 const UNBEKANNT: KonfigurationsStand = {
   bereit: false,
   luecken: [],
-  nurSimulation: false,
+  hosts: 0,
+  hostsBereit: 0,
   ermittelt: false,
 };
 
@@ -80,12 +92,12 @@ const UNBEKANNT: KonfigurationsStand = {
  * Der Stand - ohne je zu werfen.
  *
  * Fail closed: was sich nicht ermitteln laesst, gilt als nicht bereit. Eine
- * Bereitstellung, die auf einer Vermutung anlaeuft, kostet Maschinen.
+ * Bereitstellung, die auf einer Vermutung anlaeuft, kostet Kapazitaet.
  */
-export async function konfigurationsStand(): Promise<KonfigurationsStand> {
+export async function konfigurationsStand(jetzt = new Date()): Promise<KonfigurationsStand> {
   try {
     if (!(await isModuleEnabled(TOURNAMENTS_MODULE_ID))) {
-      return { bereit: false, luecken: ['MODUL_AUS'], nurSimulation: false, ermittelt: true };
+      return { bereit: false, luecken: ['MODUL_AUS'], hosts: 0, hostsBereit: 0, ermittelt: true };
     }
 
     const settings = await getModuleSettings<TournamentSettings>(TOURNAMENTS_MODULE_ID);
@@ -95,51 +107,62 @@ export async function konfigurationsStand(): Promise<KonfigurationsStand> {
       luecken.push('FUNKTION_AUS');
     }
 
-    const anbieter = await prisma.gameServerProvider.findMany({
-      select: { id: true, driver: true, enabled: true },
+    /*
+     * Der Hauptschluessel zuerst, weil ohne ihn zwei Dinge nicht gehen:
+     * die Identitaet eines Hosts laesst sich nicht lesen, und das
+     * RCON-Passwort einer neuen Instanz nicht schreiben. Beides scheitert
+     * sonst erst mitten in der Bereitstellung.
+     */
+    if (!hasMasterKey()) {
+      luecken.push('KEIN_SCHLUESSEL');
+    }
+
+    const hosts = await prisma.gameServerHost.findMany({
+      select: {
+        id: true,
+        status: true,
+        registeredAt: true,
+        lastHeartbeatAt: true,
+        dockerAvailable: true,
+        diskFreeMb: true,
+        minFreeDiskGb: true,
+        lastError: true,
+        allowedGames: true,
+      },
     });
 
-    if (anbieter.length === 0) {
-      luecken.push('KEIN_ANBIETER');
-    } else {
-      const aktive = anbieter.filter((eintrag) => eintrag.enabled);
-      if (aktive.length === 0) {
-        luecken.push('ANBIETER_AUS');
-      }
-      const mitTreiber = aktive.filter((eintrag) => anbieterTreiber(eintrag.driver) !== undefined);
-      if (aktive.length > 0 && mitTreiber.length === 0) {
-        luecken.push('TREIBER_FEHLT');
-      }
-    }
-
-    /*
-     * Zugangsdaten braucht nur, wer einen echten Anbieter betreibt.
-     *
-     * Der Simulationstreiber spricht kein Datacenter an - von ihm
-     * Zugangsdaten zu verlangen hiesse, beim Einrichten eine Huerde
-     * aufzubauen, die nichts absichert.
-     */
-    const echteAktive = anbieter.filter(
-      (eintrag) => eintrag.enabled && eintrag.driver !== SIMULATION_TREIBER,
+    const bereiteHosts = hosts.filter(
+      (host) => host.status === 'ACTIVE' && hostGesundheit(host, jetzt).wert === 'HEALTHY',
     );
-    const nurSimulation = anbieter.length > 0 && echteAktive.length === 0;
 
-    if (echteAktive.length > 0 && !(await hasSecret(GAMESERVER_INTEGRATION_ID, 'secret'))) {
-      luecken.push('KEINE_ZUGANGSDATEN');
+    if (hosts.length === 0) {
+      luecken.push('KEIN_HOST');
+    } else if (bereiteHosts.length === 0) {
+      luecken.push('KEIN_HOST_BEREIT');
     }
 
-    const [templates, profile] = await Promise.all([
-      prisma.gameServerTemplate.count({ where: { enabled: true } }),
+    const [abbilder, profile, profileMitAbbild] = await Promise.all([
+      prisma.gameRuntimeImage.count({ where: { enabled: true } }),
       prisma.gameProfile.count({ where: { enabled: true } }),
+      prisma.gameProfile.count({ where: { enabled: true, runtimeImageId: { not: null } } }),
     ]);
-    if (templates === 0) {
-      luecken.push('KEIN_TEMPLATE');
+
+    if (abbilder === 0) {
+      luecken.push('KEIN_ABBILD');
     }
     if (profile === 0) {
       luecken.push('KEIN_PROFIL');
+    } else if (profileMitAbbild === 0) {
+      luecken.push('PROFIL_OHNE_ABBILD');
     }
 
-    return { bereit: luecken.length === 0, luecken, nurSimulation, ermittelt: true };
+    return {
+      bereit: luecken.length === 0,
+      luecken,
+      hosts: hosts.length,
+      hostsBereit: bereiteHosts.length,
+      ermittelt: true,
+    };
   } catch (fehler) {
     /*
      * Hier endet jeder Fehler.
@@ -160,16 +183,25 @@ export const LUECKEN_TEXT: Record<Luecke, { text: string; wo: string }> = {
     text: 'Die Gameserver-Funktion ist ausgeschaltet.',
     wo: 'System → Module → Turniere',
   },
-  KEIN_ANBIETER: { text: 'Es ist kein Anbieter eingerichtet.', wo: 'Turniere → Gameserver → Infrastruktur' },
-  ANBIETER_AUS: { text: 'Kein Anbieter ist aktiv.', wo: 'Turniere → Gameserver → Infrastruktur' },
-  TREIBER_FEHLT: {
-    text: 'Für den eingetragenen Anbieter gibt es keinen Treiber.',
-    wo: 'Turniere → Gameserver → Infrastruktur',
+  KEIN_HOST: {
+    text: 'Es ist noch kein Gameserver-Host eingerichtet.',
+    wo: 'Turniere → Gameserver → Hosts',
   },
-  KEINE_ZUGANGSDATEN: {
-    text: 'Für das Datacenter sind keine Zugangsdaten hinterlegt.',
-    wo: 'System → Integrationen → Virtual Datacenter',
+  KEIN_HOST_BEREIT: {
+    text: 'Kein Host ist aktiv und erreichbar.',
+    wo: 'Turniere → Gameserver → Hosts',
   },
-  KEIN_TEMPLATE: { text: 'Es gibt kein aktives Server-Template.', wo: 'Turniere → Gameserver → Templates' },
+  KEIN_ABBILD: {
+    text: 'Es gibt kein aktives Runtime-Image.',
+    wo: 'Turniere → Gameserver → Runtime-Images',
+  },
   KEIN_PROFIL: { text: 'Es gibt kein aktives Game Profile.', wo: 'Turniere → Gameserver → Game Profiles' },
+  PROFIL_OHNE_ABBILD: {
+    text: 'Keinem aktiven Game Profile ist ein Runtime-Image zugeordnet.',
+    wo: 'Turniere → Gameserver → Game Profiles',
+  },
+  KEIN_SCHLUESSEL: {
+    text: 'MASTER_ENCRYPTION_KEY fehlt - ohne ihn lassen sich Host-Identität und RCON-Passwort nicht verarbeiten.',
+    wo: 'Umgebung des Servers',
+  },
 };

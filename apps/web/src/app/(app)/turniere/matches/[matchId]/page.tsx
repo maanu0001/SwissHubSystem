@@ -46,7 +46,13 @@ export default async function MatchSeite({
    * der Punkt der ganzen Erweiterung: ein Turnier ohne Gameserver merkt
    * nichts davon.
    */
-  const raum = await ladeMatchRoom(matchId, context.user.discordId);
+  const darfSteuern = can(context, tournaments.TOURNAMENT_PERMISSIONS.matchControl);
+  /*
+   * Der Technikblock wird nur geladen, wenn jemand ihn sehen darf - nicht
+   * geladen und dann ausgeblendet. Was nicht im Objekt ist, kann nicht
+   * versehentlich gerendert werden.
+   */
+  const raum = await ladeMatchRoom(matchId, context.user.discordId, darfSteuern);
 
   if (!slot && !zugriff.asStaff) {
     // Bewusst dieselbe Meldung wie bei einem nicht vorhandenen Match: sonst

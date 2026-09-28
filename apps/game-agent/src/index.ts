@@ -3,44 +3,57 @@
  *
  * ## Was er ist
  *
- * Ein kleiner HTTP-Dienst, der auf einem Gameserver laeuft und genau die
- * Aktionen aus `AGENT_AKTIONEN` anbietet. Er startet und stoppt den
- * Spielserver, legt eine Matchkonfiguration ab, pausiert, setzt fort,
- * stellt wieder her und sagt, wie es ihm geht.
+ * Ein kleiner HTTP-Dienst, der auf einem **Gameserver-Host** laeuft und
+ * genau die Aktionen aus `gameserver.AGENT_AKTIONEN` anbietet. Er erstellt, startet,
+ * stoppt und entfernt Match-Container, legt Matchkonfigurationen ab,
+ * pausiert, setzt fort, stellt wieder her und sagt, wie es dem Host geht.
  *
  * ## Was er ausdruecklich nicht ist
  *
  * Keine Fernwartung. Es gibt keinen Endpunkt, der einen Befehl entgegennimmt,
- * keinen, der einen Pfad entgegennimmt, und keinen, der eine Datei ausliefert,
- * die nicht in seinem Datenverzeichnis liegt. Wer mehr braucht, braucht SSH -
- * und SSH gehoert nicht in eine WebApp.
+ * keinen, der einen Pfad entgegennimmt, keinen, der Docker-Argumente
+ * entgegennimmt, und keinen, der eine Datei ausliefert, die nicht im
+ * Datenverzeichnis einer Instanz liegt. Wer mehr braucht, braucht SSH - und
+ * SSH gehoert nicht in eine WebApp.
  *
  * ## Wie er prueft
  *
- * Mit `pruefeAnfrage` aus `@swisshub/modules` - derselben Funktion, gegen die
+ * Mit `gameserver.pruefeAnfrage` aus `@swisshub/modules` - derselben Funktion, gegen die
  * SwissHub signiert. Beide Seiten lesen dieselbe Datei; ein Protokoll, das an
  * zwei Stellen beschrieben ist, ist zwei Protokolle.
  *
  * Gegen Wiedereinspielung merkt er sich die gesehenen Einmalwerte, solange
  * ihr Zeitfenster laeuft. Die Karte bleibt klein: was aelter ist als das
  * Fenster, kann ohnehin nicht mehr gelten.
+ *
+ * ## Woher sein Token kommt
+ *
+ * Aus einer einmaligen Registrierung bei SwissHub, nicht aus einer
+ * Konfigurationsdatei, die jemand von Hand pflegt. Siehe `registrierung.ts`.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { cpus, totalmem } from 'node:os';
+/*
+ * Ueber die Namensraum-Ausfuhr, nicht flach.
+ *
+ * `@swisshub/modules` gibt die Gameserver-Teile als `gameserver` heraus -
+ * flache Namen gibt es dort nicht. Vorher stand hier ein flacher Import;
+ * er lief zur Laufzeit ins Leere und fiel nicht auf, weil der Agent in
+ * keiner Typpruefung lag. Er liegt jetzt in einer.
+ */
+import { gameserver } from '@swisshub/modules';
 import {
-  ERLAUBTE_PFADE,
-  KOPF_NONCE,
-  KOPF_SIGNATUR,
-  KOPF_ZEIT,
-  ZEITFENSTER_SEKUNDEN,
-  pruefeAnfrage,
-  pruefeNutzlast,
-  type AgentAktion,
-} from '@swisshub/modules';
-import {
+  abbildLaden,
+  abbilder,
   dateien,
-  gameRestart,
-  gameStart,
-  gameStop,
+  hostStatus,
+  instanzErstellen,
+  instanzLoeschen,
+  instanzNeustart,
+  instanzStarten,
+  instanzStatus,
+  instanzStoppen,
+  instanzen,
   matchConfigure,
   matchPause,
   matchRestore,
@@ -48,26 +61,25 @@ import {
   matchUnpause,
   type AgentUmgebung,
 } from './aktionen';
+import { dockerVerfuegbar } from './docker';
+import { besorgeIdentitaet } from './registrierung';
 
-function umgebung(): AgentUmgebung & { token: string; port: number } {
-  const lies = (name: string, vorgabe?: string): string => {
-    const wert = process.env[name]?.trim();
-    if (!wert && vorgabe === undefined) {
-      // Ohne Token startet der Agent nicht. Ein Agent ohne Token waere ein
-      // offener Dienst auf einer Maschine mit einer oeffentlichen Adresse.
-      throw new Error(`${name} fehlt - der Agent startet nicht.`);
-    }
-    return wert || (vorgabe as string);
-  };
+export const AGENT_VERSION = '2.0.0';
 
+function lies(name: string, vorgabe?: string): string {
+  const wert = process.env[name]?.trim();
+  if (!wert && vorgabe === undefined) {
+    throw new Error(`${name} fehlt - der Agent startet nicht.`);
+  }
+  return wert || (vorgabe as string);
+}
+
+export function umgebung(): AgentUmgebung & { port: number } {
   return {
-    token: lies('SWISSHUB_AGENT_TOKEN'),
     port: Number.parseInt(lies('SWISSHUB_AGENT_PORT', '9443'), 10),
-    gameDir: lies('SWISSHUB_GAME_DIR', '/opt/cs2/game/csgo'),
-    dataDir: lies('SWISSHUB_DATA_DIR', '/opt/cs2/data'),
-    rconPasswort: lies('SWISSHUB_RCON_PASSWORD'),
-    gamePort: Number.parseInt(lies('SWISSHUB_GAME_PORT', '27015'), 10),
-    serviceName: lies('SWISSHUB_GAME_SERVICE', 'cs2-server'),
+    datenWurzel: lies('SWISSHUB_HOST_DATA_ROOT', '/var/lib/swisshub/instances'),
+    dockerBefehl: lies('SWISSHUB_DOCKER', 'docker'),
+    version: AGENT_VERSION,
   };
 }
 
@@ -77,7 +89,7 @@ const gesehen = new Map<string, number>();
 function merkeNonce(wert: string, zeitpunkt: number): void {
   gesehen.set(wert, zeitpunkt);
   if (gesehen.size > 5000) {
-    const grenze = Math.floor(Date.now() / 1000) - ZEITFENSTER_SEKUNDEN;
+    const grenze = Math.floor(Date.now() / 1000) - gameserver.ZEITFENSTER_SEKUNDEN;
     for (const [schluessel, zeit] of gesehen) {
       if (zeit < grenze) {
         gesehen.delete(schluessel);
@@ -86,18 +98,19 @@ function merkeNonce(wert: string, zeitpunkt: number): void {
   }
 }
 
-const AKTION_JE_PFAD: Record<string, AgentAktion> = {
-  '/health': 'health',
-  '/match/status': 'matchStatus',
-  '/files/demos': 'dateien',
-  '/game/start': 'gameStart',
-  '/game/stop': 'gameStop',
-  '/game/restart': 'gameRestart',
-  '/match/configure': 'matchConfigure',
-  '/match/pause': 'matchPause',
-  '/match/unpause': 'matchUnpause',
-  '/match/restore': 'matchRestore',
-};
+/**
+ * Welcher Pfad welche Aktion ist.
+ *
+ * Aus `gameserver.AGENT_AKTIONEN` abgeleitet statt danebengeschrieben. Eine zweite
+ * Liste waere eine zweite Wahrheit - und der Unterschied faellt erst auf,
+ * wenn ein Endpunkt ins Leere laeuft.
+ */
+const AKTION_JE_PFAD = new Map<string, gameserver.AgentAktion>(
+  Object.entries(gameserver.AGENT_AKTIONEN).map(([name, eintrag]) => [
+    eintrag.pfad,
+    name as gameserver.AgentAktion,
+  ]),
+);
 
 async function leseRumpf(anfrage: IncomingMessage): Promise<string> {
   const teile: Buffer[] = [];
@@ -123,12 +136,12 @@ function antworte(antwort: ServerResponse, status: number, inhalt: unknown): voi
   antwort.end(koerper);
 }
 
-export function baueAgent(konfiguration = umgebung()) {
+export function baueAgent(konfiguration: AgentUmgebung, token: string) {
   return createServer((anfrage, antwort) => {
     void (async () => {
       const pfad = (anfrage.url ?? '').split('?')[0] ?? '';
 
-      if (!ERLAUBTE_PFADE.includes(pfad)) {
+      if (!gameserver.ERLAUBTE_PFADE.includes(pfad)) {
         antworte(antwort, 404, { error: 'Unbekannte Aktion.' });
         return;
       }
@@ -146,13 +159,13 @@ export function baueAgent(konfiguration = umgebung()) {
         return typeof wert === 'string' ? wert : null;
       };
 
-      const geprueft = pruefeAnfrage({
-        token: konfiguration.token,
+      const geprueft = gameserver.pruefeAnfrage({
+        token,
         methode: anfrage.method ?? 'GET',
         pfad,
-        zeitstempel: kopf(KOPF_ZEIT),
-        einmalwert: kopf(KOPF_NONCE),
-        signatur: kopf(KOPF_SIGNATUR),
+        zeitstempel: kopf(gameserver.KOPF_ZEIT),
+        einmalwert: kopf(gameserver.KOPF_NONCE),
+        signatur: kopf(gameserver.KOPF_SIGNATUR),
         rumpf,
         kennstDuDenNonce: (wert) => gesehen.has(wert),
       });
@@ -162,12 +175,12 @@ export function baueAgent(konfiguration = umgebung()) {
         return;
       }
 
-      const einmalwert = kopf(KOPF_NONCE);
+      const einmalwert = kopf(gameserver.KOPF_NONCE);
       if (einmalwert) {
         merkeNonce(einmalwert, Math.floor(Date.now() / 1000));
       }
 
-      const aktion = AKTION_JE_PFAD[pfad];
+      const aktion = AKTION_JE_PFAD.get(pfad);
       if (!aktion) {
         antworte(antwort, 404, { error: 'Unbekannte Aktion.' });
         return;
@@ -183,7 +196,7 @@ export function baueAgent(konfiguration = umgebung()) {
         }
       }
 
-      const nutzlastGeprueft = pruefeNutzlast(aktion, nutzlast);
+      const nutzlastGeprueft = gameserver.pruefeNutzlast(aktion, nutzlast);
       if (!nutzlastGeprueft.ok) {
         antworte(antwort, 400, { error: nutzlastGeprueft.grund });
         return;
@@ -195,7 +208,7 @@ export function baueAgent(konfiguration = umgebung()) {
         /*
          * Die Fehlermeldung geht an SwissHub, nicht an einen Benutzer.
          * SwissHub protokolliert sie und zeigt der Oberflaeche einen
-         * eigenen Text - was hier steht, kann Pfade und Dienstnamen
+         * eigenen Text - was hier steht, kann Pfade und Containernamen
          * enthalten.
          */
         antworte(antwort, 500, {
@@ -206,53 +219,120 @@ export function baueAgent(konfiguration = umgebung()) {
   });
 }
 
+/** Die Nutzlast, wie sie nach `gameserver.pruefeNutzlast` aussieht. */
+interface Nutzlast {
+  instanceId?: string;
+  spec?: gameserver.ContainerSpezifikation;
+  config?: unknown;
+  round?: number;
+  force?: boolean;
+  image?: string;
+}
+
 async function fuehreAus(
-  aktion: AgentAktion,
+  aktion: gameserver.AgentAktion,
   konfiguration: AgentUmgebung,
-  nutzlast: unknown,
+  roh: unknown,
 ): Promise<unknown> {
+  const nutzlast = (roh ?? {}) as Nutzlast;
+  // Nach `gameserver.pruefeNutzlast` steht die Kennung bei allen Instanzaktionen fest.
+  const kennung = nutzlast.instanceId ?? '';
+
   switch (aktion) {
-    case 'health': {
-      const status = await matchStatus(konfiguration).catch(() => null);
+    case 'health':
       return {
         ok: true,
-        gameRunning: status !== null,
+        agentVersion: AGENT_VERSION,
+        dockerAvailable: await dockerVerfuegbar(konfiguration),
         uptimeSeconds: Math.round(process.uptime()),
       };
-    }
-    case 'matchStatus':
-      return { status: await matchStatus(konfiguration) };
+    case 'hostStatus':
+      return hostStatus(konfiguration);
+
+    case 'imageListe':
+      return { images: await abbilder(konfiguration) };
+    case 'imagePull':
+      await abbildLaden(konfiguration, nutzlast.image as string);
+      return { ok: true };
+
+    case 'instanzen':
+      return { instances: await instanzen(konfiguration) };
+    case 'instanzErstellen':
+      return instanzErstellen(konfiguration, kennung, nutzlast.spec as gameserver.ContainerSpezifikation);
+    case 'instanzStarten':
+      await instanzStarten(konfiguration, kennung);
+      return { ok: true };
+    case 'instanzStoppen':
+      await instanzStoppen(konfiguration, kennung, nutzlast.force === true);
+      return { ok: true };
+    case 'instanzNeustart':
+      await instanzNeustart(konfiguration, kennung);
+      return { ok: true };
+    case 'instanzLoeschen':
+      await instanzLoeschen(konfiguration, kennung, nutzlast.force === true);
+      return { ok: true };
+    case 'instanzStatus':
+      return instanzStatus(konfiguration, kennung);
     case 'dateien':
-      return { files: await dateien(konfiguration) };
-    case 'gameStart':
-      await gameStart(konfiguration);
-      return { ok: true };
-    case 'gameStop':
-      await gameStop(konfiguration);
-      return { ok: true };
-    case 'gameRestart':
-      await gameRestart(konfiguration);
-      return { ok: true };
+      return { files: await dateien(konfiguration, kennung) };
+
     case 'matchConfigure':
-      await matchConfigure(konfiguration, nutzlast);
+      await matchConfigure(konfiguration, kennung, nutzlast.config);
       return { ok: true };
     case 'matchPause':
-      await matchPause(konfiguration);
+      await matchPause(konfiguration, kennung);
       return { ok: true };
     case 'matchUnpause':
-      await matchUnpause(konfiguration);
+      await matchUnpause(konfiguration, kennung);
       return { ok: true };
     case 'matchRestore':
-      await matchRestore(konfiguration, (nutzlast as { round: number }).round);
+      await matchRestore(konfiguration, kennung, nutzlast.round as number);
       return { ok: true };
+    case 'matchStatus':
+      return { status: await matchStatus(konfiguration, kennung) };
   }
+}
+
+/**
+ * Der Start.
+ *
+ * Erst die Identitaet, dann der Dienst. Ein Agent, der ohne Token lauscht,
+ * ist ein offener Dienst - deshalb wird gar nicht erst gelauscht, wenn die
+ * Registrierung nicht geklappt hat.
+ */
+export async function starte(): Promise<void> {
+  const konfiguration = umgebung();
+
+  const identitaet = await besorgeIdentitaet({
+    swisshubUrl: lies('SWISSHUB_URL'),
+    tokenDatei: lies('SWISSHUB_AGENT_TOKEN_FILE', '/etc/swisshub/agent-token'),
+    registrierungsToken: process.env.SWISSHUB_REGISTRATION_TOKEN?.trim() || null,
+    meldung: {
+      agentVersion: AGENT_VERSION,
+      cpuCores: cpus().length,
+      memoryMb: Math.round(totalmem() / 1024 / 1024),
+      diskGb: 0,
+      dockerAvailable: await dockerVerfuegbar(konfiguration),
+    },
+  });
+
+  if (!identitaet.ok) {
+    process.stderr.write(`${identitaet.grund}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (identitaet.neu) {
+    process.stdout.write(`Registriert als «${identitaet.hostName}».\n`);
+  }
+
+  baueAgent(konfiguration, identitaet.token).listen(konfiguration.port, () => {
+    process.stdout.write(`SwissHub Game Agent ${AGENT_VERSION} lauscht auf ${String(konfiguration.port)}\n`);
+  });
 }
 
 // Nur starten, wenn diese Datei der Einstiegspunkt ist - so laesst sie sich
 // in einem Test laden, ohne einen Port zu belegen.
 if (process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js')) {
-  const konfiguration = umgebung();
-  baueAgent(konfiguration).listen(konfiguration.port, () => {
-    process.stdout.write(`SwissHub Game Agent lauscht auf ${String(konfiguration.port)}\n`);
-  });
+  void starte();
 }

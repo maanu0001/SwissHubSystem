@@ -44,7 +44,7 @@ export function MatchRoom({
 }): React.JSX.Element {
   const router = useRouter();
   const [laeuft, setLaeuft] = useState<string | null>(null);
-  const [frage, setFrage] = useState<'RESTART' | 'SERVER_RESTART' | null>(null);
+  const [frage, setFrage] = useState<'RESTART' | 'SERVER_RESTART' | 'INSTANCE_RECREATE' | null>(null);
 
   async function fuehreAus(
     marke: string,
@@ -236,7 +236,56 @@ export function MatchRoom({
             >
               Server neu starten
             </Button>
+            <Button
+              variant="destructive"
+              disabled={laeuft !== null}
+              onClick={() => setFrage('INSTANCE_RECREATE')}
+            >
+              Instanz neu erstellen
+            </Button>
           </div>
+        </Panel>
+      ) : null}
+
+      {/*
+       * Der Technikblock.
+       *
+       * Nur da, wenn `technik` gesetzt ist - und das wird serverseitig nur
+       * fuer die Turnierleitung geladen. Kein RCON-Passwort, kein
+       * Host-Token: Hostname und Containerkennung sind Hinweise, keine
+       * Zugaenge.
+       */}
+      {raum.technik ? (
+        <Panel title="Technik" icon="Cpu" description="Nur für die Turnierleitung.">
+          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+            <Technik label="Host" wert={raum.technik.hostName ?? 'noch keiner'} />
+            <Technik label="Instanz" wert={raum.technik.instanzName ?? '—'} />
+            <Technik label="Zustand" wert={raum.technik.instanzStatus ?? '—'} />
+            <Technik label="Abbild-Tag" wert={raum.technik.imageTag ?? '—'} />
+            <Technik
+              label="Ports"
+              wert={
+                [raum.technik.gamePort, raum.technik.queryPort, raum.technik.tvPort]
+                  .filter((port): port is number => port !== null)
+                  .join(' · ') || '—'
+              }
+            />
+            <Technik
+              label="Zugeteilt"
+              wert={
+                raum.technik.cpuLimit === null
+                  ? '—'
+                  : `${String(raum.technik.cpuLimit)} Kerne · ${String(
+                      Math.round((raum.technik.memoryLimitMb ?? 0) / 1024),
+                    )} GB`
+              }
+            />
+            <Technik label="Container" wert={raum.technik.containerRef?.slice(0, 12) ?? '—'} />
+            <Technik
+              label="Host vorgegeben"
+              wert={raum.technik.erzwungenerHostId ? 'ja' : 'nein, SwissHub wählt'}
+            />
+          </dl>
         </Panel>
       ) : null}
 
@@ -262,13 +311,21 @@ export function MatchRoom({
       <ConfirmationDialog
         open={frage !== null}
         onOpenChange={(offen) => !offen && setFrage(null)}
-        title={frage === 'SERVER_RESTART' ? 'Server neu starten?' : 'Match neu starten?'}
-        description={
-          frage === 'SERVER_RESTART'
-            ? 'Der Spielserver startet neu. Alle Spieler fliegen kurz heraus und müssen sich neu verbinden.'
-            : 'Das laufende Match beginnt von vorn. Der bisherige Punktestand ist weg.'
+        title={
+          frage === 'INSTANCE_RECREATE'
+            ? 'Instanz neu erstellen?'
+            : frage === 'SERVER_RESTART'
+              ? 'Server neu starten?'
+              : 'Match neu starten?'
         }
-        confirmLabel="Neu starten"
+        description={
+          frage === 'INSTANCE_RECREATE'
+            ? 'Der Container wird entfernt und auf einem Host neu erstellt - Match, Zuordnung und Veto bleiben. Der Punktestand des laufenden Matches geht verloren, falls kein Backup wiederhergestellt wird.'
+            : frage === 'SERVER_RESTART'
+              ? 'Der Spielserver startet neu. Alle Spieler fliegen kurz heraus und müssen sich neu verbinden.'
+              : 'Das laufende Match beginnt von vorn. Der bisherige Punktestand ist weg.'
+        }
+        confirmLabel={frage === 'INSTANCE_RECREATE' ? 'Neu erstellen' : 'Neu starten'}
         destructive
         onConfirm={() =>
           frage
@@ -306,6 +363,15 @@ function Wert({ name, wert, gross }: { name: string; wert: string; gross?: boole
     <div className="space-y-0.5">
       <dt className="text-xs text-muted-foreground">{name}</dt>
       <dd className={gross ? 'font-mono text-base font-medium' : 'font-medium'}>{wert}</dd>
+    </div>
+  );
+}
+
+function Technik({ label, wert }: { label: string; wert: string }): React.JSX.Element {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="font-mono text-xs">{wert}</dd>
     </div>
   );
 }

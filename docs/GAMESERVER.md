@@ -1,258 +1,287 @@
-# Gameserver-Orchestrierung
+# Gameserver: vorbereitete Hosts, dynamische Match-Instanzen
 
-Turniermatches bekommen automatisch einen Spielserver: SwissHub stellt ihn
-bereit, konfiguriert das Match, führt das Map-Veto, nimmt das Resultat
-entgegen, sichert Demos und Logs und räumt den Server wieder weg.
+Turniermatches bekommen automatisch einen Spielserver. SwissHub startet ihn
+als **Container auf einem vorbereiteten Host**, konfiguriert das Match,
+führt das Map-Veto, nimmt das Resultat entgegen, sichert Demos und Logs und
+räumt den Container wieder weg.
 
-Dieses Dokument beschreibt, **was einmalig ausserhalb von SwissHub
-eingerichtet werden muss** und welcher Wert danach wo einzutragen ist. Alles
-andere läuft über die WebApp; für den Turnierbetrieb ist kein SSH-Zugriff
-nötig.
+Dieses Dokument beschreibt, **was einmalig auf einem Host eingerichtet
+werden muss** — und was danach vollständig aus der WebApp läuft. Für den
+normalen Turnierbetrieb ist kein SSH nötig.
 
 ---
 
-## Der Aufbau in vier Schichten
+## Der Aufbau
 
 ```
 Turniermodul          Turniere, Teams, Matches, Bracket, Resultate
-      ↓               (unverändert - Source of Truth)
+      ↓               (unverändert – Source of Truth)
 Orchestrator          Wann braucht ein Match einen Server?
-      ↓               Bereitstellen, Lebenslauf, Aufräumen, Grenzwerte
-Infrastructure        Ein Treiber je Datacenter
-      ↓               createServer / getServer / deleteServer
-Game Adapter          Was auf der Maschine passiert
-                      V1: nur Counter-Strike 2
+      ↓               Lebenslauf, Grenzwerte, Aufräumen
+Host Scheduler        Welcher Host? Passt das Spiel, reicht die Kapazität,
+      ↓               sind Ports frei?
+Gameserver Host       Lang laufende Linux-Maschine mit Docker
+      ↓
+Game Agent            Ein Dienst je Host, feste Aktionen, keine Shell
+      ↓
+Match Instance        Ein Container je Match
 ```
 
-Die Schichten kennen einander nur nach unten. Im Orchestrator steht kein
-`CS2`, im Treiber steht kein Match, und im Turniermodul steht kein Server -
-drei Tests halten das fest.
+Die Schichten kennen einander nur nach unten. Im Orchestrator und im
+Scheduler steht kein `CS2`; im Agenten steht kein Match; im Turniermodul
+steht kein Container. Tests halten das fest.
+
+### Host und Match-Instanz sind zwei Dinge
+
+|             | **Gameserver-Host**            | **Match-Instanz**                         |
+| ----------- | ------------------------------ | ----------------------------------------- |
+| Lebensdauer | Wochen bis Monate              | Minuten bis Stunden                       |
+| Beispiel    | `SH-GAME-HOST-01`              | `swisshub-cs2-clx8f2…`                    |
+| Enthält     | Linux, Docker, Agent, Abbilder | ein Spiel, ein Match, Ports, Config, Logs |
+| Entsteht    | einmal, von Hand               | je Match, automatisch                     |
+| Modell      | `GameServerHost`               | `GameServerInstance`                      |
 
 ---
 
-## Was SwissHub **nicht** selbst einrichten kann
+## Was einmalig auf einem Host eingerichtet werden muss
 
-Fünf Dinge entstehen ausserhalb. Für jedes steht unten, **was** zu tun ist,
-**wo**, **warum** und welcher Wert danach in SwissHub eingetragen wird.
+Fünf Dinge. Danach läuft alles über die WebApp.
 
-### 1. Zugang zum Datacenter
+### 1. Linux mit Docker
 
-**Was:** Ein API-Zugang mit dem Recht, virtuelle Maschinen zu erstellen,
-abzufragen und zu löschen.
+Ein Server im Virtual Datacenter, eine übliche Linux-Distribution, Docker
+installiert und laufend. Der Agent spricht Docker über die Kommandozeile an
+und braucht dafür die Rechte des Benutzers, unter dem er läuft.
 
-**Wo:** In der Verwaltungsoberfläche des Datacenters.
+**Warum:** Match-Instanzen sind Container. Ohne Docker gibt es keine.
 
-**Warum:** SwissHub erzeugt Maschinen im Namen eures Kontos. Ein Zugang mit
-weniger Rechten kann keine Server anlegen, einer mit mehr ist unnötiges
-Risiko - insbesondere braucht SwissHub keinen Zugriff auf Abrechnung,
-Benutzerverwaltung oder bestehende Produktivmaschinen.
+### 2. Der SwissHub Game Agent
 
-**Trägt man ein unter:** System → Integrationen → Virtual Datacenter
+Das Verzeichnis `apps/game-agent` aus diesem Repository, gebaut mit
+`npm run agent:build`, auf den Host gelegt und als Dienst gestartet.
 
-| Feld        | Inhalt                                                                             |
-| ----------- | ---------------------------------------------------------------------------------- |
-| API-Adresse | Basisadresse der API, ohne Pfad                                                    |
-| Kennung     | Benutzername oder Zugriffsschlüssel-ID                                             |
-| Geheimnis   | Passwort, Token oder Zugriffsschlüssel — verschlüsselt gespeichert                 |
-| Projekt     | Projekt, Organisation oder virtuelles Datacenter, falls der Anbieter mehrere kennt |
+Umgebungsvariablen:
 
-Das Geheimnis wird mit `MASTER_ENCRYPTION_KEY` verschlüsselt, nie angezeigt
-und nie protokolliert.
+| Variable                      | Bedeutung                                                                  |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| `SWISSHUB_URL`                | Basisadresse von SwissHub, etwa `https://system.swisshub.gg`               |
+| `SWISSHUB_REGISTRATION_TOKEN` | Das einmalige Token aus dem Dashboard — nur beim ersten Start              |
+| `SWISSHUB_AGENT_TOKEN_FILE`   | Wo die dauerhafte Identität liegt, Vorgabe `/etc/swisshub/agent-token`     |
+| `SWISSHUB_AGENT_PORT`         | Auf welchem Port der Agent lauscht, Vorgabe `9443`                         |
+| `SWISSHUB_HOST_DATA_ROOT`     | Wo Demos und Logs je Instanz liegen, Vorgabe `/var/lib/swisshub/instances` |
 
-### 2. Ein Treiber für euer Datacenter
+**Warum ein Registrierungs-Token und kein festes Passwort:** Ein gemeinsames
+Token für alle Hosts wäre ein Generalschlüssel. Stattdessen legt ein Admin
+den Host im Dashboard an, erzeugt dort ein Token, das **einmal** gilt und
+nach einer Stunde verfällt, und der Agent tauscht es beim ersten Start gegen
+eine dauerhafte, nur für diesen Host gültige Identität. In der Datenbank
+steht vom Registrierungs-Token nur der SHA-256, von der Identität nur der
+verschlüsselte Umschlag.
 
-**Was:** Eine Datei in `packages/modules/src/gameserver/`, die
-`InfrastrukturAnbieter` erfüllt und sich mit `registriereAnbieter` einträgt.
+### 3. Netzwerk und Firewall
 
-**Warum:** Jedes Datacenter hat eine eigene API. Die Abstraktion verlangt
-sechs Methoden - `pruefe`, `createServer`, `getServer`, `startServer`,
-`stopServer`, `deleteServer`; mehr braucht der Orchestrator nicht, und
-weniger reicht nicht.
+- **Eingehend erlaubt:** der Agent-Port (nur von SwissHub aus) und die
+  Portbereiche für Spiel, Query und GOTV (von überall — dort verbinden sich
+  die Spieler).
+- **Ausgehend erlaubt:** die Registry, von der die Abbilder geladen werden.
 
-#### Stand der Recherche zu hosttech (September 2026)
+**Warum getrennte Bereiche:** Der Port-Allocator zieht je Instanz einen
+Spielport, einen Query-Port und einen GOTV-Port. Überschneiden sich die
+Bereiche, frisst einer den anderen auf; die WebApp weist das beim Speichern
+des Hosts ab.
 
-Das Virtual Datacenter wird von **hosttech.ch** betrieben, laut Anbieter auf
-KVM-Basis - also weder ein eigenes Proxmox noch VMware Cloud Director.
+### 4. `MASTER_ENCRYPTION_KEY` auf dem SwissHub-Server
 
-Öffentlich auffindbar ist:
+Ohne ihn lässt sich die Identität eines Hosts nicht lesen und das
+RCON-Passwort einer neuen Instanz nicht schreiben. Erzeugen mit
+`openssl rand -base64 32`.
 
-- hosttech bewirbt für das vDC eine **RESTful API**, über die alle Funktionen
-  des Cloud Control Panels erreichbar sein sollen, sowie zusätzliche
-  API-Methoden für Skripte.
-- Die **DNS-API** (`api.ns1.hosttech.eu`) ist öffentlich dokumentiert und hat
-  mehrere Open-Source-Clients (libdns, lego, cert-manager). **Sie kann keine
-  VMs.** Wer nach «hosttech API» sucht, findet zuerst diese - sie ist nicht
-  gemeint.
+### 5. Ein Container-Abbild für das Spiel
 
-**Nicht auffindbar** ist die eigentliche Referenz der vDC-Compute-API:
-weder eine öffentliche Endpunktliste noch ein Terraform-Provider noch ein
-API-Client für Server. Ohne sie lässt sich kein Treiber schreiben, der nicht
-geraten wäre - und geraten wird hier nichts.
+Ein Docker-Abbild, das einen CS2-Server startet und dabei diese
+Umgebungsvariablen versteht:
 
-#### Was bei hosttech anzufragen ist
+| Variable                                                       | Wer setzt sie | Bedeutung                    |
+| -------------------------------------------------------------- | ------------- | ---------------------------- |
+| `SWISSHUB_RCON_PASSWORD`                                       | Orchestrator  | RCON-Passwort dieser Instanz |
+| `SWISSHUB_SERVER_PASSWORD`                                     | Orchestrator  | Lobbypasswort                |
+| `SWISSHUB_GAME_PORT`                                           | Adapter       | Spielport **im Container**   |
+| `CS2_SERVERNAME`, `CS2_MAXPLAYERS`, `CS2_TICKRATE`, `CS2_GOTV` | CS2-Adapter   | Grundeinstellungen           |
 
-1. **Die API-Referenz des Virtual Datacenter für Compute** - Basis-URL,
-   Version, Endpunktliste. Ausdrücklich die vDC-/Server-API, **nicht** die
-   DNS-API.
-2. **Das Authentifizierungsverfahren** - API-Token, Benutzer/Passwort oder
-   OAuth; wo der Schlüssel erzeugt wird und ob er sich auf ein Projekt
-   einschränken lässt.
-3. **Ob die Plattform eine bekannte Standard-API spricht** - Apache
-   CloudStack, OpenStack (Nova), oder eine hauseigene. Das ist die wichtigste
-   Frage: bei CloudStack oder OpenStack gibt es bewährte Clients, und der
-   Treiber wird ein Bruchteil der Arbeit.
-4. **Die konkreten Aufrufe** für: VM aus Template erstellen, Status abfragen,
-   starten, stoppen, löschen.
-5. **Wie eine Startkonfiguration übergeben wird** - cloud-init/user-data
-   oder etwas anderes. SwissHub braucht genau einen Weg, dem Agenten sein
-   Token mitzugeben.
-6. **Wie eine VM-Vorlage entsteht** und unter welcher Kennung sie in der API
-   erscheint (das wird der Wert im Feld «Kennung der Vorlage beim Anbieter»).
-7. **Wie die öffentliche IP-Adresse gemeldet wird** und ob sie sofort oder
-   erst nach dem Start feststeht.
-8. **Wie Firewall-Regeln gesetzt werden** - über die API oder nur im Panel.
-9. **Grenzwerte**: wie viele VMs parallel erstellt werden dürfen, ob es ein
-   Rate Limit auf der API gibt und wie es sich meldet.
-10. **Ob ein Testprojekt möglich ist**, in dem SwissHub provisionieren darf,
-    ohne die produktive Umgebung zu berühren.
+Das Abbild schreibt Demos und Logs in das Datenverzeichnis und liest die
+Matchkonfiguration aus dem Konfigurationsverzeichnis; beide Pfade stehen im
+Runtime-Image und werden vom Agenten als Bind-Mount gesetzt.
 
-**Stand heute:** Es gibt genau einen Treiber, `simulation`. Er erzeugt
-**keine** echten Maschinen und sagt das auch: in der Infrastrukturübersicht
-steht neben ihm «Simulation». Er ist für Tests und zum Einrichten da.
-
-Sobald die API-Dokumentation eures Datacenters vorliegt, kommt der echte
-Treiber als eine Datei dazu. Der Rest des Moduls bleibt unberührt - das ist
-der Zweck der Abstraktion.
-
-**Trägt man ein unter:** Turniere → Gameserver → Infrastruktur (der Treiber
-erscheint dort in der Auswahl, sobald er registriert ist)
-
-### 3. Das VM-Abbild
-
-**Was:** Ein Maschinenabbild, auf dem bereits installiert sind:
-
-- der **CS2 Dedicated Server**
-- ein **CS2-Match-Plugin** (Konfiguration per JSON, Ready-System, Knife
-  Round, Pausen, Backup-Runden, Ergebnis-Webhook)
-- der **SwissHub Game Agent** aus `apps/game-agent`, als systemd-Dienst
-  `swisshub-agent`, der `/etc/swisshub-agent/agent.env` liest
-- ein systemd-Dienst für den Spielserver, standardmässig `cs2-server`
-
-**Warum:** Das Startskript von SwissHub installiert **nichts** und lädt
-nichts nach. Eine Maschine, die beim Start aus dem Netz nachlädt, hängt an
-einem fremden Server, und der ist auch mal weg - mitten im Turnierabend.
-Alles, was gebraucht wird, liegt im Abbild; das Startskript schreibt nur die
-Zugangsdaten hinein und startet den Agenten.
-
-**Trägt man ein unter:** Turniere → Gameserver → Templates, Feld «Kennung
-der Vorlage beim Anbieter»
-
-### 4. Netzwerk und Firewall
-
-**Was:** Die Ports, die von aussen erreichbar sein müssen:
-
-| Port          | Wofür               | Für wen                       |
-| ------------- | ------------------- | ----------------------------- |
-| 27015/udp+tcp | CS2-Spielserver     | alle Spieler                  |
-| 27020/udp     | GOTV                | Zuschauer und Caster          |
-| 9443/tcp      | SwissHub Game Agent | **nur** die SwissHub-Maschine |
-
-**Warum der Agent-Port eingeschränkt gehört:** Er ist durch Signaturen
-geschützt - jede Anfrage trägt Zeitstempel, Einmalwert und HMAC mit dem
-maschineneigenen Token. Trotzdem gilt: was nicht erreichbar ist, muss nicht
-verteidigt werden.
-
-**Trägt man ein unter:** nichts - das ist eine Einstellung im Datacenter.
-Die Ports selbst stehen im Template.
-
-### 5. `MASTER_ENCRYPTION_KEY`
-
-**Was:** Der Hauptschlüssel der Anwendung, mit dem die Zugangsdaten des
-Datacenters, die RCON-Passwörter und die Agent-Tokens verschlüsselt werden.
-
-**Warum:** Er existiert bereits für die übrigen Integrationen. Ohne ihn
-startet die Anwendung in der Produktion nicht - hier wird er nur
-mitbenutzt.
+**Eingetragen wird es unter:** Turniere → Gameserver → Runtime-Images
 
 ---
 
-## Was danach in der WebApp passiert
+## Danach: alles im Dashboard
 
-1. **Infrastruktur** — Anbieter anlegen, Treiber wählen, Verbindung prüfen.
-2. **Templates** — Maschinenzuschnitt: Abbild, CPU, RAM, Disk, Ports,
-   Höchstlaufzeit, Schonfrist.
-3. **Game Profiles** — Map-Pool, Slots, Overtime, Knife Round, Pausen, GOTV,
-   Demos, Ready-Regel, Passwortstrategie.
-4. **Moduleinstellungen** — Gameserver einschalten, Grenzwerte setzen.
-5. **Turnier** — ein Game Profile wählen. Fertig.
+| Bereich            | Was dort eingestellt wird                                                                                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Hosts**          | Name, Adresse, Region, Gruppe, erlaubte Spiele, Kapazität, Reserven, Portbereiche, Status                                                                                           |
+| **Host-Detail**    | Registrierung, Verbindung testen, Abbilder abgleichen und laden, Drain, Wartung, Abschalten, Entfernen                                                                              |
+| **Runtime-Images** | Abbild, Tag, Startargumente, Mountpfade, Ports im Container, Startzeit                                                                                                              |
+| **Game Profiles**  | Map-Pool, Slots, Overtime, Pausen, Knife, Warmup, Ready-Regel, GOTV, Demos, Coach-/Caster-Plätze, Plugin, Tickrate, CPU-/RAM-/Disk-Limits, maximale Laufzeit, bevorzugte Hostgruppe |
+| **Infrastruktur**  | Gesamtlage über alle Hosts, Grenzwerte, Anbieter (nur für spätere Selbstprovisionierung)                                                                                            |
+| **Match Room**     | Veto, Ready, Start, Pause, Fortsetzen, Wiederherstellen, Instanz stoppen, Instanz neu erstellen, Host vorgeben                                                                      |
 
-Ab dann entsteht für jedes Match zur eingestellten Zeit ein Server.
+**Kein SSH** für diese Dinge. Und ausdrücklich **nicht** im Dashboard: keine
+Shell, keine Docker-Kommandozeile, keine RCON-Konsole, kein Dateieditor,
+kein Feld für beliebige Container-Argumente.
 
 ---
 
 ## Die Zusagen, auf die man sich verlassen kann
 
-**Ein Match bekommt einen Server.** `MatchServerAssignment` trägt
-`@@unique([matchId, generation])` und wird vor dem Anbieter geschrieben.
-Zwei Worker, zwei Bot-Instanzen, ein Retry nach einem Neustart - keiner
-kommt an der Datenbank vorbei.
+**Ein Match bekommt einen Server.** `@@unique([matchId, generation])` auf
+`MatchServerAssignment`, geschrieben bevor irgendetwas anderes passiert.
 
-**Ein Veto-Schritt wird einmal belegt.** `@@unique([assignmentId, stepIndex])`.
-Zwei gleichzeitige Klicks können nicht beide Schritt 3 sein. Jeder Schritt
-liegt in der Datenbank; ein Neustart mitten im Veto verliert nichts.
+**Ein Port gehört einem.** `@@unique([hostId, port])` auf
+`HostPortReservation`. Reservieren heisst: eine Zeile anlegen. Zwei
+gleichzeitige Matches können denselben Port nicht ziehen, ein Neustart
+verliert keine Reservierung, und ein Absturz mitten im Erstellen hinterlässt
+eine Zeile, die das Aufräumen findet.
 
-**Der Bracket rückt nur bei einem eindeutigen Resultat weiter.** Ist es das
-nicht - abgebrochenes Match, fehlende Map, Unentschieden, wo keines sein
-darf -, geht es an einen Menschen. Das Rohe bleibt gespeichert.
+**Ein Host nimmt nicht mehr an, als er trägt.** `SELECT … FOR UPDATE` auf die
+Hostzeile, dann zählen, dann schreiben. Ohne diese Sperre wäre jede Grenze
+eine Empfehlung: zwanzig gleichzeitige Anforderungen sähen alle dieselben
+«noch drei Plätze frei».
 
-**Dateien vor Löschung.** Eine Maschine, deren Archivierung fehlschlug, wird
-nicht automatisch entfernt. Lieber eine Maschine zu viel als eine Demo zu
-wenig.
+**Ein Veto-Schritt wird einmal belegt.**
+`@@unique([assignmentId, stepIndex])`.
 
-**Keine freie Shell, keine freie Konsole.** Der Agent kennt zehn feste
-Aktionen; keine nimmt einen Befehl entgegen. In der WebApp gibt es kein
-RCON-Eingabefeld. Die RCON-Passwörter sind je Maschine zufällig, liegen
-verschlüsselt und verschwinden mit der Maschine.
+**Der Bracket rückt nur bei einem eindeutigen Resultat weiter.** Alles andere
+geht an einen Menschen, und das Rohe bleibt gespeichert.
+
+**Ein Registrierungs-Token gilt einmal.** Bedingte Schreiboperation; wer sie
+gewinnt, registriert.
+
+**Demos und Logs sind vor dem Container weg.** Erst archivieren, dann
+stoppen, dann entfernen, dann die Ports freigeben. Eine Zuordnung in
+`ARCHIVE_ERROR` wird übersprungen, bis jemand hinsieht.
 
 ---
 
-## Die Erweiterung ist freiwillig
+## Was der Agent kann — und was nicht
 
-Ohne Konfiguration passiert **nichts** - und zwar wirklich nichts:
+Siebzehn feste Aktionen. Es gibt kein `executeCommand`, keinen Endpunkt, der
+einen Pfad entgegennimmt, keinen, der Docker-Argumente entgegennimmt, und
+keine Funktion, die einen Text an eine Shell gibt (`spawn` mit
+Argumentliste statt `exec` mit einer Zeile).
 
-- Der Durchgang im Bot prüft einmal `konfigurationsStand()` und ist fertig.
-  Keine Abfrage an ein Datacenter, keine Warnung, kein Protokolleintrag.
-  Diese Funktion wirft nie; fällt die Datenbank aus, meldet sie
-  «unbekannt» statt einer Ausnahme.
-- Die Matchansicht lädt den Match Room in einem `try`. Ein Match ohne
-  Serverzuweisung sieht aus wie immer - und eines, bei dem beim Laden etwas
-  schiefgeht, ebenfalls. Eine Seite, die es seit Monaten gibt, darf an einer
-  neuen Erweiterung nicht scheitern.
-- Die Gameserver-Übersicht sagt in einem Satz, was fehlt, und wo man es
-  einträgt. Kein rotes Banner: ein Turnier ohne Gameserver ist ein normales
-  Turnier.
-- Ein eingetragener Anbieter, für den es keinen Treiber gibt, ist eine
-  Lücke in der Liste - kein Absturz.
-- Fehlt `MASTER_ENCRYPTION_KEY`, scheitert eine Bereitstellung mit genau
-  diesem Satz in der Zuordnung, statt mit einer Ausnahme.
+Jede Anfrage trägt Zeitstempel, Einmalwert und HMAC-SHA256 mit dem Token des
+Hosts. Abgelaufene, zukünftige und wiedereingespielte Anfragen werden
+abgewiesen; ein unbekannter Pfad ist 404, noch vor der Signaturprüfung.
 
-`tests/integration/gameserver-optional.test.ts` prüft das gegen eine
-Datenbank, in der nichts eingerichtet ist - und ohne Hauptschlüssel.
+**Die Instanzkennung steht im signierten Rumpf, nicht im Pfad.** Der
+naheliegende Weg wäre `/instances/<id>/match/pause` gewesen — er hätte die
+Pfadprüfung von einer Liste in ein Muster verwandelt, und ein Muster ist
+eine Auslegungssache. Die Signatur deckt den Rumpf-Hash ab; die Kennung ist
+damit genauso geschützt, wie sie als Pfadsegment wäre.
+
+Der Container läuft mit `--cap-drop ALL`, `--security-opt no-new-privileges`
+und `--restart no`. Kein `--privileged`, kein `--network host`, keine
+zusätzlichen Fähigkeiten und keine Mounts ausser den beiden Verzeichnissen,
+deren Pfad der Agent selbst aus seinem Wurzelverzeichnis und der geprüften
+Instanzkennung bildet.
+
+---
+
+## Wenn etwas ausfällt
+
+| Fall                          | Was passiert                                                                                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| Container startet nicht       | Instanz auf `FAILED`, Ports zurück, Grund in der Zuordnung                                          |
+| Host antwortet nicht mehr     | Nach drei verpassten Abfragen `OFFLINE`; betroffene Instanzen `FAILED`, Matches `MATCH_INTERRUPTED` |
+| Container kaputt, Match nicht | «Instanz neu erstellen» — gleiches Match, gleiches Veto, neue Generation                            |
+| Host soll gewartet werden     | `DRAINING` oder `MAINTENANCE`: keine neuen Matches, laufende laufen aus                             |
+
+**Kein automatischer Umzug eines laufenden Matches.** Ein laufendes
+CS2-Match lässt sich nicht verlustfrei verschieben; ein Umzug, der so tut,
+als ginge es, kostet den Spielstand. Die Turnierleitung entscheidet.
+
+---
+
+## Ein zweiter Host
+
+1. Host im Dashboard anlegen (Adresse, Kapazität, Portbereiche, erlaubte Spiele).
+2. Registrierungs-Token erzeugen.
+3. Auf der Maschine: Docker, Agent, `SWISSHUB_URL` und das Token setzen, Dienst starten.
+4. Im Host-Detail «Fehlende laden» — die Abbilder kommen auf den Host.
+5. Fertig. Der Scheduler nimmt ihn ab dem nächsten Match mit.
+
+Mehr ist nicht nötig: die Game Profiles, die Runtime-Images und die
+Grenzwerte gelten für alle Hosts.
+
+---
+
+## Später: hosttech-Auto-Scaling
+
+Der Provider-Layer bleibt erhalten, wird für vorbereitete Hosts aber **nicht
+gebraucht**. Er ist der Weg zu einer Ausbaustufe, in der SwissHub selbst
+Hosts erzeugt:
+
+```
+freie Kapazität < Schwellwert
+      ↓
+Provider-Treiber → neue VM aus einem Template
+      ↓
+Agent registriert sich mit einem Token aus der Startkonfiguration
+      ↓
+Host wird ACTIVE, Scheduler nimmt ihn mit
+```
+
+Alles davon ist vorbereitet — ausser dem Treiber. Dafür fehlt die
+Compute-API des Datacenters.
+
+### Stand der Recherche zu hosttech (September 2026)
+
+Das Virtual Datacenter wird von **hosttech.ch** betrieben, laut Anbieter auf
+KVM-Basis — also weder ein eigenes Proxmox noch VMware Cloud Director.
+
+Öffentlich auffindbar ist nur, dass für das vDC eine **RESTful API**
+beworben wird. Die gut dokumentierte hosttech-API ist die **DNS-API**
+(`api.ns1.hosttech.eu`); **sie kann keine VMs** und ist nicht gemeint. Eine
+Endpunktliste für Compute, ein Terraform-Provider oder ein API-Client waren
+nicht zu finden.
+
+Ohne diese Unterlagen liesse sich nur raten, und geraten wird hier nichts.
+
+**Was bei hosttech anzufragen ist:**
+
+1. Die API-Referenz des Virtual Datacenter für **Compute** — Basis-URL,
+   Version, Endpunktliste. Ausdrücklich die vDC-/Server-API, **nicht** die DNS-API.
+2. Das Authentifizierungsverfahren — API-Token, Benutzer/Passwort oder OAuth;
+   wo der Schlüssel erzeugt wird und ob er sich auf ein Projekt einschränken lässt.
+3. **Ob die Plattform eine bekannte Standard-API spricht** — Apache
+   CloudStack, OpenStack (Nova) oder eine hauseigene. Das ist die wichtigste
+   Frage: bei CloudStack oder OpenStack gibt es bewährte Clients, und der
+   Treiber wird ein Bruchteil der Arbeit.
+4. Die konkreten Aufrufe für: VM aus Template erstellen, Status abfragen,
+   starten, stoppen, löschen.
+5. Wie eine Startkonfiguration übergeben wird — cloud-init/user-data oder
+   etwas anderes. SwissHub braucht genau einen Weg, dem Agenten sein
+   Registrierungs-Token mitzugeben.
+6. Wie eine VM-Vorlage entsteht und unter welcher Kennung sie in der API erscheint.
+7. Wie die öffentliche IP-Adresse gemeldet wird und ob sie sofort feststeht.
+8. Wie Firewall-Regeln gesetzt werden — über die API oder nur im Panel.
+9. Grenzwerte: wie viele VMs parallel erstellt werden dürfen, ob es ein Rate
+   Limit auf der API gibt und wie es sich meldet.
+10. Ob ein Testprojekt möglich ist, in dem SwissHub provisionieren darf,
+    ohne die produktive Umgebung zu berühren.
+
+---
 
 ## Ein zweites Spiel ergänzen
 
-Drei Schritte, alle additiv:
+Eine Datei: ein `GameAdapter` mit `profilPlattform`, `benoetigtePorts`,
+`laufzeitUmgebung`, Veto-Ablauf, Ergebnisdeutung und den Match-Aktionen.
+Dazu ein Wert im `GameServerGame`-Enum, ein Runtime-Image und ein Game
+Profile in der Oberfläche.
 
-1. `GameServerGame` in `schema.prisma` um den Wert erweitern (additive
-   Migration).
-2. Eine Datei unter `packages/modules/src/gameserver/<spiel>/adapter.ts`,
-   die `GameAdapter` erfüllt und sich mit `registriereAdapter` einträgt.
-   Darin: Ports, Map-Anzahl je Modus, Veto-Ablauf, Prüfung der
-   Spielerkennung, in welchem Profilfeld sie steht, Konfigurationsformat,
-   Start/Stop, Health, Pause/Unpause/Restore, Ergebnisdeutung, Dateien.
-3. Den Import in `packages/modules/src/gameserver/index.ts` ergänzen, damit
-   die Registrierung läuft.
-
-Orchestrator, Treiber, WebApp, Veto, Grenzwerte, Aufräumen und Resultat
-bleiben unberührt. Ein Test prüft, dass im Orchestrator kein Spielname
-steht - er ist die Zusage, dass dieser Weg weiterhin genügt.
+Orchestrator, Host Scheduler, Port-Allocator, Agent, Aufräumen, Match Room
+und Resultatübernahme bleiben unberührt. Drei Strukturtests stellen sicher,
+dass das so bleibt: sobald ein Spielname in den Orchestrator oder den
+Scheduler wandert, fallen sie.

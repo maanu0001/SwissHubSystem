@@ -3909,11 +3909,11 @@ model TournamentMatch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  games       TournamentMatchGame[]
-  submissions TournamentResultSubmission[]
+  games             TournamentMatchGame[]
+  submissions       TournamentResultSubmission[]
   serverAssignments MatchServerAssignment[]
-  disputes    TournamentDispute[]
-  casters     TournamentMatchCaster[]
+  disputes          TournamentDispute[]
+  casters           TournamentMatchCaster[]
 
   @@unique([tournamentId, matchNumber])
   @@unique([stageId, round, position])
@@ -8481,7 +8481,7 @@ model Mission {
   vorlage   MissionVorlage? @relation(fields: [vorlageId], references: [id], onDelete: SetNull)
 
   /// Wann auf Discord angekuendigt wurde. `null` heisst: noch nicht.
-  angekuendigtStartAm    DateTime?
+  angekuendigtStartAm     DateTime?
   angekuendigtAbschlussAm DateTime?
 
   erstelltVonDiscordId String?
@@ -8532,11 +8532,11 @@ model MissionBelohnung {
 
   discordId String
 
-  xp            Int     @default(0)
-  premiumTage   Int     @default(0)
-  auszeichnung  String?
+  xp           Int     @default(0)
+  premiumTage  Int     @default(0)
+  auszeichnung String?
   /// Was tatsaechlich ankam, im Klartext - auch wenn nichts ankam.
-  ergebnis      String?
+  ergebnis     String?
 
   vergebenAm DateTime @default(now())
 
@@ -8553,10 +8553,10 @@ model MissionVorlage {
   art MissionArt
   typ MissionTyp
 
-  titel        String
-  beschreibung String?
-  ziel         Int
-  mindestBeitrag Int @default(1)
+  titel          String
+  beschreibung   String?
+  ziel           Int
+  mindestBeitrag Int     @default(1)
 
   belohnungXp           Int     @default(0)
   belohnungPremiumTage  Int     @default(0)
@@ -8607,6 +8607,31 @@ enum GameServerStatus {
   REMOVED
   /// Etwas ist schiefgegangen. `lastError` sagt was.
   FAILED
+
+  // --- Der Lebenslauf einer Match-Instanz auf einem Host ------------------
+  //
+  // Dieselbe Aufzaehlung statt einer zweiten: ein Match hat einen Server,
+  // und in welcher Technik der laeuft, aendert daran nichts. Die alten
+  // Werte bleiben gueltig - Zeilen aus der VM-Welt bleiben lesbar.
+
+  /// Kapazitaet und Ports sind reserviert, der Container noch nicht da.
+  RESERVED
+  /// Der Host erzeugt den Container.
+  CREATING
+  /// Der Container laeuft an.
+  STARTING
+  /// Die Matchkonfiguration wird angewendet.
+  CONFIGURING
+  /// Bereit - wartet auf Veto, Spieler oder Anpfiff.
+  READY
+  /// Das Match laeuft.
+  LIVE
+  /// Gestoppt, aber noch vorhanden. Dateien lassen sich noch holen.
+  STOPPED
+  /// Demos und Logs werden gesichert.
+  ARCHIVING
+  /// Der Container wird entfernt.
+  REMOVING
 }
 
 /// Wo ein Match in der Serverbereitstellung steht.
@@ -8728,15 +8753,15 @@ model GameServerTemplate {
   diskGb   Int @default(40)
 
   /// Der Port, auf dem der Spielserver lauscht.
-  gamePort Int @default(27015)
+  gamePort  Int @default(27015)
   /// Der Port des GOTV-Relays. 0 heisst: keins.
-  tvPort   Int @default(27020)
+  tvPort    Int @default(27020)
   /// Der Port, auf dem der SwissHub-Agent lauscht.
   agentPort Int @default(9443)
 
   /// Obergrenze der Laufzeit in Minuten. Danach raeumt der Durchgang auf,
   /// auch wenn niemand daran gedacht hat.
-  maxRuntimeMinutes Int @default(240)
+  maxRuntimeMinutes   Int @default(240)
   /// Wie lange nach dem Match gewartet wird, bevor geloescht wird.
   cleanupDelayMinutes Int @default(15)
 
@@ -8764,10 +8789,37 @@ model GameProfile {
 
   game GameServerGame
 
+  /// Die alte VM-Vorlage. Bleibt fuer Instanzen aus der VM-Welt und fuer
+  /// die spaetere Host-Provisionierung.
   templateId String?
   template   GameServerTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
+  /// Aus welchem Abbild die Match-Container entstehen. Der Normalfall.
+  runtimeImageId String?
+  runtimeImage   GameRuntimeImage? @relation(fields: [runtimeImageId], references: [id], onDelete: SetNull)
+
+  /// Welche Hostgruppe bevorzugt wird. Findet der Scheduler dort nichts,
+  /// nimmt er einen anderen Host - ein Match wartet nicht auf eine Region.
+  preferredGroupId String?
+  preferredGroup   HostGroup? @relation(fields: [preferredGroupId], references: [id], onDelete: SetNull)
+
   region String?
+
+  // --- Was eine Match-Instanz bekommt ------------------------------------
+  //
+  // Nicht was der Host hat, sondern was ein einzelnes Match davon bekommt.
+  // Die Reservierung ist das, womit der Scheduler rechnet; das Limit ist
+  // die Obergrenze, die der Container nicht ueberschreiten darf.
+
+  cpuLimit            Float @default(2)
+  cpuReservation      Float @default(1)
+  memoryLimitMb       Int   @default(4096)
+  memoryReservationMb Int   @default(2048)
+  diskLimitMb         Int   @default(20480)
+
+  /// Nach dieser Zeit raeumt der Durchgang auf, auch wenn niemand daran
+  /// gedacht hat.
+  maxRuntimeMinutes Int @default(240)
 
   /// Der Map-Pool. Wird fuer das Veto gebraucht und muss gross genug sein,
   /// damit ein BO3 ueberhaupt durchlaufen kann - das prueft der Dienst.
@@ -8777,15 +8829,52 @@ model GameProfile {
   /// Turnierleitung auch hineinkommen muessen.
   slots Int @default(12)
 
-  overtime         Boolean @default(true)
-  knifeRound       Boolean @default(true)
-  tacticalPauses   Int     @default(4)
-  technicalPauses  Int     @default(2)
-  gotvEnabled      Boolean @default(true)
-  demoRecording    Boolean @default(true)
-  restoreSupport   Boolean @default(true)
+  overtime        Boolean @default(true)
+  knifeRound      Boolean @default(true)
+  tacticalPauses  Int     @default(4)
+  technicalPauses Int     @default(2)
+  gotvEnabled     Boolean @default(true)
+  demoRecording   Boolean @default(true)
+  restoreSupport  Boolean @default(true)
 
   warmupSeconds Int @default(300)
+
+  // --- Matchregeln im Einzelnen ------------------------------------------
+  //
+  // Damit nach der Einrichtung eines Hosts niemand mehr eine Konfigurations-
+  // datei anfassen muss. Was hier steht, landet ueber den Game Adapter in
+  // der Matchkonfiguration - und nichts davon wird je an eine Shell gegeben.
+
+  /// Wie der Server heisst. `{tournament}`, `{match}`, `{teamA}`, `{teamB}`
+  /// werden ersetzt; alles andere bleibt Text.
+  serverNameTemplate String @default("SwissHub | {tournament} | Match {match}")
+
+  /// Der Modus, wenn das Match keinen eigenen vorgibt.
+  defaultBestOf Int @default(1)
+
+  /// Wie lange eine taktische beziehungsweise technische Pause dauert.
+  pauseSeconds     Int @default(60)
+  techPauseSeconds Int @default(300)
+
+  overtimeMaxRounds  Int @default(6)
+  overtimeStartMoney Int @default(16000)
+
+  /// Wie weit sich ein Match zuruecksetzen laesst.
+  restoreMaxRounds Int @default(60)
+
+  gotvDelaySeconds Int @default(105)
+
+  /// Plaetze neben den Spielern.
+  coachSlots  Int @default(2)
+  casterSlots Int @default(2)
+
+  /// Welches Match-Plugin der Adapter anspricht.
+  matchPlugin    String @default("get5")
+  /// Einstellungen dieses Plugins. Strukturierte Werte, keine Kommandozeile.
+  pluginSettings Json   @default("{}")
+
+  /// Die Tickrate, soweit das Spiel sie ueberhaupt kennt.
+  tickrate Int @default(64)
 
   /// Wer bereit melden muss: CAPTAIN oder ALL.
   readyRule String @default("CAPTAIN")
@@ -8814,11 +8903,28 @@ model GameProfile {
 model GameServerInstance {
   id String @id @default(cuid())
 
-  providerId String
-  provider   GameServerProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  /// Der Anbieter, der die Maschine erzeugt hat.
+  ///
+  /// **Optional, seit es Hosts gibt.** Eine Instanz auf einem vorbereiteten
+  /// Host hat keinen Anbieter - sie ist ein Container, kein Vertrag mit
+  /// einem Datacenter. Zeilen aus der VM-Welt behalten ihren Anbieter.
+  providerId String?
+  provider   GameServerProvider? @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  /// Der Host, auf dem diese Instanz laeuft. Der Normalfall.
+  hostId String?
+  host   GameServerHost? @relation(fields: [hostId], references: [id], onDelete: Restrict)
 
   templateId String?
   template   GameServerTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  /// Aus welchem Abbild der Container entstanden ist.
+  runtimeImageId String?
+  runtimeImage   GameRuntimeImage? @relation(fields: [runtimeImageId], references: [id], onDelete: SetNull)
+  /// Der Tag, der beim Erstellen tatsaechlich benutzt wurde - nicht der, der
+  /// heute im Abbild steht. Ein Match soll hinterher nachweisen koennen,
+  /// womit es lief.
+  imageTag       String?
 
   profileId String?
   profile   GameProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
@@ -8841,8 +8947,31 @@ model GameServerInstance {
   /// Die Adresse, unter der Spieler den Server erreichen.
   publicHost String?
   gamePort   Int?
+  queryPort  Int?
   tvPort     Int?
+  /// Nur bei Instanzen aus der VM-Welt: dort lauschte der Agent auf der
+  /// Maschine selbst. Auf einem Host gehoert der Agent dem Host.
   agentPort  Int?
+
+  /// Die Kennung des Containers auf dem Host. `null`, solange keiner
+  /// entstanden ist.
+  containerRef String?
+
+  /// Was dieser Instanz zusteht. Aus dem Game Profile beim Erstellen
+  /// uebernommen, damit eine spaetere Aenderung am Profil ein laufendes
+  /// Match nicht umkonfiguriert.
+  cpuLimit          Float?
+  memoryLimitMb     Int?
+  diskLimitMb       Int?
+  maxRuntimeMinutes Int?
+
+  /// Das Game Profile, wie es beim Erstellen aussah.
+  ///
+  /// **Der Grund fuer diese Spalte.** Wer das Profil mitten in einem Turnier
+  /// aendert, darf das laufende Match nicht treffen. Und wer hinterher
+  /// fragt, mit welchen Einstellungen gespielt wurde, soll eine Antwort
+  /// bekommen statt der heutigen Einstellungen.
+  profileSnapshot Json?
 
   /// **Verschluesselt.** Das RCON-Passwort dieser einen Maschine, erzeugt
   /// beim Provisionieren, nie im Frontend, nie im Protokoll, beim Loeschen
@@ -8857,11 +8986,11 @@ model GameServerInstance {
   /// Der letzte Heartbeat des Agents. `null` heisst: noch keiner.
   lastHeartbeatAt DateTime?
   /// Was der letzte Heartbeat gemeldet hat.
-  cpuPercent  Float?
-  memoryMb    Int?
-  diskFreeMb  Int?
-  playerCount Int?
-  currentMap  String?
+  cpuPercent      Float?
+  memoryMb        Int?
+  diskFreeMb      Int?
+  playerCount     Int?
+  currentMap      String?
 
   /// Wofuer die Maschine erzeugt wurde. Der Warm Pool wuerde hier `null`
   /// eintragen - eine Maschine ohne Match, die auf eines wartet.
@@ -8873,6 +9002,8 @@ model GameServerInstance {
 
   provisionStartedAt DateTime?
   provisionEndedAt   DateTime?
+  startedAt          DateTime?
+  stoppedAt          DateTime?
   deleteAfterAt      DateTime?
   removedAt          DateTime?
 
@@ -8881,15 +9012,17 @@ model GameServerInstance {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignments MatchServerAssignment[]
-  files       GameServerFile[]
-  heartbeats  ServerHeartbeat[]
-  attempts    ProvisioningAttempt[]
+  assignments  MatchServerAssignment[]
+  files        GameServerFile[]
+  heartbeats   ServerHeartbeat[]
+  attempts     ProvisioningAttempt[]
+  reservations HostPortReservation[]
 
   /// «Was laeuft gerade» - die Abfrage der Uebersicht und der Grenzwerte.
   @@index([status, game])
   @@index([tournamentId, status])
   @@index([status, deleteAfterAt])
+  @@index([hostId, status])
 }
 
 /// Die Zuordnung einer Maschine zu einem Match.
@@ -8917,14 +9050,22 @@ model MatchServerAssignment {
 
   phase MatchServerPhase @default(WAITING_FOR_SERVER)
 
+  /// Ein von der Turnierleitung vorgegebener Host.
+  ///
+  /// Kein Fremdschluessel: er soll auch dann noch nachvollziehbar sein,
+  /// wenn der Host spaeter entfernt wurde. Er ueberspringt die **Auswahl**,
+  /// nicht die Pruefungen - ein Host, der das Spiel nicht kann oder voll
+  /// ist, wird auch von Hand nicht genommen.
+  forcedHostId String?
+
   /// Wann die Bereitstellung fruehestens anfangen soll.
   provisionAfterAt DateTime?
 
   /// Die Zeitpunkte des Ablaufs - fuer die Dauerstatistik der Uebersicht.
-  readyAt     DateTime?
-  liveAt      DateTime?
-  finishedAt  DateTime?
-  archivedAt  DateTime?
+  readyAt    DateTime?
+  liveAt     DateTime?
+  finishedAt DateTime?
+  archivedAt DateTime?
 
   /// Was der Adapter als Ergebnis gemeldet hat, bevor es ins Turnier ging.
   /// Roh aufbewahrt: geht bei der Uebernahme etwas schief, laesst sich
@@ -9023,8 +9164,17 @@ model GameServerFile {
 model ServerHeartbeat {
   id String @id @default(cuid())
 
-  instanceId String
-  instance   GameServerInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  /// Von welcher Instanz. `null` bei einem Host-Lebenszeichen.
+  instanceId String?
+  instance   GameServerInstance? @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  /// Von welchem Host. `null` bei einem Instanz-Lebenszeichen.
+  ///
+  /// Dieselbe Tabelle fuer beide, weil die Spalten dieselben sind und das
+  /// Ausduennen dieselbe Abfrage ist. Eine zweite Tabelle haette eine
+  /// zweite Aufraeumregel gebraucht, die irgendwann auseinanderlaeuft.
+  hostId String?
+  host   GameServerHost? @relation(fields: [hostId], references: [id], onDelete: Cascade)
 
   cpuPercent  Float?
   memoryMb    Int?
@@ -9033,9 +9183,15 @@ model ServerHeartbeat {
   currentMap  String?
   gameRunning Boolean @default(false)
 
+  /// Nur bei Hosts.
+  agentVersion    String?
+  dockerAvailable Boolean?
+  instanceCount   Int?
+
   createdAt DateTime @default(now())
 
   @@index([instanceId, createdAt])
+  @@index([hostId, createdAt])
   /// Das Aufraeumen faehrt ueber das Alter, quer ueber alle Maschinen.
   @@index([createdAt])
 }
@@ -9058,7 +9214,7 @@ model ProvisioningAttempt {
   /// Der wievielte Anlauf. Beginnt bei 1.
   attempt Int @default(1)
 
-  succeeded Boolean @default(false)
+  succeeded  Boolean @default(false)
   /// Wie lange er gedauert hat. `null`, solange er laeuft.
   durationMs Int?
   error      String? @db.Text
@@ -9068,4 +9224,264 @@ model ProvisioningAttempt {
 
   @@index([matchId, generation])
   @@index([startedAt])
+}
+
+// ===========================================================================
+// Gameserver-Hosts und dynamische Match-Instanzen
+//
+// Der Umbau vom Modell «eine VM je Match» auf «vorbereitete Hosts, darauf
+// je Match ein isolierter Container».
+//
+// **Warum die bestehenden Modelle bleiben.** `GameServerInstance` heisst
+// weiterhin so und traegt weiterhin die Zuordnung zum Match, die Ports, das
+// RCON-Passwort und die Dateien. Was sich aendert, ist, *was* eine Instanz
+// ist: frueher eine Maschine beim Anbieter, heute ein Container auf einem
+// Host. Eine zweite Modellfamilie daneben haette dieselben Fragen ein
+// zweites Mal beantwortet - und zwei Antworten auf «welcher Server gehoert
+// zu diesem Match» sind eine zu viel.
+//
+// `providerId` wird deshalb optional statt entfernt: eine Instanz auf einem
+// vorbereiteten Host hat keinen Anbieter, eine aus der alten Welt hat einen,
+// und beide bleiben lesbar.
+// ===========================================================================
+
+/// Was ein Host gerade darf.
+///
+/// Getrennt von seiner Gesundheit: `MAINTENANCE` ist eine Entscheidung,
+/// `OFFLINE` ein Befund. Die Gesundheit wird aus dem letzten Lebenszeichen
+/// **abgeleitet** und nicht gespeichert - ein gespeicherter Gesundheitswert
+/// ist nach einem Neustart eine Behauptung ueber die Vergangenheit.
+enum GameServerHostStatus {
+  /// Nimmt neue Matches an.
+  ACTIVE
+  /// Nimmt keine neuen mehr an, laufende laufen aus.
+  DRAINING
+  /// Wartung. Keine neuen Matches, laufende duerfen bleiben.
+  MAINTENANCE
+  /// Abgeschaltet. Der Scheduler sieht ihn nicht.
+  DISABLED
+}
+
+/// Wofuer ein Port reserviert ist.
+enum HostPortKind {
+  GAME
+  QUERY
+  TV
+}
+
+/// Eine Gruppe von Hosts.
+///
+/// Bewusst nur ein Etikett mit Region - keine Cluster-Engine. Ein Game
+/// Profile kann eine Gruppe bevorzugen; findet der Scheduler dort nichts,
+/// nimmt er einen anderen Host, statt das Match warten zu lassen.
+model HostGroup {
+  id String @id @default(cuid())
+
+  name        String  @unique
+  description String?
+  region      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hosts    GameServerHost[]
+  profiles GameProfile[]
+}
+
+/// Eine vorbereitete Maschine, auf der Match-Instanzen laufen.
+///
+/// Lang laufend, einmal eingerichtet, danach vollstaendig aus der WebApp
+/// bedient. Sie traegt Linux, Docker und den SwissHub Game Agent; was pro
+/// Match entsteht, ist ein Container darauf.
+model GameServerHost {
+  id String @id @default(cuid())
+
+  name        String  @unique
+  description String?
+
+  /// Adresse, unter der der Agent erreichbar ist. Name oder IP.
+  hostname  String
+  agentPort Int    @default(9443)
+
+  region String?
+
+  groupId String?
+  group   HostGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  status GameServerHostStatus @default(ACTIVE)
+
+  // --- Registrierung ------------------------------------------------------
+  //
+  // Der Agent weist sich dauerhaft mit `agentTokenEnc` aus. Das bekommt er
+  // aber nicht von Hand eingetragen, sondern einmalig gegen ein
+  // Registrierungs-Token, das kurz gilt und nach der Verwendung ungueltig
+  // ist. Gespeichert wird nur sein Hash - ein Token, das in der Datenbank
+  // im Klartext steht, ist ein Passwort in der Datenbank.
+
+  /// SHA-256 des einmaligen Registrierungs-Tokens. `null` heisst: keines
+  /// offen.
+  registrationTokenHash String?
+  registrationExpiresAt DateTime?
+  /// Wann sich der Agent gemeldet hat. `null` heisst: noch nie.
+  registeredAt          DateTime?
+
+  /// **Verschluesselt.** Die dauerhafte Identitaet dieses Hosts.
+  agentTokenEnc String?
+
+  // --- Was der Agent zuletzt gemeldet hat ---------------------------------
+  agentVersion    String?
+  lastHeartbeatAt DateTime?
+  dockerAvailable Boolean?
+  cpuPercent      Float?
+  memoryUsedMb    Int?
+  diskFreeMb      Int?
+  uptimeSeconds   Int?
+  /// Wie viele Container der Host selbst zaehlt. Weicht er von der
+  /// Datenbank ab, steht das im Dashboard - geraten wird nichts.
+  runningCount    Int?
+
+  // --- Kapazitaet ---------------------------------------------------------
+  cpuCores Int @default(0)
+  memoryMb Int @default(0)
+  diskGb   Int @default(0)
+
+  /// Was dem Host selbst bleibt. Ein Host, der bis auf das letzte Megabyte
+  /// verplant ist, faellt beim ersten Lastspitzen-Container um.
+  reservedCpuCores Float @default(1)
+  reservedMemoryMb Int   @default(2048)
+  minFreeDiskGb    Int   @default(10)
+
+  maxInstances      Int @default(6)
+  maxParallelStarts Int @default(2)
+
+  /// Welche Spiele hier laufen duerfen. Leer heisst: keines - ein Host, bei
+  /// dem niemand etwas eingetragen hat, bekommt nichts zugewiesen.
+  allowedGames GameServerGame[] @default([])
+
+  // --- Portbereiche -------------------------------------------------------
+  gamePortFrom  Int @default(27015)
+  gamePortTo    Int @default(27199)
+  queryPortFrom Int @default(27200)
+  queryPortTo   Int @default(27399)
+  tvPortFrom    Int @default(27400)
+  tvPortTo      Int @default(27599)
+
+  /// Warum der Host gerade nicht kann. Im Klartext, fuer das Dashboard.
+  lastError String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  instances    GameServerInstance[]
+  reservations HostPortReservation[]
+  images       HostImageState[]
+  heartbeats   ServerHeartbeat[]
+
+  @@index([status, region])
+}
+
+/// Ein belegter Port auf einem Host.
+///
+/// **Der Port-Allocator ist diese Tabelle.** Reservieren heisst: eine Zeile
+/// anlegen; `@@unique([hostId, port])` entscheidet, wer sie bekommt. Zwei
+/// gleichzeitige Matches koennen nicht denselben Port ziehen, ein Neustart
+/// verliert keine Reservierung, und nach einem Absturz mitten im Erstellen
+/// steht die Zeile noch da und wird beim Aufraeumen freigegeben.
+///
+/// Eine Vergabe im Arbeitsspeicher haette keine dieser Eigenschaften.
+model HostPortReservation {
+  id String @id @default(cuid())
+
+  hostId String
+  host   GameServerHost @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  port Int
+  kind HostPortKind
+
+  /// Wofuer der Port reserviert ist. Verschwindet die Instanz, verschwindet
+  /// die Reservierung mit ihr - ein Port, der einer geloeschten Instanz
+  /// gehoert, waere fuer immer verloren.
+  instanceId String?
+  instance   GameServerInstance? @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([hostId, port])
+  @@index([instanceId])
+}
+
+/// Ein Container-Abbild, aus dem Match-Instanzen entstehen.
+///
+/// **Alles hier ist strukturiert.** Es gibt kein Feld fuer «zusaetzliche
+/// Docker-Argumente» und keines fuer eine Kommandozeile als Text. Was der
+/// Container bekommt, steht in Spalten, die einzeln geprueft werden - ein
+/// freies Feld waere die Docker-CLI im Browser, nur mit mehr Schritten.
+model GameRuntimeImage {
+  id String @id @default(cuid())
+
+  name String         @unique
+  game GameServerGame
+
+  /// Das Abbild ohne Tag, etwa `ghcr.io/example/cs2`.
+  image String
+  tag   String @default("latest")
+
+  /// Das Startkommando als **Argumentliste**, nicht als Zeile. Eine Zeile
+  /// muesste jemand zerlegen, und wer zerlegt, interpretiert.
+  command String[] @default([])
+
+  /// Feste Umgebungsvariablen. Nie Geheimnisse - die kommen zur Laufzeit
+  /// aus dem verschluesselten Speicher.
+  env Json @default("{}")
+
+  /// Wohin im Container Demos und Logs geschrieben werden.
+  dataMountPath   String @default("/swisshub/data")
+  /// Wohin die Matchkonfiguration gelegt wird.
+  configMountPath String @default("/swisshub/config")
+
+  gamePortInContainer  Int  @default(27015)
+  queryPortInContainer Int?
+  tvPortInContainer    Int?
+
+  /// Wie lange nach dem Start auf «gesund» gewartet wird.
+  healthTimeoutSeconds Int @default(120)
+
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profiles   GameProfile[]
+  hostStates HostImageState[]
+  instances  GameServerInstance[]
+
+  @@index([game, enabled])
+}
+
+/// Welches Abbild auf welchem Host tatsaechlich liegt.
+///
+/// Der Unterschied zwischen «gewuenscht» und «vorhanden» ist die ganze
+/// Aussage dieser Tabelle: `GameRuntimeImage.tag` ist der Wunsch,
+/// `presentTag` der Befund. Stimmen sie nicht ueberein, steht im Dashboard
+/// «Update verfuegbar» - und nicht «aktuell».
+model HostImageState {
+  id String @id @default(cuid())
+
+  hostId String
+  host   GameServerHost @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  imageId String
+  image   GameRuntimeImage @relation(fields: [imageId], references: [id], onDelete: Cascade)
+
+  presentTag String?
+  sizeBytes  BigInt?
+  lastSeenAt DateTime?
+  /// Laeuft gerade ein Download?
+  pulling    Boolean   @default(false)
+  lastError  String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([hostId, imageId])
 }

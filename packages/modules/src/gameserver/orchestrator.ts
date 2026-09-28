@@ -38,18 +38,23 @@ import { createLogger } from '@swisshub/logger';
 import { AppError } from '@swisshub/shared';
 import { GAMESERVER_INTEGRATION_ID, encryptSecret, decryptSecret, getSecret } from '@swisshub/secrets';
 import { TOURNAMENTS_MODULE_ID } from '../tournaments/config';
-import { anbieterTreiber, brauchteTreiber, type Zugangsdaten } from './anbieter';
+import { brauchteTreiber, type Zugangsdaten } from './anbieter';
 import { gameAdapter } from './adapter';
-import { agentZugriff, type AgentTransport } from './agent-client';
-import { erzeugeAgentToken, erzeugeRconPasswort, erzeugeServerPasswort } from './agent-protokoll';
-import { darfProvisionieren, type Grenzwerte } from './grenzwerte';
-import { baueStartskript } from './startskript';
+import { hostZugriff, type AgentTransport } from './agent-client';
+import { erzeugeRconPasswort, erzeugeServerPasswort } from './agent-protokoll';
+import { rconAdresse } from './geheimnis';
+import {
+  BELEGENDE_ZUSTAENDE,
+  ENTSTEHENDE_ZUSTAENDE,
+  darfProvisionieren,
+  type Grenzwerte,
+} from './grenzwerte';
+import { hostAgentToken, hostGesundheit } from './hosts';
+import { reserviereAufHost, waehleHosts, type HostAnforderung } from './host-scheduler';
+import { gibPortsFrei, reservierePorts, type ReserviertePorts } from './ports';
+import { abbildMitTag, containerName, type ContainerSpezifikation } from './runtime';
 
 const log = createLogger('gameserver:orchestrator');
-
-/** Die Adresse, unter der Geheimnisse dieses Moduls liegen. */
-const geheimnisAdresse = (schluessel: string) =>
-  ({ scope: 'GLOBAL', guildId: '', provider: GAMESERVER_INTEGRATION_ID, key: schluessel }) as const;
 
 /**
  * Die Zugangsdaten des Datacenters.
@@ -136,7 +141,22 @@ export async function sorgeFuerZuordnung(
 }
 
 /**
- * Die Maschine tatsaechlich anfordern.
+ * Die Instanz tatsaechlich anlegen.
+ *
+ * ## Der Ablauf, und warum er diese Reihenfolge hat
+ *
+ *   1. **Grenzen pruefen** - global, gegen die Datenbank.
+ *   2. **Host waehlen** - eine Liste, nicht einen. Zwischen Auswahl und
+ *      Reservierung kann jemand schneller sein.
+ *   3. **Kapazitaet reservieren** - unter Zeilensperre auf den Host. Erst
+ *      hier entsteht die Instanzzeile.
+ *   4. **Ports reservieren** - eigener Riegel, eigene Tabelle.
+ *   5. **Container erstellen** - der einzige Schritt, der den Host
+ *      tatsaechlich anfasst, und der letzte.
+ *
+ * Alles, was schiefgehen kann, geht vor dem Container schief. Ein
+ * gescheiterter Versuch hinterlaesst eine Zeile mit einer Begruendung und
+ * gibt seine Ports zurueck - keine Karteileiche auf dem Host.
  *
  * Gibt `false` zurueck, wenn nichts zu tun war oder eine Grenze im Weg
  * stand - beides ist kein Fehler, und beides steht danach als Grund in der
@@ -146,11 +166,19 @@ export async function provisioniere(
   assignmentId: string,
   einstellungen: OrchestratorEinstellungen,
   jetzt = new Date(),
+  /**
+   * Wie der Host angesprochen wird.
+   *
+   * Nur fuer Tests gesetzt - und ausdruecklich als **Argument**, nicht als
+   * globaler Schalter. Ein Schalter, den ein Test umlegt, bleibt umgelegt,
+   * wenn der Test abbricht; ein Argument kann das nicht.
+   */
+  transport?: AgentTransport,
 ): Promise<{ ok: boolean; grund?: string }> {
   const zuordnung = await prisma.matchServerAssignment.findUnique({
     where: { id: assignmentId },
     include: {
-      profile: { include: { template: { include: { provider: true } } } },
+      profile: { include: { runtimeImage: true } },
       match: { select: { id: true, matchNumber: true, tournamentId: true, bestOf: true } },
     },
   });
@@ -163,22 +191,25 @@ export async function provisioniere(
   }
 
   const profil = zuordnung.profile;
-  const template = profil?.template;
-  const anbieter = template?.provider;
+  if (!profil) {
+    return merkeFehler(assignmentId, 'PROVISION_FAILED', 'Diesem Match ist kein Game Profile zugeordnet.');
+  }
 
-  if (!profil || !template || !anbieter) {
+  const abbild = profil.runtimeImage;
+  if (!abbild) {
     return merkeFehler(
       assignmentId,
       'PROVISION_FAILED',
-      'Es fehlt ein Game Profile, ein Template oder ein Anbieter.',
+      `Dem Game Profile «${profil.name}» ist kein Runtime-Image zugeordnet. Ohne Abbild lässt sich kein Container starten.`,
     );
   }
-  if (!anbieter.enabled) {
-    return merkeFehler(
-      assignmentId,
-      'PROVISION_FAILED',
-      `Der Anbieter «${anbieter.name}» ist ausgeschaltet.`,
-    );
+  if (!abbild.enabled) {
+    return merkeFehler(assignmentId, 'PROVISION_FAILED', `Das Abbild «${abbild.name}» ist ausgeschaltet.`);
+  }
+
+  const adapter = gameAdapter(profil.game);
+  if (!adapter) {
+    return merkeFehler(assignmentId, 'PROVISION_FAILED', `Für ${profil.game} gibt es keinen Adapter.`);
   }
 
   const grenze = await darfProvisionieren(profil.game, zuordnung.match.tournamentId, einstellungen);
@@ -196,26 +227,8 @@ export async function provisioniere(
     return { ok: false, grund: grenze.grund };
   }
 
-  /*
-   * Fehlt der Treiber, bricht das hier ab - lesbar und ohne Ausnahme.
-   *
-   * `brauchteTreiber` wirft; das faengt der Durchgang zwar ab, aber die
-   * Zuordnung bliebe ohne Begruendung wartend. Besser: die Frage hier
-   * stellen und die Antwort in die Zeile schreiben, damit sie in der
-   * Oberflaeche steht.
-   */
-  const treiber = anbieterTreiber(anbieter.driver);
-  if (!treiber) {
-    return merkeFehler(
-      assignmentId,
-      'PROVISION_FAILED',
-      `Für den Anbieter «${anbieter.name}» gibt es keinen Treiber («${anbieter.driver}»). Ohne Treiber lassen sich keine Server erstellen.`,
-    );
-  }
+  const name = maschinenname(zuordnung.match.tournamentId, zuordnung.match.matchNumber, zuordnung.generation);
 
-  const zugang = await ladeZugang();
-
-  const agentToken = erzeugeAgentToken();
   const rconPasswort = erzeugeRconPasswort();
   const serverPasswort =
     profil.passwordStrategy === 'NONE'
@@ -224,27 +237,9 @@ export async function provisioniere(
         ? (profil.fixedPassword ?? '')
         : erzeugeServerPasswort();
 
-  const name = maschinenname(zuordnung.match.tournamentId, zuordnung.match.matchNumber, zuordnung.generation);
-
-  const adapter = gameAdapter(profil.game);
-  if (!adapter) {
-    return merkeFehler(assignmentId, 'PROVISION_FAILED', `Für ${profil.game} gibt es keinen Adapter.`);
-  }
-  const ports = adapter.benoetigtePorts({ gotvEnabled: profil.gotvEnabled });
-
-  /*
-   * Die Geheimnisse verschluesseln - bevor irgendetwas geschrieben wird.
-   *
-   * `encryptSecret` verlangt `MASTER_ENCRYPTION_KEY`. Fehlt er, waere das
-   * eine Ausnahme mitten im Anlegen; der Durchgang faengt sie zwar, aber die
-   * Zuordnung bliebe ohne Begruendung stehen. Hier gefragt, steht die
-   * Antwort in der Zeile und damit in der Oberflaeche.
-   */
   let rconVerschluesselt: string;
-  let tokenVerschluesselt: string;
   try {
-    rconVerschluesselt = encryptSecret(rconPasswort, geheimnisAdresse(`rcon:${name}`));
-    tokenVerschluesselt = encryptSecret(agentToken, geheimnisAdresse(`agent:${name}`));
+    rconVerschluesselt = encryptSecret(rconPasswort, rconAdresse(name));
   } catch {
     /*
      * Die Ausnahme selbst wird nicht weitergereicht: sie nennt den
@@ -253,73 +248,143 @@ export async function provisioniere(
     return merkeFehler(
       assignmentId,
       'PROVISION_FAILED',
-      'Die Zugangsdaten des Servers liessen sich nicht verschlüsseln - vermutlich fehlt MASTER_ENCRYPTION_KEY.',
+      'Das RCON-Passwort liess sich nicht verschlüsseln - vermutlich fehlt MASTER_ENCRYPTION_KEY.',
     );
   }
 
-  // Die Zeile zuerst: auch ein gescheiterter Versuch soll nachher dastehen.
-  const instanz = await prisma.gameServerInstance.create({
-    data: {
-      providerId: anbieter.id,
-      templateId: template.id,
-      profileId: profil.id,
-      game: profil.game,
+  const anforderung: HostAnforderung = {
+    game: profil.game,
+    cpu: profil.cpuLimit,
+    memoryMb: profil.memoryLimitMb,
+    bevorzugteGruppeId: profil.preferredGroupId,
+    region: profil.region,
+    erzwungenerHostId: zuordnung.forcedHostId,
+  };
+
+  const auswahl = await waehleHosts(anforderung, jetzt);
+  if (auswahl.kandidaten.length === 0) {
+    /*
+     * Kein passender Host ist **kein** Fehlerzustand, sondern ein Warten -
+     * genau wie eine Grenze. Ein Host kann in zehn Minuten wieder frei
+     * sein; die Zuordnung soll dann von selbst weiterlaufen und nicht auf
+     * jemanden warten, der sie zurueckstellt.
+     */
+    const grund =
+      auswahl.abgelehnt.length === 0
+        ? 'Es ist kein Gameserver-Host eingerichtet.'
+        : `Kein Host verfügbar: ${auswahl.abgelehnt.map((a) => `${a.hostName} – ${a.grund}`).join(' | ')}`;
+    await prisma.matchServerAssignment.update({
+      where: { id: assignmentId },
+      data: { lastError: grund.slice(0, 2000) },
+    });
+    return { ok: false, grund };
+  }
+
+  const schnappschuss = profilSchnappschuss(profil, abbild);
+
+  /*
+   * Die Kandidaten der Reihe nach. Der erste, der die Zeilensperre
+   * gewinnt und noch Platz hat, bekommt das Match - wer zwischendurch voll
+   * gelaufen ist, wird uebersprungen statt das Match scheitern zu lassen.
+   */
+  let instanceId: string | null = null;
+  let host = null as (typeof auswahl.kandidaten)[number]['host'] | null;
+  const absagen: string[] = [];
+
+  for (const kandidat of auswahl.kandidaten) {
+    const reserviert = await reserviereAufHost(kandidat.host.id, anforderung, {
       name,
-      status: 'PROVISIONING',
-      region: profil.region ?? template.region ?? anbieter.region,
-      gamePort: ports.game,
-      tvPort: ports.tv,
-      agentPort: template.agentPort,
-      rconPasswordEnc: rconVerschluesselt,
-      agentTokenEnc: tokenVerschluesselt,
-      serverPassword: serverPasswort || null,
+      game: profil.game,
+      profileId: profil.id,
+      runtimeImageId: abbild.id,
+      imageTag: abbild.tag,
+      region: profil.region,
       tournamentId: zuordnung.match.tournamentId,
-      provisionStartedAt: jetzt,
-    },
+      cpuLimit: profil.cpuLimit,
+      memoryLimitMb: profil.memoryLimitMb,
+      diskLimitMb: profil.diskLimitMb,
+      maxRuntimeMinutes: profil.maxRuntimeMinutes,
+      profileSnapshot: schnappschuss,
+      rconPasswordEnc: rconVerschluesselt,
+      serverPassword: serverPasswort || null,
+    });
+
+    if (reserviert.ok) {
+      instanceId = reserviert.instanceId;
+      host = kandidat.host;
+      break;
+    }
+    absagen.push(`${kandidat.host.name} – ${reserviert.grund}`);
+  }
+
+  if (!instanceId || !host) {
+    const grund = `Kein Host hat die Reservierung angenommen: ${absagen.join(' | ')}`;
+    await prisma.matchServerAssignment.update({
+      where: { id: assignmentId },
+      data: { lastError: grund.slice(0, 2000) },
+    });
+    return { ok: false, grund };
+  }
+
+  await prisma.matchServerAssignment.update({
+    where: { id: assignmentId },
+    data: { phase: 'PROVISIONING', instanceId, lastError: null },
   });
 
   const versuch = await prisma.provisioningAttempt.create({
     data: {
-      instanceId: instanz.id,
+      instanceId,
       matchId: zuordnung.matchId,
       generation: zuordnung.generation,
       attempt: zuordnung.generation,
     },
   });
 
-  await prisma.matchServerAssignment.update({
-    where: { id: assignmentId },
-    data: { phase: 'PROVISIONING', instanceId: instanz.id, lastError: null },
-  });
-
   try {
-    const maschine = await treiber.createServer(zugang, {
-      name,
-      imageRef: template.imageRef,
-      region: instanz.region ?? null,
-      cpuCores: template.cpuCores,
-      memoryMb: template.memoryMb,
-      diskGb: template.diskGb,
-      startskript: baueStartskript({
-        agentToken,
-        agentPort: template.agentPort,
-        rconPasswort,
-        game: profil.game,
-        gamePort: ports.game,
-        tvPort: ports.tv,
-      }),
-      offenePorts: [ports.game, ...(ports.tv ? [ports.tv] : []), template.agentPort],
-      optionen: (template.driverOptions as Record<string, unknown>) ?? {},
+    const ports = await reservierePorts(host.id, instanceId, host, {
+      query: abbild.queryPortInContainer !== null,
+      tv: abbild.tvPortInContainer !== null && profil.gotvEnabled,
     });
+
+    const spezifikation = baueSpezifikation({
+      instanceId,
+      adapter,
+      abbild,
+      profil,
+      ports,
+      rconPasswort,
+      serverPasswort,
+      turnierName: null,
+      matchNummer: zuordnung.match.matchNumber,
+      schnappschuss,
+    });
+
+    await prisma.gameServerInstance.update({
+      where: { id: instanceId },
+      data: {
+        status: 'CREATING',
+        gamePort: ports.game,
+        queryPort: ports.query,
+        tvPort: ports.tv,
+        publicHost: host.hostname,
+      },
+    });
+
+    const token = await hostAgentToken(host.id);
+    if (!token) {
+      throw new AppError('CONFIGURATION_MISSING', {
+        userMessage: `Für den Host «${host.name}» liegt keine lesbare Identität vor. Wurde er registriert?`,
+        internalMessage: `Host ${host.id} ohne lesbares Agent-Token`,
+      });
+    }
+
+    const agent = hostZugriff({ host: host.hostname, port: host.agentPort, token }, transport);
+    const erstellt = await agent.instanzErstellen(instanceId, spezifikation);
 
     await prisma.$transaction([
       prisma.gameServerInstance.update({
-        where: { id: instanz.id },
-        data: {
-          providerRef: maschine.ref,
-          publicHost: maschine.netzwerk.host,
-          status: maschine.status === 'RUNNING' ? 'BOOTING' : 'PROVISIONING',
-        },
+        where: { id: instanceId },
+        data: { status: 'STARTING', containerRef: erstellt.containerRef, startedAt: new Date() },
       }),
       prisma.provisioningAttempt.update({
         where: { id: versuch.id },
@@ -340,20 +405,28 @@ export async function provisioniere(
       success: true,
       metadata: {
         matchId: zuordnung.matchId,
-        instanceId: instanz.id,
-        anbieter: anbieter.name,
+        instanceId,
+        host: host.name,
         game: profil.game,
+        image: `${abbild.image}:${abbild.tag}`,
       },
     });
 
     return { ok: true };
   } catch (fehler) {
     const meldung = fehler instanceof Error ? fehler.message : 'Unbekannter Fehler';
-    log.warn('Bereitstellung fehlgeschlagen', { assignmentId, instanzId: instanz.id, fehler });
+    log.warn('Bereitstellung fehlgeschlagen', { assignmentId, instanceId, fehler });
+
+    /*
+     * **Aufraeumen ist hier Pflicht, nicht Hoeflichkeit.** Eine Instanz,
+     * die gescheitert ist und ihre Ports behaelt, frisst den Portbereich
+     * des Hosts auf - nach genug Fehlversuchen nimmt er gar nichts mehr an.
+     */
+    await gibPortsFrei(instanceId).catch(() => 0);
 
     await prisma.$transaction([
       prisma.gameServerInstance.update({
-        where: { id: instanz.id },
+        where: { id: instanceId },
         data: { status: 'FAILED', lastError: meldung.slice(0, 2000) },
       }),
       prisma.provisioningAttempt.update({
@@ -369,6 +442,165 @@ export async function provisioniere(
 
     return merkeFehler(assignmentId, 'PROVISION_FAILED', meldung);
   }
+}
+
+/**
+ * Das Game Profile so festhalten, wie es jetzt aussieht.
+ *
+ * **Der Grund.** Wer ein Profil mitten in einem Turnier aendert, darf ein
+ * laufendes Match nicht treffen; und wer hinterher fragt, mit welchen
+ * Einstellungen gespielt wurde, soll eine Antwort bekommen statt der
+ * heutigen Einstellungen. Der Schnappschuss ist die Antwort.
+ */
+export function profilSchnappschuss(
+  profil: Record<string, unknown>,
+  abbild: Record<string, unknown>,
+): Prisma.InputJsonValue {
+  const nimm = (quelle: Record<string, unknown>, felder: readonly string[]) =>
+    Object.fromEntries(felder.filter((feld) => feld in quelle).map((feld) => [feld, quelle[feld]]));
+
+  return {
+    erstelltAm: new Date().toISOString(),
+    profil: nimm(profil, [
+      'id',
+      'name',
+      'game',
+      'mapPool',
+      'slots',
+      'overtime',
+      'knifeRound',
+      'tacticalPauses',
+      'technicalPauses',
+      'gotvEnabled',
+      'demoRecording',
+      'restoreSupport',
+      'warmupSeconds',
+      'readyRule',
+      'passwordStrategy',
+      'serverNameTemplate',
+      'defaultBestOf',
+      'pauseSeconds',
+      'techPauseSeconds',
+      'overtimeMaxRounds',
+      'overtimeStartMoney',
+      'restoreMaxRounds',
+      'gotvDelaySeconds',
+      'coachSlots',
+      'casterSlots',
+      'matchPlugin',
+      'pluginSettings',
+      'tickrate',
+      'cpuLimit',
+      'memoryLimitMb',
+      'diskLimitMb',
+      'maxRuntimeMinutes',
+      'adapterOptions',
+    ]),
+    abbild: nimm(abbild, [
+      'id',
+      'name',
+      'image',
+      'tag',
+      'gamePortInContainer',
+      'queryPortInContainer',
+      'tvPortInContainer',
+    ]),
+  } as Prisma.InputJsonValue;
+}
+
+/**
+ * Die Container-Spezifikation bauen.
+ *
+ * Kein Spielname in dieser Funktion. Was der Container an Umgebung braucht,
+ * liefert der Adapter; was er an Ports und Pfaden bekommt, steht im
+ * Runtime-Image; die Geheimnisse setzt der Orchestrator, weil er sie erzeugt.
+ */
+function baueSpezifikation(eingabe: {
+  instanceId: string;
+  adapter: ReturnType<typeof gameAdapter> & object;
+  abbild: {
+    image: string;
+    tag: string;
+    command: string[];
+    env: unknown;
+    dataMountPath: string;
+    configMountPath: string;
+    gamePortInContainer: number;
+    queryPortInContainer: number | null;
+    tvPortInContainer: number | null;
+  };
+  profil: {
+    game: GameServerGame;
+    slots: number;
+    tickrate: number;
+    gotvEnabled: boolean;
+    serverNameTemplate: string;
+    cpuLimit: number;
+    memoryLimitMb: number;
+  };
+  ports: ReserviertePorts;
+  rconPasswort: string;
+  serverPasswort: string;
+  turnierName: string | null;
+  matchNummer: number;
+  schnappschuss: Prisma.InputJsonValue;
+}): ContainerSpezifikation {
+  const serverName = eingabe.profil.serverNameTemplate
+    .replaceAll('{tournament}', eingabe.turnierName ?? 'SwissHub')
+    .replaceAll('{match}', String(eingabe.matchNummer))
+    .slice(0, 64);
+
+  const vomAdapter = eingabe.adapter.laufzeitUmgebung({
+    serverName,
+    slots: eingabe.profil.slots,
+    tickrate: eingabe.profil.tickrate,
+    gamePortImContainer: eingabe.abbild.gamePortInContainer,
+    gotvEnabled: eingabe.profil.gotvEnabled,
+    profil: eingabe.schnappschuss as Record<string, unknown>,
+  });
+
+  const ausAbbild =
+    typeof eingabe.abbild.env === 'object' &&
+    eingabe.abbild.env !== null &&
+    !Array.isArray(eingabe.abbild.env)
+      ? Object.fromEntries(
+          Object.entries(eingabe.abbild.env as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
+        )
+      : {};
+
+  const ports: ContainerSpezifikation['ports'] = [
+    // Der Spielport zweimal: UDP fuer das Spiel, TCP fuer RCON. Ein
+    // Spielserver ohne TCP waere ein Server, den niemand fernsteuern kann.
+    { container: eingabe.abbild.gamePortInContainer, host: eingabe.ports.game, protokoll: 'udp' },
+    { container: eingabe.abbild.gamePortInContainer, host: eingabe.ports.game, protokoll: 'tcp' },
+  ];
+  if (eingabe.abbild.queryPortInContainer !== null && eingabe.ports.query !== null) {
+    ports.push({
+      container: eingabe.abbild.queryPortInContainer,
+      host: eingabe.ports.query,
+      protokoll: 'udp',
+    });
+  }
+  if (eingabe.abbild.tvPortInContainer !== null && eingabe.ports.tv !== null) {
+    ports.push({ container: eingabe.abbild.tvPortInContainer, host: eingabe.ports.tv, protokoll: 'udp' });
+  }
+
+  return {
+    name: containerName(eingabe.profil.game, eingabe.instanceId),
+    image: abbildMitTag(eingabe.abbild.image, eingabe.abbild.tag),
+    command: eingabe.abbild.command,
+    env: {
+      ...ausAbbild,
+      ...vomAdapter,
+      SWISSHUB_RCON_PASSWORD: eingabe.rconPasswort,
+      SWISSHUB_SERVER_PASSWORD: eingabe.serverPasswort,
+    },
+    ports,
+    cpuLimit: eingabe.profil.cpuLimit,
+    memoryLimitMb: eingabe.profil.memoryLimitMb,
+    dataMountPath: eingabe.abbild.dataMountPath,
+    configMountPath: eingabe.abbild.configMountPath,
+  };
 }
 
 /**
@@ -414,21 +646,45 @@ function istEindeutigkeitsfehler(fehler: unknown): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Den Agent-Zugriff fuer eine Maschine bauen.
+ * Den Zugriff auf den Host einer Instanz bauen.
  *
  * Entschluesselt das Token genau hier und gibt es nicht zurueck - der
  * Aufrufer bekommt einen Zugriff, kein Geheimnis.
  */
-export async function zugriffAuf(instanceId: string, transport?: AgentTransport) {
-  const instanz = await prisma.gameServerInstance.findUnique({ where: { id: instanceId } });
-  if (!instanz?.publicHost || !instanz.agentPort || !instanz.agentTokenEnc) {
+export async function hostZugriffFuerInstanz(instanceId: string, transport?: AgentTransport) {
+  const instanz = await prisma.gameServerInstance.findUnique({
+    where: { id: instanceId },
+    include: { host: { select: { id: true, name: true, hostname: true, agentPort: true } } },
+  });
+
+  if (!instanz?.host) {
     throw new AppError('VALIDATION_FAILED', {
-      userMessage: 'Dieser Server ist noch nicht erreichbar.',
-      internalMessage: `Instanz ${instanceId} ohne Adresse oder Token`,
+      userMessage: 'Diese Instanz gehört zu keinem Host.',
+      internalMessage: `Instanz ${instanceId} ohne Host`,
     });
   }
-  const token = decryptSecret(instanz.agentTokenEnc, geheimnisAdresse(`agent:${instanz.name}`));
-  return agentZugriff({ host: instanz.publicHost, port: instanz.agentPort, token }, transport);
+
+  const token = await hostAgentToken(instanz.host.id);
+  if (!token) {
+    throw new AppError('CONFIGURATION_MISSING', {
+      userMessage: `Für den Host «${instanz.host.name}» liegt keine lesbare Identität vor.`,
+      internalMessage: `Host ${instanz.host.id} ohne lesbares Agent-Token`,
+    });
+  }
+
+  return hostZugriff({ host: instanz.host.hostname, port: instanz.host.agentPort, token }, transport);
+}
+
+/**
+ * Der `AgentZugriff`, den der Game Adapter auf eine Instanz bekommt.
+ *
+ * Heisst weiterhin `zugriffAuf` und gibt weiterhin dieselbe Schnittstelle
+ * zurueck - der CS2-Adapter musste fuer den Umbau auf Container nicht
+ * angefasst werden. Dahinter liegt heute ein Host statt einer Maschine.
+ */
+export async function zugriffAuf(instanceId: string, transport?: AgentTransport) {
+  const agent = await hostZugriffFuerInstanz(instanceId, transport);
+  return agent.fuerInstanz(instanceId);
 }
 
 /**
@@ -446,7 +702,7 @@ export async function rconPasswort(instanceId: string): Promise<string | null> {
   if (!instanz?.rconPasswordEnc) {
     return null;
   }
-  return decryptSecret(instanz.rconPasswordEnc, geheimnisAdresse(`rcon:${instanz.name}`));
+  return decryptSecret(instanz.rconPasswordEnc, rconAdresse(instanz.name));
 }
 
 // ---------------------------------------------------------------------------
@@ -467,14 +723,17 @@ export interface AufraeumErgebnis {
  * Zuordnung in `ARCHIVE_ERROR` wird deshalb uebersprungen und nicht
  * geloescht, bis jemand hinsieht.
  */
-export async function raeumeAuf(jetzt = new Date()): Promise<AufraeumErgebnis> {
+export async function raeumeAuf(jetzt = new Date(), transport?: AgentTransport): Promise<AufraeumErgebnis> {
   const faellig = await prisma.gameServerInstance.findMany({
     where: {
-      status: { in: ['RUNNING', 'AGENT_READY', 'BOOTING', 'FAILED', 'STOPPING'] },
+      status: { in: [...ABBAUBARE_ZUSTAENDE] },
       deleteAfterAt: { not: null, lte: jetzt },
       heldByDiscordId: null,
     },
-    include: { provider: true, assignments: { orderBy: { generation: 'desc' }, take: 1 } },
+    include: {
+      host: { select: { id: true, name: true, hostname: true, agentPort: true } },
+      assignments: { orderBy: { generation: 'desc' }, take: 1 },
+    },
     take: 20,
   });
 
@@ -485,8 +744,8 @@ export async function raeumeAuf(jetzt = new Date()): Promise<AufraeumErgebnis> {
     const zuordnung = instanz.assignments[0];
     if (zuordnung && zuordnung.phase === 'ARCHIVE_ERROR') {
       /*
-       * Die Archivierung ist schiefgegangen. Die Maschine bleibt stehen -
-       * lieber eine Maschine zu viel als eine Demo zu wenig. Das Dashboard
+       * Die Archivierung ist schiefgegangen. Der Container bleibt stehen -
+       * lieber eine Instanz zu viel als eine Demo zu wenig. Das Dashboard
        * zeigt sie als «wartet auf Entscheidung».
        */
       uebersprungen += 1;
@@ -494,28 +753,8 @@ export async function raeumeAuf(jetzt = new Date()): Promise<AufraeumErgebnis> {
     }
 
     try {
-      if (instanz.providerRef) {
-        const treiber = brauchteTreiber(instanz.provider.driver);
-        await treiber.deleteServer(await ladeZugang(), instanz.providerRef);
-      }
-      await prisma.gameServerInstance.update({
-        where: { id: instanz.id },
-        data: {
-          status: 'REMOVED',
-          removedAt: jetzt,
-          // Die Geheimnisse gehen mit der Maschine. Ein RCON-Passwort fuer
-          // eine Maschine, die es nicht mehr gibt, ist kein Geheimnis
-          // mehr - es ist nur noch ein Risiko.
-          rconPasswordEnc: null,
-          agentTokenEnc: null,
-        },
-      });
-      if (zuordnung) {
-        await prisma.matchServerAssignment.update({
-          where: { id: zuordnung.id },
-          data: { phase: 'SERVER_REMOVED' },
-        });
-      }
+      await entferneInstanz(instanz.id, instanz.host, { erzwingen: false }, transport);
+      await vermerkeEntfernt(instanz.id, jetzt, zuordnung?.id ?? null);
       await safeRecordAudit({
         action: AUDIT_ACTIONS.GAMESERVER_DELETED,
         module: TOURNAMENTS_MODULE_ID,
@@ -523,11 +762,11 @@ export async function raeumeAuf(jetzt = new Date()): Promise<AufraeumErgebnis> {
         actorUsername: null,
         targetLabel: instanz.name,
         success: true,
-        metadata: { instanceId: instanz.id, automatisch: true },
+        metadata: { instanceId: instanz.id, host: instanz.host?.name ?? null, automatisch: true },
       });
       geloescht += 1;
     } catch (fehler) {
-      log.warn('Maschine konnte nicht geloescht werden', { instanceId: instanz.id, fehler });
+      log.warn('Instanz konnte nicht entfernt werden', { instanceId: instanz.id, fehler });
       await prisma.gameServerInstance.update({
         where: { id: instanz.id },
         data: {
@@ -541,33 +780,172 @@ export async function raeumeAuf(jetzt = new Date()): Promise<AufraeumErgebnis> {
   return { geloescht, uebersprungen };
 }
 
-/** Wie viele Server gerade laufen - fuer das Dashboard. */
-export async function infrastrukturStand(): Promise<{
+/** Zustaende, aus denen ein Abbau ueberhaupt Sinn ergibt. */
+export const ABBAUBARE_ZUSTAENDE = [
+  'RESERVED',
+  'CREATING',
+  'STARTING',
+  'CONFIGURING',
+  'READY',
+  'LIVE',
+  'STOPPING',
+  'STOPPED',
+  'ARCHIVING',
+  'FAILED',
+  // Aus der VM-Welt, solange es sie noch gibt.
+  'RUNNING',
+  'AGENT_READY',
+  'BOOTING',
+] as const;
+
+/**
+ * Den Container einer Instanz entfernen.
+ *
+ * **Die Reihenfolge ist die Zusage.** Erst stoppen, dann entfernen, dann die
+ * Ports freigeben. Ein Port, der vor dem Container freigegeben wird, kann
+ * schon an ein neues Match gehen, waehrend das alte ihn noch haelt - und
+ * dann startet der neue Container nicht.
+ *
+ * Fehlt der Host, wird trotzdem aufgeraeumt: was SwissHub nicht mehr
+ * erreichen kann, darf nicht ewig Kapazitaet und Ports binden.
+ */
+async function entferneInstanz(
+  instanceId: string,
+  host: { id: string; name: string; hostname: string; agentPort: number } | null,
+  optionen: { erzwingen: boolean },
+  transport?: AgentTransport,
+): Promise<void> {
+  if (host) {
+    const token = await hostAgentToken(host.id);
+    if (token) {
+      const agent = hostZugriff({ host: host.hostname, port: host.agentPort, token }, transport);
+      // Stoppen darf scheitern - ein Container, der schon steht, meldet das
+      // als Fehler, und daran soll das Entfernen nicht haengen.
+      await agent.instanzStoppen(instanceId, optionen.erzwingen).catch(() => undefined);
+      await agent.instanzLoeschen(instanceId, optionen.erzwingen);
+    } else {
+      log.warn('Instanz ohne lesbares Host-Token entfernt', { instanceId, hostId: host.id });
+    }
+  }
+
+  await gibPortsFrei(instanceId);
+}
+
+async function vermerkeEntfernt(instanceId: string, jetzt: Date, assignmentId: string | null): Promise<void> {
+  await prisma.gameServerInstance.update({
+    where: { id: instanceId },
+    data: {
+      status: 'REMOVED',
+      removedAt: jetzt,
+      stoppedAt: jetzt,
+      containerRef: null,
+      // Die Geheimnisse gehen mit dem Container. Ein RCON-Passwort fuer
+      // eine Instanz, die es nicht mehr gibt, ist kein Geheimnis mehr -
+      // es ist nur noch ein Risiko.
+      rconPasswordEnc: null,
+      agentTokenEnc: null,
+    },
+  });
+
+  if (assignmentId) {
+    await prisma.matchServerAssignment.update({
+      where: { id: assignmentId },
+      data: { phase: 'SERVER_REMOVED' },
+    });
+  }
+}
+
+/**
+ * Die Zahlen des Infrastruktur-Dashboards.
+ *
+ * Hosts **und** Instanzen, weil beides zusammen die Frage beantwortet, die
+ * jemand vor einem Turnierabend hat: «reicht das?». Eine Zahl ohne die
+ * andere reicht dafuer nicht - zwanzig freie Plaetze auf einem Host, der
+ * offline ist, sind keine freien Plaetze.
+ */
+export async function infrastrukturStand(jetzt = new Date()): Promise<{
+  hostsGesamt: number;
+  hostsOnline: number;
+  hostsOffline: number;
+  hostsDraining: number;
+  hostsWartung: number;
   laufend: number;
   inBereitstellung: number;
   fehlerhaft: number;
   wartetAufEntscheidung: number;
+  plaetzeFrei: number;
+  cpuReserviert: number;
+  memoryReserviertMb: number;
   durchschnittProvisioningSekunden: number | null;
 }> {
-  const [laufend, inBereitstellung, fehlerhaft, wartetAufEntscheidung, dauern] = await Promise.all([
-    prisma.gameServerInstance.count({ where: { status: { in: ['RUNNING', 'AGENT_READY'] } } }),
-    prisma.gameServerInstance.count({ where: { status: { in: ['PENDING', 'PROVISIONING', 'BOOTING'] } } }),
-    prisma.gameServerInstance.count({ where: { status: 'FAILED' } }),
-    prisma.matchServerAssignment.count({
-      where: { phase: { in: ['ARCHIVE_ERROR', 'RESULT_ERROR', 'MATCH_INTERRUPTED'] } },
-    }),
-    prisma.provisioningAttempt.aggregate({
-      where: { succeeded: true, durationMs: { not: null } },
-      _avg: { durationMs: true },
-    }),
-  ]);
+  const [hosts, laufend, inBereitstellung, fehlerhaft, wartetAufEntscheidung, dauern, summen] =
+    await Promise.all([
+      prisma.gameServerHost.findMany({
+        select: {
+          id: true,
+          status: true,
+          registeredAt: true,
+          lastHeartbeatAt: true,
+          dockerAvailable: true,
+          diskFreeMb: true,
+          minFreeDiskGb: true,
+          lastError: true,
+          maxInstances: true,
+        },
+      }),
+      prisma.gameServerInstance.count({
+        where: { status: { in: ['READY', 'LIVE', 'RUNNING', 'AGENT_READY'] } },
+      }),
+      prisma.gameServerInstance.count({
+        where: { status: { in: [...ENTSTEHENDE_ZUSTAENDE] } },
+      }),
+      prisma.gameServerInstance.count({ where: { status: 'FAILED' } }),
+      prisma.matchServerAssignment.count({
+        where: { phase: { in: ['ARCHIVE_ERROR', 'RESULT_ERROR', 'MATCH_INTERRUPTED'] } },
+      }),
+      prisma.provisioningAttempt.aggregate({
+        where: { succeeded: true, durationMs: { not: null } },
+        _avg: { durationMs: true },
+      }),
+      prisma.gameServerInstance.aggregate({
+        where: { status: { in: [...BELEGENDE_ZUSTAENDE] } },
+        _sum: { cpuLimit: true, memoryLimitMb: true },
+      }),
+    ]);
+
+  const gesund = hosts.filter(
+    (host) => host.status === 'ACTIVE' && hostGesundheit(host, jetzt).wert === 'HEALTHY',
+  );
+
+  const belegt = await prisma.gameServerInstance.groupBy({
+    by: ['hostId'],
+    where: { status: { in: [...BELEGENDE_ZUSTAENDE] }, hostId: { not: null } },
+    _count: { _all: true },
+  });
+  const belegtJeHost = new Map(belegt.map((zeile) => [zeile.hostId, zeile._count._all]));
 
   const schnitt = dauern._avg.durationMs;
+
   return {
+    hostsGesamt: hosts.length,
+    hostsOnline: gesund.length,
+    hostsOffline: hosts.filter(
+      (host) => hostGesundheit(host, jetzt).wert === 'OFFLINE' || host.status === 'DISABLED',
+    ).length,
+    hostsDraining: hosts.filter((host) => host.status === 'DRAINING').length,
+    hostsWartung: hosts.filter((host) => host.status === 'MAINTENANCE').length,
     laufend,
     inBereitstellung,
     fehlerhaft,
     wartetAufEntscheidung,
+    // Nur die gesunden Hosts zaehlen: ein freier Platz auf einem Host, der
+    // nicht antwortet, ist kein freier Platz.
+    plaetzeFrei: gesund.reduce(
+      (summe, host) => summe + Math.max(0, host.maxInstances - (belegtJeHost.get(host.id) ?? 0)),
+      0,
+    ),
+    cpuReserviert: summen._sum.cpuLimit ?? 0,
+    memoryReserviertMb: summen._sum.memoryLimitMb ?? 0,
     // Nur, wenn es tatsaechlich Messwerte gibt. Eine 0 sähe aus wie «sofort».
     durchschnittProvisioningSekunden: schnitt === null ? null : Math.round(schnitt / 1000),
   };
@@ -591,9 +969,21 @@ export type { GameServerGame };
 export interface ServerAnsicht {
   id: string;
   name: string;
-  providerName: string;
+  /** Auf welchem Host die Instanz laeuft. `null` bei Zeilen aus der VM-Welt. */
+  hostName: string | null;
+  hostId: string | null;
+  /** Der Anbieter, falls die Zeile aus der VM-Welt stammt. */
+  providerName: string | null;
   /** Die Kennung beim Anbieter - hilfreich, um in dessen Oberflaeche zu suchen. */
   providerRef: string | null;
+  /** Die Kennung des Containers auf dem Host. */
+  containerRef: string | null;
+  /** Welches Abbild und welcher Tag beim Erstellen benutzt wurden. */
+  imageTag: string | null;
+  queryPort: number | null;
+  tvPort: number | null;
+  cpuLimit: number | null;
+  memoryLimitMb: number | null;
   game: string;
   status: string;
   region: string | null;
@@ -624,6 +1014,7 @@ export async function listeServer(jetzt = new Date()): Promise<ServerAnsicht[]> 
     take: 100,
     include: {
       provider: { select: { name: true } },
+      host: { select: { id: true, name: true } },
       assignments: {
         orderBy: { generation: 'desc' },
         take: 1,
@@ -642,8 +1033,16 @@ export async function listeServer(jetzt = new Date()): Promise<ServerAnsicht[]> 
     return {
       id: instanz.id,
       name: instanz.name,
-      providerName: instanz.provider.name,
+      hostName: instanz.host?.name ?? null,
+      hostId: instanz.host?.id ?? null,
+      providerName: instanz.provider?.name ?? null,
       providerRef: instanz.providerRef,
+      containerRef: instanz.containerRef,
+      imageTag: instanz.imageTag,
+      queryPort: instanz.queryPort,
+      tvPort: instanz.tvPort,
+      cpuLimit: instanz.cpuLimit,
+      memoryLimitMb: instanz.memoryLimitMb,
       game: instanz.game,
       status: instanz.status,
       region: instanz.region,
@@ -713,7 +1112,7 @@ export async function gibServerFrei(
 }
 
 /**
- * Eine Maschine sofort loeschen.
+ * Eine Instanz sofort entfernen.
  *
  * Auch vor der Schonfrist und auch, wenn die Archivierung noch offen ist -
  * das ist der Unterschied zum Durchgang. Wer diesen Knopf drueckt, hat
@@ -723,27 +1122,24 @@ export async function gibServerFrei(
 export async function loescheServerSofort(
   instanceId: string,
   akteur: { discordId: string; username: string },
+  transport?: AgentTransport,
 ): Promise<void> {
   const instanz = await prisma.gameServerInstance.findUniqueOrThrow({
     where: { id: instanceId },
-    include: { provider: true },
+    include: {
+      host: { select: { id: true, name: true, hostname: true, agentPort: true } },
+      assignments: { orderBy: { generation: 'desc' }, take: 1, select: { id: true } },
+    },
   });
 
-  if (instanz.providerRef) {
-    const treiber = brauchteTreiber(instanz.provider.driver);
-    await treiber.deleteServer(await ladeZugang(), instanz.providerRef);
-  }
+  // Von Hand heisst mit Nachdruck: wer hier drueckt, will den Container
+  // weghaben, auch wenn er sich nicht sauber beenden laesst.
+  await entferneInstanz(instanceId, instanz.host, { erzwingen: true }, transport);
+  await vermerkeEntfernt(instanceId, new Date(), instanz.assignments[0]?.id ?? null);
 
   await prisma.gameServerInstance.update({
     where: { id: instanceId },
-    data: {
-      status: 'REMOVED',
-      removedAt: new Date(),
-      rconPasswordEnc: null,
-      agentTokenEnc: null,
-      heldByDiscordId: null,
-      heldReason: null,
-    },
+    data: { heldByDiscordId: null, heldReason: null },
   });
 
   await safeRecordAudit({
@@ -753,8 +1149,93 @@ export async function loescheServerSofort(
     actorUsername: akteur.username,
     targetLabel: instanz.name,
     success: true,
-    metadata: { instanceId, automatisch: false },
+    metadata: { instanceId, host: instanz.host?.name ?? null, automatisch: false },
   });
+}
+
+/**
+ * Eine Instanz neu erstellen.
+ *
+ * Der Fall aus §28: der Container ist kaputt, das Match aber nicht. Die
+ * **Turnier-Match-Kennung bleibt**, die Zuordnung bleibt, das Veto bleibt -
+ * es entsteht eine neue Generation mit einem neuen Container.
+ *
+ * Die Ports werden dabei absichtlich neu gezogen: der alte Container kann
+ * sie noch eine Weile halten, und ein neuer Container auf einem belegten
+ * Port startet nicht.
+ */
+export async function erstelleInstanzNeu(
+  assignmentId: string,
+  einstellungen: OrchestratorEinstellungen,
+  akteur: { discordId: string; username: string },
+  jetzt = new Date(),
+  transport?: AgentTransport,
+): Promise<{ ok: boolean; grund?: string }> {
+  const zuordnung = await prisma.matchServerAssignment.findUnique({
+    where: { id: assignmentId },
+    include: {
+      instance: {
+        include: { host: { select: { id: true, name: true, hostname: true, agentPort: true } } },
+      },
+      match: { select: { matchNumber: true } },
+    },
+  });
+
+  if (!zuordnung) {
+    return { ok: false, grund: 'Diese Zuordnung gibt es nicht.' };
+  }
+
+  if (zuordnung.instance) {
+    await entferneInstanz(
+      zuordnung.instance.id,
+      zuordnung.instance.host,
+      { erzwingen: true },
+      transport,
+    ).catch((fehler: unknown) => {
+      // Ein Container, der sich nicht entfernen laesst, darf das
+      // Neuerstellen nicht verhindern - er wird als Fehler vermerkt und
+      // das Match bekommt trotzdem einen Server.
+      log.warn('Alter Container liess sich nicht entfernen', {
+        instanceId: zuordnung.instance?.id,
+        fehler,
+      });
+    });
+    await vermerkeEntfernt(zuordnung.instance.id, jetzt, null);
+  }
+
+  /*
+   * **Die Generation wird hochgezaehlt.**
+   *
+   * Nicht aus Buchhaltung: der Name einer Instanz entsteht aus Turnier,
+   * Match und Generation und ist eindeutig. Ohne Hochzaehlen traegt die
+   * neue Instanz den Namen der alten - und das Anlegen scheitert an einer
+   * Eindeutigkeit, mitten im Neuerstellen. Ein Test hat genau das gefunden.
+   *
+   * Es ist ausserdem die ehrlichere Zahl: «der zweite Server fuer dieses
+   * Match» ist genau das, was hier passiert.
+   */
+  await prisma.matchServerAssignment.update({
+    where: { id: assignmentId },
+    data: {
+      phase: 'WAITING_FOR_SERVER',
+      instanceId: null,
+      lastError: null,
+      provisionAfterAt: null,
+      generation: { increment: 1 },
+    },
+  });
+
+  await safeRecordAudit({
+    action: AUDIT_ACTIONS.GAMESERVER_INSTANCE_RECREATED,
+    module: TOURNAMENTS_MODULE_ID,
+    actorDiscordId: akteur.discordId,
+    actorUsername: akteur.username,
+    targetLabel: `Match ${String(zuordnung.match.matchNumber)}`,
+    success: true,
+    metadata: { assignmentId, alteInstanz: zuordnung.instance?.id ?? null },
+  });
+
+  return provisioniere(assignmentId, einstellungen, jetzt, transport);
 }
 
 /**

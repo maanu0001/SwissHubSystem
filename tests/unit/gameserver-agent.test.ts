@@ -12,7 +12,12 @@ import {
   pruefeNutzlast,
   signiere,
 } from '../../packages/modules/src/gameserver/agent-protokoll';
-import { agentZugriff, type AgentTransport } from '../../packages/modules/src/gameserver/agent-client';
+import {
+  hostZugriff,
+  instanzZugriff,
+  type AgentTransport,
+} from '../../packages/modules/src/gameserver/agent-client';
+import { pruefeSpezifikation } from '../../packages/modules/src/gameserver/runtime';
 
 /**
  * Der Agent.
@@ -69,13 +74,13 @@ describe('Die Signaturprüfung', () => {
   it('bindet die Signatur an den Pfad', () => {
     /*
      * Sonst liesse sich eine mitgelesene Signatur von `/health` auf
-     * `/game/stop` umhaengen - ein Aufruf, der mitten im Match den Server
-     * anhaelt.
+     * `/instances/stop` umhaengen - ein Aufruf, der mitten im Match den
+     * Server anhaelt.
      */
     const einmalwert = nonce();
     const ergebnis = pruefeAnfrage(
       gueltig({
-        pfad: '/game/stop',
+        pfad: '/instances/stop',
         methode: 'POST',
         einmalwert,
         signatur: signiere(TOKEN, 'GET', '/health', jetzt, einmalwert, ''),
@@ -91,7 +96,7 @@ describe('Die Signaturprüfung', () => {
     const echt = JSON.stringify({ team1: 'A' });
     const ergebnis = pruefeAnfrage(
       gueltig({
-        pfad: '/match/configure',
+        pfad: '/instances/match/configure',
         methode: 'POST',
         rumpf: JSON.stringify({ team1: 'B' }),
         einmalwert,
@@ -128,9 +133,11 @@ describe('Die Signaturprüfung', () => {
   });
 });
 
+const KENNUNG = 'clx1234567890abcdef';
+
 describe('Die Nutzlastprüfung', () => {
   it('lässt eine Rundenzahl durch und alles andere nicht', () => {
-    expect(pruefeNutzlast('matchRestore', { round: 12 })).toEqual({ ok: true });
+    expect(pruefeNutzlast('matchRestore', { instanceId: KENNUNG, round: 12 })).toEqual({ ok: true });
 
     for (const boese of [
       { round: 'rm -rf /' },
@@ -141,7 +148,85 @@ describe('Die Nutzlastprüfung', () => {
       {},
       null,
     ]) {
-      expect(pruefeNutzlast('matchRestore', boese), JSON.stringify(boese)).toMatchObject({ ok: false });
+      expect(
+        pruefeNutzlast('matchRestore', boese === null ? null : { instanceId: KENNUNG, ...boese }),
+        JSON.stringify(boese),
+      ).toMatchObject({ ok: false });
+    }
+  });
+
+  it('verlangt für jede Instanzaktion eine Kennung im Kennungsformat', () => {
+    /*
+     * Die Kennung steht im Rumpf und nicht im Pfad - damit die Pfadliste
+     * eine Liste bleibt. Sie muss deshalb hier so eng geprueft werden, wie
+     * ein Pfadsegment geprueft werden muesste.
+     */
+    for (const aktion of ['instanzStarten', 'matchPause', 'dateien'] as const) {
+      expect(pruefeNutzlast(aktion, { instanceId: KENNUNG })).toEqual({ ok: true });
+
+      for (const boese of [
+        {},
+        { instanceId: '' },
+        { instanceId: '../../etc/passwd' },
+        { instanceId: 'a/b' },
+        { instanceId: 'kurz' },
+        { instanceId: 'x'.repeat(200) },
+        { instanceId: 42 },
+      ]) {
+        expect(pruefeNutzlast(aktion, boese), `${aktion} ${JSON.stringify(boese)}`).toMatchObject({
+          ok: false,
+        });
+      }
+    }
+  });
+
+  it('lässt keine Container-Spezifikation durch, die etwas ausbrechen könnte', () => {
+    const gut = {
+      name: 'swisshub-cs2-abc123',
+      image: 'ghcr.io/example/cs2:2026-09',
+      command: [],
+      env: { CS2_TICKRATE: '64' },
+      ports: [{ container: 27015, host: 27015, protokoll: 'udp' as const }],
+      cpuLimit: 2,
+      memoryLimitMb: 4096,
+      dataMountPath: '/swisshub/data',
+      configMountPath: '/swisshub/config',
+    };
+    expect(pruefeSpezifikation(gut)).toEqual({ ok: true });
+
+    const boese: Array<[string, Record<string, unknown>]> = [
+      ['Abbild ohne Tag', { image: 'ghcr.io/example/cs2' }],
+      ['Abbild mit Leerzeichen', { image: 'cs2:latest --privileged' }],
+      ['Abbild mit Semikolon', { image: 'cs2:latest;rm -rf /' }],
+      ['Mount ausserhalb', { dataMountPath: '/etc' }],
+      ['Mount mit Rückwärtsschritt', { dataMountPath: '/swisshub/../../etc' }],
+      ['Mount relativ', { dataMountPath: 'data' }],
+      ['gleiche Mountpfade', { configMountPath: '/swisshub/data' }],
+      ['Variable mit Zeilenumbruch', { env: { A: 'x\ny' } }],
+      ['Variablenname mit Sonderzeichen', { env: { 'A;B': 'x' } }],
+      ['Kommandoteil mit Steuerzeichen', { command: ['echo\nrm'] }],
+      ['Port ausserhalb', { ports: [{ container: 0, host: 1, protokoll: 'udp' }] }],
+      ['ohne Port', { ports: [] }],
+      ['Containername mit Schrägstrich', { name: 'swisshub/cs2' }],
+      ['CPU null', { cpuLimit: 0 }],
+      ['Speicher winzig', { memoryLimitMb: 1 }],
+    ];
+
+    for (const [warum, abweichung] of boese) {
+      const ergebnis = pruefeSpezifikation({ ...gut, ...abweichung } as never);
+      expect(ergebnis, warum).toMatchObject({ ok: false });
+    }
+  });
+
+  it('prüft einen Abbildnamen beim Laden genauso eng wie beim Erstellen', () => {
+    expect(pruefeNutzlast('imagePull', { image: 'ghcr.io/example/cs2:2026-09' })).toEqual({ ok: true });
+    for (const boese of [
+      { image: 'ghcr.io/example/cs2' },
+      { image: 'cs2:latest; docker run --privileged x' },
+      { image: '' },
+      {},
+    ]) {
+      expect(pruefeNutzlast('imagePull', boese), JSON.stringify(boese)).toMatchObject({ ok: false });
     }
   });
 });
@@ -153,15 +238,29 @@ describe('Der Agent kennt keine freie Shell', () => {
   );
   const aktionen = readFileSync(join(process.cwd(), 'apps/game-agent/src/aktionen.ts'), 'utf8');
   const server = readFileSync(join(process.cwd(), 'apps/game-agent/src/index.ts'), 'utf8');
+  const dockerDatei = readFileSync(join(process.cwd(), 'apps/game-agent/src/docker.ts'), 'utf8');
 
-  it('bietet genau die zehn festen Aktionen an', () => {
+  it('bietet genau die siebzehn festen Aktionen an', () => {
     /*
-     * Die Zahl ist absichtlich festgeschrieben. Wer eine elfte ergaenzt,
-     * faellt hier auf und muss sich fragen lassen, ob sie eine feste
-     * Handlung ist - oder ein Weg, etwas auszufuehren.
+     * Die Zahl ist absichtlich festgeschrieben. Wer eine achtzehnte
+     * ergaenzt, faellt hier auf und muss sich fragen lassen, ob sie eine
+     * feste Handlung ist - oder ein Weg, etwas auszufuehren.
      */
-    expect(Object.keys(AGENT_AKTIONEN)).toHaveLength(10);
-    expect(ERLAUBTE_PFADE).toHaveLength(10);
+    expect(Object.keys(AGENT_AKTIONEN)).toHaveLength(17);
+    expect(ERLAUBTE_PFADE).toHaveLength(17);
+  });
+
+  it('hat keinen Pfad mit einem veränderlichen Segment', () => {
+    /*
+     * Der Kern der Pfadpruefung ist ein **exakter** Vergleich. Ein
+     * Platzhalter im Pfad zwaenge zu einem Muster, und ein Muster ist eine
+     * Auslegungssache. Die Instanzkennung steht deshalb im signierten
+     * Rumpf.
+     */
+    for (const pfad of ERLAUBTE_PFADE) {
+      expect(pfad, pfad).toMatch(/^\/[a-z/]+$/u);
+      expect(pfad, pfad).not.toMatch(/[:*{}[\]]/u);
+    }
   });
 
   /** Kommentare weg: sie nennen genau das, was es nicht geben soll. */
@@ -178,6 +277,7 @@ describe('Der Agent kennt keine freie Shell', () => {
       ['Protokoll', protokoll],
       ['Aktionen', aktionen],
       ['Server', server],
+      ['Docker', dockerDatei],
     ] as const) {
       expect(ohneKommentare(quelle), name).not.toMatch(
         /executeCommand|runCommand|\/exec\b|\/shell\b|\/cmd\b/u,
@@ -190,9 +290,57 @@ describe('Der Agent kennt keine freie Shell', () => {
      * `spawn` mit Argumentliste statt `exec` mit einer Zeile. Der
      * Unterschied ist genau der, um den es geht: `exec` gibt den Text einer
      * Shell, `spawn` gibt ihn dem Programm.
+     *
+     * Gesucht wird nach dem **Import** aus `node:child_process`, nicht nach
+     * dem Wort `exec(`. Ein `RegExp.exec()` ist kein Shell-Aufruf, und ein
+     * Test, der es dafuer haelt, zwingt dazu, harmlosen Code umzuschreiben -
+     * bis ihn jemand abschaltet.
      */
-    expect(ohneKommentare(aktionen)).not.toMatch(/\bexec\(|\bexecSync\(|shell:\s*true/u);
-    expect(aktionen).toMatch(/spawn\(/u);
+    for (const [name, quelle] of [
+      ['Aktionen', aktionen],
+      ['Docker', dockerDatei],
+      ['Server', server],
+    ] as const) {
+      const ohne = ohneKommentare(quelle);
+      const importe = /from\s+'node:child_process'/u.test(ohne)
+        ? (/import\s*\{([^}]*)\}\s*from\s+'node:child_process'/u.exec(ohne)?.[1] ?? '')
+        : '';
+      expect(importe, `${name} importiert aus child_process`).not.toMatch(
+        /\bexec\b|\bexecSync\b|\bexecFile/u,
+      );
+      expect(ohne, name).not.toMatch(/shell:\s*true/u);
+    }
+    expect(dockerDatei).toMatch(/spawn\(/u);
+  });
+
+  it('gibt Docker keine Argumente, die aus einer Anfrage stammen könnten', () => {
+    /*
+     * Die gefaehrlichen Docker-Schalter. Keiner davon darf im Agenten
+     * vorkommen - weder fest noch zusammengesetzt. `--cap-drop` und
+     * `--security-opt` sind die Gegenrichtung und deshalb erlaubt.
+     */
+    const ohne = ohneKommentare(dockerDatei);
+    for (const schalter of [
+      '--privileged',
+      '--network host',
+      '--pid',
+      '--userns',
+      '--cap-add',
+      '--device',
+      '--mount',
+    ]) {
+      expect(ohne, schalter).not.toContain(schalter);
+    }
+  });
+
+  it('bildet Mountpfade selbst und nimmt sie nicht aus der Anfrage entgegen', () => {
+    /*
+     * Ein Pfad aus einer Anfrage waere `-v /:/host` einen Tippfehler
+     * entfernt. Der Agent setzt ihn aus seinem eigenen Wurzelverzeichnis
+     * und der - geprueften - Instanzkennung zusammen.
+     */
+    expect(dockerDatei).toMatch(/instanzVerzeichnis/u);
+    expect(dockerDatei).toMatch(/KENNUNG_MUSTER\.test\(instanceId\)/u);
   });
 
   it('nimmt keinen Pfad aus der Anfrage entgegen', () => {
@@ -241,26 +389,67 @@ describe('Der Client', () => {
 
   it('signiert jede Anfrage', async () => {
     const { aufrufe, transport } = mitschrift();
-    await agentZugriff({ host: '192.0.2.1', port: 9443, token: TOKEN }, transport).gameStart();
+    await instanzZugriff({ host: '192.0.2.1', port: 9443, token: TOKEN }, KENNUNG, transport).gameStart();
 
     const aufruf = aufrufe[0];
-    expect(aufruf?.url).toBe('https://192.0.2.1:9443/game/start');
+    expect(aufruf?.url).toBe('https://192.0.2.1:9443/instances/start');
+    expect(aufruf?.body, 'Die Kennung reist im signierten Rumpf mit').toContain(KENNUNG);
     expect(aufruf?.headers['x-swisshub-signature']).toBeTruthy();
     expect(aufruf?.headers['x-swisshub-nonce']).toBeTruthy();
   });
 
   it('benutzt für jede Anfrage einen neuen Einmalwert', async () => {
     const { aufrufe, transport } = mitschrift();
-    const zugriff = agentZugriff({ host: '192.0.2.1', port: 9443, token: TOKEN }, transport);
+    const zugriff = instanzZugriff({ host: '192.0.2.1', port: 9443, token: TOKEN }, KENNUNG, transport);
     await zugriff.gameStart();
     await zugriff.gameStart();
 
     expect(aufrufe[0]?.headers['x-swisshub-nonce']).not.toBe(aufrufe[1]?.headers['x-swisshub-nonce']);
   });
 
+  it('lässt eine unbrauchbare Container-Spezifikation nicht einmal auf die Leitung', async () => {
+    /*
+     * Geprüft wird vor dem Netzwerk, nicht danach. Was hier nicht
+     * durchkommt, verlässt den Prozess nicht - und erreicht damit auch
+     * keinen Host, der es vielleicht weniger streng nimmt.
+     */
+    const { aufrufe, transport } = mitschrift();
+    const agent = hostZugriff({ host: '192.0.2.1', port: 9443, token: TOKEN }, transport);
+
+    await expect(
+      agent.instanzErstellen(KENNUNG, {
+        name: 'swisshub-cs2-abc123',
+        image: 'cs2:latest; rm -rf /',
+        command: [],
+        env: {},
+        ports: [{ container: 27015, host: 27015, protokoll: 'udp' }],
+        cpuLimit: 2,
+        memoryLimitMb: 4096,
+        dataMountPath: '/swisshub/data',
+        configMountPath: '/swisshub/config',
+      }),
+    ).rejects.toThrow();
+
+    expect(aufrufe, 'Die Anfrage darf den Prozess nicht verlassen').toHaveLength(0);
+  });
+
+  it('schickt die Instanzkennung im signierten Rumpf mit', async () => {
+    const { aufrufe, transport } = mitschrift({ containerRef: 'abc' });
+    const agent = hostZugriff({ host: '192.0.2.1', port: 9443, token: TOKEN }, transport);
+
+    await agent.instanzStoppen(KENNUNG);
+
+    const aufruf = aufrufe[0];
+    expect(aufruf?.url).toBe('https://192.0.2.1:9443/instances/stop');
+    expect(aufruf?.body).toContain(KENNUNG);
+    // Die Signatur deckt den Rumpf ab - die Kennung ist damit genauso
+    // geschützt, wie sie es als Pfadsegment wäre.
+    expect(aufruf?.headers['x-swisshub-signature']).toBeTruthy();
+  });
+
   it('lässt eine ungültige Rundenzahl nicht einmal auf die Leitung', async () => {
     const { aufrufe, transport } = mitschrift();
-    const zugriff = agentZugriff({ host: '192.0.2.1', port: 9443, token: TOKEN }, transport);
+    const zugriff = instanzZugriff({ host: '192.0.2.1', port: 9443, token: TOKEN }, KENNUNG, transport);
 
     await expect(zugriff.matchRestore(999)).rejects.toThrow();
     expect(aufrufe, 'Die Anfrage darf den Prozess nicht verlassen').toHaveLength(0);
@@ -275,7 +464,11 @@ describe('Der Client', () => {
     const { transport } = mitschrift({
       files: [{ kind: 'DEMO', name: '../../etc/passwd', sizeBytes: 10 }],
     });
-    const dateien = await agentZugriff({ host: '192.0.2.1', port: 9443, token: TOKEN }, transport).dateien();
+    const dateien = await instanzZugriff(
+      { host: '192.0.2.1', port: 9443, token: TOKEN },
+      KENNUNG,
+      transport,
+    ).dateien();
 
     expect(dateien[0]?.name).toBe('passwd');
   });
@@ -289,7 +482,11 @@ describe('Der Client', () => {
         'kaputt',
       ],
     });
-    const dateien = await agentZugriff({ host: '192.0.2.1', port: 9443, token: TOKEN }, transport).dateien();
+    const dateien = await instanzZugriff(
+      { host: '192.0.2.1', port: 9443, token: TOKEN },
+      KENNUNG,
+      transport,
+    ).dateien();
 
     expect(dateien).toHaveLength(1);
     expect(dateien[0]?.name).toBe('match.dem');

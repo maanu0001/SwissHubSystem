@@ -111,8 +111,49 @@ describe('Kein Geheimnis erreicht den Browser', () => {
 describe('Keine freie Konsole in der WebApp', () => {
   const actions = readFileSync(join(wurzel, 'apps/web/src/modules/gameserver/actions.ts'), 'utf8');
 
-  it('nimmt keine Server Action einen Befehl entgegen', () => {
-    expect(ohneKommentare(actions)).not.toMatch(/command|rconCommand|shell|\bexec\b/iu);
+  it('nimmt keine Server Action einen Befehl als Text entgegen', () => {
+    /*
+     * **Die Regel ist «kein freier Text», nicht «kein Wort».**
+     *
+     * Seit es Runtime-Images gibt, kommt `command` in dieser Datei vor -
+     * als **Liste geprüfter Argumente** aus einem Formular mit einzelnen
+     * Feldern. Das ist das Gegenteil einer Kommandozeile: eine Zeile müsste
+     * jemand zerlegen, und wer zerlegt, interpretiert.
+     *
+     * Deshalb wird hier nicht das Wort gesucht, sondern die gefährliche
+     * Form: ein Zeichenketten-Feld, das ein Kommando aufnimmt.
+     */
+    const ohne = ohneKommentare(actions);
+
+    // Kein Feld namens command/cmd/script/shell als Zeichenkette.
+    expect(ohne).not.toMatch(/\b(command|cmd|script|shell|rconCommand)\s*:\s*z\.string/iu);
+    // Und gar kein Feld, das «shell» oder «rcon» heisst.
+    expect(ohne).not.toMatch(/\b(shell|rconCommand|rconCmd)\s*:/iu);
+    // `command` gibt es - aber nur als Liste.
+    if (/\bcommand\s*:/u.test(ohne)) {
+      expect(ohne).toMatch(/\bcommand\s*:\s*z\.array/u);
+    }
+  });
+
+  it('gibt Docker keine Argumente aus einem Formular', () => {
+    /*
+     * Es darf kein Feld geben, in dem ein Docker-Schalter stehen könnte -
+     * weder offen noch als «zusätzliche Optionen». Wer so ein Feld
+     * ergänzt, baut die Docker-CLI in den Browser.
+     */
+    const ohne = ohneKommentare(actions);
+    for (const verboten of [
+      'extraArgs',
+      'dockerArgs',
+      'dockerOptions',
+      'privileged',
+      'capAdd',
+      'networkMode',
+      'volumes',
+      'binds',
+    ]) {
+      expect(ohne, verboten).not.toMatch(new RegExp(`\\b${verboten}\\s*:`, 'iu'));
+    }
   });
 
   it('bietet die Match-Aktionen als feste Aufzählung an', () => {
