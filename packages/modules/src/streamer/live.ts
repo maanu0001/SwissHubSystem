@@ -311,7 +311,7 @@ async function ankuendigungsDaten(discordId: string): Promise<AnkuendigungsDaten
      */
     swisshubUrl:
       profil?.publicSlug && profil.visibilityProfile === 'PUBLIC'
-        ? `${appUrl()}${systemRoutes.streamerOeffentlichProfil(profil.publicSlug)}`
+        ? appUrl(systemRoutes.streamerOeffentlichProfil(profil.publicSlug))
         : null,
   };
 }

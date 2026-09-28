@@ -10,6 +10,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ModulNavigation, type ModulNavigationEintrag } from '@/components/shared/modul-navigation';
 import { cn } from '@/lib/utils';
 import { teileBereiche, type TicketSection } from './bereiche';
 
@@ -26,44 +27,41 @@ export type { TicketSection };
  * Zeile, kein Versteck. Wer gerade auf einer Einrichtungsseite steht, sieht
  * das am Zahnrad selbst - sonst waere man an einer Stelle, die die Navigation
  * nicht mehr anzeigt.
+ *
+ * ## Was sich geaendert hat und was nicht
+ *
+ * Die Reiter links sind jetzt die gemeinsame `ModulNavigation` - dieselbe
+ * Leiste wie in jedem anderen Modul. Die Zweiteilung bleibt: sie ist eine
+ * Entscheidung ueber **Wichtigkeit** und nicht ueber Aussehen, und eine
+ * gemeinsame Gestaltung ist kein Grund, sie aufzugeben. Genau das meint
+ * «konsistente Grundsprache, weiterhin modulbezogene Identitaet».
  */
 export function TicketSectionNav({ sections }: { sections: TicketSection[] }): React.JSX.Element {
   const pfad = usePathname();
   const { arbeit, einrichtung } = teileBereiche(sections);
   const inEinrichtung = einrichtung.some((section) => pfad === section.href);
 
+  const eintraege: ModulNavigationEintrag[] = arbeit.map((section) => ({
+    href: section.href,
+    label: section.label,
+  }));
+
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
-      <nav aria-label="Ticket-Bereiche" className="flex flex-wrap gap-1">
-        {arbeit.map((section) => {
-          const aktiv = pfad === section.href;
-          return (
-            <Link
-              key={section.href}
-              href={section.href}
-              aria-current={aktiv ? 'page' : undefined}
-              className={cn(
-                'inline-flex min-h-9 items-center rounded-lg px-3 text-sm transition-colors',
-                aktiv
-                  ? 'bg-primary/15 font-medium text-primary-bright'
-                  : 'text-muted-foreground hover:bg-card hover:text-foreground',
-              )}
-            >
-              {section.label}
-            </Link>
-          );
-        })}
-      </nav>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      {/*
+        Ein einzelner Arbeitsbereich ergibt keine Leiste - `ModulNavigation`
+        gibt dann `null` zurueck. Das Zahnrad bleibt trotzdem stehen, sonst
+        waere die Einrichtung von dieser Seite aus nicht erreichbar.
+      */}
+      <ModulNavigation eintraege={eintraege} label="Ticket-Bereiche" className="min-w-0 flex-1" />
 
       {einrichtung.length > 0 ? (
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Einrichtung"
             className={cn(
-              'inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              inEinrichtung
-                ? 'bg-primary/15 font-medium text-primary-bright'
-                : 'text-muted-foreground hover:bg-card hover:text-foreground',
+              'inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              inEinrichtung ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <Settings className="size-4" aria-hidden="true" />

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { AUDIT_ACTIONS, recordAudit } from '@swisshub/database';
 import { members, profile, searchMembers } from '@swisshub/modules';
-import { AppError, sanitizeText, snowflakeSchema } from '@swisshub/shared';
+import { AppError, sanitizeText, snowflakeSchema, systemRoutes } from '@swisshub/shared';
 import { defineAction } from '@/server/action';
 import { memberActor, memberViewer } from '@/server/members';
 
@@ -335,7 +335,7 @@ async function profilNeuLaden(discordId: string): Promise<void> {
   revalidatePath(`/spieler/${discordId}`);
   const slug = await profile.slugVon(discordId).catch(() => null);
   if (slug) {
-    revalidatePath(`/u/${slug}`);
-    revalidatePath(`/u/${slug}/karte`);
+    revalidatePath(systemRoutes.oeffentlichesProfil(slug));
+    revalidatePath(systemRoutes.oeffentlichesProfilKarte(slug));
   }
 }

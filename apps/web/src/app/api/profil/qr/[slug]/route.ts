@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { appUrl } from '@swisshub/config';
 import { profile } from '@swisshub/modules';
+import { systemRoutes } from '@swisshub/shared';
 import { qrSvg } from '@/modules/profile/qr';
 
 /**
@@ -41,7 +42,7 @@ export async function GET(
     return new NextResponse(null, { status: 404 });
   }
 
-  const adresse = `${appUrl()}/u/${encodeURIComponent(antwort.profil.slug)}`;
+  const adresse = appUrl(systemRoutes.oeffentlichesProfil(antwort.profil.slug));
   const svg = qrSvg(adresse);
   // `?download=1` erzwingt das Speichern; ohne den Parameter zeigt der Browser
   // den Code an - das ist, was die Vorschau im Editor braucht.

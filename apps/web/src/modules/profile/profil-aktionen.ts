@@ -47,8 +47,8 @@ async function neuLaden(discordId: string): Promise<void> {
 
   const slug = await profile.slugVon(discordId).catch(() => null);
   if (slug) {
-    revalidatePath(`/u/${slug}`);
-    revalidatePath(`/u/${slug}/karte`);
+    revalidatePath(systemRoutes.oeffentlichesProfil(slug));
+    revalidatePath(systemRoutes.oeffentlichesProfilKarte(slug));
   }
 }
 

@@ -3,7 +3,7 @@
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { moderation } from '@swisshub/modules';
-import { snowflakeSchema } from '@swisshub/shared';
+import { snowflakeSchema, systemRoutes } from '@swisshub/shared';
 import { defineAction } from '@/server/action';
 import { moderationActor } from '@/server/moderation';
 
@@ -176,8 +176,8 @@ export const addModerationNoteAction = defineAction(
 const profilPfadeVerwerfen = (slug: string | null): void => {
   revalidatePath('/moderation');
   if (slug) {
-    revalidatePath(`/u/${slug}`);
-    revalidatePath(`/u/${slug}/karte`);
+    revalidatePath(systemRoutes.oeffentlichesProfil(slug));
+    revalidatePath(systemRoutes.oeffentlichesProfilKarte(slug));
   }
 };
 

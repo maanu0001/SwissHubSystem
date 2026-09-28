@@ -4,6 +4,7 @@ import { branding } from '@swisshub/config/client';
 import Link from 'next/link';
 import { ShieldOff } from 'lucide-react';
 import { profile, streamer } from '@swisshub/modules';
+import { systemRoutes } from '@swisshub/shared';
 import { OeffentlicheProfilseite } from '@/modules/profile/components/oeffentlich/oe-seite';
 import { TeilenKnopf } from '@/modules/profile/components/teilen-knopf';
 import { ProfilStreamingAbschnitt } from '@/modules/streamer/components/profil-streaming';
@@ -65,7 +66,7 @@ export default async function OeffentlichesProfilPage({
      * aus der Adresse. Damit kann aus einem praeparierten Slug keine
      * Weiterleitung auf eine fremde Domain werden.
      */
-    permanentRedirect(`/u/${encodeURIComponent(antwort.slug)}`);
+    permanentRedirect(systemRoutes.oeffentlichesProfil(antwort.slug));
   }
   if (antwort.art === 'keines') {
     notFound();

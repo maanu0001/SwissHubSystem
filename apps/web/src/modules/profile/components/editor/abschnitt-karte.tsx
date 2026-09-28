@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Check, Download, ExternalLink, Info, Loader2, QrCode } from 'lucide-react';
 import * as slug from '@swisshub/modules/profil/slug';
 import type { profile } from '@swisshub/modules';
+import { systemRoutes } from '@swisshub/shared';
 import { GAMER_CARD_FORMATE, GAMER_CARD_MASSE, type GamerCardFormat } from '@/modules/profile/gamer-card';
 import { slugAendernAction, slugPruefenAction } from '@/modules/profile/profil-aktionen';
 
@@ -162,12 +163,12 @@ export function AbschnittKarte({
         {adresse.aliasse.length > 0 ? (
           <div className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground">Leitet ebenfalls hierher:</span>{' '}
-            {adresse.aliasse.map((alt) => `/u/${alt}`).join(', ')}
+            {adresse.aliasse.map((alt) => systemRoutes.oeffentlichesProfil(alt)).join(', ')}
           </div>
         ) : null}
 
         <Link
-          href={`/u/${adresse.slug}`}
+          href={systemRoutes.oeffentlichesProfil(adresse.slug)}
           target="_blank"
           className="inline-flex items-center gap-1.5 text-sm text-primary underline-offset-4 hover:underline"
         >

@@ -6,7 +6,7 @@ import { branding } from '@swisshub/config/client';
 import { getDiscordAvatarUrl } from '@swisshub/discord/cdn';
 import { streamer } from '@swisshub/modules';
 import { PLATTFORMEN, embedAdresse } from '@swisshub/modules/streamer/typen';
-import { formatDateTime } from '@swisshub/shared';
+import { formatDateTime, systemRoutes } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { spracheLabel } from '@/modules/streamer/components/sprache';
@@ -133,7 +133,7 @@ export default async function StreamerProfilSeite({
           </div>
 
           <Link
-            href={`/u/${encodeURIComponent(eintrag.slug)}`}
+            href={systemRoutes.oeffentlichesProfil(eintrag.slug)}
             className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'shrink-0')}
           >
             {branding.name}-Profil

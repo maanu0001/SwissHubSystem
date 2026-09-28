@@ -1,16 +1,24 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Megaphone, ScrollText, Settings } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { ModulNavigation, type ModulNavigationEintrag } from '@/components/shared/modul-navigation';
 
 /**
- * Bereichsnavigation innerhalb des Kommunikationsmoduls.
+ * Die Bereiche des Kommunikationsmoduls.
  *
- * In der Seitenleiste steht nur ein Eintrag pro Modul; die Unterseiten
- * (Verlauf, Einstellungen) werden hier erreicht. Angezeigt wird nur, wofür die
- * Berechtigung vorliegt - die Seiten selbst prüfen zusätzlich serverseitig.
+ * ## Warum hier fast nichts steht
+ *
+ * Weil die Leiste allen Modulen gehoert. Hier liegt nur die Uebersetzung von
+ * den Bereichen dieses Moduls auf die Eintraege der gemeinsamen Navigation -
+ * welche Bereiche es gibt und wer sie sehen darf, entscheidet weiterhin
+ * serverseitig, wer die Liste zusammenstellt.
+ *
+ * ## Warum die Symbole Namen sind und keine Komponenten
+ *
+ * Diese Datei stand frueher mit einer eigenen `ICONS`-Zuordnung da, die drei
+ * Lucide-Komponenten auf drei Schluessel abbildete - genau wie Level und
+ * Premium, mit drei verschiedenen Zuordnungen. Die gemeinsame Leiste schlaegt
+ * Symbole in **einer** Registry nach (`nav-icon.tsx`), und `SymbolName` macht
+ * einen Namen, den es nicht gibt, zum Uebersetzungsfehler.
  */
 export interface CommunicationSection {
   href: string;
@@ -18,44 +26,23 @@ export interface CommunicationSection {
   icon: 'compose' | 'history' | 'settings';
 }
 
-const ICONS = {
-  compose: Megaphone,
-  history: ScrollText,
-  settings: Settings,
-} as const;
+/** Die Bereichsschluessel dieses Moduls auf Namen der gemeinsamen Registry. */
+const SYMBOLE: Record<CommunicationSection['icon'], string> = {
+  compose: 'Megaphone',
+  history: 'ScrollText',
+  settings: 'Settings',
+};
 
 export function CommunicationSectionNav({
   sections,
 }: {
   sections: CommunicationSection[];
-}): React.JSX.Element {
-  const pathname = usePathname();
+}): React.JSX.Element | null {
+  const eintraege: ModulNavigationEintrag[] = sections.map((section) => ({
+    href: section.href,
+    label: section.label,
+    icon: SYMBOLE[section.icon],
+  }));
 
-  return (
-    <nav
-      aria-label="Kommunikation"
-      className="flex flex-wrap gap-1 rounded-lg border border-border bg-card/60 p-1"
-    >
-      {sections.map((section) => {
-        const active = pathname === section.href;
-        const Icon = ICONS[section.icon];
-        return (
-          <Link
-            key={section.href}
-            href={section.href}
-            aria-current={active ? 'page' : undefined}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-              active
-                ? 'bg-primary/15 text-foreground ring-1 ring-primary/45'
-                : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground',
-            )}
-          >
-            <Icon className="size-4" aria-hidden="true" />
-            {section.label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+  return <ModulNavigation eintraege={eintraege} label="Kommunikation" />;
 }

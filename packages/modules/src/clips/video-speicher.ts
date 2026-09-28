@@ -151,6 +151,73 @@ export function erkenneContainer(bytes: Uint8Array): VideoContainer | null {
   return null;
 }
 
+/**
+ * Ton statt Bild - und warum das hier abgelehnt wird.
+ *
+ * ## Die Entscheidung
+ *
+ * Clip of the Week nimmt **Videoclips**. Keine Tondateien, auch keine WAV.
+ *
+ * ## Warum nicht einfach mitnehmen
+ *
+ * Weil der Wettbewerb von Anfang bis Ende visuell ist. Die Vorschau im
+ * Einreichassistenten zeigt ein Bild; die Moderation entscheidet an einem
+ * Bild; die Abstimmungsseite stellt Kacheln nebeneinander; die Gewinnerkarte
+ * und der Discord-Beitrag zeigen ein Bild. Eine Tondatei waere an jeder
+ * dieser Stellen ein leerer Kasten mit einem Abspielknopf - und in einer
+ * Reihe von Kacheln die eine, die niemand anklickt.
+ *
+ * Sie sauber zu unterstuetzen hiesse: eine Wellenform zeichnen, eine zweite
+ * Kachelform bauen, der Moderation eine zweite Ansicht geben und der
+ * Gewinnerkarte ein zweites Layout. Das ist eine Funktion, kein Dateiformat.
+ * Solange das niemand gebaut hat, ist die ehrliche Antwort eine Ablehnung mit
+ * Begruendung - und nicht eine Datei, die im Player stumm bleibt.
+ *
+ * ## Warum das hier trotzdem steht
+ *
+ * `erkenneContainer` wuerde eine WAV-Datei ohnehin ablehnen: sie ist kein MP4
+ * und kein WebM. Nur bekaeme das Mitglied dann «MOV, MKV und AVI spielen
+ * Browser nicht zuverlaessig ab - wandle den Clip vorher um», und das ist ein
+ * Rat, der bei einer Tondatei ins Leere geht. Diese Funktion aendert nichts an
+ * der Freigabe; sie aendert, was dasteht.
+ */
+export function erkenneTonformat(bytes: Uint8Array): string | null {
+  if (bytes.length < 12) {
+    return null;
+  }
+  const anfang = Buffer.from(bytes.subarray(0, 12)).toString('latin1');
+
+  // WAV: 'RIFF' .... 'WAVE'. Die vier Bytes dazwischen sind die Laenge.
+  if (anfang.startsWith('RIFF') && anfang.slice(8, 12) === 'WAVE') {
+    return 'WAV';
+  }
+  // MP3: entweder ein ID3-Kopf oder direkt ein Frame-Synchronisationswort.
+  if (anfang.startsWith('ID3') || (bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0)) {
+    return 'MP3';
+  }
+  // Ogg/Opus/Vorbis.
+  if (anfang.startsWith('OggS')) {
+    return 'OGG';
+  }
+  // FLAC.
+  if (anfang.startsWith('fLaC')) {
+    return 'FLAC';
+  }
+  /*
+   * M4A ist ein MP4-Container mit nur einer Tonspur.
+   *
+   * Er traegt dieselbe `ftyp`-Box wie ein Video und wird von
+   * `erkenneContainer` deshalb als `mp4` erkannt - an der Marke `M4A ` ist er
+   * aber zu unterscheiden. Ohne diese Zeile kaeme eine Tondatei durch, die im
+   * Player schwarz bleibt: der einzige Fall, in dem hier tatsaechlich etwas
+   * abgelehnt wird, das sonst durchginge.
+   */
+  if (anfang.slice(4, 8) === 'ftyp' && anfang.slice(8, 12).startsWith('M4A')) {
+    return 'M4A';
+  }
+  return null;
+}
+
 export interface GespeichertesVideo {
   dateiname: string;
   container: VideoContainer;
@@ -178,6 +245,20 @@ export async function speichereVideo(
     throw new AppError('VALIDATION_FAILED', {
       userMessage: `Die Datei ist zu gross - erlaubt sind ${Math.round(grenze / 1024 / 1024)} MB.`,
       internalMessage: `Video ${daten.byteLength} Bytes über der Grenze ${grenze}`,
+    });
+  }
+
+  /*
+   * Ton zuerst.
+   *
+   * Nicht nur wegen der besseren Meldung: M4A traegt dieselbe `ftyp`-Box wie
+   * ein Video und wuerde von `erkenneContainer` als `mp4` durchgelassen.
+   */
+  const ton = erkenneTonformat(daten);
+  if (ton) {
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage: `Das ist eine Tondatei (${ton}). Clip of the Week nimmt Videoclips - Moderation, Abstimmung und Gewinnerkarte zeigen ein Bild.`,
+      internalMessage: `Tonformat ${ton} abgelehnt`,
     });
   }
 

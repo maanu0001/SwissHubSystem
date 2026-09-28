@@ -117,6 +117,18 @@ describe('Profil teilen: nur kopieren', () => {
   });
 
   it('baut die Adresse aus der Herkunft des Browsers', () => {
-    expect(knopf).toContain('`${window.location.origin}/u/${slug}`');
+    /*
+     * Die Herkunft kommt vom Browser, der Pfad aus der zentralen Route.
+     *
+     * Vorher stand hier `/u/${slug}` ausgeschrieben - eine von neun Stellen,
+     * die dieselbe Adresse selbst zusammensetzten. Der Pfad liegt jetzt in
+     * `systemRoutes`; die Herkunft bleibt `window.location.origin` und nicht
+     * `appUrl()`, weil zaehlt, unter welcher Adresse die Person die Seite
+     * tatsaechlich offen hat.
+     */
+    expect(knopf).toContain('window.location.origin');
+    expect(knopf).toContain('systemRoutes.oeffentlichesProfil(slug)');
+    // Und nicht doppelt: kein zweiter, selbst gebauter Pfad daneben.
+    expect(knopf).not.toContain('/u/${slug}');
   });
 });

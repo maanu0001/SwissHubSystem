@@ -1,11 +1,13 @@
 import Link from 'next/link';
+import { symbolKnoten, type SymbolAngabe } from '@/components/layout/nav-icon';
 import { cn } from '@/lib/utils';
 
 interface StatCardProps {
   label: string;
   value: string | number;
   hint?: React.ReactNode;
-  icon?: React.ReactNode;
+  /** Ein Element oder ein bekannter Symbolname - siehe `Panel`, gleicher Grund. */
+  icon?: SymbolAngabe;
   /** Färbt den Wert, z.B. grün für "Online". */
   tone?: 'default' | 'success' | 'warning' | 'destructive';
   /**
@@ -60,7 +62,9 @@ export function StatCard({
           <p className={cn('text-3xl font-semibold tabular-nums leading-none', VALUE_TONE[tone])}>{value}</p>
           {hint ? <div className="text-xs text-muted-foreground">{hint}</div> : null}
         </div>
-        {icon ? <span className="icon-chip size-11 shrink-0 [&_svg]:size-5">{icon}</span> : null}
+        {icon ? (
+          <span className="icon-chip size-11 shrink-0 [&_svg]:size-5">{symbolKnoten(icon)}</span>
+        ) : null}
       </div>
     </Kasten>
   );

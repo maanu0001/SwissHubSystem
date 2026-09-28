@@ -1,10 +1,19 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
+import { symbolKnoten, type SymbolAngabe } from '@/components/layout/nav-icon';
 import { cn } from '@/lib/utils';
 
 interface PanelProps {
   title: string;
-  icon?: React.ReactNode;
+  /**
+   * Das Symbol der Kopfzeile - ein Element oder ein bekannter Name.
+   *
+   * **Nicht** `React.ReactNode`. Das war es einmal, und weil eine
+   * Zeichenkette ein gueltiger `ReactNode` ist, hat TypeScript
+   * `icon="BarChart3"` angenommen und React den Namen als Text in den
+   * Symbolkreis gezeichnet. Siehe `symbolKnoten` in `nav-icon.tsx`.
+   */
+  icon?: SymbolAngabe;
   description?: string;
   /** Aktion oben rechts, z.B. "Alle anzeigen". */
   action?: { label: string; href: string; ariaLabel?: string } | React.ReactNode;
@@ -38,7 +47,9 @@ export function Panel({
     <section className={cn('flex min-w-0 flex-col rounded-xl border border-border bg-card', className)}>
       <header className="flex items-center justify-between gap-3 border-b border-border/70 px-5 py-4">
         <div className="flex min-w-0 items-center gap-3">
-          {icon ? <span className="icon-chip size-9 shrink-0 [&_svg]:size-4">{icon}</span> : null}
+          {icon ? (
+            <span className="icon-chip size-9 shrink-0 [&_svg]:size-4">{symbolKnoten(icon)}</span>
+          ) : null}
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold">{title}</h2>
             {description ? <p className="truncate text-xs text-muted-foreground">{description}</p> : null}

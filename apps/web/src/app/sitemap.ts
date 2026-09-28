@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { appUrl } from '@swisshub/config';
 import { profile } from '@swisshub/modules';
+import { systemRoutes } from '@swisshub/shared';
 
 /**
  * Die Sitemap.
@@ -52,7 +53,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 1,
     },
     ...profile_.map((eintrag) => ({
-      url: appUrl(`/u/${encodeURIComponent(eintrag.slug)}`),
+      url: appUrl(systemRoutes.oeffentlichesProfil(eintrag.slug)),
       lastModified: eintrag.geaendertAm,
       changeFrequency: 'weekly' as const,
       priority: 0.7,

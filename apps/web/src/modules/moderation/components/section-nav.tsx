@@ -1,51 +1,31 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { ModulNavigation, type ModulNavigationEintrag } from '@/components/shared/modul-navigation';
 import type { ModerationSection } from '@/modules/moderation/sections';
-import { cn } from '@/lib/utils';
 
 /**
- * Bereichsnavigation des Moderation Center.
+ * Die Bereiche des Moderation Center.
  *
- * Die Seitenleiste fuehrt einmal in den Bereich; welche Unterseiten es dort
- * gibt, entscheidet die Berechtigung des Betrachters.
+ * ## Warum hier fast nichts steht
+ *
+ * Weil die Leiste allen Modulen gehoert. Hier liegt nur die Uebersetzung von
+ * den Bereichen dieses Moduls auf die Eintraege der gemeinsamen Navigation -
+ * welche Bereiche es gibt und wer sie sehen darf, entscheidet weiterhin
+ * `sections.ts` serverseitig.
+ *
+ * Vorher stand hier eine eigene Leiste mit eigenen Klassen, eigenem aktivem
+ * Zustand und eigenem Verhalten auf schmalen Geraeten. Sie war nicht falsch -
+ * sie war die zehnte ihrer Art, und keine zwei sahen gleich aus.
  */
 export function ModerationSectionNav({
   sections,
 }: {
   sections: ModerationSection[];
 }): React.JSX.Element | null {
-  const pfad = usePathname();
+  const eintraege: ModulNavigationEintrag[] = sections.map((section) => ({
+    href: section.href,
+    label: section.label,
+  }));
 
-  // Bei einem einzigen Bereich gibt es nichts zu waehlen.
-  if (sections.length < 2) {
-    return null;
-  }
-
-  return (
-    <nav
-      aria-label="Moderationsbereiche"
-      className="-mx-1 flex gap-1 overflow-x-auto scrollbar-slim border-b border-border/60 px-1 pb-3"
-    >
-      {sections.map((section) => {
-        const aktiv = pfad === section.href;
-        return (
-          <Link
-            key={section.href}
-            href={section.href}
-            aria-current={aktiv ? 'page' : undefined}
-            className={cn(
-              'inline-flex min-h-9 shrink-0 items-center rounded-lg px-3 text-sm transition-colors',
-              aktiv
-                ? 'bg-primary/15 font-medium text-primary-bright'
-                : 'text-muted-foreground hover:bg-card hover:text-foreground',
-            )}
-          >
-            {section.label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+  return <ModulNavigation eintraege={eintraege} label="Moderationsbereiche" />;
 }

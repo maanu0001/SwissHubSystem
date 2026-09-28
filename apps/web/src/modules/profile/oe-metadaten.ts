@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
+import { appUrl } from '@swisshub/config';
 import { branding } from '@swisshub/config/client';
 import type { profile } from '@swisshub/modules';
+import { systemRoutes } from '@swisshub/shared';
 
 /**
  * Die Metadaten einer oeffentlichen Profilseite.
@@ -62,7 +64,7 @@ export function profilMetadaten(antwort: profile.OeffentlicheAntwort): Metadata 
     oeffentlich.angaben?.tagline ??
     oeffentlich.angaben?.bio?.slice(0, 160) ??
     `Das ${branding.name}-Profil von ${name}.`;
-  const pfad = `/u/${oeffentlich.slug}`;
+  const pfad = systemRoutes.oeffentlichesProfil(oeffentlich.slug);
 
   /*
    * Die Vorschaukarte mit einem Stand in der Adresse.
@@ -78,10 +80,41 @@ export function profilMetadaten(antwort: profile.OeffentlicheAntwort): Metadata 
    */
   const stand = kartenStand(oeffentlich);
 
+  /*
+   * Absolut, nicht relativ - und das ist der ganze Fehler von vorher.
+   *
+   * ## Was Discord bekam
+   *
+   * Hier stand `url: pfad`, also `/u/manu`. Next loest eine relative Adresse
+   * in den Metadaten gegen `metadataBase` auf; ist die nicht gesetzt - und sie
+   * war es nirgends -, nimmt Next `http://localhost:3000`. Im ausgelieferten
+   * HTML stand damit:
+   *
+   *     <meta property="og:image" content="http://localhost:3000/u/manu/karte?v=…">
+   *
+   * Discord holt diese Adresse, findet nichts, und zeigt eine Vorschau ohne
+   * Bild. Genau das war zu sehen.
+   *
+   * ## Warum die Adresse hier entsteht und nicht in `metadataBase`
+   *
+   * `metadataBase` wird unten trotzdem gesetzt, fuer jedes Feld, das kuenftig
+   * jemand relativ angibt. Aber die drei Adressen, auf die es ankommt, stehen
+   * hier **ausgeschrieben**: eine Vorschau, die von einer Voreinstellung
+   * abhaengt, faellt beim naechsten Mal genauso still aus wie diesmal.
+   *
+   * `appUrl` liest die Adresse zur Laufzeit aus der Umgebung des Containers.
+   * Nicht beim Bauen: im Docker-Build gibt es sie nicht, und ein dort
+   * eingefrorener Wert waere wieder `http://localhost:3000`.
+   */
+  const basis = new URL(appUrl('/'));
+  const seite = appUrl(pfad);
+  const karte = appUrl(`${systemRoutes.oeffentlichesProfilKarte(oeffentlich.slug)}?v=${stand}`);
+
   return {
+    metadataBase: basis,
     title: titel,
     description: beschreibung,
-    alternates: { canonical: pfad },
+    alternates: { canonical: seite },
     /*
      * `noindex` fuer ein Profil, das nicht indexiert werden will.
      *
@@ -94,17 +127,26 @@ export function profilMetadaten(antwort: profile.OeffentlicheAntwort): Metadata 
     openGraph: {
       title: titel,
       description: beschreibung,
-      url: pfad,
+      url: seite,
       type: 'profile',
       siteName: branding.name,
       locale: 'de_CH',
-      images: [{ url: `${pfad}/karte?v=${stand}`, width: 1200, height: 630, alt: titel }],
+      /*
+       * Masse und Typ gehoeren dazu.
+       *
+       * Discord entscheidet an `og:image:width` und `og:image:height`, ob es
+       * eine grosse Vorschau zeigt oder ein Vorschaubildchen neben dem Text.
+       * Ohne die Angaben muss es das Bild erst laden und messen - und
+       * waehrend es das tut, steht im Kanal eine Vorschau ohne Bild.
+       * `og:image:type` erspart ihm das Raten.
+       */
+      images: [{ url: karte, width: 1200, height: 630, type: 'image/png', alt: titel }],
     },
     twitter: {
       card: 'summary_large_image',
       title: titel,
       description: beschreibung,
-      images: [`${pfad}/karte?v=${stand}`],
+      images: [karte],
     },
   };
 }

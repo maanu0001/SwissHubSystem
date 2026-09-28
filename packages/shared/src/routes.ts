@@ -104,6 +104,25 @@ export const systemRoutes = {
   streamerHubAnkuendigungen: (): SystemRoute => '/streamer-hub/ankuendigungen',
   streamerHubStudio: (): SystemRoute => '/streamer-hub/studio',
   streamerHubSpotlight: (spotlightId: string): SystemRoute => `/streamer-hub/studio/${id(spotlightId)}`,
+  /*
+   * Das oeffentliche Mitgliederprofil.
+   *
+   * ## Warum es hier steht und nicht neunmal im Code
+   *
+   * Weil `/u/<slug>` an neun Stellen gebraucht wird - Seite, Vorschaukarte,
+   * Gamer Card, QR-Code, Open Graph, Teilen-Knopf, Editor, Mitgliedsakte,
+   * Sitemap - und an jeder von ihnen anders zusammengesetzt war. Mal mit
+   * `encodeURIComponent`, mal ohne; in der Gamer Card und im QR-Code mit
+   * einem Schraegstrich zu viel.
+   *
+   * Ein Slug ist zwar auf `[a-z0-9-]` geprueft, bevor er gespeichert wird -
+   * die Kodierung hier ist die zweite Sicherung, fuer den Fall, dass diese
+   * Funktion einmal einen ungepruften Wert bekommt.
+   */
+  oeffentlichesProfil: (slug: string): SystemRoute => `/u/${id(slug)}`,
+  /** Die Vorschaukarte desselben Profils - dieselbe Adresse, ein Segment mehr. */
+  oeffentlichesProfilKarte: (slug: string): SystemRoute => `/u/${id(slug)}/karte`,
+
   /** Die oeffentliche Uebersicht - ohne Anmeldung. */
   streamerOeffentlich: (): SystemRoute => '/streamer',
   /** Die oeffentliche Seite eines Streamers, ueber den Profil-Slug. */

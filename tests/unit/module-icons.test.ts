@@ -17,9 +17,9 @@ const { join } = await import('node:path');
 
 const QUELLE = readFileSync(join(process.cwd(), 'apps/web/src/components/layout/nav-icon.tsx'), 'utf8');
 
-/** Die Namen aus der Zuordnung `const ICONS: Record<string, LucideIcon> = { … }`. */
+/** Die Namen aus der Zuordnung `const ICONS = { … } satisfies Record<string, LucideIcon>`. */
 function bekannteSymbole(): Set<string> {
-  const block = /const ICONS: Record<string, LucideIcon> = \{([\s\S]*?)\n\};/u.exec(QUELLE);
+  const block = /const ICONS = \{([\s\S]*?)\n\} satisfies Record<string, LucideIcon>;/u.exec(QUELLE);
   if (!block) {
     throw new Error('Die Icon-Zuordnung wurde nicht gefunden.');
   }

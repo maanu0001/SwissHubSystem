@@ -71,7 +71,7 @@ export async function CommunityProfil({
           </Link>
           {slug ? (
             <a
-              href={`/u/${slug}`}
+              href={systemRoutes.oeffentlichesProfil(slug)}
               target="_blank"
               rel="noreferrer"
               className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}

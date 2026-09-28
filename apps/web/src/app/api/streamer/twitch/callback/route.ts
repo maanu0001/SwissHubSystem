@@ -39,7 +39,7 @@ const log = createLogger('streamer:twitch-oauth');
 
 const zurueck = (meldung: string): Response =>
   Response.redirect(
-    `${appUrl()}${systemRoutes.streamerHubBewerbung()}?twitch=${encodeURIComponent(meldung)}`,
+    appUrl(`${systemRoutes.streamerHubBewerbung()}?twitch=${encodeURIComponent(meldung)}`),
     302,
   );
 
@@ -53,7 +53,7 @@ function gleich(links: string, rechts: string): boolean {
 export async function GET(anfrage: Request): Promise<Response> {
   const context = await getActionAuthContext('critical');
   if (!context) {
-    return Response.redirect(`${appUrl()}/login`, 302);
+    return Response.redirect(appUrl('/login'), 302);
   }
   if (!can(context, streamer.STREAMER_PERMISSIONS.apply)) {
     return new Response('Keine Berechtigung.', { status: 403 });

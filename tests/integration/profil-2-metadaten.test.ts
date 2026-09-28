@@ -27,6 +27,9 @@ useTestSchema('test_profil_2_meta');
  * zu lesen - wenn er die Sichtbarkeit nicht mitprueft.
  */
 const { NextRequest } = await import('next/server');
+const { appBaseUrl, appUrl } = await import('@swisshub/config');
+const { systemRoutes } = await import('@swisshub/shared');
+const { qrSvg } = await import('@/modules/profile/qr');
 const { prisma } = await import('@swisshub/database');
 const { profile } = await import('@swisshub/modules');
 const { GET: kartenBild } = await import('@/app/u/[slug]/karte/route');
@@ -197,8 +200,23 @@ describeWithDatabase('Public Profile 2.0: HTTP-Ausgabe der Metadaten und Bilder'
     expect(svg.length).toBeGreaterThan(400);
 
     /*
-     * Dass der Code die Adresse tatsaechlich traegt, laesst sich ohne Kamera
-     * nur indirekt zeigen: ein anderer Slug muss ein anderes Muster ergeben.
+     * Welche Adresse der Code traegt.
+     *
+     * Ohne Kamera laesst sich das nur vergleichen: derselbe Code, aus der
+     * Adresse gebaut, die darin stehen soll. Stimmen die Muster ueberein,
+     * kodiert er genau diese Zeichenkette - und damit ist auch belegt, dass
+     * er **keinen** doppelten Schraegstrich enthaelt.
+     *
+     * Das war der eigentliche Schaden des Fehlers: `${appUrl()}/u/manu` ergab
+     * `https://host//u/manu`, und diese Adresse stand in jedem QR-Code. Auf
+     * einer gedruckten Karte ist das nicht mehr zu korrigieren.
+     */
+    const erwartet = qrSvg(appUrl(systemRoutes.oeffentlichesProfil('anna')));
+    expect(svg).toBe(erwartet);
+    expect(appUrl(systemRoutes.oeffentlichesProfil('anna')).split('//')).toHaveLength(2);
+
+    /*
+     * Und die Gegenrichtung: ein anderer Slug ergibt ein anderes Muster.
      * Ein Code, der fuer alle gleich aussieht, waere ein Code, der nichts
      * kodiert - und das faellt beim Ausdrucken niemandem auf.
      */
@@ -238,6 +256,66 @@ describeWithDatabase('Public Profile 2.0: HTTP-Ausgabe der Metadaten und Bilder'
     expect(card.status).toBe(404);
     const qr = await qrBild(anfrage('/api/profil/qr/anna'), params('anna'));
     expect(qr.status).toBe(404);
+  });
+
+  it('liefert absolute Adressen - der Grund, warum Discord nichts anzeigte', async () => {
+    /*
+     * Hier stand `url: '/u/manu'`, also eine **relative** Adresse. Next loest
+     * die in den Metadaten gegen `metadataBase` auf; die war nirgends gesetzt,
+     * also nahm Next `http://localhost:3000`. Im ausgelieferten HTML stand
+     *
+     *     <meta property="og:image" content="http://localhost:3123/u/manu/karte?v=…">
+     *
+     * - gemessen an einem laufenden Produktionsserver, mit dem Port, auf dem
+     * er zufaellig lauschte. Discord holt diese Adresse, findet nichts, und
+     * zeigt eine Vorschau ohne Bild.
+     */
+    const meta = profilMetadaten(await profile.ladeOeffentlichesProfilOderSperre('anna'));
+    const basis = appBaseUrl();
+
+    expect(meta.metadataBase?.toString()).toContain(basis);
+    expect(meta.alternates?.canonical).toBe(`${basis}/u/anna`);
+    expect(meta.openGraph?.url).toBe(`${basis}/u/anna`);
+
+    const bild = (meta.openGraph?.images as { url: string }[] | undefined)?.[0];
+    expect(bild?.url.startsWith(`${basis}/u/anna/karte?v=`)).toBe(true);
+    /*
+     * Und keine zweite Herkunft.
+     *
+     * «Kein localhost» waere die naheliegende Pruefung und hier die falsche:
+     * in der Testumgebung **ist** die eingestellte Adresse `localhost:3000`.
+     * Der Fehler war nicht der Hostname, sondern dass Next einen eigenen
+     * einsetzte statt des eingestellten. Geprueft wird deshalb, dass jede
+     * absolute Adresse dieselbe Herkunft hat wie die Konfiguration.
+     */
+    const herkuenfte = new Set(
+      [...JSON.stringify(meta).matchAll(/https?:\/\/[^"\\/]+/gu)].map((treffer) => treffer[0]),
+    );
+    expect([...herkuenfte]).toEqual([new URL(basis).origin]);
+  });
+
+  it('nennt Masse und Typ des Vorschaubildes', async () => {
+    /*
+     * Discord entscheidet an `og:image:width` und `og:image:height`, ob es
+     * eine grosse Vorschau zeigt oder ein Bildchen neben dem Text. Ohne die
+     * Angaben muss es das Bild erst laden und messen - und solange steht im
+     * Kanal eine Vorschau ohne Bild.
+     *
+     * Die Masse stehen hier und in der Bildroute; dass sie zusammenpassen,
+     * prueft der Test weiter oben, der Breite und Hoehe aus dem PNG liest.
+     */
+    const meta = profilMetadaten(await profile.ladeOeffentlichesProfilOderSperre('anna'));
+    const bild = (meta.openGraph?.images as { width?: number; height?: number; type?: string }[])[0];
+
+    expect(bild?.width).toBe(1200);
+    expect(bild?.height).toBe(630);
+    expect(bild?.type).toBe('image/png');
+    /*
+     * `Twitter` ist in Nexts Typen eine Vereinigung mehrerer Kartenarten;
+     * `card` steht nur auf einigen davon. Der Umweg ueber `JSON` prueft, was
+     * tatsaechlich ausgeliefert wird - und darum geht es hier.
+     */
+    expect(JSON.stringify(meta.twitter)).toContain('"card":"summary_large_image"');
   });
 
   it('setzt die Metadaten der Seite mit Titel, Bild und kanonischer Adresse', async () => {

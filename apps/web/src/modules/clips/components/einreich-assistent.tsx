@@ -347,7 +347,9 @@ export function EinreichAssistent({
                 />
                 <p className="text-xs text-muted-foreground">
                   MP4 oder WebM, bis {uploadMaxMb} MB. MOV, MKV und AVI spielen Browser nicht zuverlässig ab -
-                  wandle den Clip vorher um. Die Datei bleibt bis zum Absenden auf deinem Gerät.
+                  wandle den Clip vorher um. Tondateien wie WAV oder MP3 nimmt Clip of the Week nicht:
+                  Moderation, Abstimmung und Gewinnerkarte zeigen ein Bild. Die Datei bleibt bis zum Absenden
+                  auf deinem Gerät.
                 </p>
               </div>
             ) : (

@@ -80,7 +80,15 @@ export function TeilenKnopf({
   const [kopiert, setKopiert] = useState(false);
 
   const teilen = async (): Promise<void> => {
-    const adresse = `${window.location.origin}/u/${slug}`;
+    /*
+     * Der Pfad kommt aus der zentralen Route, der Ursprung aus dem Browser.
+     *
+     * Nicht `appUrl()`: die Adresse der Anwendung ist eine Servereinstellung,
+     * und hier zaehlt, unter welcher Adresse die Person die Seite tatsaechlich
+     * offen hat. Wer ueber einen zweiten Hostnamen kommt, soll auch diesen
+     * kopiert bekommen - alles andere waere ein Link, der bei ihm nicht geht.
+     */
+    const adresse = `${window.location.origin}${systemRoutes.oeffentlichesProfil(slug)}`;
 
     if (await inDieZwischenablage(adresse)) {
       setKopiert(true);

@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { appUrl } from '@swisshub/config';
 import { getDiscordAvatarUrl } from '@swisshub/discord/cdn';
 import { profile } from '@swisshub/modules';
+import { systemRoutes } from '@swisshub/shared';
 import {
   GAMER_CARD_MASSE,
   gamerCardDateiname,
@@ -74,7 +75,7 @@ export async function GET(
   // eine Karte ohne Weg zum Profil ist ein Bild ohne Anschluss.
   const mitQr = request.nextUrl.searchParams.get('qr') !== '0';
 
-  const adresse = `${appUrl()}/u/${encodeURIComponent(profil.slug)}`;
+  const adresse = appUrl(systemRoutes.oeffentlichesProfil(profil.slug));
   const mass = GAMER_CARD_MASSE[rohFormat];
 
   const [bildQuelle, bannerQuelle] = await Promise.all([

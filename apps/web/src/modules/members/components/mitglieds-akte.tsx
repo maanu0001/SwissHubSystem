@@ -298,7 +298,7 @@ export async function MitgliedsAkte({
                 {eigenerSlug ? (
                   <>
                     <a
-                      href={`/u/${eigenerSlug}`}
+                      href={systemRoutes.oeffentlichesProfil(eigenerSlug)}
                       target="_blank"
                       rel="noreferrer"
                       className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}

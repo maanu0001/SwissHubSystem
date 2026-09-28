@@ -34,7 +34,7 @@ export const STATE_COOKIE = 'swisshub_streamer_twitch_state';
 export async function GET(): Promise<Response> {
   const context = await getActionAuthContext('critical');
   if (!context) {
-    return Response.redirect(`${appUrl()}/login`, 302);
+    return Response.redirect(appUrl('/login'), 302);
   }
   /*
    * Dieselbe Berechtigung wie das Formular. Eine Route, die nur «angemeldet»
@@ -47,10 +47,7 @@ export async function GET(): Promise<Response> {
 
   const zugang = await streamer.twitchZugang();
   if (!zugang) {
-    return Response.redirect(
-      `${appUrl()}${systemRoutes.streamerHubBewerbung()}?twitch=nicht-eingerichtet`,
-      302,
-    );
+    return Response.redirect(appUrl(`${systemRoutes.streamerHubBewerbung()}?twitch=nicht-eingerichtet`), 302);
   }
 
   const zufall = randomBytes(24).toString('base64url');
@@ -79,5 +76,5 @@ export async function GET(): Promise<Response> {
  * redirect uri» meldet - und zwar erst beim Mitglied.
  */
 export function rueckwegAdresse(): string {
-  return `${appUrl()}/api/streamer/twitch/callback`;
+  return appUrl('/api/streamer/twitch/callback');
 }

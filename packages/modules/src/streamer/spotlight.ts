@@ -244,7 +244,7 @@ export async function veroeffentlicheAufDiscord(
 
   const { streamer, spotlight } = daten;
   const hauptkanal = streamer.kanaele[0];
-  const seite = `${appUrl()}${systemRoutes.streamerOeffentlichProfil(streamer.slug)}`;
+  const seite = appUrl(systemRoutes.streamerOeffentlichProfil(streamer.slug));
 
   try {
     const gesendet = await gateway.channels.send(settings.spotlightChannelId, {

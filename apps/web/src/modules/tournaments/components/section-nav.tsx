@@ -1,38 +1,35 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
+import { ModulNavigation, type ModulNavigationEintrag } from '@/components/shared/modul-navigation';
 
 export interface TournamentSection {
   href: string;
   label: string;
 }
 
-/** Die Bereiche der Turnierverwaltung - dieselbe Leiste auf jeder Unterseite. */
-export function TournamentSectionNav({ sections }: { sections: TournamentSection[] }): React.JSX.Element {
-  const pfad = usePathname();
+/**
+ * Die Bereiche der Turnierverwaltung.
+ *
+ * ## Warum hier fast nichts steht
+ *
+ * Weil die Leiste allen Modulen gehoert. Hier liegt nur die Uebersetzung von
+ * den Bereichen dieses Moduls auf die Eintraege der gemeinsamen Navigation -
+ * welche Bereiche es gibt und wer sie sehen darf, entscheidet weiterhin
+ * `sections.ts` serverseitig.
+ *
+ * Vorher stand hier eine eigene Leiste mit eigenen Klassen, eigenem aktivem
+ * Zustand und eigenem Verhalten auf schmalen Geraeten. Sie war nicht falsch -
+ * sie war die zehnte ihrer Art, und keine zwei sahen gleich aus.
+ */
+export function TournamentSectionNav({
+  sections,
+}: {
+  sections: TournamentSection[];
+}): React.JSX.Element | null {
+  const eintraege: ModulNavigationEintrag[] = sections.map((section) => ({
+    href: section.href,
+    label: section.label,
+  }));
 
-  return (
-    <nav aria-label="Turnier-Bereiche" className="flex flex-wrap gap-1 border-b border-border/60 pb-3">
-      {sections.map((section) => {
-        const aktiv = pfad === section.href;
-        return (
-          <Link
-            key={section.href}
-            href={section.href}
-            aria-current={aktiv ? 'page' : undefined}
-            className={cn(
-              'inline-flex min-h-9 items-center rounded-lg px-3 text-sm transition-colors',
-              aktiv
-                ? 'bg-primary/15 font-medium text-primary-bright'
-                : 'text-muted-foreground hover:bg-card hover:text-foreground',
-            )}
-          >
-            {section.label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+  return <ModulNavigation eintraege={eintraege} label="Turnierbereiche" />;
 }

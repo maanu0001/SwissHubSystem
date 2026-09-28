@@ -44,10 +44,47 @@ export const identityConfig = {
   },
 };
 
-/** Absolute URL innerhalb der WebApp, unabhaengig von Proxy-Headern. */
+/**
+ * Die Basis der WebApp - ohne abschliessenden Schraegstrich.
+ *
+ * Nur fuer die wenigen Faelle, in denen wirklich die Basis gebraucht wird:
+ * der Hostname auf einer Karte, ein Vergleich, eine Anzeige. Wer eine Adresse
+ * **bauen** will, nimmt `appUrl(pfad)` - siehe dort, warum.
+ */
+export function appBaseUrl(): string {
+  return env.NEXT_PUBLIC_APP_URL.replace(/\/+$/u, '');
+}
+
+/**
+ * Absolute URL innerhalb der WebApp, unabhaengig von Proxy-Headern.
+ *
+ * ## Warum das hier zusammengesetzt wird und nirgends sonst
+ *
+ * Weil es sonst achtmal etwas anderes heisst. `appUrl()` **ohne Argument**
+ * bedeutet den Pfad `/` und liefert deshalb `https://host/` - mit
+ * Schraegstrich am Ende. Wer daraus eine Adresse baut, schreibt
+ * `${appUrl()}/u/manu` und bekommt `https://host//u/manu`.
+ *
+ * Genau das ist passiert: in der Gamer Card, im QR-Code, in den
+ * Discord-Ankuendigungen des Streamer Hubs und in der Twitch-Rueckadresse.
+ * Der QR-Code auf einer gedruckten Karte trug damit eine Adresse mit
+ * doppeltem Schraegstrich, und Twitch vergleicht seine Rueckadresse exakt.
+ *
+ * Die Antwort darauf ist nicht, die Zeichenkette hinterher zu reparieren -
+ * `replace('//', '/')` wuerde `https://` zerstoeren. Die Antwort ist, dass
+ * es nur **einen** Weg gibt, eine Adresse zu bauen: diese Funktion, mit dem
+ * Pfad als Argument. `tests/unit/app-url.test.ts` verbietet die andere Form.
+ *
+ * Doppelte Schraegstriche im Pfad werden zusammengezogen. Nicht, weil sie
+ * hier noch vorkommen sollten, sondern weil eine Adresse mit `//` in der
+ * Mitte fuer einen Crawler eine **andere** Adresse ist als dieselbe ohne -
+ * und zwei Adressen fuer eine Seite sind ein Problem, das niemand sieht.
+ */
 export function appUrl(path = '/'): string {
-  const base = env.NEXT_PUBLIC_APP_URL.replace(/\/$/u, '');
-  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  const basis = appBaseUrl();
+  // Fuehrende und mehrfache Schraegstriche des Pfades auf genau einen bringen.
+  const rest = path.replace(/^\/+/u, '').replace(/\/{2,}/gu, '/');
+  return `${basis}/${rest}`;
 }
 
 export const discordConfig = {
