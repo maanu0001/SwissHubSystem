@@ -8,9 +8,11 @@ import {
   coreSettingsSchema,
   findCachedChannel,
   getModuleDefinition,
+  getModulStatus,
   jail,
   setCoreSettings,
   setModuleEnabled,
+  setModulStatus,
 } from '@swisshub/modules';
 import { AppError } from '@swisshub/shared';
 import { createLogger } from '@swisshub/logger';
@@ -120,6 +122,78 @@ export const setModuleEnabledAction = defineAction(
     revalidatePath('/modules');
     revalidatePath('/dashboard');
     return { enabled: input.enabled };
+  },
+);
+
+/**
+ * Den Status eines Moduls setzen - Aktiv, Testmodus oder Deaktiviert.
+ *
+ * ## Warum das nicht `setModuleEnabledAction` erweitert
+ *
+ * Weil beide bleiben sollen. Es gibt Stellen, die nur ein- und ausschalten -
+ * die Einrichtung etwa -, und fuer sie ist ein Wahrheitswert die richtige
+ * Form. Diese Aktion ist die der Modulverwaltung, und dort gibt es drei
+ * Moeglichkeiten.
+ *
+ * Beide schreiben durch dieselbe Schicht (`module-state.ts`), also gibt es
+ * auch hier nur eine Stelle, an der sich ein Modulzustand aendert.
+ */
+export const setModulStatusAction = defineAction(
+  {
+    name: 'settings.module.status',
+    module: 'modules',
+    permission: 'modules.manage',
+    schema: z.object({
+      moduleId: z.string().min(1).max(64),
+      status: z.enum(['AKTIV', 'TESTMODUS', 'DEAKTIVIERT']),
+    }),
+    rateLimit: 'settingsWrite',
+    freshness: 'critical',
+  },
+  async ({ ctx, input, metadata }) => {
+    const definition = getModuleDefinition(input.moduleId);
+    if (!definition) {
+      throw new AppError('NOT_FOUND', { userMessage: 'Dieses Modul existiert nicht.' });
+    }
+    if (definition.core) {
+      throw new AppError('FORBIDDEN', { userMessage: 'Kernbereiche können nicht umgeschaltet werden.' });
+    }
+
+    /*
+     * Den bisherigen Status **vor** dem Schreiben lesen.
+     *
+     * Das Audit soll sagen, was sich geaendert hat, nicht nur, was jetzt
+     * gilt. «Testmodus» allein beantwortet die Frage nicht, ob jemand ein
+     * laufendes Modul der Community entzogen oder ein neues fuer das Team
+     * geoeffnet hat - und genau das ist die Frage, die man spaeter stellt.
+     */
+    const vorher = await getModulStatus(input.moduleId);
+
+    await setModulStatus(input.moduleId, input.status, ctx.user.discordId);
+
+    if (input.status !== 'DEAKTIVIERT' && vorher === 'DEAKTIVIERT' && definition.onEnable) {
+      await definition.onEnable().catch((error: unknown) => {
+        log.warn('Startwerte des Moduls konnten nicht angelegt werden', {
+          moduleId: input.moduleId,
+          grund: error instanceof Error ? error.message : 'unbekannt',
+        });
+      });
+    }
+
+    await safeRecordAudit({
+      action: AUDIT_ACTIONS.MODULE_STATUS_CHANGED,
+      module: input.moduleId,
+      actorDiscordId: ctx.user.discordId,
+      actorUsername: ctx.user.username,
+      success: true,
+      metadata: { vorher, nachher: input.status },
+      ipHash: metadata.ipHash,
+      userAgent: metadata.userAgent,
+    });
+
+    revalidatePath('/modules');
+    revalidatePath('/dashboard');
+    return { status: input.status };
   },
 );
 

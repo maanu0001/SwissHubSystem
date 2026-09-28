@@ -1,11 +1,26 @@
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
+import { symbolKnoten, type SymbolAngabe } from '@/components/layout/nav-icon';
 import { cn } from '@/lib/utils';
 
 interface QuickActionProps {
   title: string;
   description: string;
-  icon: React.ReactNode;
+  /**
+   * Das Symbol der Schnellaktion - ein Element oder ein bekannter Name.
+   *
+   * **Nicht** `React.ReactNode`. Das war es, und weil eine Zeichenkette ein
+   * gueltiger `ReactNode` ist, nahm TypeScript `icon="Plus"` an und React
+   * zeichnete das Wort «Plus» in den Symbolkreis. Unter «Schnell erledigt»
+   * standen deshalb vier Woerter statt vier Symbolen.
+   *
+   * `Panel` und `StatCard` hatten denselben Fehler und wurden zuerst
+   * umgestellt - diese Komponente blieb dabei stehen. Der Typecheck konnte
+   * das nicht melden: `ReactNode` nimmt die Zeichenkette ja an. Deshalb gibt
+   * es jetzt zusaetzlich `tests/unit/symbol-darstellung.test.ts`, der jede
+   * geteilte Komponente mit einem `icon`-Prop daraufhin prueft.
+   */
+  icon: SymbolAngabe;
   href?: string;
   className?: string;
   /** Alternative zu `href`: eigenes interaktives Element (z.B. Dialog-Trigger). */
@@ -22,7 +37,7 @@ function Body({
 }: Pick<QuickActionProps, 'title' | 'description' | 'icon'>): React.JSX.Element {
   return (
     <>
-      <span className="icon-chip size-9 shrink-0 [&_svg]:size-4">{icon}</span>
+      <span className="icon-chip size-9 shrink-0 [&_svg]:size-4">{symbolKnoten(icon)}</span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{title}</span>
         <span className="block truncate text-xs text-muted-foreground">{description}</span>

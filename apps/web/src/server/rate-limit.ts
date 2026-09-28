@@ -279,6 +279,15 @@ export const RATE_LIMITS = {
   /** Moderation und Verwaltung der Runden. */
   clipModerate: { limit: 120, windowMs: 10 * 60 * 1000 },
 
+  /**
+   * Missionen und Vorlagen anlegen, aendern, abbrechen.
+   *
+   * Grosszuegig, weil ein Teammitglied beim Einrichten einer Woche schnell
+   * ein Dutzend Schreibvorgaenge ausloest - und eng genug, dass niemand die
+   * Tabelle mit tausend Missionen fuellt.
+   */
+  missionenVerwalten: { limit: 120, windowMs: 10 * 60 * 1000 },
+
   /** Kampagnen anlegen, aendern, Szenen sortieren. */
   wrappedStudio: { limit: 120, windowMs: 10 * 60 * 1000 },
   /*

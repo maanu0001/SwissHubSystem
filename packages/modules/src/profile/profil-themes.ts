@@ -47,7 +47,8 @@
  */
 export const PRESTIGE_MINDESTLEVEL = 31;
 
-export type ProfilThemeId = 'classic' | 'crimson' | 'aurora' | 'cyber' | 'matrix' | 'nebula' | 'prestige';
+export type ProfilThemeId =
+  'classic' | 'crimson' | 'aurora' | 'cyber' | 'matrix' | 'nebula' | 'schichtglas' | 'prestige';
 
 export interface ProfilTheme {
   id: ProfilThemeId;
@@ -142,13 +143,16 @@ export interface ProfilTheme {
  * - `weite`   - grosszuegig gesetzt, Abschnitte versetzt eingerueckt
  * - `buehne`  - zentriert, der Kopf steht frei, Abschnitte als Baender
  * - `orbit`   - der Kopf in der Mitte, Abschnitte wechselseitig versetzt
+ * - `schichten` - Abschnitte als gestaffelte Ebenen mit Tiefenversatz
  *
- * Sieben Anordnungen fuer sieben Themes: jede genau einmal vergeben. Zwei
- * Themes mit derselben Anordnung waeren zwei Themes mit derselben Seite in
- * einer anderen Farbe - genau das, was hier nicht entstehen soll. Ein Test
- * haelt die Eindeutigkeit fest.
+ * Acht Anordnungen fuer acht Themes: jede genau einmal vergeben. Zwei Themes
+ * mit derselben Anordnung waeren zwei Themes mit derselben Seite in einer
+ * anderen Farbe - genau das, was hier nicht entstehen soll. Ein Test haelt
+ * die Eindeutigkeit fest, und genau deshalb kostet ein neues Theme eine neue
+ * Anordnung: sonst waere es eine Farbvariante mit eigenem Namen.
  */
-export type Komposition = 'saeule' | 'banner' | 'raster' | 'strom' | 'weite' | 'buehne' | 'orbit';
+export type Komposition =
+  'saeule' | 'banner' | 'raster' | 'strom' | 'weite' | 'buehne' | 'orbit' | 'schichten';
 
 /** Kantenform der Karten. */
 export type Kante = 'kantig' | 'weich' | 'rund' | 'schnitt';
@@ -157,7 +161,7 @@ export type Kante = 'kantig' | 'weich' | 'rund' | 'schnitt';
 export type AvatarForm = 'schild' | 'kreis' | 'rahmen' | 'sechseck';
 
 /** Muster hinter den Karten - nicht zu verwechseln mit der Kulisse. */
-export type Muster = 'linien' | 'schleier' | 'raster' | 'strom' | 'nebel' | 'reflex' | 'keines';
+export type Muster = 'linien' | 'schleier' | 'raster' | 'strom' | 'nebel' | 'reflex' | 'glas' | 'keines';
 
 /** Typografische Haltung von Namen und Ueberschriften. */
 export type Schrift = 'technisch' | 'weit' | 'kompakt' | 'elegant';
@@ -297,6 +301,59 @@ const THEMES: readonly ProfilTheme[] = [
     avatar: 'rahmen',
     muster: 'nebel',
     schrift: 'weit',
+  },
+  {
+    /**
+     * Schichtglas.
+     *
+     * ## Warum nicht «Aurora / Holographic»
+     *
+     * Weil es das schon gibt: `aurora` ist seit der Theme-Runde das Design
+     * mit farbigen Schleiern in tiefer Nacht. Ein zweites Theme mit
+     * wandernden Lichtflaechen waere genau das, was hier nicht entstehen
+     * soll - eine Variante mit eigenem Namen.
+     *
+     * ## Die Idee
+     *
+     * Tiefe statt Farbe. Die uebrigen sieben Themes arbeiten alle in der
+     * Flaeche: ein Verlauf, ein Muster, eine Bewegung darin. Dieses hier
+     * staffelt die Abschnitte in **Ebenen** - jede leicht versetzt, mit einer
+     * eigenen Glaskante und einem eigenen Abstand zum Hintergrund. Ueber die
+     * Kanten wandert langsam eine helle Linie, wie Licht ueber eine
+     * Glasscheibe.
+     *
+     * Kuehles Stahlblau mit einem Hauch Eis, damit es neben dem warmen
+     * SwissHub-Rot von Classic und Crimson nicht konkurriert, sondern
+     * daneben steht.
+     *
+     * ## Die Bewegung
+     *
+     * Zwei Animationen, beide in CSS, beide auf `transform` und `opacity` -
+     * also auf dem Compositor und ohne Layout-Arbeit. Kein JavaScript, kein
+     * Bild, kein Video. `prefers-reduced-motion` haelt beide an; die
+     * Staffelung und die Glaskanten bleiben, und genau die tragen das
+     * Design. Siehe `profil-themes.css`.
+     */
+    id: 'schichtglas',
+    label: 'Schichtglas',
+    beschreibung: 'Gestaffelte Glasebenen in kühlem Stahlblau. Licht wandert über die Kanten.',
+    premium: true,
+    mindestLevel: null,
+    tokens: {
+      '--profil-flaeche': '210 24% 9%',
+      '--profil-rand': '204 26% 24%',
+      '--profil-akzent': '192 60% 72%',
+      '--profil-akzent-gedaempft': '204 30% 16%',
+    },
+    kulisse: 'pt-schichtglas',
+    bannerVerlauf:
+      'linear-gradient(115deg, hsl(204 35% 20%) 0%, transparent 42%), radial-gradient(90% 120% at 82% 8%, hsl(192 45% 26%) 0%, transparent 55%), linear-gradient(180deg, hsl(210 24% 12%) 0%, hsl(210 24% 6%) 100%)',
+    vorschau: { von: '#9fd4e4', bis: '#101820' },
+    komposition: 'schichten',
+    kante: 'schnitt',
+    avatar: 'schild',
+    muster: 'glas',
+    schrift: 'elegant',
   },
   {
     id: 'prestige',

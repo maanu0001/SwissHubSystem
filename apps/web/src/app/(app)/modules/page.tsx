@@ -4,7 +4,7 @@ import { getModuleHealth, listModuleStatus } from '@swisshub/modules';
 import { formatDateTime } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { NavIcon } from '@/components/layout/nav-icon';
-import { ModuleToggle } from '@/modules/settings/components/module-toggle';
+import { ModulStatusWahl } from '@/modules/settings/components/module-status-wahl';
 import { HealthChecks } from '@/modules/configuration/components/health-checks';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { cn } from '@/lib/utils';
@@ -37,11 +37,11 @@ export default async function ModulesPage(): Promise<React.JSX.Element> {
                 <p className="mt-1 text-sm text-muted-foreground">{entry.definition.description}</p>
               </div>
             </div>
-            <ModuleToggle
+            <ModulStatusWahl
               csrfToken={csrfToken}
               moduleId={entry.definition.id}
               moduleName={entry.definition.name}
-              enabled={entry.enabled}
+              status={entry.status}
             />
           </div>
 
@@ -62,13 +62,36 @@ export default async function ModulesPage(): Promise<React.JSX.Element> {
           })()}
 
           <div className="mt-auto flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            {/*
+              Der Status noch einmal als Text.
+
+              Die Knoepfe oben zeigen ihn durch Hervorhebung - eine Farbe
+              allein ist aber keine Auskunft. Wer die Karte ueberfliegt oder
+              einen Screenreader benutzt, liest ihn hier ausgeschrieben.
+            */}
             <span className="flex items-center gap-1.5">
               <span
-                className={cn('size-1.5 rounded-full', entry.enabled ? 'bg-success' : 'bg-destructive')}
+                className={cn(
+                  'size-1.5 rounded-full',
+                  entry.status === 'AKTIV'
+                    ? 'bg-success'
+                    : entry.status === 'TESTMODUS'
+                      ? 'bg-warning'
+                      : 'bg-destructive',
+                )}
                 aria-hidden="true"
               />
-              {entry.enabled ? 'Aktiv' : 'Deaktiviert'}
+              {entry.status === 'AKTIV'
+                ? 'Aktiv'
+                : entry.status === 'TESTMODUS'
+                  ? 'Testmodus'
+                  : 'Deaktiviert'}
             </span>
+            {entry.status === 'TESTMODUS' ? (
+              <Badge variant="warning" title="Nur für berechtigte Admins und Moderatoren sichtbar.">
+                Nur für das Team sichtbar
+              </Badge>
+            ) : null}
             {entry.updatedAt ? <span>Zuletzt geändert: {formatDateTime(entry.updatedAt)}</span> : null}
             {entry.definition.navigation[0] ? (
               <Link

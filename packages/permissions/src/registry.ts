@@ -79,6 +79,32 @@ export const CORE_PERMISSIONS: PermissionDefinition[] = [
     module: 'core',
     critical: true,
   },
+  /**
+   * Module im Testmodus benutzen.
+   *
+   * ## Warum es diesen Schluessel gibt
+   *
+   * Ein Modul im Testmodus laeuft in Produktion, soll aber nur vom Team
+   * gesehen werden. «Team» muss dafuer etwas sein, das der Server pruefen
+   * kann - und die einzige Sprache, in der er das kann, ist die
+   * Berechtigungssprache.
+   *
+   * Der Schluessel **ersetzt** keine Modulberechtigung, er kommt dazu. Wer
+   * ein Testmodul oeffnen will, braucht weiterhin dessen eigene Berechtigung;
+   * dieser Schluessel sagt nur, dass die Person ueberhaupt Testmodule sehen
+   * darf. Ein gewoehnliches Mitglied hat ihn nicht - auch dann nicht, wenn
+   * eine alte Rolle ihm zufaellig die Modulberechtigung gibt.
+   *
+   * `admin.full` schliesst ihn ein; Administratoren brauchen ihn nicht
+   * einzeln.
+   */
+  {
+    key: 'modules.testmode.use',
+    label: 'Module im Testmodus benutzen',
+    description:
+      'Module sehen und benutzen, die im Testmodus laufen. Zusätzlich zur jeweiligen Modulberechtigung.',
+    module: 'core',
+  },
   {
     key: 'branding.manage',
     label: 'Branding verwalten',

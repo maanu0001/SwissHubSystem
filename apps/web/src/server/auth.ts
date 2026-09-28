@@ -164,14 +164,34 @@ export async function requirePagePermission(
   // ist Darstellung; wer die Adresse kennt, umgeht sie. Der Schluessel wird
   // aus dem Praefix der geforderten Berechtigung abgeleitet, damit keine
   // Seite ihn mitgeben muss - und keine neue ihn vergessen kann.
-  const { moduleViewPermissionFor } = await import('@swisshub/modules');
-  const zugelassen = erlaubte.some((eintrag) => {
+  const { moduleViewPermissionFor, darfModulPermissionOeffnen, TESTMODUS_PERMISSION } =
+    await import('@swisshub/modules');
+  const berechtigt = erlaubte.filter((eintrag) => {
     if (!can(context, eintrag)) {
       return false;
     }
     const sehen = moduleViewPermissionFor(eintrag);
     return sehen === null || can(context, sehen);
   });
+
+  /*
+   * Der Testmodus-Riegel - **zusaetzlich** zur Berechtigung, nicht statt ihr.
+   *
+   * Er greift erst, wenn die Berechtigung schon stimmt: ein Modul im
+   * Testmodus ist fuer die Community nicht da, auch dann nicht, wenn eine
+   * alte Rolle ihr zufaellig die Modulberechtigung gibt.
+   *
+   * `realPermissions` und nicht `permissions`: eine Vorschau darf zeigen, was
+   * jemand saehe - sie darf nicht entscheiden, was der Server herausgibt.
+   * Wer eine Vorschau auf ein gewoehnliches Mitglied nimmt, soll das
+   * Testmodul trotzdem oeffnen koennen; sonst waere die Vorschau ein Weg, sich
+   * selbst auszusperren.
+   */
+  const testmodusSchluessel = can(context, TESTMODUS_PERMISSION);
+  const freigegeben = await Promise.all(
+    berechtigt.map((eintrag) => darfModulPermissionOeffnen(eintrag, testmodusSchluessel)),
+  );
+  const zugelassen = freigegeben.some(Boolean);
 
   if (!zugelassen) {
     if (options.allowDuringSetup && (await hasSetupAccess())) {

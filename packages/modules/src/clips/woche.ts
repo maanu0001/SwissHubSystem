@@ -25,7 +25,7 @@
 export const ZONE = 'Europe/Zurich';
 
 /** Die Zuercher Wanduhrzeit eines Zeitpunkts, aufgeschluesselt. */
-function zuercherTeile(zeitpunkt: Date): {
+export function zuercherTeile(zeitpunkt: Date): {
   jahr: number;
   monat: number;
   tag: number;

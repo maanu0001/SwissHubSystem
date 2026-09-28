@@ -318,6 +318,91 @@
   animation: pt-treiben 19s ease-in-out infinite reverse;
 }
 
+/* --- Schichtglas ---------------------------------------------------------
+ * Tiefe statt Farbe.
+ *
+ * Die uebrigen Themes arbeiten in der Flaeche - ein Verlauf, ein Muster,
+ * eine Bewegung darin. Dieses hier baut **Ebenen**: drei grosse Glasflaechen
+ * in leicht verschiedenen Winkeln, eine Lichtkante, die langsam darueber
+ * wandert, und ein feines Raster, das die oberste Scheibe andeutet.
+ *
+ * Der Charakter ist Material, aber ein anderes als bei Prestige: dort
+ * poliertes Metall unter warmem Licht, hier kuehles Glas mit Kanten. Deshalb
+ * kein Leuchten und kein Funkeln - nur Kanten, Schatten und ein Streifen
+ * Licht.
+ *
+ * Alle Animationen laufen auf `transform` und `opacity`, also auf dem
+ * Compositor: kein Layout, kein Neuzeichnen, keine JavaScript-Schleife.
+ */
+.pt-schichtglas .pt-lage-1 {
+  /* Die Grundtiefe: zwei kalte Lichtquellen, weit auseinander. */
+  background:
+    radial-gradient(54% 42% at 22% 18%, hsl(200 55% 42% / 0.34) 0%, transparent 68%),
+    radial-gradient(46% 38% at 84% 72%, hsl(188 50% 38% / 0.26) 0%, transparent 70%);
+  animation: pt-atmen 19s ease-in-out infinite;
+}
+.pt-schichtglas .pt-lage-2 {
+  /*
+   * Die erste Glasebene.
+   *
+   * Ein schraeger Verlauf mit harter Oberkante - `transparent` bis 42 %,
+   * dann ein schmaler heller Saum, dann die Flaeche. Das liest sich als
+   * Scheibe, die vor dem Hintergrund liegt, und nicht als Farbverlauf.
+   */
+  background: linear-gradient(
+    148deg,
+    transparent 0%,
+    transparent 40%,
+    hsl(196 60% 76% / 0.16) 40.4%,
+    hsl(204 40% 30% / 0.2) 41%,
+    hsl(204 36% 22% / 0.26) 100%
+  );
+  animation: pt-glas-schieben 26s ease-in-out infinite;
+}
+.pt-schichtglas .pt-lage-3 {
+  /*
+   * Die Lichtkante.
+   *
+   * Ein schmaler Streifen, der einmal quer ueber die Scheiben laeuft. Lange
+   * Pause zwischen den Durchlaeufen - Licht, das alle zwanzig Sekunden
+   * einmal wandert, wirkt wie eine Spiegelung; Licht, das staendig wandert,
+   * wirkt wie eine Animation.
+   */
+  background: linear-gradient(
+    100deg,
+    transparent 44%,
+    hsl(192 80% 88% / 0.3) 49%,
+    hsl(192 90% 94% / 0.44) 50%,
+    hsl(192 80% 88% / 0.3) 51%,
+    transparent 56%
+  );
+  animation: pt-glas-kante 21s ease-in-out infinite;
+}
+.pt-schichtglas .pt-lage-4 {
+  /*
+   * Die zweite Glasebene, gegenlaeufig und flacher.
+   *
+   * Sie erzeugt die Ueberschneidung, an der die Tiefe entsteht: zwei Kanten
+   * in verschiedenen Winkeln, die sich langsam gegeneinander verschieben.
+   */
+  background: linear-gradient(
+    -162deg,
+    transparent 0%,
+    transparent 56%,
+    hsl(186 55% 72% / 0.12) 56.4%,
+    hsl(208 38% 26% / 0.22) 57%,
+    hsl(210 30% 16% / 0.24) 100%
+  );
+  animation: pt-glas-schieben 34s ease-in-out infinite reverse;
+}
+.pt-schichtglas .pt-lage-5 {
+  /* Das feine Raster der obersten Scheibe - Struktur, kein Muster. */
+  background-image:
+    repeating-linear-gradient(90deg, transparent 0 63px, hsl(192 70% 82% / 0.07) 63px 64px),
+    repeating-linear-gradient(0deg, transparent 0 63px, hsl(192 70% 82% / 0.05) 63px 64px);
+  animation: pt-glas-atem 15s ease-in-out infinite;
+}
+
 /* --- Prestige ------------------------------------------------------------
  * Tiefschwarz und Gold, und das aufwendigste der sieben - es ist das
  * Design, das man ab Level 31 bekommt, und das soll man sehen.
@@ -570,6 +655,61 @@
   }
 }
 
+/*
+ * Schichtglas.
+ *
+ * Drei Bewegungen, alle auf `transform` und `opacity` - also ohne Layout und
+ * ohne Neuzeichnen. Die Wege sind kurz und die Zeiten lang: eine Scheibe,
+ * die sich in 26 Sekunden um 3 Prozent verschiebt, sieht man nicht wandern,
+ * man sieht nur, dass das Bild lebt.
+ */
+@keyframes pt-glas-schieben {
+  0%,
+  100% {
+    transform: translate3d(-1.5%, -1%, 0) scale(1.04);
+  }
+  50% {
+    transform: translate3d(1.5%, 1%, 0) scale(1.06);
+  }
+}
+
+/*
+ * Die Lichtkante: ein Durchlauf, dann lange nichts.
+ *
+ * Der Streifen startet ausserhalb, laeuft in zwei Sekunden durch und bleibt
+ * die uebrigen neunzehn draussen. Deshalb sind die Prozentwerte so eng
+ * beieinander - sie sind der sichtbare Teil eines langen Takts.
+ */
+@keyframes pt-glas-kante {
+  0%,
+  88% {
+    transform: translate3d(-130%, 0, 0);
+    opacity: 0;
+  }
+  90% {
+    opacity: 1;
+  }
+  98% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(130%, 0, 0);
+    opacity: 0;
+  }
+}
+
+/* Das Raster der obersten Scheibe atmet kaum - nur so viel, dass es nicht
+   aufgedruckt wirkt. */
+@keyframes pt-glas-atem {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
 @keyframes pt-fallen-lang {
   from {
     transform: translate3d(0, -12%, 0);
@@ -650,7 +790,14 @@
   .pt-prestige .pt-lage-3,
   .pt-prestige .pt-lage-4,
   .pt-cyber .pt-lage-3,
-  .pt-crimson .pt-lage-5 {
+  .pt-crimson .pt-lage-5,
+  /*
+   * Schichtglas: die Lichtkante ist ein Durchlauf und steht sonst als
+   * heller Balken mitten im Bild. Die Glasebenen und ihre Kanten bleiben -
+   * sie sind das Design, die Bewegung ist die Zugabe.
+   */
+  .pt-schichtglas .pt-lage-3,
+  .pt-schichtglas .pt-lage-5 {
     opacity: 0;
   }
 }

@@ -87,6 +87,11 @@ export const systemRoutes = {
   /** Clip of the Week - der Wettbewerb der Community. */
   clips: (): SystemRoute => '/clips',
 
+  /** Community Missions - gemeinsame Ziele der Woche. */
+  missionen: (): SystemRoute => '/missionen',
+  missionenVerwaltung: (): SystemRoute => '/missionen/verwaltung',
+  missionenVorlagen: (): SystemRoute => '/missionen/vorlagen',
+
   // SwissHub fragt - Fragen, Abstimmungen, Social-Media-Content.
   fragt: (): SystemRoute => '/fragt',
   fragtBibliothek: (): SystemRoute => '/fragt/bibliothek',

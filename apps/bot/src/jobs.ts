@@ -15,6 +15,7 @@ import {
   jail,
   level,
   logs,
+  missions,
   moderation,
   notifications,
   syncDiscord,
@@ -527,6 +528,35 @@ export function createJobRunner(
           return;
         }
         await clips.runClipsTick(guildId);
+      },
+    },
+    {
+      name: 'missions-tick',
+      /*
+       * Community Missions fortschreiben.
+       *
+       * Im Minutentakt, weil eine Mission auf die Minute genau endet und die
+       * Belohnung in der Minute danach stehen soll. Der Fortschritt selbst
+       * wird nur alle fuenf Minuten nachgerechnet - warum, steht in
+       * `missions/tick.ts`.
+       *
+       * Der Durchgang findet im Normalfall nichts zu tun: zwei indizierte
+       * Abfragen auf faellige Zeitpunkte. Er ist zugleich die
+       * Wiederherstellung - was waehrend eines Ausfalls faellig wurde, wird
+       * beim naechsten Lauf nachgeholt, und zwar ohne dass eine Belohnung
+       * ein zweites Mal vergeben wird.
+       */
+      intervalMs: 60 * 1000,
+      async run() {
+        const { isModuleEnabled } = await import('@swisshub/modules');
+        if (!(await isModuleEnabled(missions.MISSIONS_MODULE_ID))) {
+          return;
+        }
+        const guildId = await tryResolveGuildId();
+        if (!guildId) {
+          return;
+        }
+        await missions.runMissionsTick(guildId);
       },
     },
     {

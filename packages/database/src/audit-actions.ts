@@ -17,6 +17,15 @@ export const AUDIT_ACTIONS = {
   ROLE_MAPPING_CHANGED: 'ROLE_MAPPING_CHANGED',
   MODULE_ENABLED: 'MODULE_ENABLED',
   MODULE_DISABLED: 'MODULE_DISABLED',
+  /**
+   * Der Statuswechsel eines Moduls - Aktiv, Testmodus oder Deaktiviert.
+   *
+   * Neben den beiden oben und nicht an ihrer Stelle: sie stehen in
+   * bestehenden Audit-Eintraegen, und ein Umbenennen liesse die Geschichte
+   * des Systems mit einer Aktion zurueck, die es nicht mehr gibt. Die
+   * Metadaten dieses Eintrags nennen «vorher» und «nachher».
+   */
+  MODULE_STATUS_CHANGED: 'MODULE_STATUS_CHANGED',
   MODULE_SETTINGS_CHANGED: 'MODULE_SETTINGS_CHANGED',
   DISCORD_ACTION_FAILED: 'DISCORD_ACTION_FAILED',
   JAIL_CREATED: 'JAIL_CREATED',
@@ -276,6 +285,19 @@ export const AUDIT_ACTIONS = {
   PROFILE_COMPUTED_AWARD_ARCHIVED: 'PROFILE_COMPUTED_AWARD_ARCHIVED',
   PROFILE_COMPUTED_AWARD_RESTORED: 'PROFILE_COMPUTED_AWARD_RESTORED',
   PROFILE_COMPUTED_AWARD_RESET: 'PROFILE_COMPUTED_AWARD_RESET',
+  /*
+   * Community Missions.
+   *
+   * Drei Aktionen, alle vom Team oder vom Abschluss - keine je Mitglied und
+   * keine je Fortschritt. Ein Fortschrittsbalken ist keine Entscheidung, und
+   * das Protokoll ist die Chronik der Entscheidungen.
+   */
+  MISSION_ERSTELLT: 'MISSION_ERSTELLT',
+  MISSION_GEAENDERT: 'MISSION_GEAENDERT',
+  MISSION_ABGEBROCHEN: 'MISSION_ABGEBROCHEN',
+  MISSION_ABGESCHLOSSEN: 'MISSION_ABGESCHLOSSEN',
+  MISSION_VORLAGE_GESPEICHERT: 'MISSION_VORLAGE_GESPEICHERT',
+  MISSION_VORLAGE_ENTFERNT: 'MISSION_VORLAGE_ENTFERNT',
   CLIP_COMPETITION_FINALIZED: 'CLIP_COMPETITION_FINALIZED',
   CLIP_WINNER_REWARDED: 'CLIP_WINNER_REWARDED',
   CLIP_COMPETITION_CANCELLED: 'CLIP_COMPETITION_CANCELLED',

@@ -199,6 +199,15 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
       'members.view',
       'moderation.view',
       'moderation.execute',
+      /*
+       * Module im Testmodus.
+       *
+       * Moderatoren gehoeren zum Team und sollen ein Modul ausprobieren
+       * koennen, bevor die Community es sieht. Der Schluessel oeffnet fuer
+       * sich allein nichts: die jeweilige Modulberechtigung braucht es
+       * weiterhin.
+       */
+      'modules.testmode.use',
       // Die taeglichen Massnahmen. Bann und Entbannung fehlen bewusst: sie
       // sind die schwersten Eingriffe und liegen beim Senior Moderator.
       'moderation.timeout',
@@ -237,6 +246,8 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
       'members.view',
       'moderation.view',
       'moderation.execute',
+      // Module im Testmodus - wie beim Moderator, siehe dort.
+      'modules.testmode.use',
       'moderation.timeout',
       'moderation.timeout.remove',
       'moderation.kick',

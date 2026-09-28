@@ -11,6 +11,8 @@ import {
   premium as premiumModule,
   readBotStatus,
   tickets as ticketsModule,
+  verborgeneTestModule,
+  TESTMODUS_PERMISSION,
 } from '@swisshub/modules';
 import { dashboardRoleLabel, loadRoleConfiguration } from '@swisshub/permissions';
 import { can } from '@swisshub/auth';
@@ -164,7 +166,20 @@ export default async function AppLayout({
       : [];
 
   const signals = await resolveNavigationSignals();
-  const navigation = buildNavigation(navigationKeys, moduleIds, signals);
+  /*
+   * Module im Testmodus aus der Seitenleiste nehmen.
+   *
+   * Nur aus der Darstellung - der eigentliche Riegel sitzt in
+   * `requirePagePermission` und in `defineAction`. Beides ist noetig: ohne
+   * den Riegel waere die Adresse offen, ohne diese Zeile stuende ein Bereich
+   * in der Seitenleiste, der beim Anklicken auf 403 laeuft.
+   *
+   * Die Module bleiben in `moduleIds` **eingeschaltet** - sie laufen ja. Sie
+   * fallen nur aus der Liste, aus der die Navigation entsteht.
+   */
+  const verborgen = await verborgeneTestModule(can(context, TESTMODUS_PERMISSION));
+  const sichtbareModuleIds = new Set([...moduleIds].filter((id) => !verborgen.has(id)));
+  const navigation = buildNavigation(navigationKeys, sichtbareModuleIds, signals);
   const groups = groupNavigation(navigation).map((group) => ({
     id: group.id,
     collapsible: group.collapsible,

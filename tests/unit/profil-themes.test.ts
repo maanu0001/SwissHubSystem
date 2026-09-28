@@ -35,13 +35,18 @@ describe('Theme-Registry', () => {
      * Gezaehlt wird «fordert etwas», nicht «premium».
      *
      * Vorher stand hier `theme.premium` und die Zahl 6. Seit Prestige am
-     * Level haengt und ausdruecklich NICHT an `premium`, sind es fuenf
-     * Premium-Designs und eines mit Levelbindung - zusammen weiterhin
-     * sechs, die nicht jedem offenstehen.
+     * Level haengt und ausdruecklich NICHT an `premium`, sind es sechs
+     * Premium-Designs und eines mit Levelbindung - zusammen sieben, die
+     * nicht jedem offenstehen.
+     *
+     * Die sechste Premium-Gestaltung ist «Schichtglas». Dass die Zahl hier
+     * fest steht und nicht `>= 5` heisst, ist Absicht: ein Theme, das
+     * versehentlich `premium: true` bekommt, waere sonst still fuer
+     * Abonnenten offen, und genau das soll auffallen.
      */
     const fordernd = ALLE.filter((theme) => theme.premium || theme.mindestLevel !== null);
-    expect(fordernd.length).toBeGreaterThanOrEqual(6);
-    expect(ALLE.filter((theme) => theme.premium).length).toBe(5);
+    expect(fordernd.length).toBeGreaterThanOrEqual(7);
+    expect(ALLE.filter((theme) => theme.premium).length).toBe(6);
     expect(ALLE.filter((theme) => theme.mindestLevel !== null).length).toBe(1);
   });
 
@@ -308,5 +313,116 @@ describe('Prestige: erspielt, nicht gekauft', () => {
     expect(themes.themeFreigeschaltet(beides, { hatPremium: true, level: 30 })).toBe(false);
     expect(themes.themeFreigeschaltet(beides, { hatPremium: false, level: 31 })).toBe(false);
     expect(themes.themeFreigeschaltet(beides, { hatPremium: true, level: 31 })).toBe(true);
+  });
+});
+
+describe('Schichtglas - das achte Design', () => {
+  const OEFFENTLICH = readFileSync(
+    join(process.cwd(), 'apps/web/src/modules/profile/profil-oeffentlich.css'),
+    'utf8',
+  );
+  const theme = themes.profilTheme('schichtglas');
+
+  it('ist ein gewoehnliches Premium-Design', () => {
+    /*
+     * `premium: true`, `mindestLevel: null`. Es haengt am Abonnement wie die
+     * fuenf davor - nicht am Level. Alles andere waere ein zweites Prestige.
+     */
+    expect(theme.premium).toBe(true);
+    expect(theme.mindestLevel).toBeNull();
+  });
+
+  it('steht Premium-Mitgliedern offen und anderen nicht', () => {
+    expect(themes.themeFreigeschaltet(theme, { hatPremium: true, level: 1 })).toBe(true);
+    expect(themes.themeFreigeschaltet(theme, { hatPremium: false, level: 99 })).toBe(false);
+  });
+
+  it('faellt ohne Abonnement auf das Standarddesign zurueck', () => {
+    // Die Wahl bleibt gespeichert, die Wirkung endet - wie bei den uebrigen.
+    expect(themes.wirksamesTheme('schichtglas', { hatPremium: false, level: 50 }).id).toBe('classic');
+    expect(themes.wirksamesTheme('schichtglas', { hatPremium: true, level: 1 }).id).toBe('schichtglas');
+  });
+
+  it('laesst die Prestige-Regel unberuehrt', () => {
+    /*
+     * Der Satz, der bei jedem neuen Design zu pruefen ist. Prestige haengt
+     * ausschliesslich am Level; ein sechstes Premium-Design darf daran nichts
+     * aendern - auch nicht versehentlich ueber eine gemeinsame Pruefung.
+     */
+    const prestige = themes.profilTheme('prestige');
+    expect(prestige.premium).toBe(false);
+    expect(prestige.mindestLevel).toBe(themes.PRESTIGE_MINDESTLEVEL);
+    expect(themes.themeFreigeschaltet(prestige, { hatPremium: true, level: 30 })).toBe(false);
+    expect(themes.themeFreigeschaltet(prestige, { hatPremium: false, level: 31 })).toBe(true);
+  });
+
+  it('bringt eine eigene Anordnung und ein eigenes Muster mit', () => {
+    /*
+     * Der Unterschied zwischen einem Design und einer Farbvariante. Beide
+     * Werte sind neu - keiner der sieben davor benutzt sie.
+     */
+    expect(theme.komposition).toBe('schichten');
+    expect(theme.muster).toBe('glas');
+
+    const andere = ALLE.filter((eintrag) => eintrag.id !== 'schichtglas');
+    expect(andere.some((eintrag) => eintrag.komposition === 'schichten')).toBe(false);
+    expect(andere.some((eintrag) => eintrag.muster === 'glas')).toBe(false);
+  });
+
+  it('hat eine Kulisse, die es im Stylesheet auch gibt', () => {
+    expect(theme.kulisse).toBe('pt-schichtglas');
+    // Fuenf Lagen, wie bei den uebrigen aufwendigen Designs.
+    for (const lage of [1, 2, 3, 4, 5]) {
+      expect(CSS, `Lage ${lage} fehlt`).toContain(`.pt-schichtglas .pt-lage-${lage}`);
+    }
+  });
+
+  it('bewegt nur transform und opacity', () => {
+    /*
+     * Beides laeuft auf dem Compositor: kein Layout, kein Neuzeichnen. Eine
+     * Kulisse, die `background-position` oder `width` animiert, kostet auf
+     * einem Telefon jede Bildwiederholung - und das dauerhaft, denn die
+     * Kulisse steht immer.
+     */
+    const bloecke = [...CSS.matchAll(/@keyframes (pt-glas-[a-z-]+)\s*\{([\s\S]*?)\n\}/gu)];
+    expect(bloecke.length, 'Keine Schichtglas-Keyframes gefunden').toBeGreaterThanOrEqual(3);
+
+    for (const [, name, koerper] of bloecke) {
+      const eigenschaften = [...(koerper ?? '').matchAll(/^\s{4}([a-z-]+):/gmu)].map((treffer) => treffer[1]);
+      for (const eigenschaft of eigenschaften) {
+        expect(['transform', 'opacity'], `${name} bewegt ${eigenschaft}`).toContain(eigenschaft);
+      }
+    }
+  });
+
+  it('steht still, wenn jemand weniger Bewegung will', () => {
+    /*
+     * Die globale Regel haelt jede Lage an. Zusaetzlich muss die Lichtkante
+     * **verschwinden** und nicht stehenbleiben: ein heller Streifen, der
+     * mitten im Bild parkt, waere kein Standbild, das gut aussieht.
+     */
+    const block = CSS.slice(CSS.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(block).toMatch(/animation:\s*none\s*!important/u);
+    expect(block).toContain('.pt-schichtglas .pt-lage-3');
+    expect(block).toContain('.pt-schichtglas .pt-lage-5');
+  });
+
+  it('bringt die Anordnung und das Muster auch im Stylesheet der Seite mit', () => {
+    expect(OEFFENTLICH).toContain('.po-schichten-layout .po-inhalt');
+    expect(OEFFENTLICH).toContain('.po-glas .po-karte::before');
+  });
+
+  it('staffelt erst ab Tabletbreite - auf dem Telefon stehen die Ebenen untereinander', () => {
+    /*
+     * Ein Versatz von 2.5rem auf 375 Pixel Breite waere ein Abschnitt, der
+     * rechts nicht mehr hinpasst. Der Versatz steht deshalb in der
+     * Medienabfrage; die Glaskante bleibt auf jeder Breite.
+     */
+    const ab = OEFFENTLICH.indexOf('.po-schichten-layout .po-inhalt');
+    const abschnitt = OEFFENTLICH.slice(ab, ab + 1800);
+    const versatz = abschnitt.indexOf('margin-inline: 0 2.5rem');
+    const medien = abschnitt.indexOf('@media (min-width: 900px)');
+    expect(medien).toBeGreaterThan(-1);
+    expect(versatz).toBeGreaterThan(medien);
   });
 });

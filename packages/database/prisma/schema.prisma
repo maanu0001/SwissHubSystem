@@ -858,6 +858,11 @@ model SyncRun {
 model ModuleState {
   moduleId      String   @id
   enabled       Boolean  @default(true)
+  /// Testmodus: das Modul laeuft, ist aber nur fuer berechtigte Admins und
+  /// Moderatoren sichtbar und nutzbar. Zusaetzlich zu `enabled`, nicht statt
+  /// dessen - ein abgeschaltetes Modul bleibt abgeschaltet, egal was hier
+  /// steht. Siehe `modulStatus()` in `module-state.ts`.
+  testMode      Boolean  @default(false)
   settings      Json     @default("{}")
   /// Schema-Version der gespeicherten Einstellungen (fuer Migrationen).
   configVersion Int      @default(1)
@@ -8368,4 +8373,187 @@ model StreamerApiVerbrauch {
   updatedAt DateTime @updatedAt
 
   @@unique([plattform, tag])
+}
+
+// ---------------------------------------------------------------------------
+// Community Missions
+// ---------------------------------------------------------------------------
+
+/// Wochenmission oder Community Challenge.
+///
+/// Zwei Arten, mehr nicht. Eine **Wochenmission** misst jedes Mitglied fuer
+/// sich: wer das Ziel erreicht, bekommt die Belohnung. Eine **Community
+/// Challenge** misst den Server als Ganzes: das Ziel ist eine Summe, und
+/// belohnt wird, wer genug dazu beigetragen hat.
+///
+/// Taegliche Missionen gibt es bewusst nicht. Sie erzeugen den Druck, jeden
+/// Tag vorbeizuschauen, und genau den soll dieses Modul nicht machen.
+enum MissionArt {
+  WOCHE
+  CHALLENGE
+}
+
+/// Was eine Mission misst.
+///
+/// Jeder Wert hier hat eine Datenquelle, die den Fortschritt wirklich
+/// hergibt - nachzulesen in `packages/modules/src/missions/typen.ts`, wo je
+/// Typ steht, aus welcher Tabelle die Zahl kommt. Ein Typ ohne belastbare
+/// Quelle steht nicht in dieser Liste, auch wenn er sich gut anhoerte.
+enum MissionTyp {
+  /// Minuten im Sprachkanal, aus `AnalyticsVoiceSegment`.
+  VOICE_MINUTEN
+  /// Gueltige Nachrichten, aus dem XP-Journal.
+  NACHRICHTEN
+  /// Eingereichte Clips, aus `ClipCompetitionEntry`.
+  CLIP_EINGEREICHT
+  /// Turnierteilnahmen, solo wie im Team.
+  TURNIER_TEILNAHME
+  /// Das Profil ausgefuellt - ein einmaliges Ziel.
+  PROFIL_VOLLSTAENDIG
+  /// Ein Level erreicht. Kein Fenster: der Stand zaehlt.
+  LEVEL_ERREICHT
+}
+
+/// Wo eine Mission in ihrem Leben steht.
+///
+/// `ABGESCHLOSSEN` ist der Endpunkt und wird genau einmal erreicht - der
+/// Uebergang dorthin ist die Stelle, an der Belohnungen entstehen, und er
+/// ist in der Datenbank gegen einen zweiten Durchlauf gesichert.
+enum MissionStatus {
+  ENTWURF
+  GEPLANT
+  LAEUFT
+  ABGESCHLOSSEN
+  ABGEBROCHEN
+}
+
+/// Eine Mission.
+model Mission {
+  id      String @id @default(cuid())
+  guildId String
+
+  art MissionArt
+  typ MissionTyp
+
+  titel        String
+  beschreibung String?
+
+  /// Das Ziel. Bei WOCHE je Mitglied, bei CHALLENGE fuer den ganzen Server.
+  ziel Int
+
+  /// Was ein Mitglied mindestens beigetragen haben muss, um bei einer
+  /// Challenge belohnt zu werden. Bei WOCHE ohne Bedeutung.
+  ///
+  /// Nicht 0 als Vorgabe: sonst bekaeme jedes Servermitglied eine Belohnung
+  /// dafuer, dass andere die Challenge geschafft haben.
+  mindestBeitrag Int @default(1)
+
+  beginntAm DateTime
+  endetAm   DateTime
+
+  status MissionStatus @default(ENTWURF)
+
+  /// Gesetzt beim Abschluss. Zusammen mit dem Statuswechsel in einer
+  /// bedingten Schreiboperation - zwei gleichzeitige Durchgaenge koennen
+  /// nicht beide abschliessen.
+  abgeschlossenAm DateTime?
+
+  belohnungXp           Int     @default(0)
+  belohnungPremiumTage  Int     @default(0)
+  belohnungAuszeichnung String?
+
+  /// Woher die Mission stammt, falls aus einer Vorlage.
+  vorlageId String?
+  vorlage   MissionVorlage? @relation(fields: [vorlageId], references: [id], onDelete: SetNull)
+
+  /// Wann auf Discord angekuendigt wurde. `null` heisst: noch nicht.
+  angekuendigtStartAm    DateTime?
+  angekuendigtAbschlussAm DateTime?
+
+  erstelltVonDiscordId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fortschritte MissionFortschritt[]
+  belohnungen  MissionBelohnung[]
+
+  /// Der Durchgang fragt «was ist faellig» - Status und Ende zusammen.
+  @@index([guildId, status, endetAm])
+  @@index([guildId, beginntAm])
+}
+
+/// Der Stand eines Mitglieds in einer Mission.
+///
+/// Eine Zeile je Mitglied und Mission - die Eindeutigkeit steht in der
+/// Datenbank, nicht in der Anwendung. Der Wert wird bei jedem Durchgang neu
+/// aus der Quelle gerechnet und ueberschrieben, nicht hochgezaehlt: ein
+/// verpasster Durchgang darf keine Luecke hinterlassen, und ein doppelter
+/// kein zu hohes Ergebnis.
+model MissionFortschritt {
+  id        String  @id @default(cuid())
+  missionId String
+  mission   Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  discordId String
+
+  /// Gemessen in der Einheit des Missionstyps.
+  wert Int @default(0)
+
+  aktualisiertAm DateTime @default(now())
+
+  @@unique([missionId, discordId])
+  @@index([missionId, wert])
+}
+
+/// Eine vergebene Belohnung.
+///
+/// Diese Zeile **ist** der Riegel gegen die zweite Vergabe, genauso wie bei
+/// Clip of the Week: sie wird vor dem Verschenken geschrieben, und wer sie
+/// nicht anlegen kann, vergibt nichts.
+model MissionBelohnung {
+  id        String  @id @default(cuid())
+  missionId String
+  mission   Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  discordId String
+
+  xp            Int     @default(0)
+  premiumTage   Int     @default(0)
+  auszeichnung  String?
+  /// Was tatsaechlich ankam, im Klartext - auch wenn nichts ankam.
+  ergebnis      String?
+
+  vergebenAm DateTime @default(now())
+
+  @@unique([missionId, discordId])
+  @@index([discordId, vergebenAm])
+}
+
+/// Eine Vorlage, aus der sich eine Mission in unter einer Minute erstellen laesst.
+model MissionVorlage {
+  id String @id @default(cuid())
+
+  name String @unique
+
+  art MissionArt
+  typ MissionTyp
+
+  titel        String
+  beschreibung String?
+  ziel         Int
+  mindestBeitrag Int @default(1)
+
+  belohnungXp           Int     @default(0)
+  belohnungPremiumTage  Int     @default(0)
+  belohnungAuszeichnung String?
+
+  /// Ausgemusterte Vorlagen bleiben stehen, damit Missionen ihre Herkunft
+  /// behalten - sie tauchen nur nicht mehr in der Auswahl auf.
+  aktiv Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  missionen Mission[]
 }

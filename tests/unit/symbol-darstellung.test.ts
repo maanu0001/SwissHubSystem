@@ -1,8 +1,11 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Panel } from '../../apps/web/src/components/shared/panel';
 import { StatCard } from '../../apps/web/src/components/shared/stat-card';
+import { QuickAction, QuickActionButton } from '../../apps/web/src/components/shared/quick-action';
 import { NavIcon, symbolKnoten } from '../../apps/web/src/components/layout/nav-icon';
 
 /**
@@ -110,6 +113,81 @@ describe('Symbole in Kopfzeilen', () => {
   it('laesst ein fehlendes Symbol einfach weg', () => {
     expect(symbolKnoten(null)).toBeNull();
     expect(symbolKnoten(undefined)).toBeNull();
+  });
+
+  it('zeichnet einen Namen in der Schnellaktion als Grafik, nicht als Wort', () => {
+    /*
+     * Der Block «Schnell erledigt» in «SwissHub fragt».
+     *
+     * `Panel` und `StatCard` wurden zuerst umgestellt, `QuickAction` blieb
+     * dabei stehen - und weil `ReactNode` eine Zeichenkette annimmt, meldete
+     * weder der Typecheck noch ein Test etwas. Im Browser standen dort vier
+     * Woerter: «Plus», «CalendarClock», «Radio», «BarChart3».
+     */
+    const html = renderToStaticMarkup(
+      createElement(QuickAction, {
+        title: 'Neue Frage',
+        description: 'In die Bibliothek schreiben',
+        icon: 'Plus',
+        href: '/fragt/bibliothek',
+      }),
+    );
+
+    expect(html).toContain('<svg');
+    expect(html).not.toMatch(/>\s*Plus\s*</u);
+    // Der Text der Karte steht weiterhin da.
+    expect(html).toContain('Neue Frage');
+  });
+
+  it('zeichnet einen Namen im Schnellaktions-Knopf als Grafik', () => {
+    const html = renderToStaticMarkup(
+      createElement(QuickActionButton, {
+        title: 'Frage planen',
+        description: 'Termin zuweisen',
+        icon: 'CalendarClock',
+      }),
+    );
+    expect(html).toContain('<svg');
+    expect(html).not.toMatch(/>\s*CalendarClock\s*</u);
+  });
+
+  it('laesst keine geteilte Komponente ein Symbol als ReactNode annehmen', () => {
+    /*
+     * Der Wächter gegen die vierte.
+     *
+     * `React.ReactNode` schliesst `string` ein - eine Komponente mit diesem
+     * Typ nimmt einen Symbolnamen entgegen und zeichnet ihn als Text, ohne
+     * dass der Typecheck etwas merkt. Genau so ist `QuickAction` zwischen
+     * `Panel` und `StatCard` hindurchgerutscht.
+     *
+     * Geprueft wird deshalb die **Form der Deklaration** und nicht das
+     * Verhalten: ein `icon`-Prop in `components/shared` muss `SymbolAngabe`
+     * heissen. Wer eine neue geteilte Komponente mit Symbol baut, bekommt
+     * hier einen roten Test statt im Browser ein Wort im Kreis.
+     */
+    const verzeichnis = join(process.cwd(), 'apps/web/src/components/shared');
+    const treffer: string[] = [];
+    let mitSymbol = 0;
+
+    for (const name of readdirSync(verzeichnis)) {
+      if (!name.endsWith('.tsx')) {
+        continue;
+      }
+      const quelle = readFileSync(join(verzeichnis, name), 'utf8');
+      if (/^\s*icon\??:/mu.test(quelle)) {
+        mitSymbol += 1;
+      }
+      if (/^\s*icon\??:\s*React\.ReactNode/mu.test(quelle)) {
+        treffer.push(name);
+      }
+    }
+
+    // Ohne diese Zeile waere der Test auch gruen, wenn er gar nichts findet.
+    expect(mitSymbol).toBeGreaterThanOrEqual(3);
+    expect(
+      treffer,
+      `Diese geteilten Komponenten nehmen ein Symbol als ReactNode:\n${treffer.join('\n')}`,
+    ).toEqual([]);
   });
 
   it('haelt die Symbole zugaenglich aus dem Namensbaum heraus', () => {

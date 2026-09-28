@@ -17,6 +17,7 @@ import {
   Settings,
   ShieldAlert,
   Sparkles,
+  Target,
   Ticket,
   Trophy,
   Unlock,
@@ -84,6 +85,10 @@ const ACTION_VIEW: Record<string, { icon: LucideIcon; tone: Tone; verb: string }
   MODULE_ENABLED: { icon: Blocks, tone: 'success', verb: 'hat das Modul {target} aktiviert' },
   MODULE_DISABLED: { icon: Blocks, tone: 'warning', verb: 'hat das Modul {target} deaktiviert' },
   MODULE_SETTINGS_CHANGED: { icon: Blocks, tone: 'warning', verb: 'hat Moduleinstellungen geändert' },
+  MODULE_STATUS_CHANGED: { icon: Blocks, tone: 'info', verb: 'hat den Status von Modul {target} geändert' },
+  MISSION_ERSTELLT: { icon: Target, tone: 'success', verb: 'hat die Mission {target} gestartet' },
+  MISSION_ABGEBROCHEN: { icon: Target, tone: 'warning', verb: 'hat die Mission {target} abgebrochen' },
+  MISSION_ABGESCHLOSSEN: { icon: Target, tone: 'success', verb: 'Mission {target} ist zu Ende' },
   BRANDING_LOGO_UPDATED: { icon: Settings, tone: 'info', verb: 'hat das Logo aktualisiert' },
   BRANDING_LOGO_RESET: { icon: Settings, tone: 'warning', verb: 'hat das Logo zurückgesetzt' },
 

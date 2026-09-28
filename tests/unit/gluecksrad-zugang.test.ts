@@ -185,7 +185,21 @@ describe('Die Seite selbst', () => {
     // zweiten Ort, an dem ein Eintrag entstehen könnte.
     const layout = quelle('app/(app)/layout.tsx');
 
-    expect(layout).toContain('buildNavigation(navigationKeys, moduleIds, signals)');
+    /*
+     * Gezählt statt verglichen.
+     *
+     * Vorher stand hier der Aufruf im Wortlaut, samt Namen der Variablen.
+     * Das hat die Aussage an eine Schreibweise gebunden: als der Testmodus
+     * dazukam und die Liste vor dem Aufbau gefiltert wurde, hiess das
+     * Argument `sichtbareModuleIds` - und der Test schlug fehl, obwohl die
+     * Navigation weiterhin an genau einer Stelle entsteht.
+     *
+     * Gemeint war nie ein bestimmter Variablenname, sondern: **einmal**.
+     * Genau das steht jetzt da, und es hält auch die nächste Umbenennung
+     * aus - während zwei Aufrufe weiterhin auffallen.
+     */
+    const aufrufe = layout.match(/buildNavigation\(/gu) ?? [];
+    expect(aufrufe, 'Die Navigation darf nur an einer Stelle entstehen').toHaveLength(1);
     expect(layout).not.toMatch(/xp-gluecksrad/u);
   });
 });

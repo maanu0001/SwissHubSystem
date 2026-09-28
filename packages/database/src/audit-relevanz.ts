@@ -64,6 +64,7 @@ export const DASHBOARD_ACTIVITY_ACTIONS: readonly AuditActionName[] = [
   AUDIT_ACTIONS.ROLE_MAPPING_CHANGED,
   AUDIT_ACTIONS.MODULE_ENABLED,
   AUDIT_ACTIONS.MODULE_DISABLED,
+  AUDIT_ACTIONS.MODULE_STATUS_CHANGED,
   AUDIT_ACTIONS.MODULE_SETTINGS_CHANGED,
   AUDIT_ACTIONS.BRANDING_LOGO_UPDATED,
   AUDIT_ACTIONS.BRANDING_LOGO_RESET,
@@ -123,6 +124,18 @@ export const DASHBOARD_ACTIVITY_ACTIONS: readonly AuditActionName[] = [
   AUDIT_ACTIONS.CLIP_COMPETITION_FINALIZED,
   AUDIT_ACTIONS.CLIP_COMPETITION_CANCELLED,
   AUDIT_ACTIONS.CLIP_COMPETITION_REOPENED,
+
+  /*
+   * Community Missions.
+   *
+   * Nur die drei Ereignisse, die die Gemeinschaft angehen: eine Mission
+   * beginnt, eine endet, eine wird abgebrochen. Geaenderte Vorlagen und
+   * nachtraeglich korrigierte Ziele stehen im Protokoll und gehoeren dort
+   * hin - auf dem Dashboard waeren sie Buchhaltung.
+   */
+  AUDIT_ACTIONS.MISSION_ERSTELLT,
+  AUDIT_ACTIONS.MISSION_ABGEBROCHEN,
+  AUDIT_ACTIONS.MISSION_ABGESCHLOSSEN,
 
   /*
    * SwissHub fragt: was die Community sieht.

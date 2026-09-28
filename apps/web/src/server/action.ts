@@ -212,6 +212,28 @@ export function defineAction<TSchema extends z.ZodTypeAny, TResult>(
           path: definition.name,
           module: definition.module ?? null,
         });
+
+        /*
+         * Der Testmodus-Riegel, serverseitig.
+         *
+         * Die Seitenleiste zu filtern reicht nicht: eine Server Action ist
+         * ein Endpunkt, den man auch ohne die Seite aufrufen kann. Wer die
+         * Berechtigung hat und den Testmodus-Schluessel nicht, bekommt hier
+         * dieselbe Antwort wie an der Seite - `FORBIDDEN`, ohne Auskunft
+         * darueber, dass es das Modul ueberhaupt gibt.
+         */
+        const { darfModulPermissionOeffnen, TESTMODUS_PERMISSION } = await import('@swisshub/modules');
+        const { hasPermission } = await import('@swisshub/permissions');
+        const testmodusSchluessel = hasPermission(
+          context.realPermissions ?? context.permissions,
+          TESTMODUS_PERMISSION,
+        );
+        if (!(await darfModulPermissionOeffnen(definition.permission, testmodusSchluessel))) {
+          throw new AppError('FORBIDDEN', {
+            userMessage: 'Dieser Bereich steht gerade nicht zur Verfügung.',
+            internalMessage: `${definition.name}: Modul im Testmodus, kein ${TESTMODUS_PERMISSION}`,
+          });
+        }
       }
 
       const result = await handler({ ctx: context, input, metadata });

@@ -329,6 +329,30 @@ export function moduleViewPermissionFor(permission: string): string | null {
   return null;
 }
 
+/**
+ * Das Modul, zu dem eine Berechtigung gehoert - oder `null`.
+ *
+ * Abgeleitet aus dem Praefix, genau wie `moduleViewPermissionFor`. Damit
+ * findet der Testmodus-Riegel sein Modul, ohne dass 106 Seiten eine Modul-ID
+ * mitgeben muessten - und ohne dass eine neue Seite sie vergessen kann.
+ *
+ * Teilen sich zwei Module einen Praefix (Server und Einstellungen tun das),
+ * gewinnt das erste. Fuer den Testmodus ist das richtig herum: beide tragen
+ * denselben Schluessel, also auch dieselbe Sichtbarkeit.
+ */
+export function moduleIdForPermission(permission: string): string | null {
+  const praefix = permission.split('.')[0];
+  if (praefix === undefined) {
+    return null;
+  }
+  for (const definition of modules.values()) {
+    if (definition.permissionPrefix === praefix) {
+      return definition.id;
+    }
+  }
+  return null;
+}
+
 export function registerModule(definition: ModuleDefinition): ModuleDefinition {
   modules.set(definition.id, definition);
   registerPermissions(definition.permissions);

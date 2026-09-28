@@ -21,6 +21,7 @@ import './appeals/config';
 import './appeals/events';
 // Clip of the Week - Grundlage des spaeteren Clip Centers.
 import './clips/config';
+import './missions/config';
 // SwissHub Wrapped - der Jahresrueckblick.
 import './wrapped/config';
 // Was spielen wir? - die gemeinsame Spielauswahl.
@@ -39,6 +40,7 @@ export * from './registry';
 export * from './links';
 export * as notifications from './notifications';
 export * from './module-state';
+export * from './testmodus';
 export * from './module-view';
 export * from './settings';
 export * from './settings/fields';
@@ -78,6 +80,7 @@ export * as automation from './automation';
 export * as migration from './migration';
 export * as appeals from './appeals';
 export * as clips from './clips';
+export * as missions from './missions';
 export * as fragt from './fragt';
 export * as streamer from './streamer';
 export * as wrapped from './wrapped';
