@@ -25,6 +25,16 @@ import { createEventAction, removePaymentQrAction, updateEventAction } from '@/m
 
 export interface EventFormularWerte {
   eventId?: string;
+  /**
+   * Der Kurzname des Termins - Teil der Adresse.
+   *
+   * Nur fuer den QR-Upload: die Route liegt unter `/api/kalender/[slug]/…`,
+   * weil Next.js an derselben Stelle im Routenbaum denselben Namen fuer das
+   * dynamische Segment verlangt und dort seit dem ICS-Export ein `[slug]`
+   * steht. Bei einem noch nicht gespeicherten Entwurf ist er leer - dann gibt
+   * es auch nichts hochzuladen.
+   */
+  slug?: string;
   title: string;
   description: string;
   shortDescription: string;
@@ -655,6 +665,7 @@ export function EventFormular({
                 <TwintQrFeld
                   csrfToken={csrfToken}
                   eventId={werte.eventId}
+                  slug={werte.slug}
                   hatQrCode={werte.hatQrCode}
                   onGeaendert={(vorhanden) => setze('hatQrCode', vorhanden)}
                 />
@@ -814,18 +825,20 @@ export function EventFormular({
 function TwintQrFeld({
   csrfToken,
   eventId,
+  slug,
   hatQrCode,
   onGeaendert,
 }: {
   csrfToken: string;
   eventId: string | undefined;
+  slug: string | undefined;
   hatQrCode: boolean;
   onGeaendert: (vorhanden: boolean) => void;
 }): React.JSX.Element {
   const [laeuft, setLaeuft] = useState(false);
   const [stand, setStand] = useState(() => Date.now());
 
-  if (!eventId) {
+  if (!eventId || !slug) {
     return (
       <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
         Der TWINT-QR-Code lässt sich hochladen, sobald der Termin einmal gespeichert ist.
@@ -839,7 +852,7 @@ function TwintQrFeld({
       const formular = new FormData();
       formular.append('csrfToken', csrfToken);
       formular.append('image', datei);
-      const antwort = await fetch(`/api/kalender/${eventId}/twint-qr`, {
+      const antwort = await fetch(`/api/kalender/${slug}/twint-qr`, {
         method: 'POST',
         body: formular,
       });
@@ -885,7 +898,7 @@ function TwintQrFeld({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             key={stand}
-            src={`/api/kalender/${eventId}/twint-qr?v=${stand}`}
+            src={`/api/kalender/${slug}/twint-qr?v=${stand}`}
             alt="Hinterlegter TWINT-QR-Code"
             className="h-32 w-32 rounded-lg border border-border bg-white object-contain p-2"
           />

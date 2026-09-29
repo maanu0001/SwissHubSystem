@@ -48,7 +48,7 @@ const SERVICE = lies('packages/modules/src/calendar/service.ts');
 const ACTIONS = lies('apps/web/src/modules/calendar/actions.ts');
 const TEILNEHMER = lies('apps/web/src/app/(app)/kalender/[slug]/teilnehmer/page.tsx');
 const ANMELDUNG = lies('apps/web/src/modules/calendar/components/anmelde-bereich.tsx');
-const QR_ROUTE = lies('apps/web/src/app/api/kalender/[eventId]/twint-qr/route.ts');
+const QR_ROUTE = lies('apps/web/src/app/api/kalender/[slug]/twint-qr/route.ts');
 const FORMULAR = lies('apps/web/src/modules/calendar/components/event-formular.tsx');
 
 describe('Zahlungen: kein automatischer Eingang', () => {

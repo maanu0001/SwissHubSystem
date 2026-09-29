@@ -341,7 +341,7 @@ export default async function EventDetailPage({
                        * obwohl die Organisation schlicht keinen Code
                        * hochgeladen hat.
                        */
-                      qrAdresse: event.paymentQrPath ? `/api/kalender/${event.id}/twint-qr` : null,
+                      qrAdresse: event.paymentQrPath ? `/api/kalender/${event.slug}/twint-qr` : null,
                     }
                   : null
               }

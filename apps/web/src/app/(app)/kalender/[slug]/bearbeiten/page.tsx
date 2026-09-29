@@ -88,6 +88,7 @@ export default async function EventBearbeitenPage({
         csrfToken={csrfTokenFor(context)}
         werte={{
           eventId: event.id,
+          slug: event.slug,
           title: event.title,
           description: event.description,
           shortDescription: event.shortDescription ?? '',

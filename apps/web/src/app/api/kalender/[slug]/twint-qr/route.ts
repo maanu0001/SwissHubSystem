@@ -27,6 +27,17 @@ const log = createLogger('web:kalender:twint-qr');
  * hochgeladene Datei kann dadurch nie als HTML oder Skript beim Betrachter
  * ankommen, egal wie sie heisst.
  *
+ * ## Warum der Termin ueber den Kurznamen angesprochen wird
+ *
+ * Weil Next.js an derselben Stelle im Routenbaum denselben Namen fuer das
+ * dynamische Segment verlangt - und unter `/api/kalender` liegt seit dem
+ * ICS-Export ein `[slug]`. Ein `[eventId]` daneben laesst sich bauen und
+ * sogar uebersetzen; der Server wirft erst beim Start, und zwar bei **jeder**
+ * Anfrage: «You cannot use different slug names for the same dynamic path».
+ *
+ * Der Kurzname ist ohnehin die richtige Wahl: der ganze Kalender spricht
+ * Termine in Adressen so an, und `findEvent` ist genau dafuer da.
+ *
  * ## Wer lesen darf
  *
  * Jedes angemeldete Mitglied. Der Code ist genau dafür da, gescannt zu
@@ -38,15 +49,20 @@ export const runtime = 'nodejs';
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: Promise<{ eventId: string }> },
+  { params }: { params: Promise<{ slug: string }> },
 ): Promise<Response> {
   const context = await getActionAuthContext('cached');
   if (!context?.isMember) {
     return new NextResponse(null, { status: 401 });
   }
 
-  const { eventId } = await params;
-  const datei = await calendar.leseZahlungsQr(eventId);
+  const { slug } = await params;
+  const event = await calendar.findEvent(slug);
+  if (!event) {
+    return new NextResponse(null, { status: 404 });
+  }
+
+  const datei = await calendar.leseZahlungsQr(event.id);
   if (!datei) {
     return new NextResponse(null, { status: 404 });
   }
@@ -63,7 +79,7 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ eventId: string }> },
+  { params }: { params: Promise<{ slug: string }> },
 ): Promise<Response> {
   try {
     const form = await request.formData();
@@ -107,14 +123,19 @@ export async function POST(
       });
     }
 
-    const { eventId } = await params;
+    const { slug } = await params;
+    const event = await calendar.findEvent(slug);
+    if (!event) {
+      throw new AppError('NOT_FOUND', { userMessage: 'Dieses Event gibt es nicht.' });
+    }
+
     const gespeichert = await calendar.speichereZahlungsQr(
       {
         discordId: context.user.discordId,
         username: context.user.username,
         can: (permission: string) => can(context, permission),
       },
-      eventId,
+      event.id,
       new Uint8Array(await datei.arrayBuffer()),
       datei.type || null,
     );

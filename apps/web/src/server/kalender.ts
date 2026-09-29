@@ -66,6 +66,7 @@ export async function leereWerte(): Promise<EventFormularWerte> {
     allowSelfCancel: true,
     cancelDeadlineAt: '',
     participantsPublic: true,
+    slug: '',
     entryFeeEnabled: false,
     entryFeeInput: '',
     entryFeeCurrency: 'CHF',
