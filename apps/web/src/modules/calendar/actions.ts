@@ -259,6 +259,31 @@ export const registerAction = defineAction(
       },
       input.eventId,
       input.answers,
+      new Date(),
+      {
+        /*
+         * Wem ein Ticket gehoert, entscheidet die Sitzung.
+         *
+         * Das Formular schickt `fuerMich` - ein Ja oder Nein. Die
+         * Discord-Kennung setzt diese Zeile aus `ctx.user`, und zwar die
+         * einzige, die sie setzen darf. Kaeme sie aus der Anfrage, liesse
+         * sich ein Ticket auf ein fremdes Mitglied ausstellen.
+         */
+        tickets: input.tickets.map((ticket) =>
+          ticket.fuerMich
+            ? {
+                memberDiscordId: ctx.user.discordId,
+                memberUsername: ctx.user.displayName ?? ctx.user.username,
+              }
+            : {
+                guestFirstName: ticket.guestFirstName,
+                guestLastName: ticket.guestLastName,
+                guestEmail: ticket.guestEmail,
+                guestDiscordName: ticket.guestDiscordName,
+                note: ticket.note,
+              },
+        ),
+      },
     );
     // Die Teilnehmerzahl im Discord-Embed nachziehen - gesammelt, damit ein
     // Ansturm nicht in ein Discord-Limit laeuft.
@@ -466,5 +491,104 @@ export const removePaymentQrAction = defineAction(
     await calendar.entferneZahlungsQr(zahlungsActor(ctx), input.eventId);
     revalidateCalendar(input.slug);
     return { entfernt: true };
+  },
+);
+
+// --- Tickets und Gaeste --------------------------------------------------
+//
+// Der Besteller darf seine eigenen Gaeste aendern, die Verwaltung alle - die
+// Unterscheidung trifft der Dienst ueber `actor.can`, nicht `defineAction`.
+// Deshalb tragen diese Aktionen keinen festen Berechtigungsschluessel: ein
+// Mitglied ohne `guests.manage` muss durchkommen, wenn es sein eigenes Ticket
+// meint.
+
+const ticketActor = (ctx: AuthContext) => ({
+  ...actorOf(ctx),
+  can: (permission: string) => can(ctx, permission),
+});
+
+export const updateTicketAction = defineAction(
+  {
+    name: 'calendar.ticket.update',
+    module: MODULE_ID,
+    permission: P.participate,
+    schema: calendar.ticketAendernSchema.and(z.object({ slug: z.string().optional() })),
+    rateLimit: 'calendarParticipate',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    const ticket = await calendar.aendereTicket(ticketActor(ctx), input.ticketId, {
+      ...(input.fuerMich
+        ? {
+            memberDiscordId: ctx.user.discordId,
+            memberUsername: ctx.user.displayName ?? ctx.user.username,
+          }
+        : {
+            guestFirstName: input.guestFirstName,
+            guestLastName: input.guestLastName,
+            guestEmail: input.guestEmail,
+            guestDiscordName: input.guestDiscordName,
+            note: input.note,
+          }),
+    });
+    revalidateCalendar(input.slug);
+    return { ticketId: ticket.id };
+  },
+);
+
+export const cancelTicketAction = defineAction(
+  {
+    name: 'calendar.ticket.cancel',
+    module: MODULE_ID,
+    permission: P.participate,
+    schema: calendar.ticketStornierenSchema.and(z.object({ slug: z.string().optional() })),
+    rateLimit: 'calendarParticipate',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    const ergebnis = await calendar.storniereTicket(ticketActor(ctx), input.ticketId, input.reason);
+    revalidateCalendar(input.slug);
+    return { verbleibend: ergebnis.verbleibend };
+  },
+);
+
+export const checkInTicketAction = defineAction(
+  {
+    name: 'calendar.ticket.checkin',
+    module: MODULE_ID,
+    permission: P.checkIn,
+    schema: calendar.ticketIdSchema.and(z.object({ slug: z.string().optional() })),
+    rateLimit: 'calendarAdmin',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    const ergebnis = await calendar.checkeEin(ticketActor(ctx), input.ticketId);
+    revalidateCalendar(input.slug);
+    return {
+      geaendert: ergebnis.geaendert,
+      name: ergebnis.name,
+      art: ergebnis.art,
+      checkedInAt: ergebnis.ticket.checkedInAt?.toISOString() ?? null,
+    };
+  },
+);
+
+export const revokeCheckInAction = defineAction(
+  {
+    name: 'calendar.ticket.checkin.revoke',
+    module: MODULE_ID,
+    permission: P.checkIn,
+    schema: calendar.ticketIdSchema.and(z.object({ slug: z.string().optional() })),
+    rateLimit: 'calendarAdmin',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    await calendar.nimmCheckInZurueck(ticketActor(ctx), input.ticketId);
+    revalidateCalendar(input.slug);
+    return { zurueckgenommen: true };
   },
 );

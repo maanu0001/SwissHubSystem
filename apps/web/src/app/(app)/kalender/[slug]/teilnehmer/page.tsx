@@ -10,6 +10,7 @@ import { StatCard } from '@/components/shared/stat-card';
 import { EmptyState, ErrorState } from '@/components/shared/states';
 import { TeilnehmerListe } from '@/modules/calendar/components/teilnehmer-liste';
 import { ZahlungsUebersicht } from '@/modules/calendar/components/zahlungs-uebersicht';
+import { TeilnehmendeListe } from '@/modules/calendar/components/teilnehmende-liste';
 import { Panel } from '@/components/shared/panel';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 
@@ -93,6 +94,26 @@ export default async function TeilnehmerPage({
     darfZahlungenSehen ? calendar.zahlungsKennzahlen(event.id) : Promise.resolve(null),
   ]);
 
+  /*
+   * Die Teilnehmenden - einzeln, mit Zuordnung zum Besteller.
+   *
+   * Eigene Berechtigung: die Namen der Begleitung eines Mitglieds gehen nicht
+   * jeden etwas an, der eine Teilnehmerliste sehen darf. Geladen wird nur,
+   * wenn sie gezeigt werden - was eine Server Component laedt, steht im HTML.
+   */
+  const darfGaesteSehen =
+    can(context, P.guestsView) || can(context, P.manageRegistrations) || can(context, P.checkIn);
+  const [bestellungen, teilnehmende] = await Promise.all([
+    darfZahlungenSehen ? calendar.ladeBestellungen(event.id) : Promise.resolve([]),
+    darfGaesteSehen ? calendar.ladeTeilnehmende(event.id) : Promise.resolve([]),
+  ]);
+  const ticketsJeBestellung = new Map(
+    bestellungen.map((zeile) => [
+      zeile.registrationId,
+      zeile.tickets.filter((ticket) => ticket.status === 'ACTIVE'),
+    ]),
+  );
+
   const zeitpunkt = (wert: Date | null): string =>
     wert
       ? wert.toLocaleString('de-CH', {
@@ -120,12 +141,29 @@ export default async function TeilnehmerPage({
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {/*
+          «Definitive Teilnehmer» statt «Teilnehmer».
+
+          Vorher stand hier die Zahl der belegten Plaetze - und wer am Abend
+          Stuehle stellte, stellte zu viele: eine Anmeldung mit offener
+          Zahlung ist eine Reservierung und keine Zusage. Die belegten Plaetze
+          stehen weiterhin daneben, unter dem Namen, der stimmt.
+        */}
         <StatCard
-          label="Teilnehmer"
+          label="Definitive Teilnehmer"
+          value={String(belegung.definitiv)}
+          hint={
+            belegung.confirmed > belegung.definitiv
+              ? `${belegung.confirmed - belegung.definitiv} noch ohne Zahlungsbestätigung`
+              : 'Alle bestätigt'
+          }
+          icon={<Users aria-hidden="true" />}
+        />
+        <StatCard
+          label="Reservierte Plätze"
           value={String(belegung.confirmed)}
           hint={belegung.capacity > 0 ? `von ${belegung.capacity} Plätzen` : 'Unbegrenzt'}
-          icon={<Users aria-hidden="true" />}
         />
         <StatCard
           label="Warteliste"
@@ -159,6 +197,11 @@ export default async function TeilnehmerPage({
               erstattet: kennzahlen.erstattet,
               eingegangen: calendar.betragText(kennzahlen.eingegangenRappen, event.entryFeeCurrency),
               offen: calendar.betragText(kennzahlen.offenRappen, event.entryFeeCurrency),
+              reservierteTickets: kennzahlen.reservierteTickets,
+              definitiveTickets: kennzahlen.definitiveTickets,
+              definitiveGaeste: kennzahlen.definitiveGaeste,
+              ausstehendeTickets: kennzahlen.ausstehendeTickets,
+              eingecheckt: kennzahlen.eingecheckt,
             }}
             zeilen={zahlungsZeilen.map((zeile) => ({
               registrationId: zeile.registrationId,
@@ -172,6 +215,35 @@ export default async function TeilnehmerPage({
               bestaetigtAm: zeile.verifiedAt ? zeitpunkt(zeile.verifiedAt) : null,
               bestaetigtVon: zeile.verifiedByUsername,
               grund: zeile.grund,
+              ticketCount: ticketsJeBestellung.get(zeile.registrationId)?.length ?? 1,
+              ticketNamen: (ticketsJeBestellung.get(zeile.registrationId) ?? []).map((ticket) => ticket.name),
+            }))}
+          />
+        </Panel>
+      ) : null}
+
+      {darfGaesteSehen && teilnehmende.length > 0 ? (
+        <Panel
+          title="Definitive Teilnehmer"
+          description="Jede Person einzeln - bei jedem Gast steht, zu welchem Mitglied er gehört. Diese Liste ist die Einlasssicht."
+        >
+          <TeilnehmendeListe
+            csrfToken={csrfTokenFor(context)}
+            slug={event.slug}
+            darfEinchecken={can(context, P.checkIn)}
+            zeilen={teilnehmende.map((zeile) => ({
+              ticketId: zeile.ticketId,
+              name: zeile.name,
+              art: zeile.art,
+              bestellerName: zeile.bestellerName,
+              bestellerDiscordId: zeile.bestellerDiscordId,
+              status: zeile.status,
+              zahlung: zeile.zahlung as 'NOT_REQUIRED' | 'PENDING' | 'VERIFIED' | 'WAIVED' | 'REFUNDED',
+              definitiv: zeile.definitiv,
+              checkedInAt: zeile.checkedInAt ? zeitpunkt(zeile.checkedInAt) : null,
+              checkedInByUsername: zeile.checkedInByUsername,
+              guestDiscordName: zeile.guestDiscordName,
+              note: zeile.note,
             }))}
           />
         </Panel>

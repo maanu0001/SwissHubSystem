@@ -70,6 +70,23 @@ export const CALENDAR_PERMISSIONS = {
   paymentsWaive: 'calendar.payments.waive',
   paymentsRevoke: 'calendar.payments.revoke',
   paymentsManage: 'calendar.payments.manage',
+
+  /*
+   * Tickets und Gaeste.
+   *
+   * Getrennt von den Zahlungsberechtigungen, weil es andere Handlungen sind:
+   * wer am Einlass Namen abhakt, muss keine Zahlungen bestaetigen duerfen,
+   * und wer die Kasse fuehrt, muss nicht an der Tuer stehen.
+   *
+   * `guestsView` ist dabei die leiseste und trotzdem eine eigene: die Namen
+   * der Begleitung eines Mitglieds gehen nicht jeden etwas an, der eine
+   * Teilnehmerliste sehen darf.
+   */
+  guestsView: 'calendar.guests.view',
+  guestsManage: 'calendar.guests.manage',
+  /** Eine fremde Bestellung oder einzelne Tickets daraus stornieren. */
+  ordersManage: 'calendar.orders.manage',
+  checkIn: 'calendar.checkin',
 } as const;
 
 export type CalendarPermission = (typeof CALENDAR_PERMISSIONS)[keyof typeof CALENDAR_PERMISSIONS];
@@ -380,6 +397,35 @@ export const calendarModule: ModuleDefinition = registerModule({
         'Eintrittspreis, Zahlungshinweise und TWINT-QR-Code eines Events festlegen. Getrennt vom Bearbeiten: wer die Beschreibung schreibt, soll nicht nebenbei den Preis ändern.',
       module: CALENDAR_MODULE_ID,
       critical: true,
+    },
+    {
+      key: CALENDAR_PERMISSIONS.guestsView,
+      label: 'Gäste ansehen',
+      description:
+        'Die einzelnen Teilnehmenden einer Anmeldung sehen - auch die mitgebrachten Gäste ohne SwissHub-Konto und zu wem sie gehören.',
+      module: CALENDAR_MODULE_ID,
+    },
+    {
+      key: CALENDAR_PERMISSIONS.guestsManage,
+      label: 'Gäste bearbeiten',
+      description:
+        'Den Namen eines Gastes korrigieren oder ein Ticket auf eine andere Person übertragen, solange es nicht eingecheckt ist. Der Besteller darf seine eigenen Gäste ohnehin ändern.',
+      module: CALENDAR_MODULE_ID,
+    },
+    {
+      key: CALENDAR_PERMISSIONS.ordersManage,
+      label: 'Anmeldungen und Tickets stornieren',
+      description:
+        'Eine fremde Anmeldung oder einzelne Tickets daraus zurücknehmen. Der Platz wird frei; ein bereits bestätigter Betrag bleibt stehen und wird nicht automatisch zurückgezahlt.',
+      module: CALENDAR_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: CALENDAR_PERMISSIONS.checkIn,
+      label: 'Check-in durchführen',
+      description:
+        'Am Einlass einzelne Tickets abhaken. Nur definitive Teilnehmende kommen durch - bei offener Zahlung muss zuerst der Eingang bestätigt werden.',
+      module: CALENDAR_MODULE_ID,
     },
   ],
   navigation: [

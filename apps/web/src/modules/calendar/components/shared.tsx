@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Wallet } from 'lucide-react';
 import { mitRueckkehr, systemRoutes } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -120,6 +121,54 @@ export function belegungsText(zeile: {
 }
 
 /**
+ * Der Eintritt als Text - oder `null`, wenn der Termin nichts kostet.
+ *
+ * Dieselbe Entscheidung wie im Modulkern (`kostenpflichtig`): aktiviert
+ * **und** ein Betrag ueber null. Ein Schalter ohne Preis ist kein Eintritt,
+ * und «CHF 0.-» auf einer Kachel waere eine Zeile, die nichts sagt.
+ */
+export function eintrittsText(zeile: {
+  entryFeeEnabled: boolean;
+  entryFeeCents: number;
+  entryFeeCurrency: string;
+}): string | null {
+  if (!zeile.entryFeeEnabled || zeile.entryFeeCents <= 0) {
+    return null;
+  }
+  const ganz = Math.trunc(zeile.entryFeeCents / 100);
+  const rest = zeile.entryFeeCents % 100;
+  return rest === 0
+    ? `${zeile.entryFeeCurrency} ${ganz}.–`
+    : `${zeile.entryFeeCurrency} ${ganz}.${String(rest).padStart(2, '0')}`;
+}
+
+/**
+ * Der Preis auf einer Kachel.
+ *
+ * ## Warum er dort steht
+ *
+ * Weil die Entscheidung «gehe ich hin?» in der Liste faellt und nicht auf der
+ * Detailseite. Ein Eintritt, der erst nach dem Klick auftaucht, ist eine
+ * Ueberraschung - und zwar die unangenehme Sorte.
+ */
+export function EintrittsBadge({
+  zeile,
+}: {
+  zeile: { entryFeeEnabled: boolean; entryFeeCents: number; entryFeeCurrency: string };
+}): React.JSX.Element | null {
+  const text = eintrittsText(zeile);
+  if (!text) {
+    return null;
+  }
+  return (
+    <Badge variant="outline" className="gap-1 border-amber-500/40 bg-amber-500/10 text-amber-500">
+      <Wallet className="size-3 shrink-0" aria-hidden="true" />
+      {text}
+    </Badge>
+  );
+}
+
+/**
  * Ein Event als kompakte Zeile im Kalendergitter.
  *
  * Bewusst knapp: in einer Monatszelle ist Platz fuer Uhrzeit und Namen, mehr
@@ -198,6 +247,7 @@ export function EventKarte({ zeile, kontext }: { zeile: Zeile; kontext?: string 
           {plaetze ? (
             <span className="text-xs tabular-nums text-muted-foreground">{plaetze} Plätze</span>
           ) : null}
+          <EintrittsBadge zeile={zeile} />
           {zeile.meine ? (
             <Badge
               variant="outline"

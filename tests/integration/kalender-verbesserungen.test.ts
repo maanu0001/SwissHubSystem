@@ -265,7 +265,15 @@ describeWithDatabase('Kalender-Verbesserungen', () => {
 
     const alle = knoepfe(gesendet[0]!.payload);
     expect(alle.map((knopf) => knopf.custom_id).filter(Boolean)).toHaveLength(0);
-    expect(alle[0]?.label).toBe('Event ansehen & anmelden');
+    /*
+     * «Zur Anmeldung» - nicht «Event ansehen & anmelden».
+     *
+     * Seit der Embed bei Eintritt und bei Zusatzfragen keine Anmeldeknoepfe
+     * mehr traegt, sagt die Beschriftung, was der Link wirklich tut: er
+     * fuehrt zur Anmeldung, er ist sie nicht. «& anmelden» las sich, als
+     * liesse sich der Schritt hier erledigen.
+     */
+    expect(alle[0]?.label).toBe('Zur Anmeldung');
   });
 
   it('lässt den Abmeldeknopf weg, wo keine eigene Abmeldung vorgesehen ist', async () => {

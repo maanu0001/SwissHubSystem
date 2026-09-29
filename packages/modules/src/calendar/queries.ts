@@ -10,6 +10,7 @@ import {
 } from '@swisshub/shared';
 import { DEFAULT_TIMEZONE } from './config';
 import { AKTIVE_STATUS, OEFFENTLICHE_STATUS, calendarSettings } from './service';
+import { DEFINITIVE_ZAHLUNGSZUSTAENDE } from './tickets';
 import type { CalendarQuery } from './schemas';
 
 /**
@@ -35,9 +36,28 @@ export interface EventZeile {
   locationKind: CalendarEvent['locationKind'];
   registrationEnabled: boolean;
   capacity: number;
+  entryFeeEnabled: boolean;
+  entryFeeCents: number;
+  entryFeeCurrency: string;
   category: { id: string; name: string; color: string; icon: string | null } | null;
+  /**
+   * Belegte Plaetze - **Tickets**, nicht Anmeldungen.
+   *
+   * Eine Anmeldung ist seit den Mehrfachtickets eine Bestellung, und eine
+   * Bestellung kann drei Leute sein. Wer hier Zeilen zaehlte, schriebe «3 /
+   * 20» auf eine Kachel, hinter der acht Personen stehen - und der Kalender
+   * zeigte einen halb leeren Abend, der voll ist.
+   */
   confirmed: number;
   waitlist: number;
+  /**
+   * Personen mit Zusage - bezahlt, erlassen oder kostenlos.
+   *
+   * Bei einem kostenlosen Termin dasselbe wie `confirmed`; bei einem
+   * kostenpflichtigen die kleinere Zahl, und genau die Differenz ist das,
+   * worauf die Organisation schaut.
+   */
+  definitiv: number;
   /** Ist der Betrachter angemeldet - und wie? */
   meine: 'CONFIRMED' | 'WAITLIST' | null;
 }
@@ -57,40 +77,96 @@ const ZEILEN_AUSWAHL = {
   locationKind: true,
   registrationEnabled: true,
   capacity: true,
+  // Der Eintritt gehoert auf die Kachel: wer die Liste ueberfliegt,
+  // entscheidet dort, ob er hingeht - und «kostet 15 Franken» ist fuer diese
+  // Entscheidung wichtiger als die halbe Beschreibung.
+  entryFeeEnabled: true,
+  entryFeeCents: true,
+  entryFeeCurrency: true,
   category: { select: { id: true, name: true, color: true, icon: true } },
 } satisfies Prisma.CalendarEventSelect;
 
+interface Kachelzahlen {
+  confirmed: number;
+  waitlist: number;
+  definitiv: number;
+}
+
+const leereZahlen = (): Kachelzahlen => ({ confirmed: 0, waitlist: 0, definitiv: 0 });
+
 /**
- * Zaehlt Anmeldungen fuer mehrere Events auf einmal.
+ * Zaehlt die Plaetze mehrerer Events auf einmal.
+ *
+ * ## Warum Tickets gruppiert werden und keine Anmeldungen
+ *
+ * Weil eine Anmeldung eine **Bestellung** ist, seit sich Gaeste mitbringen
+ * lassen. `groupBy` ueber `CalendarRegistration` zaehlte Zeilen - und eine
+ * Zeile kann drei Personen sein. Auf der Kachel staende dann «3 / 20», waehrend
+ * acht Leute kommen, und die Liste «noch Plaetze frei» zeigte einen vollen
+ * Abend.
+ *
+ * ## Warum das trotzdem zwei Abfragen bleiben
  *
  * Eine Abfrage je Event waere bei einer Monatsansicht mit 40 Terminen 40
- * Rundreisen zur Datenbank - eine Gruppierung ist eine.
+ * Rundreisen zur Datenbank. Gruppiert wird zweimal: einmal ueber den Status
+ * der Bestellung (belegt / Warteliste), einmal ueber die definitiven - zwei
+ * Rundreisen fuer die ganze Ansicht.
  */
 async function belegungen(
   eventIds: string[],
   viewerDiscordId: string | null,
 ): Promise<{
-  zahlen: Map<string, { confirmed: number; waitlist: number }>;
+  zahlen: Map<string, Kachelzahlen>;
   eigene: Map<string, 'CONFIRMED' | 'WAITLIST'>;
 }> {
-  const zahlen = new Map<string, { confirmed: number; waitlist: number }>();
+  const zahlen = new Map<string, Kachelzahlen>();
   const eigene = new Map<string, 'CONFIRMED' | 'WAITLIST'>();
   if (eventIds.length === 0) {
     return { zahlen, eigene };
   }
 
-  const gruppen = await prisma.calendarRegistration.groupBy({
-    by: ['eventId', 'status'],
-    where: { eventId: { in: eventIds }, status: { in: ['CONFIRMED', 'WAITLIST'] } },
+  const [gruppen, definitive] = await Promise.all([
+    prisma.calendarTicket.groupBy({
+      by: ['eventId'],
+      where: {
+        eventId: { in: eventIds },
+        status: 'ACTIVE',
+        registration: { status: 'CONFIRMED' },
+      },
+      _count: { _all: true },
+    }),
+    prisma.calendarTicket.groupBy({
+      by: ['eventId'],
+      where: {
+        eventId: { in: eventIds },
+        status: 'ACTIVE',
+        registration: {
+          status: 'CONFIRMED',
+          paymentStatus: { in: [...DEFINITIVE_ZAHLUNGSZUSTAENDE] },
+        },
+      },
+      _count: { _all: true },
+    }),
+  ]);
+  const wartend = await prisma.calendarTicket.groupBy({
+    by: ['eventId'],
+    where: { eventId: { in: eventIds }, status: 'ACTIVE', registration: { status: 'WAITLIST' } },
     _count: { _all: true },
   });
+
   for (const gruppe of gruppen) {
-    const eintrag = zahlen.get(gruppe.eventId) ?? { confirmed: 0, waitlist: 0 };
-    if (gruppe.status === 'CONFIRMED') {
-      eintrag.confirmed = gruppe._count._all;
-    } else {
-      eintrag.waitlist = gruppe._count._all;
-    }
+    const eintrag = zahlen.get(gruppe.eventId) ?? leereZahlen();
+    eintrag.confirmed = gruppe._count._all;
+    zahlen.set(gruppe.eventId, eintrag);
+  }
+  for (const gruppe of wartend) {
+    const eintrag = zahlen.get(gruppe.eventId) ?? leereZahlen();
+    eintrag.waitlist = gruppe._count._all;
+    zahlen.set(gruppe.eventId, eintrag);
+  }
+  for (const gruppe of definitive) {
+    const eintrag = zahlen.get(gruppe.eventId) ?? leereZahlen();
+    eintrag.definitiv = gruppe._count._all;
     zahlen.set(gruppe.eventId, eintrag);
   }
 
@@ -113,14 +189,15 @@ async function belegungen(
 
 function zuZeile(
   event: Prisma.CalendarEventGetPayload<{ select: typeof ZEILEN_AUSWAHL }>,
-  zahlen: Map<string, { confirmed: number; waitlist: number }>,
+  zahlen: Map<string, Kachelzahlen>,
   eigene: Map<string, 'CONFIRMED' | 'WAITLIST'>,
 ): EventZeile {
-  const zahl = zahlen.get(event.id) ?? { confirmed: 0, waitlist: 0 };
+  const zahl = zahlen.get(event.id) ?? leereZahlen();
   return {
     ...event,
     confirmed: zahl.confirmed,
     waitlist: zahl.waitlist,
+    definitiv: zahl.definitiv,
     meine: eigene.get(event.id) ?? null,
   };
 }

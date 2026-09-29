@@ -61,6 +61,32 @@ async function handleButton(
       return;
     }
 
+    /*
+     * Der zweite Riegel fuer kostenpflichtige Termine.
+     *
+     * Das Embed zeigt bei Eintritt keine Anmeldeknoepfe mehr - aber darauf
+     * allein laesst sich nichts bauen:
+     *
+     *  - Eine Ankuendigung von letzter Woche traegt die Knoepfe noch, und
+     *    seither hat jemand einen Preis eingetragen.
+     *  - Eine Knopfkennung ist eine Zeichenkette. Wer sie kennt, kann sie
+     *    schicken, ohne je ein Embed gesehen zu haben.
+     *
+     * Ein Knopf, der nicht angezeigt wird, ist keine Zugriffskontrolle. Die
+     * steht hier, an der Stelle, die den Klick tatsaechlich ausfuehrt - und
+     * sie liest den Termin frisch.
+     */
+    if (calendar.kostenpflichtig(event)) {
+      await interaction.editReply({
+        content: [
+          `**${event.title}** kostet ${calendar.betragText(event.entryFeeCents, event.entryFeeCurrency)} Iitritt.`,
+          'D Aamäldig lauft über SwissHub - dört chasch au Gäscht mitnäh und gsehsch, wie zahlt wird.',
+          calendar.eventUrl(event),
+        ].join('\n'),
+      });
+      return;
+    }
+
     const text = aktion === 'JOIN' ? await melde(interaction, event) : await entmelde(interaction, event);
     await interaction.editReply({ content: text });
 

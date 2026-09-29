@@ -54,6 +54,10 @@ export interface ZahlungsZeileAnsicht {
   bestaetigtAm: string | null;
   bestaetigtVon: string | null;
   grund: string | null;
+  /** Wie viele aktive Tickets diese Bestellung umfasst. */
+  ticketCount: number;
+  /** Die Namen darin - damit die Kassensicht weiss, für wen der Betrag gilt. */
+  ticketNamen: string[];
 }
 
 export interface ZahlungsKennzahlenAnsicht {
@@ -65,6 +69,12 @@ export interface ZahlungsKennzahlenAnsicht {
   erstattet: number;
   eingegangen: string;
   offen: string;
+  /** Reservierte Plätze - Tickets, nicht Bestellungen. */
+  reservierteTickets: number;
+  definitiveTickets: number;
+  definitiveGaeste: number;
+  ausstehendeTickets: number;
+  eingecheckt: number;
 }
 
 type Filter = 'alle' | 'ausstehend' | 'bestaetigt' | 'erlassen' | 'storniert';
@@ -158,12 +168,46 @@ export function ZahlungsUebersicht({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Kennzahl label="Angemeldet" wert={kennzahlen.angemeldet} />
-        <Kennzahl label="Zahlung ausstehend" wert={kennzahlen.ausstehend} ton="warnung" />
-        <Kennzahl label="Bestätigt" wert={kennzahlen.bestaetigt} ton="gut" hinweis={kennzahlen.eingegangen} />
-        <Kennzahl label="Erlassen" wert={kennzahlen.erlassen} />
-        <Kennzahl label="Storniert" wert={kennzahlen.storniert} />
+      {/*
+        Zwei Reihen, und die Trennung ist der Punkt: oben Bestellungen, unten
+        Tickets. «Teilnehmer» darf nicht gleichzeitig drei Dinge bedeuten -
+        acht offene Zahlungen koennen vierzehn Leute sein.
+      */}
+      <div>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Bestellungen</p>
+        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <Kennzahl label="Angemeldet" wert={kennzahlen.angemeldet} />
+          <Kennzahl label="Zahlung ausstehend" wert={kennzahlen.ausstehend} ton="warnung" />
+          <Kennzahl
+            label="Bestätigt"
+            wert={kennzahlen.bestaetigt}
+            ton="gut"
+            hinweis={kennzahlen.eingegangen}
+          />
+          <Kennzahl label="Erlassen" wert={kennzahlen.erlassen} />
+          <Kennzahl label="Storniert" wert={kennzahlen.storniert} />
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Tickets</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Kennzahl label="Reservierte Plätze" wert={kennzahlen.reservierteTickets} />
+          <Kennzahl
+            label="Definitive Teilnehmer"
+            wert={kennzahlen.definitiveTickets}
+            ton="gut"
+            hinweis={
+              kennzahlen.definitiveGaeste > 0 ? `davon ${kennzahlen.definitiveGaeste} Gäste` : undefined
+            }
+          />
+          <Kennzahl label="Zahlung ausstehend" wert={kennzahlen.ausstehendeTickets} ton="warnung" />
+          <Kennzahl
+            label="Eingecheckt"
+            wert={kennzahlen.eingecheckt}
+            hinweis={`von ${kennzahlen.definitiveTickets} definitiven`}
+          />
+        </div>
       </div>
 
       {kennzahlen.ausstehend > 0 ? (
@@ -224,11 +268,17 @@ export function ZahlungsUebersicht({
                   <StatusMarke zeile={zeile} />
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Angemeldet: {zeile.angemeldetAm} · {zeile.betrag}
+                  Angemeldet: {zeile.angemeldetAm} ·{' '}
+                  {zeile.ticketCount === 1 ? '1 Ticket' : `${zeile.ticketCount} Tickets`} · {zeile.betrag}
                   {zeile.status === 'WAITLIST' && zeile.waitlistPosition
                     ? ` · Warteliste Platz ${zeile.waitlistPosition}`
                     : null}
                 </p>
+                {/* Wer auf diesen Betrag geht - sonst steht in der Kasse eine
+                    Zahl ohne Gesichter. */}
+                {zeile.ticketNamen.length > 1 ? (
+                  <p className="text-xs text-muted-foreground">{zeile.ticketNamen.join(' · ')}</p>
+                ) : null}
                 {/* Wer freigegeben hat und wann - die Auskunft, die man bei
                     einer Rueckfrage tatsaechlich braucht. */}
                 {zeile.bestaetigtVon && zeile.bestaetigtAm ? (

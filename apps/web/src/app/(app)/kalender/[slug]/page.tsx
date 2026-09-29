@@ -1,7 +1,16 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { AlertTriangle, CalendarDays, Clock, ExternalLink, MapPin, Pencil, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarDays,
+  Clock,
+  ExternalLink,
+  MapPin,
+  Pencil,
+  Users,
+  Wallet,
+} from 'lucide-react';
 import { can } from '@swisshub/auth';
 import { calendar, isModuleEnabled } from '@swisshub/modules';
 import { Badge } from '@/components/ui/badge';
@@ -79,6 +88,7 @@ export default async function EventDetailPage({
         }
       : { titel: event.locationName ?? 'Vor Ort', zusatz: event.locationAddress };
 
+  const kostenpflichtig = calendar.kostenpflichtig(event);
   const zustaendig = calendar.istZustaendig(event, context.user.discordId);
   const darfBearbeiten = can(context, P.edit) || (can(context, P.manageOwn) && zustaendig);
 
@@ -92,7 +102,7 @@ export default async function EventDetailPage({
   const settings = await calendar.calendarSettings();
   const [belegung, meine, kategorie, fragen] = await Promise.all([
     calendar.belegung(event.id),
-    calendar.meineAnmeldung(event.id, context.user.discordId),
+    calendar.meineBestellung(event.id, context.user.discordId),
     event.categoryId
       ? calendar
           .listCategories()
@@ -239,18 +249,39 @@ export default async function EventDetailPage({
           hint={ort.zusatz ?? undefined}
           icon={<MapPin aria-hidden="true" />}
         />
-        <StatCard
-          label="Teilnehmer"
-          value={
-            event.registrationEnabled
-              ? belegung.capacity > 0
-                ? `${belegung.confirmed} / ${belegung.capacity}`
-                : `${belegung.confirmed}`
-              : '—'
-          }
-          hint={belegung.waitlist > 0 ? `${belegung.waitlist} auf der Warteliste` : 'Keine Warteliste'}
-          icon={<Users aria-hidden="true" />}
-        />
+        {/*
+          Bei Eintritt steht hier der Preis, nicht die Teilnehmerzahl.
+
+          Die vierte Kachel ist der Platz, an dem der Blick nach Datum, Zeit
+          und Ort landet - und bei einem kostenpflichtigen Abend ist «was
+          kostet es?» die naechste Frage, nicht «wie viele kommen?». Die
+          Platzzahl steht weiterhin im Anmeldekasten daneben, wo sie zur
+          Entscheidung gehoert.
+
+          Bewusst keine fuenfte Kachel: vier ist die Reihe, und eine Reihe aus
+          fuenf bricht auf jedem zweiten Bildschirm um.
+        */}
+        {kostenpflichtig ? (
+          <StatCard
+            label="Eintrittspreis"
+            value={calendar.betragText(event.entryFeeCents, event.entryFeeCurrency)}
+            hint="pro Person"
+            icon={<Wallet aria-hidden="true" />}
+          />
+        ) : (
+          <StatCard
+            label="Teilnehmer"
+            value={
+              event.registrationEnabled
+                ? belegung.capacity > 0
+                  ? `${belegung.confirmed} / ${belegung.capacity}`
+                  : `${belegung.confirmed}`
+                : '—'
+            }
+            hint={belegung.waitlist > 0 ? `${belegung.waitlist} auf der Warteliste` : 'Keine Warteliste'}
+            icon={<Users aria-hidden="true" />}
+          />
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -314,12 +345,30 @@ export default async function EventDetailPage({
               meine={
                 meine
                   ? {
-                      status: meine.status,
+                      status: meine.status === 'WAITLIST' ? ('WAITLIST' as const) : ('CONFIRMED' as const),
                       position: meine.waitlistPosition,
                       // `NOT_REQUIRED` heisst «kostet nichts» - dann steht
                       // dazu auch nichts. `null` statt des Wortes, damit die
                       // Komponente keinen leeren Kasten baut.
-                      zahlung: meine.paymentStatus === 'NOT_REQUIRED' ? null : meine.paymentStatus,
+                      zahlung: meine.zahlung === 'NOT_REQUIRED' ? null : meine.zahlung,
+                      gesamtbetrag: calendar.betragText(meine.betragRappen, meine.waehrung),
+                      preisJeTicket: calendar.betragText(meine.preisJeTicketRappen, meine.waehrung),
+                      tickets: meine.tickets.map((ticket) => ({
+                        ticketId: ticket.ticketId,
+                        name: ticket.name,
+                        art: ticket.art,
+                        istIch: ticket.istIch,
+                        checkedInAt: ticket.checkedInAt?.toISOString() ?? null,
+                        /*
+                         * Der Ticket-Token geht bewusst NICHT an die
+                         * Oberflaeche. Er ist der Ausweis fuers Einlassen;
+                         * ihn in das HTML der Detailseite zu schreiben
+                         * hiesse, ihn in jeden Zwischenspeicher zu legen,
+                         * durch den diese Seite laeuft. Wenn es einmal
+                         * Ticket-QR-Codes zum Vorzeigen gibt, holt sie eine
+                         * eigene Route, die ihn nicht mitliefert.
+                         */
+                      })),
                     }
                   : null
               }
@@ -330,9 +379,11 @@ export default async function EventDetailPage({
                 full: belegung.full,
               }}
               eintritt={
-                calendar.kostenpflichtig(event)
+                kostenpflichtig
                   ? {
-                      text: calendar.betragText(event.entryFeeCents, event.entryFeeCurrency),
+                      preisJeTicket: calendar.betragText(event.entryFeeCents, event.entryFeeCurrency),
+                      rappenJeTicket: event.entryFeeCents,
+                      waehrung: event.entryFeeCurrency,
                       hinweise: event.paymentNote,
                       /*
                        * Die Adresse nur, wenn tatsaechlich ein Code
@@ -340,6 +391,11 @@ export default async function EventDetailPage({
                        * der 404 laedt - und der sieht aus wie ein Fehler,
                        * obwohl die Organisation schlicht keinen Code
                        * hochgeladen hat.
+                       *
+                       * Die Route selbst prueft, ob der Abrufende eine
+                       * Bestellung hat: die Komponente zeigt den Kasten erst
+                       * nach der Anmeldung, aber eine Adresse ist kein
+                       * Riegel.
                        */
                       qrAdresse: event.paymentQrPath ? `/api/kalender/${event.slug}/twint-qr` : null,
                     }

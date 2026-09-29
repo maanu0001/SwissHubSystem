@@ -364,9 +364,84 @@ export const duplicateEventSchema = z
     }
   });
 
-export const registerSchema = z.object({
-  eventId: z.string().min(1),
-  answers: z.record(z.string(), z.string().max(500)).default({}),
+/**
+ * Ein einzelnes Ticket, wie es aus dem Formular kommt.
+ *
+ * ## Was hier ausdruecklich NICHT steht
+ *
+ * `memberDiscordId`. Wem ein Ticket gehoert, entscheidet der Server aus der
+ * Sitzung - nicht der Browser. Kaeme die Kennung aus der Anfrage, koennte
+ * jemand ein Ticket auf ein fremdes Mitglied ausstellen und es taeuchte in
+ * dessen Terminliste auf. Das Formular schickt nur `fuerMich`; die Kennung
+ * setzt die Server Action.
+ *
+ * Und kein Preis. Der Gesamtbetrag wird aus Termin und Ticketzahl gerechnet.
+ */
+export const ticketEingabeSchema = z.object({
+  /** Ist dieses Ticket fuer die anmeldende Person selbst? */
+  fuerMich: z.coerce.boolean().default(false),
+  guestFirstName: optionalText(80),
+  guestLastName: optionalText(80),
+  /**
+   * Freiwillig - und bewusst nur grob geprueft.
+   *
+   * Eine strenge Adresspruefung wuerde hier vor allem gueltige Adressen
+   * abweisen, die dem Muster nicht entsprechen. Was zaehlt, ist, dass ein
+   * Mensch die Organisation erreichen kann; SwissHub verschickt an diese
+   * Adresse nichts.
+   */
+  guestEmail: optionalText(200),
+  guestDiscordName: optionalText(64),
+  note: optionalText(300),
+});
+
+export const registerSchema = z
+  .object({
+    eventId: z.string().min(1),
+    answers: z.record(z.string(), z.string().max(500)).default({}),
+    /**
+     * Die Teilnehmenden dieser Bestellung.
+     *
+     * Leer heisst: ein Ticket fuer die anmeldende Person - der alte Weg, und
+     * der Weg des Discord-Knopfes bei kostenlosen Terminen.
+     */
+    tickets: z.array(ticketEingabeSchema).max(10).default([]),
+  })
+  .superRefine((input, ctx) => {
+    input.tickets.forEach((ticket, index) => {
+      if (!ticket.fuerMich && !ticket.guestFirstName) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['tickets', index, 'guestFirstName'],
+          message: 'Bitte einen Namen für diesen Gast angeben.',
+        });
+      }
+    });
+    /*
+     * Hoechstens ein Ticket fuer einen selbst.
+     *
+     * Zwei waeren dieselbe Person zweimal im Saal. Das Formular laesst es
+     * nicht zu - aber eine Server Action ist ein oeffentlicher Endpunkt.
+     */
+    const fuerMich = input.tickets.filter((ticket) => ticket.fuerMich).length;
+    if (fuerMich > 1) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['tickets'],
+        message: 'Es lässt sich höchstens ein Ticket für dich selbst anlegen.',
+      });
+    }
+  });
+
+export const ticketIdSchema = z.object({ ticketId: z.string().min(1) });
+
+export const ticketAendernSchema = ticketEingabeSchema.extend({
+  ticketId: z.string().min(1),
+});
+
+export const ticketStornierenSchema = z.object({
+  ticketId: z.string().min(1),
+  reason: optionalText(300),
 });
 
 export const registrationIdSchema = z.object({ registrationId: z.string().min(1) });

@@ -126,6 +126,8 @@ export type {
   CalendarRegistration,
   CalendarRegistrationStatus,
   CalendarReminder,
+  CalendarTicket,
+  CalendarTicketStatus,
   VerificationAiVerdict,
   VerificationDecider,
   VerificationMessage,

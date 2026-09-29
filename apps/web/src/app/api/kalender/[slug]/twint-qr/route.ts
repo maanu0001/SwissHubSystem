@@ -40,9 +40,19 @@ const log = createLogger('web:kalender:twint-qr');
  *
  * ## Wer lesen darf
  *
- * Jedes angemeldete Mitglied. Der Code ist genau dafür da, gescannt zu
- * werden - ihn vor denen zu verstecken, die sich anmelden sollen, wäre
- * sinnlos. Er zeigt auf das Konto des Vereins, nicht auf ein privates.
+ * Wer eine gültige Anmeldung für diesen Termin hat - oder wer die
+ * Zahlungsübersicht sehen darf.
+ *
+ * Vorher bekam ihn jedes angemeldete Mitglied, und das war zu weit. Der
+ * Code ist die Aufforderung zu zahlen, und sie gehört zu einer Bestellung:
+ * er nennt einen Betrag, der aus der Ticketzahl folgt, und er erscheint im
+ * Ablauf erst **nach** der Anmeldung. Ihn vorher auszuliefern hiesse, den
+ * Schritt, der den Betrag festlegt, überspringbar zu machen - und die
+ * Zahlungsansicht, die ihn erklärt, gleich mit.
+ *
+ * Das ist keine Geheimhaltung: der Code zeigt auf das Vereinskonto, nicht
+ * auf ein privates. Es ist eine Reihenfolge. Wer noch nicht angemeldet ist,
+ * weiss nicht, wie viel er überweisen soll.
  */
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -59,6 +69,22 @@ export async function GET(
   const { slug } = await params;
   const event = await calendar.findEvent(slug);
   if (!event) {
+    return new NextResponse(null, { status: 404 });
+  }
+
+  /*
+   * Eine eigene Anmeldung - oder die Berechtigung, Zahlungen zu sehen.
+   *
+   * `meineAnmeldung` gibt bei einer stornierten Anmeldung `null` zurueck;
+   * wer zurueckgetreten ist, braucht den Code nicht mehr. Eine Bestellung
+   * auf der Warteliste bekommt ihn ebenfalls - sie traegt einen Betrag und
+   * rueckt vielleicht heute noch nach.
+   *
+   * Geantwortet wird mit 404 und nicht mit 403: ob an diesem Termin ein
+   * QR-Code haengt, geht niemanden etwas an, der ihn nicht sehen darf.
+   */
+  const eigene = await calendar.meineAnmeldung(event.id, context.user.discordId);
+  if (!eigene && !can(context, calendar.CALENDAR_PERMISSIONS.paymentsView)) {
     return new NextResponse(null, { status: 404 });
   }
 

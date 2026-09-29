@@ -5185,6 +5185,7 @@ model CalendarEvent {
   updatedAt DateTime @updatedAt
 
   registrations CalendarRegistration[]
+  tickets       CalendarTicket[]
   reminders     CalendarReminder[]
   notices       CalendarNotice[]
   questions     CalendarQuestion[]
@@ -5239,6 +5240,19 @@ model CalendarRegistration {
   /// dass ein wiederholter Lauf zweimal schreibt.
   promotionNotifiedAt DateTime?
 
+  /// Wie viele Tickets diese Bestellung umfasst.
+  ///
+  /// Die Zahl der **aktiven** Tickets, mitgefuehrt statt bei jeder Anzeige
+  /// gezaehlt: die Kapazitaetspruefung fragt sie in einer Transaktion ab, in
+  /// der jede zusaetzliche Aggregation ueber eine zweite Tabelle die Sperre
+  /// laenger haelt. Storniert jemand ein einzelnes Ticket, wird sie
+  /// mitgefuehrt - die Tickets bleiben die Wahrheit, diese Spalte ist ihre
+  /// Zusammenfassung.
+  ///
+  /// Eins als Vorgabe: jede Anmeldung aus der Zeit vor den Tickets ist eine
+  /// Bestellung ueber genau ein Ticket.
+  ticketCount Int @default(1)
+
   // --- Zahlung -------------------------------------------------------------
   /// Wie es um den Eintritt steht. Siehe `CalendarPaymentStatus`.
   paymentStatus              CalendarPaymentStatus @default(NOT_REQUIRED)
@@ -5263,6 +5277,7 @@ model CalendarRegistration {
   paymentReason              String?
 
   answers CalendarAnswer[]
+  tickets CalendarTicket[]
 
   /// Eine Anmeldung je Person und Termin - auf Datenbankebene, nicht nur im
   /// Anwendungscode. Zwei gleichzeitige Anfragen kommen damit nicht beide
@@ -5273,6 +5288,108 @@ model CalendarRegistration {
   @@index([discordId, registeredAt])
   /// Die Zahlungsuebersicht filtert genau danach.
   @@index([eventId, paymentStatus, registeredAt])
+}
+
+/// Was aus einem einzelnen Ticket geworden ist.
+///
+/// Zwei Werte, und mehr braucht es nicht: ob jemand **bezahlt** hat, steht an
+/// der Bestellung, nicht am Ticket. Hier steht nur, ob der Platz noch
+/// besetzt ist.
+enum CalendarTicketStatus {
+  /// Belegt einen Platz und kann eingecheckt werden.
+  ACTIVE
+  /// Zurueckgegeben. Der Platz ist frei, die Zeile bleibt fuer den Verlauf.
+  CANCELLED
+}
+
+/// Ein einzelner Teilnehmer einer Bestellung.
+///
+/// ## Warum es diese Tabelle gibt
+///
+/// Weil ein Mitglied Leute mitbringt, die kein Discord haben. Vorher war eine
+/// Anmeldung eine Zeile mit einer Discord-Kennung - wer jemanden mitbrachte,
+/// hatte keinen Ort dafuer. Der naheliegende Ausweg waere `plusOneName`
+/// gewesen, und der zweite `plusTwoName`; danach ist die Frage «wie viele
+/// kommen?» nicht mehr mit einer Abfrage zu beantworten.
+///
+/// Stattdessen: `CalendarRegistration` ist die **Bestellung** - wer bestellt
+/// hat, was es kostet, ob bezahlt wurde. Hier steht, **wer kommt**.
+///
+/// ## Mitglied oder Gast
+///
+/// Ein Ticket gehoert entweder einem SwissHub-Mitglied (`memberDiscordId`)
+/// oder einer Person ohne Konto (`guestFirstName`). Nie beides leer - das
+/// pruefen die Eingabeschemata und ein Test.
+///
+/// Fuer einen Gast wird **kein** Konto angelegt, keine Discord-Kennung
+/// erfunden und kein Platzhaltermitglied erzeugt. Ein Gast ist ein Name auf
+/// einer Liste, und genau so steht er hier.
+///
+/// ## Warum der Termin zweimal vorkommt
+///
+/// `eventId` steht hier, obwohl es ueber die Bestellung erreichbar waere. Die
+/// Kapazitaetspruefung zaehlt die aktiven Tickets eines Termins, und zwar in
+/// einer Transaktion, die eine Zeilensperre haelt. Ein Verbund ueber die
+/// Bestellungen bei jeder Anmeldung waere Arbeit unter der Sperre. Ein Index
+/// auf `(eventId, status)` beantwortet dieselbe Frage direkt.
+model CalendarTicket {
+  id             String               @id @default(cuid())
+  registrationId String
+  registration   CalendarRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  /// Der Termin - siehe oben, warum er hier steht.
+  eventId String
+  event   CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  /// Gehoert das Ticket einem Mitglied? Dann steht hier seine Discord-Kennung.
+  memberDiscordId String?
+  /// Namensstand des Mitglieds zum Zeitpunkt der Bestellung.
+  memberUsername  String?
+
+  /// Der Name des Gastes. Pflicht, wenn `memberDiscordId` leer ist.
+  guestFirstName   String?
+  guestLastName    String?
+  /// Freiwillig - und ausdruecklich nicht oeffentlich.
+  guestEmail       String?
+  /// Der Discord-Name als Text, falls die Person einen hat. **Keine Kennung**
+  /// und keine Verknuepfung: wer nicht auf dem Server ist, hat hier nichts.
+  guestDiscordName String?
+  /// Freitext der Organisation - Allergie, Fahrgemeinschaft, was auch immer.
+  note             String?
+
+  /// Der Ausweis dieses Tickets.
+  ///
+  /// Kryptografisch zufaellig und eindeutig. Er ist die Grundlage des
+  /// Check-ins: wer ihn hat, hat das Ticket. Deshalb wird er aus
+  /// `randomBytes` erzeugt und nie aus etwas abgeleitet, das jemand erraten
+  /// koennte - eine fortlaufende Nummer waere ein Ticket, das sich
+  /// hochzaehlen laesst.
+  ///
+  /// Ausdruecklich getrennt vom TWINT-Code: der bezahlt, dieser laesst ein.
+  token String @unique
+
+  status CalendarTicketStatus @default(ACTIVE)
+
+  /// Die Reihenfolge innerhalb der Bestellung - «Ticket 1», «Ticket 2».
+  position Int @default(0)
+
+  // --- Check-in ------------------------------------------------------------
+  /// Am Ticket, nicht an der Bestellung: drei Leute einer Bestellung treffen
+  /// zu drei verschiedenen Zeiten ein.
+  checkedInAt          DateTime?
+  checkedInByDiscordId String?
+  checkedInByUsername  String?
+
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Die Kapazitaetsfrage: wie viele aktive Tickets hat dieser Termin?
+  @@index([eventId, status])
+  @@index([registrationId, position])
+  /// Die Suche nach den eigenen Tickets eines Mitglieds ueber alle Termine.
+  @@index([memberDiscordId])
 }
 
 model CalendarAnswer {

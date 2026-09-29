@@ -186,6 +186,11 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   CALENDAR_PAYMENT_VERIFIED: 'Zahlung bestätigt',
   CALENDAR_PAYMENT_WAIVED: 'Zahlung erlassen',
   CALENDAR_PAYMENT_REVOKED: 'Zahlungsbestätigung zurückgenommen',
+  CALENDAR_ORDER_CREATED: 'Event-Anmeldung erstellt',
+  CALENDAR_TICKET_UPDATED: 'Ticket geändert',
+  CALENDAR_TICKET_CANCELLED: 'Ticket storniert',
+  CALENDAR_TICKET_CHECKED_IN: 'Ticket eingecheckt',
+  CALENDAR_TICKET_CHECKIN_REVOKED: 'Check-in zurückgenommen',
 
   // --- Turniere --------------------------------------------------------------
   TOURNAMENT_CREATED: 'Turnier erstellt',

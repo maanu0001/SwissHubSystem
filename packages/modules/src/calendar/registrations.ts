@@ -10,6 +10,14 @@ import { conflict, forbidden, notFound } from '@swisshub/shared';
 import { CALENDAR_MODULE_ID } from './config';
 import { requireEvent } from './service';
 import { kostenpflichtig, startStatus } from './zahlungen';
+import {
+  MAX_TICKETS_JE_BESTELLUNG,
+  belegteTickets,
+  definitiveTeilnehmer,
+  ticketDaten,
+  wartendeTickets,
+  type TicketEingabe,
+} from './tickets';
 import type { CalendarActor } from './schemas';
 
 const logger = createLogger('calendar:registrations');
@@ -35,20 +43,46 @@ export interface AnmeldeErgebnis {
   position: number | null;
 }
 
+/**
+ * Die Belegung eines Termins.
+ *
+ * ## Warum hier Tickets gezaehlt werden und keine Anmeldungen
+ *
+ * Weil eine Anmeldung seit den Mehrfachtickets kein Platz mehr ist, sondern
+ * eine **Bestellung**: fuenfzig Bestellungen koennen achtzig Leute sein. Wer
+ * hier Zeilen zaehlte, saehe einen halb leeren Saal und liesse weitere
+ * dreissig Leute herein.
+ *
+ * `confirmed` heisst deshalb ab jetzt «belegte Plaetze» - und die Felder
+ * heissen weiter so, weil die halbe Oberflaeche sie liest und eine Umbenennung
+ * an dreissig Stellen nichts besser machte. Wer die Zahl der **Personen mit
+ * Zusage** braucht, nimmt `definitiv`.
+ */
 export interface Belegung {
+  /** Belegte Plaetze - aktive Tickets bestaetigter Bestellungen. */
   confirmed: number;
+  /** Tickets auf der Warteliste. */
   waitlist: number;
   capacity: number;
   /** `null` bei unbegrenzt. */
   freeSeats: number | null;
   full: boolean;
+  /**
+   * Definitive Teilnehmer - Tickets, deren Bestellung bezahlt, erlassen oder
+   * kostenlos ist. Ausdruecklich ohne `PENDING`.
+   */
+  definitiv: number;
+  /** Wie viele Bestellungen dahinterstehen. */
+  bestellungen: number;
 }
 
 export async function belegung(eventId: string): Promise<Belegung> {
   const event = await requireEvent(eventId);
-  const [confirmed, waitlist] = await Promise.all([
-    prisma.calendarRegistration.count({ where: { eventId, status: 'CONFIRMED' } }),
-    prisma.calendarRegistration.count({ where: { eventId, status: 'WAITLIST' } }),
+  const [confirmed, waitlist, definitiv, bestellungen] = await Promise.all([
+    belegteTickets(eventId),
+    wartendeTickets(eventId),
+    definitiveTeilnehmer(eventId),
+    prisma.calendarRegistration.count({ where: { eventId, status: { not: 'CANCELLED' } } }),
   ]);
   const capacity = event.capacity;
   return {
@@ -57,6 +91,8 @@ export async function belegung(eventId: string): Promise<Belegung> {
     capacity,
     freeSeats: capacity > 0 ? Math.max(0, capacity - confirmed) : null,
     full: capacity > 0 && confirmed >= capacity,
+    definitiv,
+    bestellungen,
   };
 }
 
@@ -130,11 +166,36 @@ export interface TeilnehmerIdentitaet {
   displayName?: string | null;
 }
 
+/**
+ * Sich anmelden - fuer sich allein oder mit Begleitung.
+ *
+ * ## Was eine Anmeldung jetzt ist
+ *
+ * Eine **Bestellung** ueber ein oder mehrere Tickets. `tickets` beschreibt,
+ * wer kommt; fehlt die Angabe, entsteht wie bisher genau ein Ticket auf die
+ * anmeldende Person. Damit bleibt jeder bestehende Aufruf gueltig - auch der
+ * aus dem Bot.
+ *
+ * ## Was ausdruecklich nicht aus dem Browser kommt
+ *
+ * Der Preis. Er wird hier aus dem Termin und der Ticketzahl gerechnet, und
+ * zwar unter derselben Sperre, unter der auch die Plaetze gezaehlt werden.
+ * Ein Gesamtbetrag aus einem Formularfeld waere ein Preisschild, das sich der
+ * Kaeufer selbst schreibt.
+ *
+ * ## Alles oder nichts
+ *
+ * Passen drei Tickets nicht mehr hinein, geht die **ganze** Bestellung auf
+ * die Warteliste - nicht zwei hinein und eines heraus. Eine halb bestaetigte
+ * Bestellung haette einen Gesamtbetrag, der zu nichts passt, und einen
+ * Besteller, der nicht weiss, wen er mitbringen darf.
+ */
 export async function register(
   identity: TeilnehmerIdentitaet,
   eventId: string,
   antworten: Record<string, string> = {},
   now = new Date(),
+  optionen: { tickets?: TicketEingabe[] } = {},
 ): Promise<AnmeldeErgebnis> {
   const event = await requireEvent(eventId);
   const gesperrt = anmeldungGesperrt(event, now);
@@ -143,10 +204,34 @@ export async function register(
   }
   const geprueft = await pruefeAntworten(eventId, antworten);
 
+  /*
+   * Ohne Angabe: ein Ticket auf die anmeldende Person.
+   *
+   * Das ist der alte Weg, und er muss weiter funktionieren - der
+   * Discord-Knopf bei kostenlosen Terminen geht genau hier durch.
+   */
+  const ticketEingaben: TicketEingabe[] =
+    optionen.tickets && optionen.tickets.length > 0
+      ? optionen.tickets
+      : [
+          {
+            memberDiscordId: identity.discordId,
+            memberUsername: identity.displayName ?? identity.username ?? null,
+          },
+        ];
+
+  if (ticketEingaben.length > MAX_TICKETS_JE_BESTELLUNG) {
+    throw conflict(`Es lassen sich höchstens ${MAX_TICKETS_JE_BESTELLUNG} Tickets auf einmal reservieren.`);
+  }
+  // Die Zeilen fuer die Datenbank - samt Tokens - vor der Transaktion bauen.
+  // `randomBytes` unter einer Zeilensperre waere Arbeit, die dort nichts
+  // verloren hat.
+  const ticketZeilen = ticketEingaben.map((eingabe, index) => ticketDaten(eingabe, index));
+
   const ergebnis = await prisma.$transaction(async (tx) => {
-    // Ab hier entscheidet nur dieser Vorgang, ob noch ein Platz frei ist.
-    // Ohne diese Zeile koennten zwei gleichzeitige Anmeldungen beide den
-    // letzten Platz bekommen.
+    // Ab hier entscheidet nur dieser Vorgang, ob noch Plaetze frei sind.
+    // Ohne diese Zeile koennten zwei gleichzeitige Anmeldungen beide die
+    // letzten Plaetze bekommen.
     await tx.$queryRaw`SELECT id FROM "CalendarEvent" WHERE id = ${eventId} FOR UPDATE`;
 
     const frisch = await tx.calendarEvent.findUniqueOrThrow({ where: { id: eventId } });
@@ -157,16 +242,22 @@ export async function register(
       throw conflict('Du bist bereits angemeldet.');
     }
 
-    const belegt = await tx.calendarRegistration.count({
-      where: { eventId, status: 'CONFIRMED' },
-    });
-    const wartend = await tx.calendarRegistration.count({
-      where: { eventId, status: 'WAITLIST' },
-    });
-    const voll = frisch.capacity > 0 && belegt >= frisch.capacity;
+    /*
+     * Gezaehlt werden Tickets, nicht Zeilen.
+     *
+     * Und der Vergleich ist `belegt + gewuenscht > kapazitaet`, nicht
+     * `belegt >= kapazitaet`: bei 98 von 100 belegten Plaetzen ist noch
+     * Platz - aber nicht fuer drei.
+     */
+    const belegt = await belegteTickets(eventId, tx);
+    const voll = frisch.capacity > 0 && belegt + ticketZeilen.length > frisch.capacity;
 
     if (voll && !frisch.waitlistEnabled) {
-      throw conflict('Dieses Event ist ausgebucht.');
+      throw conflict(
+        frisch.capacity - belegt > 0
+          ? `Für so viele Tickets ist kein Platz mehr frei - es sind noch ${frisch.capacity - belegt} übrig.`
+          : 'Dieses Event ist ausgebucht.',
+      );
     }
 
     const status: CalendarRegistrationStatus = voll ? 'WAITLIST' : 'CONFIRMED';
@@ -176,7 +267,17 @@ export async function register(
       username: identity.username?.slice(0, 64) ?? null,
       displayName: identity.displayName?.slice(0, 64) ?? null,
       status,
-      waitlistPosition: voll ? wartend + 1 : null,
+      /*
+       * Die Wartelistenposition zaehlt Bestellungen, nicht Tickets.
+       *
+       * «Platz 3 auf der Warteliste» heisst: zwei Bestellungen sind vor dir.
+       * Tickets zu zaehlen ergaebe eine Zahl, die springt, sobald jemand vor
+       * einem zwei Gaeste mitbringt - und die niemandem sagt, wann er dran
+       * ist.
+       */
+      waitlistPosition: voll
+        ? (await tx.calendarRegistration.count({ where: { eventId, status: 'WAITLIST' } })) + 1
+        : null,
       registeredAt: now,
       cancelledAt: null,
       // Eine erneute Anmeldung nach einer Abmeldung ist eine neue Anmeldung,
@@ -203,8 +304,16 @@ export async function register(
        * nicht ploetzlich eine Null stehen.
        */
       paymentStatus: startStatus(frisch),
-      paymentAmountCents: kostenpflichtig(frisch) ? frisch.entryFeeCents : 0,
+      /*
+       * Der Gesamtbetrag: Ticketzahl mal Eintritt, hier gerechnet.
+       *
+       * Ganzzahlig, weil in Rappen; und aus dem Termin, nicht aus der
+       * Anfrage. Ein Betrag, den der Browser mitschickt, ist ein Preis, den
+       * der Kaeufer bestimmt.
+       */
+      paymentAmountCents: kostenpflichtig(frisch) ? frisch.entryFeeCents * ticketZeilen.length : 0,
       paymentCurrency: kostenpflichtig(frisch) ? frisch.entryFeeCurrency : null,
+      ticketCount: ticketZeilen.length,
       /*
        * Eine erneute Anmeldung nach einer Stornierung beginnt bei null.
        *
@@ -221,6 +330,19 @@ export async function register(
     const eintrag = vorhanden
       ? await tx.calendarRegistration.update({ where: { id: vorhanden.id }, data: daten })
       : await tx.calendarRegistration.create({ data: daten });
+
+    /*
+     * Die Tickets ersetzen.
+     *
+     * Eine erneute Anmeldung nach einer Stornierung ist eine neue Bestellung
+     * mit neuen Teilnehmern - und mit neuen Tokens. Die alten stehen zum Teil
+     * schon auf einem Telefon; sie weiter gelten zu lassen hiesse, einen
+     * zurueckgegebenen Platz zweimal zu vergeben.
+     */
+    await tx.calendarTicket.deleteMany({ where: { registrationId: eintrag.id } });
+    for (const zeile of ticketZeilen) {
+      await tx.calendarTicket.create({ data: { ...zeile, registrationId: eintrag.id, eventId } });
+    }
 
     // Antworten ersetzen - eine erneute Anmeldung soll nicht die alten
     // Angaben behalten.
@@ -307,6 +429,20 @@ export async function unregister(
       where: { id: vorhanden.id },
       data: { status: 'CANCELLED', cancelledAt: now, waitlistPosition: null },
     });
+    /*
+     * Die Tickets gehen mit.
+     *
+     * Der Zustand der Bestellung allein genuegt nicht: `belegteTickets`
+     * zaehlt Tickets und filtert ueber die Bestellung, aber die Ticketzeilen
+     * selbst wuerden weiter als aktiv gelten - und ein stornierter Platz
+     * liesse sich nicht von einem belegten unterscheiden, sobald jemand
+     * direkt auf die Tickets schaut. Zwei Wahrheiten ueber denselben Platz
+     * sind eine zu viel.
+     */
+    await tx.calendarTicket.updateMany({
+      where: { registrationId: vorhanden.id, status: 'ACTIVE' },
+      data: { status: 'CANCELLED', cancelledAt: now },
+    });
 
     // Nur ein frei gewordener bestaetigter Platz laesst jemanden nachruecken.
     // Wer von der Warteliste abspringt, gibt keinen Platz frei - dann muss
@@ -333,14 +469,28 @@ async function rueckeNach(
   if (event.capacity <= 0) {
     return null;
   }
-  const belegt = await tx.calendarRegistration.count({
-    where: { eventId, status: 'CONFIRMED' },
-  });
-  if (belegt >= event.capacity) {
+  const belegt = await belegteTickets(eventId, tx);
+  const frei = event.capacity - belegt;
+  if (frei <= 0) {
     return null;
   }
+
+  /*
+   * Die erste Bestellung, die **ganz** hineinpasst.
+   *
+   * Nicht einfach die erste auf der Warteliste: wird ein Platz frei und die
+   * naechste Bestellung braucht drei, geht sie nicht - und wuerde man sie
+   * trotzdem nachruecken lassen, waere der Abend ueberbucht.
+   *
+   * Uebersprungen wird sie deshalb, und die naechste passende kommt zum Zug.
+   * Das ist nicht ganz «wer zuerst kam»; die Alternative waere, den freien
+   * Platz leer zu lassen, bis zufaellig genug auf einmal frei wird. Bei einem
+   * Community-Abend ist ein besetzter Platz mehr wert als eine strenge
+   * Reihenfolge - und die uebersprungene Bestellung bleibt vorn, sobald
+   * genug frei ist.
+   */
   const naechster = await tx.calendarRegistration.findFirst({
-    where: { eventId, status: 'WAITLIST' },
+    where: { eventId, status: 'WAITLIST', ticketCount: { lte: frei } },
     orderBy: [{ waitlistPosition: 'asc' }, { registeredAt: 'asc' }],
   });
   if (!naechster) {
@@ -395,6 +545,11 @@ export async function removeRegistration(
     const abgemeldet = await tx.calendarRegistration.update({
       where: { id: registrationId },
       data: { status: 'CANCELLED', cancelledAt: now, waitlistPosition: null },
+    });
+    // Wie bei der eigenen Abmeldung: die Tickets gehen mit.
+    await tx.calendarTicket.updateMany({
+      where: { registrationId, status: 'ACTIVE' },
+      data: { status: 'CANCELLED', cancelledAt: now },
     });
     const nachgerueckt = eintrag.status === 'CONFIRMED' ? await rueckeNach(tx, eintrag.eventId, now) : null;
     await nummeriereWarteliste(tx, eintrag.eventId);

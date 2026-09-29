@@ -4,6 +4,7 @@ import { createLogger } from '@swisshub/logger';
 import { AppError, conflict } from '@swisshub/shared';
 import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload } from '../branding/storage';
 import { CALENDAR_MODULE_ID, CALENDAR_PERMISSIONS } from './config';
+import { DEFINITIVE_ZAHLUNGSZUSTAENDE } from './tickets';
 import { requireEvent } from './service';
 import type { CalendarActor } from './schemas';
 
@@ -60,6 +61,19 @@ const logger = createLogger('calendar:zahlungen');
  */
 
 /** Was die Übersicht an Zahlen braucht. */
+/**
+ * Die Zahlen über der Teilnehmerliste.
+ *
+ * ## Warum Bestellungen und Tickets getrennt gezählt werden
+ *
+ * Weil «Teilnehmer» sonst drei Dinge auf einmal bedeutet: eine Bestellung,
+ * einen reservierten Platz und eine Person mit Zusage. Acht offene Zahlungen
+ * können vierzehn Leute sein, und wer am Abend Stühle stellt, braucht die
+ * vierzehn - wer die Kasse macht, die acht.
+ *
+ * Die Felder ohne Zusatz zählen **Bestellungen**, die auf `Tickets`
+ * **Tickets**. Der Name sagt, was drin ist.
+ */
 export interface ZahlungsKennzahlen {
   /** Alle Anmeldungen, die einen Platz oder einen Wartelistenplatz haben. */
   angemeldet: number;
@@ -72,6 +86,18 @@ export interface ZahlungsKennzahlen {
   eingegangenRappen: number;
   /** Summe der noch ausstehenden Beträge in Rappen. */
   offenRappen: number;
+
+  // --- dieselbe Frage, in Tickets ------------------------------------------
+  /** Reservierte Plätze insgesamt - aktive Tickets nicht stornierter Bestellungen. */
+  reservierteTickets: number;
+  /** Definitive Teilnehmer: bezahlt, erlassen oder kostenlos. */
+  definitiveTickets: number;
+  /** Davon Gäste ohne SwissHub-Konto. */
+  definitiveGaeste: number;
+  /** Tickets, deren Bestellung noch auf die Zahlungsprüfung wartet. */
+  ausstehendeTickets: number;
+  /** Wie viele definitive Tickets bereits eingecheckt sind. */
+  eingecheckt: number;
 }
 
 export interface ZahlungsZeile {
@@ -444,6 +470,11 @@ export async function zahlungsKennzahlen(eventId: string): Promise<ZahlungsKennz
     erstattet: 0,
     eingegangenRappen: 0,
     offenRappen: 0,
+    reservierteTickets: 0,
+    definitiveTickets: 0,
+    definitiveGaeste: 0,
+    ausstehendeTickets: 0,
+    eingecheckt: 0,
   };
 
   for (const zeile of zeilen) {
@@ -475,6 +506,60 @@ export async function zahlungsKennzahlen(eventId: string): Promise<ZahlungsKennz
         break;
     }
   }
+
+  /*
+   * Die Ticketzahlen kommen aus der Ticketstabelle, nicht aus `ticketCount`.
+   *
+   * `ticketCount` ist die mitgefuehrte Zusammenfassung an der Bestellung -
+   * gut genug fuer die Kapazitaetspruefung unter der Sperre, aber hier zaehlt
+   * die Wahrheit. Ein einzeln storniertes Ticket steht in beiden, und sollten
+   * sie je auseinanderlaufen, will man an dieser Stelle die Zeilen sehen und
+   * nicht die Zusammenfassung.
+   */
+  const definitiv = { in: [...DEFINITIVE_ZAHLUNGSZUSTAENDE] };
+  const [reserviert, definitiveTickets, definitiveGaeste, ausstehendeTickets, eingecheckt] =
+    await Promise.all([
+      prisma.calendarTicket.count({
+        where: { eventId, status: 'ACTIVE', registration: { status: { not: 'CANCELLED' } } },
+      }),
+      prisma.calendarTicket.count({
+        where: {
+          eventId,
+          status: 'ACTIVE',
+          registration: { status: 'CONFIRMED', paymentStatus: definitiv },
+        },
+      }),
+      prisma.calendarTicket.count({
+        where: {
+          eventId,
+          status: 'ACTIVE',
+          memberDiscordId: null,
+          registration: { status: 'CONFIRMED', paymentStatus: definitiv },
+        },
+      }),
+      prisma.calendarTicket.count({
+        where: {
+          eventId,
+          status: 'ACTIVE',
+          registration: { status: { not: 'CANCELLED' }, paymentStatus: 'PENDING' },
+        },
+      }),
+      prisma.calendarTicket.count({
+        where: {
+          eventId,
+          status: 'ACTIVE',
+          checkedInAt: { not: null },
+          registration: { status: 'CONFIRMED', paymentStatus: definitiv },
+        },
+      }),
+    ]);
+
+  kennzahlen.reservierteTickets = reserviert;
+  kennzahlen.definitiveTickets = definitiveTickets;
+  kennzahlen.definitiveGaeste = definitiveGaeste;
+  kennzahlen.ausstehendeTickets = ausstehendeTickets;
+  kennzahlen.eingecheckt = eingecheckt;
+
   return kennzahlen;
 }
 

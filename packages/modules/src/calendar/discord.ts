@@ -12,6 +12,7 @@ import { createLogger } from '@swisshub/logger';
 import { systemLink, systemRoutes } from '../links';
 import { CALENDAR_ACCENT_COLOR, CALENDAR_MODULE_ID } from './config';
 import { anmeldungGesperrt, belegung } from './registrations';
+import { betragText, kostenpflichtig } from './zahlungen';
 import { calendarSettings, erlaubteErwaehnung, requireEvent } from './service';
 import type { CalendarActor } from './schemas';
 
@@ -170,6 +171,9 @@ export function buildEventEmbed(
 
   if (event.status === 'CANCELLED' && event.cancelReason) {
     zeilen.push('', `**Abgesagt:** ${event.cancelReason.slice(0, 300)}`);
+  } else if (event.registrationEnabled && kostenpflichtig(event)) {
+    // Ein Satz statt eines Knopfes - und er sagt, warum es keinen gibt.
+    zeilen.push('', 'Die Anmeldung erfolgt über SwissHub.');
   }
 
   const banner = bannerFuer(event, kategorie);
@@ -177,13 +181,27 @@ export function buildEventEmbed(
   const felder = [];
   if (event.registrationEnabled) {
     felder.push({
-      name: 'Teilnehmer',
+      name: 'Plätze',
       value:
         zahlen.capacity > 0
           ? `${zahlen.confirmed} / ${zahlen.capacity}${zahlen.waitlist > 0 ? ` (+${zahlen.waitlist} Warteliste)` : ''}`
           : `${zahlen.confirmed}`,
       inline: true,
     });
+    /*
+     * Der Eintritt gehoert ins Embed.
+     *
+     * Wer im Kanal liest, entscheidet dort, ob er kommt - und der Preis
+     * gehoert zu dieser Entscheidung. Ihn erst auf der Seite zu nennen
+     * hiesse, jemanden mit einem Klick auf «Zur Anmeldung» zu ueberraschen.
+     */
+    if (kostenpflichtig(event)) {
+      felder.push({
+        name: 'Eintritt',
+        value: betragText(event.entryFeeCents, event.entryFeeCurrency),
+        inline: true,
+      });
+    }
   }
   if (kategorie) {
     felder.push({ name: 'Kategorie', value: kategorie.name, inline: true });
@@ -246,13 +264,38 @@ export function parseCalendarButtonId(
 /**
  * Ob die Ankuendigung Anmeldeknoepfe traegt.
  *
- * Zusatzfragen sind der Grund fuer die Ausnahme: sie lassen sich mit einem
- * Klick nicht beantworten, und eine Anmeldung ohne die Pflichtantworten waere
- * eine halbe. In dem Fall bleibt der Weg ueber die Seite - dort steht das
- * Formular.
+ * ## Drei Gruende, warum nicht
+ *
+ * **Zusatzfragen.** Sie lassen sich mit einem Klick nicht beantworten, und
+ * eine Anmeldung ohne die Pflichtantworten waere eine halbe.
+ *
+ * **Eintritt.** Der wichtigere Fall, und der Grund, warum diese Funktion
+ * ueberarbeitet wurde. Wer sich im Kanal mit einem Klick anmeldet, sieht den
+ * Zahlungsflow nie: kein Betrag, kein TWINT-Code, kein Hinweis, dass die
+ * Teilnahme vorlaeufig ist. Er haelt sich fuer angemeldet, erscheint am
+ * Abend, und niemand hat je Geld gesehen.
+ *
+ * Der Knopf ist dabei nicht nur unvollstaendig, er ist ein **zweiter Weg an
+ * der Kasse vorbei**. Ein Ablauf, der einen Betrag nennt, aber umgangen
+ * werden kann, ist kein Ablauf.
+ *
+ * Deshalb: bei einem kostenpflichtigen Termin fuehrt der einzige Weg ueber
+ * die Seite. Das Embed zeigt den Preis und verlinkt - mehr nicht. Derselbe
+ * Riegel steht ein zweites Mal im Bot, an der Stelle, die den Klick
+ * entgegennimmt: ein Embed, das seit Tagen im Kanal steht, kennt den heutigen
+ * Preis nicht, und wer die Knopfkennung von Hand schickt, hat nie eines
+ * gesehen.
+ *
+ * **Mehrere Tickets.** Sie folgen aus dem Eintritt - wer Gaeste mitbringt,
+ * traegt Namen ein, und das ist ein Formular und kein Knopf. Ein kostenloser
+ * Termin ohne Zusatzfragen bleibt deshalb bei einem Klick: dort gibt es
+ * nichts einzutragen und nichts zu bezahlen.
  */
 export async function zeigtAnmeldeknoepfe(event: CalendarEvent): Promise<boolean> {
   if (!event.registrationEnabled || anmeldungGesperrt(event) !== null) {
+    return false;
+  }
+  if (kostenpflichtig(event)) {
     return false;
   }
   const fragen = await prisma.calendarQuestion.count({ where: { eventId: event.id } });
@@ -299,7 +342,17 @@ async function payload(
     {
       type: 2 as const,
       style: BUTTON_STYLE.LINK,
-      label: mitKnoepfen || !event.registrationEnabled ? 'Event ansehen' : 'Event ansehen & anmelden',
+      /*
+       * Drei Beschriftungen fuer drei Faelle:
+       *
+       *  - Mit Anmeldeknopf daneben: «Event ansehen» - anmelden kann man
+       *    schon hier.
+       *  - Ohne Anmeldung ueberhaupt: «Event ansehen».
+       *  - Anmeldung noetig, aber nicht hier moeglich: «Zur Anmeldung».
+       *    Das ist der kostenpflichtige Fall, und der Knopf soll sagen, wo
+       *    es weitergeht.
+       */
+      label: mitKnoepfen || !event.registrationEnabled ? 'Event ansehen' : 'Zur Anmeldung',
       url: eventUrl(event),
     },
   ];
