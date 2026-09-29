@@ -19,10 +19,27 @@ const CSS = readFileSync(
   join(process.cwd(), 'apps/web/src/modules/profile/auszeichnungs-stufen.css'),
   'utf8',
 );
-const KOMPONENTE = readFileSync(
+/**
+ * Die zentrale Stufenbeschreibung.
+ *
+ * Sie ist seit der Zusammenlegung die Quelle: die Auszeichnungsliste, die
+ * oeffentliche Profilseite und die Gamer Card fragen hier nach, statt je
+ * eigene Klassennamen zu tragen. Der Test prueft deshalb sie - und weiter
+ * unten, dass die drei Orte sie tatsaechlich benutzen.
+ */
+const BESCHREIBUNG = readFileSync(
+  join(process.cwd(), 'apps/web/src/modules/profile/auszeichnungs-stufe.tsx'),
+  'utf8',
+);
+const LISTE = readFileSync(
   join(process.cwd(), 'apps/web/src/modules/profile/components/profil-auszeichnungen.tsx'),
   'utf8',
 );
+const OEFFENTLICH = readFileSync(
+  join(process.cwd(), 'apps/web/src/modules/profile/components/oeffentlich/oe-abschnitte.tsx'),
+  'utf8',
+);
+const GAMER_CARD = readFileSync(join(process.cwd(), 'apps/web/src/modules/profile/gamer-card.tsx'), 'utf8');
 
 const STUFEN = ['bronze', 'silber', 'gold'] as const;
 
@@ -37,7 +54,8 @@ describe('Die drei Stufen sind drei Materialien', () => {
   it('gibt jeder Stufe eine eigene Klasse', () => {
     for (const stufe of STUFEN) {
       expect(CSS).toContain(`.az-${stufe} {`);
-      expect(KOMPONENTE).toContain(`az-${stufe}`);
+      // Die Klassen stehen an einer Stelle, nicht in jeder Komponente.
+      expect(BESCHREIBUNG).toContain(`az-${stufe}`);
     }
   });
 
@@ -137,5 +155,126 @@ describe('Die drei Stufen sind drei Materialien', () => {
       const nichtFarbe = ['border-radius', 'clip-path', 'box-shadow'].filter((name) => b.includes(name));
       expect(nichtFarbe.length, `az-${stufe} unterscheidet sich nur in Farben`).toBeGreaterThanOrEqual(2);
     }
+  });
+});
+
+/**
+ * Die Stufe steht ueberall, wo die Auszeichnung steht.
+ *
+ * ## Warum dieser Block entstanden ist
+ *
+ * Die Stufen waren gebaut - aber nur an einem von drei Orten benutzt. Die
+ * Auszeichnungsliste im Dashboard trug sie als Material; die drei
+ * hervorgehobenen auf der oeffentlichen Profilseite trugen sie als graues
+ * Kleinwort unter dem Namen, und die Gamer Card als «GOLD» am rechten Rand.
+ * Ausgerechnet auf der Seite, die man verlinkt, und auf dem Bild, das man
+ * teilt, sahen alle drei Stufen gleich aus.
+ *
+ * Diese Tests halten fest, dass das nicht zurueckfaellt.
+ */
+describe('Die Stufe steht an jedem Ort, an dem die Auszeichnung steht', () => {
+  it('nimmt die oeffentliche Profilseite die Stufenkarte', () => {
+    // Nicht bloss der Import - der Aufruf an der hervorgehobenen Karte.
+    expect(OEFFENTLICH).toContain("from '../../auszeichnungs-stufe'");
+    expect(OEFFENTLICH).toMatch(/stufe\(eintrag\.stufe\)\.karte/u);
+    expect(OEFFENTLICH).toContain('az-feld');
+  });
+
+  it('zeichnet die Gamer Card je Stufe anders', () => {
+    /*
+     * Satori kennt keine Klassen - hier muessen es Werte sein. Geprueft
+     * wird, dass sie aus derselben Beschreibung kommen und nicht aus einer
+     * zweiten Farbtabelle in der Karte.
+     */
+    expect(GAMER_CARD).toContain("from './auszeichnungs-stufe'");
+    expect(GAMER_CARD).toMatch(/stufe\(eintrag\.stufe\)/u);
+    for (const feld of ['bild.rand', 'bild.flaeche', 'bild.feld', 'bild.radius']) {
+      expect(GAMER_CARD, `${feld} fehlt auf der Karte`).toContain(`stufenbild.${feld}`);
+    }
+    // Und ausdruecklich kein `clip-path`: Satori scheitert daran, und ein
+    // gescheitertes Rendern liefert eine leere Datei statt eines Fehlers.
+    expect(GAMER_CARD).not.toContain('clipPath');
+  });
+
+  it('gibt jeder Stufe eine eigene Eckenrundung auf der Karte', () => {
+    // Die Abstufung, die auch in Graustufen traegt: Gold am kantigsten.
+    const radius = (stufe: string): number => {
+      const ab = BESCHREIBUNG.indexOf(`  ${stufe}: {`);
+      expect(ab, `${stufe} fehlt in der Beschreibung`).toBeGreaterThan(-1);
+      const block = BESCHREIBUNG.slice(ab, BESCHREIBUNG.indexOf('\n  },', ab));
+      const treffer = /radius:\s*(\d+)/u.exec(block);
+      expect(treffer, `${stufe} ohne radius`).not.toBeNull();
+      return Number(treffer![1]);
+    };
+    expect(radius('gold')).toBeLessThan(radius('silber'));
+    expect(radius('silber')).toBeLessThan(radius('bronze'));
+  });
+});
+
+/**
+ * Die Stufe darf nicht nur Farbe sein.
+ *
+ * Etwa jeder zwoelfte Mann unterscheidet Rot und Gruen schlecht; Braun,
+ * Grau und Gelb nebeneinander sind fuer einen Teil davon drei Grautoene. Eine
+ * Auszeichnung, deren Stufe ausschliesslich in der Farbe steckt, ist fuer
+ * diese Leute keine Auszeichnung.
+ */
+describe('Accessibility: die Stufe steht nicht nur in der Farbe', () => {
+  it('gibt jeder Stufe eine unterschiedliche Anzahl Striche', () => {
+    const striche = (stufe: string): number => {
+      const ab = BESCHREIBUNG.indexOf(`  ${stufe}: {`);
+      const block = BESCHREIBUNG.slice(ab, BESCHREIBUNG.indexOf('\n  },', ab));
+      const treffer = /striche:\s*(\d)/u.exec(block);
+      expect(treffer, `${stufe} ohne Marke`).not.toBeNull();
+      return Number(treffer![1]);
+    };
+    // Eine Anzahl ist keine Farbe - sie traegt auch in Graustufen.
+    expect(new Set(STUFEN.map(striche)).size).toBe(3);
+    expect(striche('bronze')).toBe(1);
+    expect(striche('silber')).toBe(2);
+    expect(striche('gold')).toBe(3);
+  });
+
+  it('benennt die Marke fuer Vorleseprogramme', () => {
+    // Das Wort fuer die, die die Karte hoeren statt sehen. Die Striche
+    // selbst sind ausgeblendet - sonst hoerte man dreimal «Bild».
+    expect(BESCHREIBUNG).toContain('aria-label={beschreibung.label}');
+    expect(BESCHREIBUNG).toContain('aria-hidden="true"');
+  });
+
+  it('nennt die Stufe zusaetzlich beim Namen', () => {
+    for (const ort of [LISTE, OEFFENTLICH, GAMER_CARD]) {
+      // Entweder die Marke (mit ihrem aria-label) oder das Wort selbst.
+      expect(/StufenMarke|stufenbild\.label|\.label/u.test(ort)).toBe(true);
+    }
+  });
+
+  it('haelt die Toenungen durchscheinend, damit sie auf jeder Flaeche tragen', () => {
+    /*
+     * Hier standen feste dunkle Farbwerte. Auf einer hellen Flaeche - einem
+     * kuenftigen hellen Modus, einem hellen Profildesign - waeren das drei
+     * dunkle Kaesten gewesen. `color-mix(..., transparent)` laesst durch,
+     * was dahinterliegt.
+     */
+    for (const stufe of STUFEN) {
+      const b = block(`az-${stufe}`);
+      expect(b, `az-${stufe} hat eine feste Flaeche`).toContain('color-mix(in srgb');
+      expect(b).toContain('transparent)');
+    }
+    // Und die Schrift bekommt fuer helle Flaechen eigene Werte.
+    expect(CSS).toContain('.az-hell');
+  });
+
+  it('greift nicht auf die Systemeinstellung fuer helle Flaechen zurueck', () => {
+    /*
+     * `prefers-color-scheme: light` ist die Einstellung des Betriebssystems
+     * und sagt nichts darueber, wie hell diese Seite ist. Griffe sie hier,
+     * bekaeme jeder hell eingestellte Rechner falsche Schrift auf einer
+     * dunklen Seite.
+     */
+    // Geprueft wird die Regel, nicht das Wort: im Kommentar daneben steht
+    // ausdruecklich, warum es sie nicht gibt.
+    const ohneKommentare = CSS.replaceAll(/\/\*[\s\S]*?\*\//gu, '');
+    expect(ohneKommentare).not.toMatch(/@media\s*\(\s*prefers-color-scheme:\s*light/u);
   });
 });

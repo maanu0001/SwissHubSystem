@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/shared/states';
 import { buttonVariants } from '@/components/ui/button';
 import { requirePagePermission } from '@/server/auth';
 import { ErgebnisBalken } from '@/modules/fragt/components/ergebnis-balken';
+import { StimmenDetail } from '@/modules/fragt/components/stimmen-detail';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Ergebnis' };
@@ -51,6 +52,16 @@ export default async function FragtErgebnisPage({
 
   const { abstimmung, ergebnis, entwurf } = ansicht;
   const laeuftNoch = abstimmung.status === 'ACTIVE';
+
+  /*
+   * Die einzelnen Stimmen werden nur geladen, wenn sie jemand sehen darf.
+   *
+   * Nicht «geladen und dann ausgeblendet»: ein Server-Component-Aufruf
+   * landet im HTML, das der Browser bekommt. Wer `fragt.votes.detail` nicht
+   * hat, bekommt hier `null` - und damit gibt es nichts zu verstecken.
+   */
+  const darfDetails = can(context, fragt.FRAGT_PERMISSIONS.votesDetail);
+  const stimmen = darfDetails ? await fragt.ladeStimmenDetail(id) : null;
 
   return (
     <div className="space-y-6">
@@ -104,6 +115,30 @@ export default async function FragtErgebnisPage({
           <Panel title="Verteilung" icon="BarChart3" description={abstimmung.untertitel ?? undefined}>
             <ErgebnisBalken ergebnis={ergebnis} />
           </Panel>
+
+          {stimmen ? (
+            <Panel
+              title="Stimmen im Detail"
+              icon="Users"
+              description="Wer für welche Antwort gestimmt hat. Sichtbar nur mit der Berechtigung «Stimmen im Detail ansehen»."
+            >
+              <StimmenDetail
+                proAntwort={stimmen.proAntwort.map((eintrag) => ({
+                  optionId: eintrag.optionId,
+                  antwort: eintrag.antwort,
+                  stimmen: eintrag.stimmen,
+                }))}
+                zeilen={stimmen.zeilen.map((zeile) => ({
+                  optionId: zeile.optionId,
+                  antwort: zeile.antwort,
+                  discordId: zeile.discordId,
+                  name: zeile.name,
+                  abgegebenAm: zeit(zeile.abgegebenAm),
+                  geaendert: zeile.geaendert,
+                }))}
+              />
+            </Panel>
+          ) : null}
 
           <Panel title="Ablauf" icon="Clock">
             <dl className="grid gap-3 text-sm sm:grid-cols-2">

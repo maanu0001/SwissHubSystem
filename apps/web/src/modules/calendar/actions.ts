@@ -73,7 +73,9 @@ export const createEventAction = defineAction(
   },
   async ({ ctx, input }) => {
     await assertModuleEnabled(MODULE_ID);
-    const event = await calendar.createEvent(actorOf(ctx), input);
+    const event = await calendar.createEvent(actorOf(ctx), input, {
+      darfZahlungen: can(ctx, P.paymentsManage),
+    });
     revalidateCalendar(event.slug);
     return { eventId: event.id, slug: event.slug };
   },
@@ -94,7 +96,9 @@ export const updateEventAction = defineAction(
     await assertModuleEnabled(MODULE_ID);
     const { eventId, ...rest } = input;
     await requireEventZugriff(ctx, eventId);
-    const ergebnis = await calendar.updateEvent(actorOf(ctx), eventId, rest);
+    const ergebnis = await calendar.updateEvent(actorOf(ctx), eventId, rest, {
+      darfZahlungen: can(ctx, P.paymentsManage),
+    });
     await calendar.reberechneFaelligkeiten(eventId);
     await calendar.refreshAnnouncement(eventId).catch(() => undefined);
     revalidateCalendar(ergebnis.event.slug);
@@ -357,5 +361,110 @@ export const seedCategoriesAction = defineAction(
     const angelegt = await calendar.seedCategories(actorOf(ctx));
     revalidatePath('/kalender/kategorien');
     return { angelegt };
+  },
+);
+
+// --- Eintritt und Zahlung -----------------------------------------------
+//
+// Vier Aktionen, vier Berechtigungen. `defineAction` prueft den Schluessel,
+// und der Dienst prueft ihn ein zweites Mal ueber `actor.can` - nicht aus
+// Misstrauen gegen die eigene Schicht, sondern weil der Dienst auch aus dem
+// Bot oder einem Skript aufgerufen werden kann und dann allein dasteht.
+
+/** Der Actor, den die Zahlungsfunktionen erwarten - mit Rechtepruefung. */
+const zahlungsActor = (ctx: AuthContext) => ({
+  ...actorOf(ctx),
+  can: (permission: string) => can(ctx, permission),
+});
+
+const registrationIdSchema = z.object({ registrationId: z.string().min(1) });
+
+export const verifyPaymentAction = defineAction(
+  {
+    name: 'calendar.payment.verify',
+    module: MODULE_ID,
+    permission: P.paymentsVerify,
+    schema: registrationIdSchema.and(z.object({ slug: z.string().optional() })),
+    rateLimit: 'calendarAdmin',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    const ergebnis = await calendar.bestaetigeZahlung(zahlungsActor(ctx), input.registrationId);
+    revalidateCalendar(input.slug);
+    return { status: ergebnis.registration.paymentStatus, geaendert: ergebnis.geaendert };
+  },
+);
+
+export const waivePaymentAction = defineAction(
+  {
+    name: 'calendar.payment.waive',
+    module: MODULE_ID,
+    permission: P.paymentsWaive,
+    schema: registrationIdSchema.and(
+      z.object({
+        /** Crew, Sponsor, Gast, Gewinn, Sonstiges - oder gar nichts. */
+        grund: z.string().max(200).optional(),
+        slug: z.string().optional(),
+      }),
+    ),
+    rateLimit: 'calendarAdmin',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    const ergebnis = await calendar.erlasseZahlung(
+      zahlungsActor(ctx),
+      input.registrationId,
+      input.grund?.trim() || null,
+    );
+    revalidateCalendar(input.slug);
+    return { status: ergebnis.registration.paymentStatus, geaendert: ergebnis.geaendert };
+  },
+);
+
+export const revokePaymentAction = defineAction(
+  {
+    name: 'calendar.payment.revoke',
+    module: MODULE_ID,
+    permission: P.paymentsRevoke,
+    schema: registrationIdSchema.and(
+      z.object({
+        /** Zurueck auf offen, oder als erstattet vermerken. */
+        ziel: z.enum(['PENDING', 'REFUNDED']).default('PENDING'),
+        grund: z.string().max(200).optional(),
+        slug: z.string().optional(),
+      }),
+    ),
+    rateLimit: 'calendarAdmin',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    const ergebnis = await calendar.nimmBestaetigungZurueck(
+      zahlungsActor(ctx),
+      input.registrationId,
+      input.ziel,
+      input.grund?.trim() || null,
+    );
+    revalidateCalendar(input.slug);
+    return { status: ergebnis.registration.paymentStatus, geaendert: ergebnis.geaendert };
+  },
+);
+
+export const removePaymentQrAction = defineAction(
+  {
+    name: 'calendar.payment.qr.remove',
+    module: MODULE_ID,
+    permission: P.paymentsManage,
+    schema: calendar.eventIdSchema.and(z.object({ slug: z.string().optional() })),
+    rateLimit: 'calendarAdmin',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    await calendar.entferneZahlungsQr(zahlungsActor(ctx), input.eventId);
+    revalidateCalendar(input.slug);
+    return { entfernt: true };
   },
 );

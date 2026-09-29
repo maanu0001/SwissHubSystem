@@ -9,6 +9,7 @@ import { createLogger } from '@swisshub/logger';
 import { conflict, forbidden, notFound } from '@swisshub/shared';
 import { CALENDAR_MODULE_ID } from './config';
 import { requireEvent } from './service';
+import { kostenpflichtig, startStatus } from './zahlungen';
 import type { CalendarActor } from './schemas';
 
 const logger = createLogger('calendar:registrations');
@@ -182,6 +183,39 @@ export async function register(
       // kein wiederhergestelltes Nachruecken.
       promotedAt: null,
       promotionNotifiedAt: null,
+
+      /*
+       * Der Zahlungsstand einer frischen Anmeldung.
+       *
+       * `PENDING`, sobald der Termin etwas kostet - ausdruecklich nicht
+       * `VERIFIED`. Dass jemand das Formular abgeschickt hat, sagt nichts
+       * darueber, ob Geld angekommen ist; SwissHub sieht keine
+       * Kontobewegung und darf deshalb keine behaupten. Bis ein Mensch
+       * bestaetigt, ist die Teilnahme vorlaeufig.
+       *
+       * Der Betrag wird mitgeschrieben und nicht aus dem Termin gelesen:
+       * aendert die Organisation den Preis nachtraeglich, schuldet niemand
+       * rueckwirkend mehr. Was in der Liste steht, ist das, was die Person
+       * gesehen hat.
+       *
+       * Auch eine Anmeldung, die auf der Warteliste landet, traegt den
+       * Preis. Sie wird spaeter vielleicht nachgerueckt, und dann soll dort
+       * nicht ploetzlich eine Null stehen.
+       */
+      paymentStatus: startStatus(frisch),
+      paymentAmountCents: kostenpflichtig(frisch) ? frisch.entryFeeCents : 0,
+      paymentCurrency: kostenpflichtig(frisch) ? frisch.entryFeeCurrency : null,
+      /*
+       * Eine erneute Anmeldung nach einer Stornierung beginnt bei null.
+       *
+       * Sonst behielte jemand, der einmal bestaetigt und dann storniert
+       * wurde, seine Bestaetigung ueber die neue Anmeldung hinweg - und
+       * haette beim naechsten Mal umsonst teilgenommen.
+       */
+      paymentVerifiedAt: null,
+      paymentVerifiedByDiscordId: null,
+      paymentVerifiedByUsername: null,
+      paymentReason: null,
     };
 
     const eintrag = vorhanden

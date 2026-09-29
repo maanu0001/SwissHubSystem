@@ -44,6 +44,32 @@ export const CALENDAR_PERMISSIONS = {
 
   categoriesManage: 'calendar.categories.manage',
   statsView: 'calendar.stats.view',
+
+  /*
+   * Eintritt und Zahlung - vier Berechtigungen statt einer.
+   *
+   * Weil es vier verschiedene Handlungen sind, und die mittlere ist die,
+   * bei der Geld im Spiel ist:
+   *
+   *  - **ansehen**: wer bezahlt hat und wer nicht. Eine Auskunft.
+   *  - **bestaetigen**: «ich habe aufs Konto geschaut, es ist da». Damit
+   *    wird eine Teilnahme definitiv - und wer es zu Unrecht tut, laesst
+   *    jemanden umsonst hinein.
+   *  - **erlassen**: jemanden ohne Zahlung hereinlassen. Andere Frage,
+   *    andere Verantwortung - wer die Kasse fuehrt, ist nicht zwingend wer
+   *    ueber Freiplaetze entscheidet.
+   *  - **zuruecknehmen**: eine Bestaetigung wieder aufheben. Der seltenste
+   *    Fall und der heikelste, weil er jemandem die Teilnahme entzieht.
+   *
+   * Dazu die fuenfte fuer die Einstellungen: den Preis festlegen ist etwas
+   * anderes, als einen Termin zu pflegen. Wer die Beschreibung schreibt,
+   * soll nicht nebenbei den Eintritt verdoppeln koennen.
+   */
+  paymentsView: 'calendar.payments.view',
+  paymentsVerify: 'calendar.payments.verify',
+  paymentsWaive: 'calendar.payments.waive',
+  paymentsRevoke: 'calendar.payments.revoke',
+  paymentsManage: 'calendar.payments.manage',
 } as const;
 
 export type CalendarPermission = (typeof CALENDAR_PERMISSIONS)[keyof typeof CALENDAR_PERMISSIONS];
@@ -315,6 +341,45 @@ export const calendarModule: ModuleDefinition = registerModule({
       label: 'Event-Statistiken',
       description: 'Kennzahlen zu Events, Anmeldungen und Kategorien einsehen.',
       module: CALENDAR_MODULE_ID,
+    },
+    {
+      key: CALENDAR_PERMISSIONS.paymentsView,
+      label: 'Zahlungsstatus ansehen',
+      description:
+        'Bei kostenpflichtigen Events sehen, wer bezahlt hat, wer noch offen ist und wer freigestellt wurde.',
+      module: CALENDAR_MODULE_ID,
+    },
+    {
+      key: CALENDAR_PERMISSIONS.paymentsVerify,
+      label: 'Zahlung bestätigen',
+      description:
+        'Einen geprüften Zahlungseingang bestätigen. Erst damit ist eine Teilnahme definitiv - SwissHub sieht keine Kontobewegung und bestätigt nie von selbst.',
+      module: CALENDAR_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: CALENDAR_PERMISSIONS.paymentsWaive,
+      label: 'Zahlung erlassen',
+      description:
+        'Jemanden ohne Zahlung teilnehmen lassen - Crew, Sponsor, Gast, Gewinn. Wird getrennt von «bezahlt» geführt.',
+      module: CALENDAR_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: CALENDAR_PERMISSIONS.paymentsRevoke,
+      label: 'Zahlungsbestätigung zurücknehmen',
+      description:
+        'Eine Bestätigung oder einen Erlass aufheben. Entzieht jemandem die definitive Teilnahme - deshalb getrennt vom Bestätigen vergeben.',
+      module: CALENDAR_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: CALENDAR_PERMISSIONS.paymentsManage,
+      label: 'Eintritt & Zahlung verwalten',
+      description:
+        'Eintrittspreis, Zahlungshinweise und TWINT-QR-Code eines Events festlegen. Getrennt vom Bearbeiten: wer die Beschreibung schreibt, soll nicht nebenbei den Preis ändern.',
+      module: CALENDAR_MODULE_ID,
+      critical: true,
     },
   ],
   navigation: [

@@ -241,6 +241,41 @@ export const verificationSettingsSchema = z.object({
    */
   reminderContinueAfterOriginalDeleted: z.boolean().default(false),
 
+  // --- Aufraeumen der Begruessung -----------------------------------------
+  /*
+   * Warum es das gibt.
+   *
+   * Ein Bot-Konto tritt bei, bekommt seine Begruessung und tut danach nie
+   * wieder etwas. Ein totes Konto ebenso, und ein Mensch, der beitritt und
+   * es sich anders ueberlegt, auch. Die Begruessung bleibt stehen - eine
+   * Aufforderung an jemanden, der sie nie lesen wird. Bei einem Server mit
+   * Zulauf sind das nach einem halben Jahr hunderte, und der
+   * Verifikationskanal besteht dann fast nur noch aus ihnen.
+   *
+   * Gegen dieses eine Problem hilft diese eine Einstellung: die Nachricht
+   * verschwindet nach einer Weile. Sonst aendert sich nichts - siehe unten.
+   */
+  /** Die Begruessung nach einer Weile selbsttaetig entfernen. */
+  greetingAutoDeleteEnabled: z.boolean().default(false),
+  /**
+   * Nach wie langer Zeit, in Sekunden.
+   *
+   * In Sekunden gespeichert, weil das Dauerfeld der Oberflaeche damit rechnet;
+   * eingestellt wird in Stunden oder Tagen. Vierundzwanzig Stunden als
+   * Vorgabe - lang genug, dass jemand, der abends beitritt, am naechsten
+   * Abend noch seine Aufforderung vorfindet.
+   *
+   * Der Termin wird **einmal beim Senden** gerechnet und steht danach an der
+   * Nachricht. Wer diesen Wert spaeter aendert, aendert damit nichts an den
+   * Nachrichten, die schon stehen: die haben ihren Termin.
+   */
+  greetingAutoDeleteSeconds: z
+    .number()
+    .int()
+    .min(3600)
+    .max(30 * 24 * 3600)
+    .default(24 * 3600),
+
   /**
    * Bereits verifizierte Personen bei erneutem Beitritt durchwinken.
    *
@@ -491,6 +526,25 @@ const verificationSettingsFields: SettingsField[] = [
     group: 'Erinnerungen',
   },
   {
+    key: 'greetingAutoDeleteEnabled',
+    label: 'Verifikationsnachricht automatisch löschen',
+    description:
+      'Entfernt die Begrüssung des Bots, wenn sich bis dahin nichts getan hat. Betroffen ist ausschliesslich diese eine Nachricht - niemand wird deswegen gekickt, gebannt oder freigeschaltet, und der Verifikationsvorgang läuft unverändert weiter.',
+    type: 'boolean',
+    group: 'Verifikationsnachricht aufräumen',
+  },
+  {
+    key: 'greetingAutoDeleteSeconds',
+    label: 'Nachricht löschen nach',
+    description:
+      'Gezählt ab dem Senden der Begrüssung. Unabhängig vom Abstand der Erinnerungen - beides lässt sich frei kombinieren, etwa Erinnerung alle 24 Stunden und Löschung nach 72.',
+    type: 'duration',
+    min: 3600,
+    max: 30 * 24 * 3600,
+    presets: [3600, 6 * 3600, 12 * 3600, 24 * 3600, 48 * 3600, 72 * 3600],
+    group: 'Verifikationsnachricht aufräumen',
+  },
+  {
     key: 'trustReturningMembers',
     label: 'Bereits Verifizierte durchwinken',
     description: 'Wer schon einmal geprüft wurde, muss beim erneuten Beitritt nicht erneut antreten.',
@@ -664,6 +718,33 @@ async function verificationHealthChecks(context: ModuleHealthContext): Promise<M
       status: 'ok',
       detail: `${abstand.charAt(0).toUpperCase()}${abstand.slice(1)}, danach wird die Erinnerung nach ${settings.reminderDeleteAfterSeconds} Sekunden wieder gelöscht.`,
     });
+  }
+
+  /*
+   * Das Auto-Delete braucht dasselbe Recht wie das Aufraeumen.
+   *
+   * Ohne «Nachrichten verwalten» im Verifikationskanal scheitert jede
+   * Loeschung mit 403 - still, denn es geschieht ja nichts Sichtbares. Die
+   * Nachrichten bleiben stehen, und wer die Einstellung eingeschaltet hat,
+   * glaubt, sie wirke.
+   */
+  if (settings.greetingAutoDeleteEnabled) {
+    const stunden = Math.round(settings.greetingAutoDeleteSeconds / 3600);
+    const abstand = stunden >= 24 && stunden % 24 === 0 ? `${stunden / 24} Tagen` : `${stunden} Stunden`;
+    checks.push(
+      settings.verificationChannelId
+        ? {
+            label: 'Verifikationsnachricht aufräumen',
+            status: 'ok',
+            detail: `Die Begrüssung wird nach ${abstand} entfernt. Am Verifikationsvorgang ändert das nichts.`,
+          }
+        : {
+            label: 'Verifikationsnachricht aufräumen',
+            status: 'error',
+            detail: 'Eingeschaltet, aber ohne Verifikationskanal gibt es keine Nachricht zum Entfernen.',
+            fixHref: fix,
+          },
+    );
   }
 
   // Ohne Message Content sieht der Bot den Text nicht - und ohne Text gibt es

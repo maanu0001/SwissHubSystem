@@ -470,8 +470,34 @@ export async function loescheBegruessung(
 ): Promise<{ geloescht: number; schonWeg: number; fehlgeschlagen: number }> {
   const gateway = options.gateway ?? defaultDiscord;
   const zeilen = await prisma.verificationBotMessage
-    .findMany({ where: { requestId, kind: 'GREETING' }, select: { channelId: true, discordMessageId: true } })
+    .findMany({
+      where: { requestId, kind: 'GREETING' },
+      select: { id: true, channelId: true, discordMessageId: true },
+    })
     .catch(() => []);
+
+  /*
+   * Der Vermerk zuerst, der Loeschauftrag danach.
+   *
+   * Zwei Gruende, und beide zaehlen:
+   *
+   *  - Der spaetere Fristlauf findet die Zeile dann nicht mehr faellig vor
+   *    und loescht nicht ein zweites Mal ins Leere.
+   *  - Discord meldet das Verschwinden der Nachricht zurueck, und
+   *    `begruessungGeloescht` soll daraus nicht schliessen, ein Mensch habe
+   *    aufgeraeumt. Steht der Vermerk schon, geht das Ereignis ins Leere -
+   *    so, wie es soll.
+   */
+  if (zeilen.length > 0) {
+    await prisma.verificationBotMessage
+      .updateMany({
+        where: { id: { in: zeilen.map((zeile) => zeile.id) }, deletedAt: null },
+        data: { deletedAt: new Date() },
+      })
+      .catch((error: unknown) => {
+        logger.warn('verification.greeting.mark_failed', { requestId, error });
+      });
+  }
 
   /*
    * Die Rückfallebene für Vorgänge aus der Zeit vor der Liste: sie tragen

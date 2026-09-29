@@ -5,6 +5,7 @@ import { formatDate } from '@swisshub/shared';
 import type { profile } from '@swisshub/modules';
 import { NavIcon } from '@/components/layout/nav-icon';
 import { ProfilSpiele } from '../profil-spiele';
+import { StufenMarke, stufe } from '../../auszeichnungs-stufe';
 import { OeAbschnitt, OeMerkmale } from './oe-bausteine';
 
 /**
@@ -350,6 +351,20 @@ export function OeLevel({
  * hat; diese drei sagen, worauf er stolz ist. Sie sind eine **Auswahl** aus
  * derselben Liste - was hier steht, steht auch dort, und was jemand nicht
  * erreicht hat, kann an keiner der beiden Stellen erscheinen.
+ *
+ * ## Warum die Stufe hier jetzt anders aussieht
+ *
+ * Sie stand als Kleintext unter dem Namen - «gold», grau, in Versalien - auf
+ * einer Karte, die in der Akzentfarbe des Profildesigns gehalten war. Drei
+ * Auszeichnungen nebeneinander sahen damit identisch aus, und ausgerechnet
+ * hier, auf der Seite, die man verlinkt und teilt, war Gold von Bronze nicht
+ * zu unterscheiden.
+ *
+ * Jetzt traegt die Karte selbst die Stufe: Rahmengeometrie, Materialstruktur
+ * und Symbolfeld kommen aus `auszeichnungs-stufe` - demselben Satz Angaben,
+ * aus dem die Auszeichnungsliste im Dashboard und die Gamer Card schoepfen.
+ * Die Akzentfarbe des Designs bleibt dem Rest der Seite; eine Medaille hat
+ * ihre eigene Farbe, und zwar eine, die nicht verhandelbar ist.
  */
 export function OeHervorgehobene({
   auszeichnungen,
@@ -370,23 +385,21 @@ export function OeHervorgehobene({
       {auszeichnungen.map((eintrag) => (
         <div
           key={eintrag.key}
-          className="po-karte po-hebt flex items-center gap-3 p-4"
+          className={`po-hebt flex items-center gap-3 p-4 ${stufe(eintrag.stufe).karte}`}
           title={eintrag.beschreibung}
         >
-          <span
-            className="grid size-11 shrink-0 place-items-center rounded-xl [&_svg]:size-5"
-            style={{
-              backgroundColor: 'hsl(var(--profil-akzent) / 0.16)',
-              color: 'hsl(var(--profil-akzent))',
-            }}
-            aria-hidden="true"
-          >
+          <span className="az-feld size-11 shrink-0 [&_svg]:size-5" aria-hidden="true">
             <NavIcon name={eintrag.symbol} />
           </span>
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold">{eintrag.label}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-foreground">{eintrag.label}</span>
             {/*
               Stufe und - wo es zutrifft - «verliehen».
+
+              Das Wort bleibt neben der Karte stehen, obwohl die Karte die
+              Stufe schon zeigt: es ist das, was ein Vorleseprogramm ausgibt,
+              und das, was jemand liest, der diese Seite zum ersten Mal sieht
+              und die Formensprache noch nicht kennt.
 
               Ein Freischaltdatum steht hier **nicht**, und zwar weil es keines
               gibt: gerechnete Auszeichnungen liegen in keiner Tabelle, sie
@@ -395,11 +408,12 @@ export function OeHervorgehobene({
               und nur bei der Haelfte eines zu zeigen saehe nach einem Fehler
               aus - also bei keiner.
             */}
-            <span className="block text-[0.65rem] uppercase tracking-wide text-muted-foreground">
-              {eintrag.stufe}
+            <span className="block text-[0.65rem] uppercase tracking-wide opacity-90">
+              {stufe(eintrag.stufe).label}
               {eintrag.verliehen ? ' · verliehen' : ''}
             </span>
           </span>
+          <StufenMarke wert={eintrag.stufe} className="shrink-0" />
         </div>
       ))}
     </div>

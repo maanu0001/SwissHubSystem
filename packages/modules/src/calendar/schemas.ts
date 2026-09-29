@@ -169,6 +169,40 @@ export const eventInputSchema = z
     cancelDeadlineAt: optionalRohesDatum,
     participantsPublic: z.coerce.boolean().default(true),
 
+    /*
+     * Eintritt und Zahlung.
+     *
+     * Der Preis kommt als **Rappen** herein und nicht als «15.00». Eine
+     * Kommazahl aus einem Textfeld ist die Stelle, an der Geld schiefgeht:
+     * je nach Tastatur kommt «15,00», je nach Browser «15.0», und
+     * `parseFloat` macht aus «15.- CHF» eine Fuenfzehn ohne zu klagen. Das
+     * Formular rechnet um, die Pruefung sieht nur ganze Zahlen - und eine
+     * negative gibt es nicht, weil `min(0)` es nicht zulaesst.
+     */
+    entryFeeEnabled: z.coerce.boolean().default(false),
+    entryFeeCents: z.coerce
+      .number()
+      .int('Bitte einen Betrag in ganzen Rappen angeben.')
+      .min(0, 'Ein Eintritt kann nicht negativ sein.')
+      .max(1_000_000, 'Das ist mehr als CHF 10 000 - bitte prüfen.')
+      .default(0),
+    /** V1 kennt nur den Franken. Die Liste ist der Ort, an dem das steht. */
+    entryFeeCurrency: z.enum(['CHF']).default('CHF'),
+    /**
+     * Zahlungshinweise - mehrzeilig und ausdruecklich als Text.
+     *
+     * `richText` faltet keine Absaetze weg, entfernt aber Steuerzeichen. Was
+     * hier hereinkommt, wird ueberall als Text dargestellt; es gibt keinen
+     * Pfad, auf dem daraus Markup wuerde.
+     */
+    paymentNote: z
+      .string()
+      .max(2000)
+      .optional()
+      .transform((value) =>
+        value && value.trim().length > 0 ? sanitizeText(value, 2000, { keepNewlines: true }) : null,
+      ),
+
     announceOnDiscord: z.coerce.boolean().default(false),
     announcementChannelId: optionalSnowflakeSchema,
     mentionRoleId: optionalSnowflakeSchema,
@@ -264,6 +298,28 @@ export const eventInputSchema = z
         code: 'custom',
         path: ['capacity'],
         message: 'Eine Teilnehmerzahl ergibt nur mit aktivierter Anmeldung Sinn.',
+      });
+    }
+    /*
+     * Ein Eintritt ohne Anmeldung hat niemanden, dem er berechnet wuerde.
+     *
+     * Der Zahlungsstatus haengt an der Anmeldung - ohne Anmeldung gibt es
+     * keine Zeile, auf der er stehen koennte, und damit auch niemanden, den
+     * ein Admin bestaetigen koennte. Das waere ein Preis, den SwissHub zeigt
+     * und danach vergisst.
+     */
+    if (input.entryFeeEnabled && !input.registrationEnabled) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['entryFeeEnabled'],
+        message: 'Ein Eintritt braucht eine Anmeldung - sonst gibt es niemanden, dessen Zahlung man prüft.',
+      });
+    }
+    if (input.entryFeeEnabled && input.entryFeeCents <= 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['entryFeeCents'],
+        message: 'Bitte einen Betrag über null angeben - oder den Eintritt auf kostenlos stellen.',
       });
     }
   });

@@ -155,6 +155,8 @@ export const UPLOAD_KINDS = [
   'gamecover',
   'profilbanner',
   'wrappedmoment',
+  /** Der TWINT-QR-Code eines kostenpflichtigen Kalendertermins. */
+  'twintqr',
   /*
    * Hochgeladene Clipdateien.
    *

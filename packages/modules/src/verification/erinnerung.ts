@@ -100,9 +100,25 @@ export async function beendeErinnerungen(requestId: string, grund: ErinnerungsEn
 export async function begruessungGeloescht(messageId: string): Promise<boolean> {
   const zeile = await prisma.verificationBotMessage.findFirst({
     where: { discordMessageId: messageId, kind: 'GREETING' },
-    select: { requestId: true },
+    select: { requestId: true, deletedAt: true },
   });
   if (!zeile) {
+    return false;
+  }
+  /*
+   * War SwissHub es selbst, endet hier nichts.
+   *
+   * Die Regel darunter - «Begruessung weg, also hat jemand aufgeraeumt, also
+   * keine Erinnerungen mehr» - gilt fuer einen **Menschen**, der aufraeumt.
+   * Sie auf die eigene Frist anzuwenden hiesse, dass Reminder- und
+   * Delete-Intervall nicht unabhaengig waeren: bei «erinnere taeglich,
+   * loesche nach drei Tagen» hoerten die Erinnerungen nach drei Tagen auf,
+   * ohne dass das jemand eingestellt haette.
+   *
+   * `deletedAt` steht an der Zeile, bevor der Loeschauftrag rausgeht - das
+   * Ereignis kommt also nie an, ohne dass der Vermerk schon da waere.
+   */
+  if (zeile.deletedAt) {
     return false;
   }
   /*

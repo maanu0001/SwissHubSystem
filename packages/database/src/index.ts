@@ -121,6 +121,7 @@ export type {
   CalendarLocationKind,
   CalendarNotice,
   CalendarNoticeKind,
+  CalendarPaymentStatus,
   CalendarQuestion,
   CalendarRegistration,
   CalendarRegistrationStatus,

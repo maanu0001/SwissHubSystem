@@ -87,6 +87,7 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   VERIFICATION_EXPIRED: 'Verifikation abgelaufen',
   VERIFICATION_TIMEOUT_KICK: 'Nach Ablauf entfernt',
   VERIFICATION_REMINDER_SENT: 'An Verifikation erinnert',
+  VERIFICATION_GREETING_AUTO_DELETED: 'Verifikationsnachricht automatisch gelöscht',
   VERIFICATION_LEFT_SERVER: 'Während der Verifikation gegangen',
   VERIFICATION_CLEANUP: 'Verifikationskanal aufgeräumt',
   VERIFICATION_SUCCESS_POSTED: 'Freischaltung gemeldet',
@@ -181,6 +182,10 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   CALENDAR_PARTICIPANTS_NOTIFIED: 'Teilnehmende benachrichtigt',
   CALENDAR_REGISTRATION_REMOVED: 'Anmeldung entfernt',
   CALENDAR_CATEGORY_SAVED: 'Eventkategorie gespeichert',
+  CALENDAR_PAYMENT_SETTINGS_CHANGED: 'Eintritt & Zahlung geändert',
+  CALENDAR_PAYMENT_VERIFIED: 'Zahlung bestätigt',
+  CALENDAR_PAYMENT_WAIVED: 'Zahlung erlassen',
+  CALENDAR_PAYMENT_REVOKED: 'Zahlungsbestätigung zurückgenommen',
 
   // --- Turniere --------------------------------------------------------------
   TOURNAMENT_CREATED: 'Turnier erstellt',

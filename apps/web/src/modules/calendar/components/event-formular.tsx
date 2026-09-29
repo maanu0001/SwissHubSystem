@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Panel } from '@/components/shared/panel';
-import { createEventAction, updateEventAction } from '@/modules/calendar/actions';
+import { createEventAction, removePaymentQrAction, updateEventAction } from '@/modules/calendar/actions';
 
 /**
  * Formular fuer Anlage und Bearbeitung eines Events.
@@ -50,6 +50,24 @@ export interface EventFormularWerte {
   allowSelfCancel: boolean;
   cancelDeadlineAt: string;
   participantsPublic: boolean;
+
+  // --- Eintritt & Zahlung ---------------------------------------------------
+  entryFeeEnabled: boolean;
+  /**
+   * Der Preis, wie ihn ein Mensch eintippt: «15» oder «15.50».
+   *
+   * Als Text und nicht als Zahl, und zwar absichtlich. Ein Zahlenfeld, dessen
+   * Wert durch `Number()` laeuft, macht aus einem halb getippten «15.» eine
+   * 15 und aus einem geloeschten Feld eine 0 - der Cursor springt, und wer
+   * «15.50» eingibt, verliert die 5 beim Tippen. Hier bleibt stehen, was
+   * jemand schreibt; umgerechnet wird einmal beim Absenden.
+   */
+  entryFeeInput: string;
+  entryFeeCurrency: 'CHF';
+  paymentNote: string;
+  /** Liegt bereits ein QR-Code am Termin? Nur zur Anzeige. */
+  hatQrCode: boolean;
+
   announceOnDiscord: boolean;
   announcementChannelId: string;
   mentionRoleId: string;
@@ -59,6 +77,13 @@ export interface EventFormularWerte {
   reminderMentionRegistrants: boolean;
   questions: Array<{ id?: string; label: string; hint: string; required: boolean; choices: string[] }>;
 }
+
+/** Der Platzhaltertext der Zahlungshinweise - drei Saetze, die tatsaechlich helfen. */
+const ZAHLUNGSHINWEIS_BEISPIEL = [
+  'Bitte bezahle den Eintritt vor der Anmeldung per TWINT.',
+  'Verwende deinen Discord-Namen als Zahlungsmitteilung.',
+  'Die Anmeldung ist erst nach Zahlung definitiv.',
+].join('\n');
 
 const VORLAUF_AUSWAHL = [
   { minuten: 10080, label: '1 Woche' },
@@ -74,9 +99,18 @@ export function EventFormular({
   kategorien,
   kanaele,
   rollen,
+  darfZahlungen,
 }: {
   csrfToken: string;
   werte: EventFormularWerte;
+  /**
+   * Darf diese Person Eintritt und Zahlungshinweise setzen?
+   *
+   * Steuert nur, ob der Abschnitt erscheint. Verbindlich ist die Pruefung
+   * im Dienst: schickt jemand die Felder trotzdem, fallen sie dort aus den
+   * Daten, und der bestehende Stand bleibt.
+   */
+  darfZahlungen: boolean;
   kategorien: Array<{ id: string; name: string }>;
   kanaele: Array<{ id: string; name: string }>;
   /** Nur Rollen, die im Modul zum Erwähnen freigegeben sind. */
@@ -92,9 +126,37 @@ export function EventFormular({
   const speichern = async (): Promise<void> => {
     setPending(true);
     try {
+      /*
+       * Von «15.50» zu 1550.
+       *
+       * Ueber eine Zeichenkette und nicht ueber `Math.round(wert * 100)`:
+       * 15.50 mal 100 ergibt in Gleitkomma 1549.9999999999998, und
+       * `Math.trunc` daraus 1549. Ein Rappen zu wenig, und niemand findet
+       * je heraus, warum. Runden statt abschneiden waere hier zwar richtig -
+       * aber die Zeichenkette beantwortet die Frage, ohne dass man ueber
+       * Rundung nachdenken muss.
+       */
+      const rappen = ((): number => {
+        const roh = werte.entryFeeInput.trim().replace(',', '.');
+        if (roh === '') {
+          return 0;
+        }
+        const treffer = /^(\d{1,7})(?:\.(\d{0,2}))?$/u.exec(roh);
+        if (!treffer) {
+          // Kein gueltiger Betrag: -1 laesst das Schema greifen, statt hier
+          // eine eigene Fehlermeldung zu erfinden. Die Regel steht an einer
+          // Stelle, und das ist der Server.
+          return -1;
+        }
+        const franken = Number(treffer[1]);
+        const rest = (treffer[2] ?? '').padEnd(2, '0');
+        return franken * 100 + Number(rest);
+      })();
+
       const nutzlast = {
         csrfToken,
         ...werte,
+        entryFeeCents: rappen,
         // Leere Datumsfelder sind «nicht gesetzt», nicht «null Uhr».
         endAt: werte.endAt || null,
         registrationClosesAt: werte.registrationClosesAt || null,
@@ -518,6 +580,90 @@ export function EventFormular({
         </div>
       </Panel>
 
+      {darfZahlungen ? (
+        <Panel
+          title="Eintritt & Zahlung"
+          description="SwissHub sieht keine Kontobewegung. Eine Anmeldung gilt erst als definitiv, wenn ein Mensch den Zahlungseingang bestätigt hat."
+        >
+          <div className="space-y-4">
+            <label className="flex items-center gap-3">
+              <Switch
+                checked={werte.entryFeeEnabled}
+                onCheckedChange={(wert) => setze('entryFeeEnabled', wert)}
+                aria-label="Eintritt kostenpflichtig"
+                disabled={!werte.registrationEnabled}
+              />
+              <span className="text-sm">
+                Eintritt kostenpflichtig
+                <span className="block text-xs text-muted-foreground">
+                  {werte.registrationEnabled
+                    ? 'Anmeldungen sind dann zunächst vorläufig, bis jemand die Zahlung bestätigt.'
+                    : 'Braucht eine aktivierte Anmeldung - sonst gibt es niemanden, dessen Zahlung man prüft.'}
+                </span>
+              </span>
+            </label>
+
+            {werte.entryFeeEnabled && werte.registrationEnabled ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="entryFeeInput">Eintritt</Label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">{werte.entryFeeCurrency}</span>
+                      <Input
+                        id="entryFeeInput"
+                        inputMode="decimal"
+                        placeholder="15.00"
+                        value={werte.entryFeeInput}
+                        onChange={(event) => setze('entryFeeInput', event.target.value)}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">Zum Beispiel 15 oder 15.50.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="entryFeeCurrency">Währung</Label>
+                    <select
+                      id="entryFeeCurrency"
+                      value={werte.entryFeeCurrency}
+                      disabled
+                      onChange={() => undefined}
+                      className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                    >
+                      <option value="CHF">CHF</option>
+                    </select>
+                    <p className="text-xs text-muted-foreground">V1 rechnet in Franken.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="paymentNote">Zahlungshinweise</Label>
+                  <textarea
+                    id="paymentNote"
+                    rows={4}
+                    maxLength={2000}
+                    value={werte.paymentNote}
+                    placeholder={ZAHLUNGSHINWEIS_BEISPIEL}
+                    onChange={(event) => setze('paymentNote', event.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Stehen bei der Anmeldung und in der eigenen Teilnahmeansicht. Werden als Text dargestellt
+                    - Formatierungen gibt es hier bewusst keine.
+                  </p>
+                </div>
+
+                <TwintQrFeld
+                  csrfToken={csrfToken}
+                  eventId={werte.eventId}
+                  hatQrCode={werte.hatQrCode}
+                  onGeaendert={(vorhanden) => setze('hatQrCode', vorhanden)}
+                />
+              </>
+            ) : null}
+          </div>
+        </Panel>
+      ) : null}
+
       <Panel
         title="Discord"
         description="Ankündigung und Erinnerungen. Erwähnt werden nur Rollen, die in den Moduleinstellungen freigegeben sind."
@@ -641,6 +787,147 @@ export function EventFormular({
           <Save aria-hidden="true" />
           {werte.eventId ? 'Speichern' : 'Als Entwurf anlegen'}
         </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Der TWINT-QR-Code: hochladen, ersetzen, entfernen.
+ *
+ * ## Warum es hier eine eigene Komponente gibt
+ *
+ * Weil eine Datei nicht durch eine Server Action passt. Der Upload geht
+ * deshalb an einen Route Handler, und der braucht eine Termin-Kennung - die
+ * gibt es erst, wenn der Termin gespeichert ist. Bei einem noch nicht
+ * angelegten Entwurf steht hier darum ein Hinweis statt eines Knopfes: alles
+ * andere wäre ein Upload ins Leere.
+ *
+ * ## Warum das Bild an der Adresse und nicht als Vorschau aus dem Browser
+ *
+ * Die Vorschau soll zeigen, was die Angemeldeten sehen - also das, was der
+ * Server ausliefert, und nicht die Datei, die gerade im Speicher des
+ * Browsers liegt. Ein `key` mit dem Zeitpunkt zwingt den Browser, das Bild
+ * nach einem Upload neu zu holen; sonst zeigte der Zwischenspeicher den
+ * alten Code.
+ */
+function TwintQrFeld({
+  csrfToken,
+  eventId,
+  hatQrCode,
+  onGeaendert,
+}: {
+  csrfToken: string;
+  eventId: string | undefined;
+  hatQrCode: boolean;
+  onGeaendert: (vorhanden: boolean) => void;
+}): React.JSX.Element {
+  const [laeuft, setLaeuft] = useState(false);
+  const [stand, setStand] = useState(() => Date.now());
+
+  if (!eventId) {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+        Der TWINT-QR-Code lässt sich hochladen, sobald der Termin einmal gespeichert ist.
+      </div>
+    );
+  }
+
+  const hochladen = async (datei: File): Promise<void> => {
+    setLaeuft(true);
+    try {
+      const formular = new FormData();
+      formular.append('csrfToken', csrfToken);
+      formular.append('image', datei);
+      const antwort = await fetch(`/api/kalender/${eventId}/twint-qr`, {
+        method: 'POST',
+        body: formular,
+      });
+      const daten = (await antwort.json()) as { ok?: boolean; error?: { message?: string } };
+      if (!antwort.ok || !daten.ok) {
+        toast.error(daten.error?.message ?? 'Der QR-Code liess sich nicht speichern.');
+        return;
+      }
+      toast.success('TWINT-QR-Code gespeichert.');
+      onGeaendert(true);
+      setStand(Date.now());
+    } finally {
+      setLaeuft(false);
+    }
+  };
+
+  const entfernen = async (): Promise<void> => {
+    setLaeuft(true);
+    try {
+      const ergebnis = await removePaymentQrAction({ csrfToken, eventId });
+      if (!ergebnis.ok) {
+        toast.error(ergebnis.error?.message ?? 'Das hat nicht geklappt.');
+        return;
+      }
+      toast.success('TWINT-QR-Code entfernt.');
+      onGeaendert(false);
+      setStand(Date.now());
+    } finally {
+      setLaeuft(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <Label htmlFor="twintQr">TWINT-QR-Code</Label>
+      <div className="flex flex-wrap items-start gap-4">
+        {hatQrCode ? (
+          /*
+           * Kein `next/image`: die Adresse ist ein Route Handler mit
+           * privatem Zwischenspeicher, und der Optimierer braeuchte dafuer
+           * eine Freigabeliste, die nichts gewinnt.
+           */
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={stand}
+            src={`/api/kalender/${eventId}/twint-qr?v=${stand}`}
+            alt="Hinterlegter TWINT-QR-Code"
+            className="h-32 w-32 rounded-lg border border-border bg-white object-contain p-2"
+          />
+        ) : (
+          <div className="grid h-32 w-32 place-items-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
+            Kein Code
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Input
+            id="twintQr"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            disabled={laeuft}
+            onChange={(event) => {
+              const datei = event.target.files?.[0];
+              // Das Feld wird zurueckgesetzt, damit dieselbe Datei zweimal
+              // hintereinander ausgewaehlt werden kann - sonst feuert
+              // `change` beim zweiten Mal nicht.
+              event.target.value = '';
+              if (datei) {
+                void hochladen(datei);
+              }
+            }}
+          />
+          <p className="text-xs text-muted-foreground">
+            PNG, JPG oder WEBP, höchstens 2 MB. Kein SVG - eine SVG-Datei kann Skripte enthalten.
+          </p>
+          {hatQrCode ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={laeuft}
+              onClick={() => void entfernen()}
+            >
+              <Trash2 aria-hidden="true" />
+              Code entfernen
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

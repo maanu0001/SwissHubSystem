@@ -7,7 +7,7 @@ import { ErrorState } from '@/components/shared/states';
 import { EventFormular } from '@/modules/calendar/components/event-formular';
 import { VeroeffentlichenKnopf } from '@/modules/calendar/components/veroeffentlichen-knopf';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
-import { alsEingabewert, formularAuswahl } from '@/server/kalender';
+import { alsEingabewert, betragAlsEingabe, formularAuswahl } from '@/server/kalender';
 
 export const metadata: Metadata = { title: 'Event bearbeiten' };
 export const dynamic = 'force-dynamic';
@@ -116,6 +116,11 @@ export default async function EventBearbeitenPage({
           allowSelfCancel: event.allowSelfCancel,
           cancelDeadlineAt: alsEingabewert(event.cancelDeadlineAt, event.timezone),
           participantsPublic: event.participantsPublic,
+          entryFeeEnabled: event.entryFeeEnabled,
+          entryFeeInput: betragAlsEingabe(event.entryFeeCents),
+          entryFeeCurrency: 'CHF',
+          paymentNote: event.paymentNote ?? '',
+          hatQrCode: event.paymentQrPath !== null,
           announceOnDiscord: event.announceOnDiscord,
           announcementChannelId: event.announcementChannelId ?? '',
           mentionRoleId: event.mentionRoleId ?? '',
@@ -134,6 +139,7 @@ export default async function EventBearbeitenPage({
         kategorien={auswahl.kategorien}
         kanaele={auswahl.kanaele}
         rollen={auswahl.rollen}
+        darfZahlungen={can(context, P.paymentsManage)}
       />
     </>
   );

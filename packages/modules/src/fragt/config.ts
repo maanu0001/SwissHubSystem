@@ -56,6 +56,18 @@ export const FRAGT_PERMISSIONS = {
   schedule: 'fragt.schedule',
   close: 'fragt.close',
   results: 'fragt.results',
+  /**
+   * Wer fuer welche Antwort gestimmt hat.
+   *
+   * Ausdruecklich getrennt von `results`. Ein Ergebnis anzusehen heisst,
+   * eine Zahl zu lesen; zu sehen, wer wofuer gestimmt hat, heisst, ueber
+   * einzelne Leute etwas zu erfahren, das sie im Kanal anonym abgegeben
+   * haben. Das ist nicht dieselbe Handlung, und deshalb ist es nicht
+   * dieselbe Berechtigung: wer die Beteiligung auswertet, braucht keine
+   * Namensliste, und wer eine Namensliste braucht, soll sie ausdruecklich
+   * bekommen haben.
+   */
+  votesDetail: 'fragt.votes.detail',
   studio: 'fragt.studio',
   settings: 'fragt.settings',
 } as const;
@@ -306,6 +318,14 @@ export const fragtModule: ModuleDefinition = registerModule({
       label: 'Ergebnisse ansehen',
       description: 'Abgeschlossene Abstimmungen mit Zahlen und Beteiligungsstatistik sehen.',
       module: FRAGT_MODULE_ID,
+    },
+    {
+      key: FRAGT_PERMISSIONS.votesDetail,
+      label: 'Stimmen im Detail ansehen',
+      description:
+        'Sehen, welches Mitglied für welche Antwort gestimmt hat. Öffentlich bleiben die Ergebnisse aggregiert - diese Berechtigung gibt Einblick in einzelne Stimmen und wird deshalb getrennt vom Ansehen der Ergebnisse vergeben.',
+      module: FRAGT_MODULE_ID,
+      critical: true,
     },
     {
       key: FRAGT_PERMISSIONS.studio,

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { can } from '@swisshub/auth';
 import { calendar, isModuleEnabled } from '@swisshub/modules';
 import { PageHeader } from '@/components/shared/page-header';
 import { ErrorState } from '@/components/shared/states';
@@ -31,6 +32,7 @@ export default async function NeuesEventPage(): Promise<React.JSX.Element> {
         kategorien={auswahl.kategorien}
         kanaele={auswahl.kanaele}
         rollen={auswahl.rollen}
+        darfZahlungen={can(context, calendar.CALENDAR_PERMISSIONS.paymentsManage)}
       />
     </>
   );

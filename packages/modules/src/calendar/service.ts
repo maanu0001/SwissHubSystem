@@ -139,6 +139,18 @@ export function erlaubteErwaehnung(
 function felderAus(
   input: EventInput,
   settings: CalendarSettings,
+  /**
+   * Darf diese Person Eintritt und Zahlungshinweise setzen?
+   *
+   * Eigene Berechtigung, eigener Parameter, und der Riegel sitzt hier statt
+   * in der Oberflaeche: wer ein Event bearbeiten darf, darf damit noch lange
+   * keinen Preis festlegen. Steht er auf `false`, fallen die vier Felder
+   * schlicht aus den Daten - der bestehende Stand bleibt dann, was er war.
+   * Ein Fehler waere hier falsch: das Formular schickt immer alle Felder,
+   * und wer nur den Beschreibungstext aendert, soll deswegen nichts
+   * vorgelegt bekommen.
+   */
+  darfZahlungen: boolean,
 ): Omit<Prisma.CalendarEventUncheckedCreateInput, 'guildId' | 'slug' | 'createdByDiscordId'> {
   // Das Schema hat `startAt` bereits erzwungen; der abgeleitete Typ traegt
   // die Null trotzdem noch mit. Lieber hier laut scheitern als eine Null in
@@ -175,6 +187,20 @@ function felderAus(
     announceOnDiscord: input.announceOnDiscord,
     announcementChannelId: input.announcementChannelId || null,
     mentionRoleId: erlaubteErwaehnung(input.mentionRoleId, settings),
+    ...(darfZahlungen
+      ? {
+          entryFeeEnabled: input.entryFeeEnabled,
+          /*
+           * Ein abgeschalteter Eintritt wird auf null gesetzt und nicht
+           * behalten. Sonst stuende in der Datenbank ein Preis an einem
+           * Termin, der als kostenlos gilt - und die erste Abfrage, die den
+           * Schalter uebersieht, berechnet ihn.
+           */
+          entryFeeCents: input.entryFeeEnabled ? input.entryFeeCents : 0,
+          entryFeeCurrency: input.entryFeeCurrency,
+          paymentNote: input.paymentNote,
+        }
+      : {}),
   };
 }
 
@@ -236,7 +262,11 @@ async function schreibeAnhaenge(
   }
 }
 
-export async function createEvent(actor: CalendarActor, input: EventInput): Promise<CalendarEvent> {
+export async function createEvent(
+  actor: CalendarActor,
+  input: EventInput,
+  optionen: { darfZahlungen?: boolean } = {},
+): Promise<CalendarEvent> {
   const guildId = await resolveGuildId();
   const settings = await calendarSettings();
   const slug = await freierSlug(guildId, input.title);
@@ -247,7 +277,7 @@ export async function createEvent(actor: CalendarActor, input: EventInput): Prom
         guildId,
         slug,
         createdByDiscordId: actor.discordId,
-        ...felderAus(input, settings),
+        ...felderAus(input, settings, optionen.darfZahlungen === true),
       },
     });
     await schreibeAnhaenge(tx, angelegt.id, input, angelegt.startAt);
@@ -302,6 +332,7 @@ export async function updateEvent(
   actor: CalendarActor,
   id: string,
   input: EventInput,
+  optionen: { darfZahlungen?: boolean } = {},
 ): Promise<UpdateResult> {
   const vorher = await requireEvent(id);
   if (vorher.status === 'COMPLETED' || vorher.status === 'CANCELLED') {
@@ -317,7 +348,7 @@ export async function updateEvent(
   const event = await prisma.$transaction(async (tx) => {
     const aktualisiert = await tx.calendarEvent.update({
       where: { id },
-      data: { slug, ...felderAus(input, settings) },
+      data: { slug, ...felderAus(input, settings, optionen.darfZahlungen === true) },
     });
     await schreibeAnhaenge(tx, id, input, aktualisiert.startAt);
     return aktualisiert;
@@ -355,6 +386,46 @@ export async function updateEvent(
     success: true,
     metadata: { eventId: event.id, wesentlich },
   });
+
+  /*
+   * Eintritt, Hinweise und Waehrung bekommen einen eigenen Eintrag.
+   *
+   * Sie im allgemeinen «Event geaendert» untergehen zu lassen hiesse, dass
+   * eine Preisaenderung im Protokoll aussieht wie eine korrigierte
+   * Rechtschreibung. Der Eintrag entsteht nur, wenn sich tatsaechlich etwas
+   * geaendert hat - und er traegt Betraege, keine Zahlungsdaten.
+   */
+  const zahlungGeaendert =
+    vorher.entryFeeEnabled !== event.entryFeeEnabled ||
+    vorher.entryFeeCents !== event.entryFeeCents ||
+    vorher.entryFeeCurrency !== event.entryFeeCurrency ||
+    (vorher.paymentNote ?? '') !== (event.paymentNote ?? '');
+  if (zahlungGeaendert) {
+    await safeRecordAudit({
+      action: AUDIT_ACTIONS.CALENDAR_PAYMENT_SETTINGS_CHANGED,
+      module: CALENDAR_MODULE_ID,
+      actorDiscordId: actor.discordId,
+      actorUsername: actor.username,
+      targetLabel: event.title,
+      success: true,
+      metadata: {
+        eventId: event.id,
+        vorher: {
+          eintritt: vorher.entryFeeEnabled,
+          betragRappen: vorher.entryFeeCents,
+          waehrung: vorher.entryFeeCurrency,
+          hinweise: Boolean(vorher.paymentNote),
+        },
+        nachher: {
+          eintritt: event.entryFeeEnabled,
+          betragRappen: event.entryFeeCents,
+          waehrung: event.entryFeeCurrency,
+          hinweise: Boolean(event.paymentNote),
+        },
+      },
+    });
+  }
+
   return { event, wesentlich };
 }
 
@@ -577,6 +648,17 @@ export async function duplicateEvent(
         allowSelfCancel: vorlage.allowSelfCancel,
         cancelDeadlineAt: null,
         participantsPublic: vorlage.participantsPublic,
+        /*
+         * Eintritt und Hinweise kommen mit - eine Reihe kostet in aller
+         * Regel jedes Mal dasselbe. Der QR-Code **nicht**: er haengt als
+         * Datei am urspruenglichen Termin, und zwei Termine, die sich
+         * dieselbe Datei teilen, verlieren sie beide, sobald einer sie
+         * ersetzt. Wer den Code wieder braucht, laedt ihn hoch.
+         */
+        entryFeeEnabled: vorlage.entryFeeEnabled,
+        entryFeeCents: vorlage.entryFeeCents,
+        entryFeeCurrency: vorlage.entryFeeCurrency,
+        paymentNote: vorlage.paymentNote,
         announceOnDiscord: vorlage.announceOnDiscord,
         announcementChannelId: vorlage.announcementChannelId,
         mentionRoleId: vorlage.mentionRoleId,

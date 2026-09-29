@@ -66,6 +66,11 @@ export async function leereWerte(): Promise<EventFormularWerte> {
     allowSelfCancel: true,
     cancelDeadlineAt: '',
     participantsPublic: true,
+    entryFeeEnabled: false,
+    entryFeeInput: '',
+    entryFeeCurrency: 'CHF',
+    paymentNote: '',
+    hatQrCode: false,
     announceOnDiscord: Boolean(settings.defaultAnnouncementChannelId),
     announcementChannelId: settings.defaultAnnouncementChannelId ?? '',
     mentionRoleId: '',
@@ -84,6 +89,20 @@ export async function leereWerte(): Promise<EventFormularWerte> {
  * UTC-Zeitpunkt in die Ortszeit des Events umgerechnet, sonst stuende dort
  * beim Bearbeiten eine andere Uhrzeit als auf der Detailseite.
  */
+/**
+ * Rappen als Eingabewert: 1550 wird zu «15.50», 1500 zu «15».
+ *
+ * Die glatten Betraege ohne Nachkommastellen, weil «15.00» im Feld aussieht,
+ * als haette jemand daran herumgerechnet. Wer Rappen braucht, bekommt sie.
+ */
+export function betragAlsEingabe(rappen: number): string {
+  if (rappen <= 0) {
+    return '';
+  }
+  const rest = rappen % 100;
+  return rest === 0 ? String(rappen / 100) : (rappen / 100).toFixed(2);
+}
+
 export function alsEingabewert(wert: Date | null, timezone: string): string {
   if (!wert) {
     return '';

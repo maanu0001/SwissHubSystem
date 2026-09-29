@@ -258,3 +258,155 @@ export async function gestellteFrageIds(guildId: string): Promise<Set<string>> {
   });
   return new Set(zeilen.map((zeile) => zeile.frageId));
 }
+
+// ---------------------------------------------------------------------------
+// Stimmen im Detail - ausdruecklich getrennt von allem darueber
+// ---------------------------------------------------------------------------
+
+/** Eine einzelne Stimme, wie eine berechtigte Person sie sieht. */
+export interface StimmenDetailZeile {
+  optionId: string;
+  /** Die Antwort, wie sie im Embed stand. */
+  antwort: string;
+  position: number;
+  discordId: string;
+  /**
+   * Der Anzeigename aus dem Mitglieder-Abgleich.
+   *
+   * `null`, wenn die Person nicht mehr im Abgleich steht - ausgetreten,
+   * gebannt, oder der Abgleich lief noch nie. Die Stimme bleibt trotzdem
+   * stehen: sie ist gezaehlt worden, und eine Auswertung, aus der Stimmen
+   * verschwinden, sobald jemand geht, waere keine.
+   */
+  name: string | null;
+  abgegebenAm: Date;
+  /** Wurde die Stimme spaeter geaendert? */
+  geaendert: boolean;
+}
+
+export interface StimmenDetail {
+  zeilen: StimmenDetailZeile[];
+  /** Je Antwort die Zahl - dieselbe wie im aggregierten Ergebnis. */
+  proAntwort: Array<{ optionId: string; antwort: string; position: number; stimmen: number }>;
+}
+
+/**
+ * Wer fuer welche Antwort gestimmt hat.
+ *
+ * ## Warum das eine eigene Funktion ist und nicht ein Feld an `ladeAbstimmung`
+ *
+ * Weil der Unterschied zwischen «oeffentlich» und «nur fuer Berechtigte»
+ * nicht in der Oberflaeche entschieden werden darf. Haenge ich die Namen als
+ * optionales Feld an das Ergebnis, dann steht irgendwann eine Seite, die es
+ * mitlaedt und «nur nicht anzeigt» - und damit stehen die Namen im HTML,
+ * das jeder Besucher bekommt. Die Trennung ist deshalb eine Trennung der
+ * **Abfragen**: wer hier nichts aufruft, hat die Daten nicht.
+ *
+ * `ladeAbstimmung`, `ladeAbgeschlossene`, `ladeUebersicht` und
+ * `ladeBeteiligung` fassen `voterDiscordId` weiterhin nicht an. Die einzige
+ * andere Stelle, die es tut, ist `eigeneStimme` - und die antwortet nur ueber
+ * die Person, die selbst fragt.
+ *
+ * ## Warum hier keine Berechtigung geprueft wird
+ *
+ * Weil dieses Paket keine Sitzung kennt. Die Pruefung sitzt an der Stelle,
+ * die eine hat - die Seite, die `fragt.votes.detail` verlangt, ehe sie diese
+ * Funktion ueberhaupt aufruft. Ein Test haelt fest, dass keine andere
+ * Abfrage des Moduls `voterDiscordId` herausgibt.
+ */
+export async function ladeStimmenDetail(
+  abstimmungId: string,
+  optionen: { optionId?: string; suche?: string } = {},
+): Promise<StimmenDetail> {
+  /*
+   * Immer alle Stimmen dieser Abstimmung.
+   *
+   * Antwortfilter und Suche greifen erst weiter unten, in JavaScript - und
+   * zwar nur auf die Liste, nicht auf die Zahlen. Filterte die Abfrage
+   * selbst, zeigte die Suche nach «Anna» eine Antwort mit einer Stimme, und
+   * jemand laese daraus ein Ergebnis, das es nicht gibt.
+   *
+   * Es geht um die Stimmen einer Frage, also um Dutzende bis wenige
+   * Hunderte. Das ist eine Abfrage und keine Last.
+   */
+  const stimmen = await prisma.fragtStimme.findMany({
+    where: { abstimmungId },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      optionId: true,
+      voterDiscordId: true,
+      createdAt: true,
+      updatedAt: true,
+      option: { select: { label: true, position: true } },
+    },
+  });
+
+  /*
+   * Die Namen kommen aus dem bestehenden Mitglieder-Abgleich.
+   *
+   * Eine Abfrage fuer alle statt einer je Stimme: bei zweihundert Stimmen
+   * waeren das zweihundert Abfragen fuer eine Auskunft, die eine beantwortet.
+   * Und keine eigene Namenstabelle - `FragtStimme` speichert bewusst nur die
+   * Kennung, damit eine Umbenennung nicht in jeder alten Abstimmung
+   * nachgezogen werden muss.
+   */
+  const kennungen = [...new Set(stimmen.map((stimme) => stimme.voterDiscordId))];
+  const mitglieder =
+    kennungen.length > 0
+      ? await prisma.discordMemberCache.findMany({
+          where: { discordId: { in: kennungen } },
+          select: { discordId: true, displayName: true },
+        })
+      : [];
+  const namen = new Map(mitglieder.map((eintrag) => [eintrag.discordId, eintrag.displayName]));
+
+  const suche = optionen.suche?.trim().toLowerCase() ?? '';
+  const zeilen: StimmenDetailZeile[] = stimmen
+    .map((stimme) => ({
+      optionId: stimme.optionId,
+      antwort: stimme.option.label,
+      position: stimme.option.position,
+      discordId: stimme.voterDiscordId,
+      name: namen.get(stimme.voterDiscordId) ?? null,
+      abgegebenAm: stimme.createdAt,
+      /*
+       * Eine geaenderte Meinung ist eine Auskunft.
+       *
+       * Eine Stimme zu aendern ist ein `update` derselben Zeile - deshalb
+       * liegt der Unterschied zwischen `createdAt` und `updatedAt` und nicht
+       * in einer zweiten Zeile. Die Sekunde Toleranz faengt den Fall ab, dass
+       * beide Zeitstempel beim Anlegen minimal auseinanderliegen.
+       */
+      geaendert: stimme.updatedAt.getTime() - stimme.createdAt.getTime() > 1000,
+    }))
+    .filter((zeile) => {
+      if (optionen.optionId && zeile.optionId !== optionen.optionId) {
+        return false;
+      }
+      if (!suche) {
+        return true;
+      }
+      return (zeile.name ?? '').toLowerCase().includes(suche) || zeile.discordId.includes(suche);
+    });
+
+  // Die Zahlen je Antwort ueber ALLE Stimmen - siehe oben.
+  const proAntwort = new Map<
+    string,
+    { optionId: string; antwort: string; position: number; stimmen: number }
+  >();
+  for (const stimme of stimmen) {
+    const eintrag = proAntwort.get(stimme.optionId) ?? {
+      optionId: stimme.optionId,
+      antwort: stimme.option.label,
+      position: stimme.option.position,
+      stimmen: 0,
+    };
+    eintrag.stimmen += 1;
+    proAntwort.set(stimme.optionId, eintrag);
+  }
+
+  return {
+    zeilen,
+    proAntwort: [...proAntwort.values()].sort((links, rechts) => links.position - rechts.position),
+  };
+}

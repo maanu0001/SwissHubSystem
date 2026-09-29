@@ -184,6 +184,21 @@ export default async function EventDetailPage({
         ) : (
           <Badge variant="outline">Ohne Anmeldung</Badge>
         )}
+        {/*
+          Der Preis gehoert neben den Status und nicht in einen eigenen
+          Kasten: es ist eine Eigenschaft des Termins wie die Kategorie, und
+          wer die Seite ueberfliegt, sucht ihn genau hier. Der QR-Code steht
+          bewusst NICHT hier - er gehoert dorthin, wo man sich anmeldet.
+        */}
+        {event.registrationEnabled ? (
+          calendar.kostenpflichtig(event) ? (
+            <Badge variant="outline">
+              Eintritt: {calendar.betragText(event.entryFeeCents, event.entryFeeCurrency)}
+            </Badge>
+          ) : (
+            <Badge variant="outline">Kostenlos</Badge>
+          )
+        ) : null}
       </div>
 
       {event.status === 'CANCELLED' ? (
@@ -296,13 +311,40 @@ export default async function EventDetailPage({
               darfTeilnehmen={can(context, P.participate)}
               gesperrtGrund={gesperrt}
               abmeldenGrund={calendar.abmeldungGesperrt(event)}
-              meine={meine ? { status: meine.status, position: meine.waitlistPosition } : null}
+              meine={
+                meine
+                  ? {
+                      status: meine.status,
+                      position: meine.waitlistPosition,
+                      // `NOT_REQUIRED` heisst «kostet nichts» - dann steht
+                      // dazu auch nichts. `null` statt des Wortes, damit die
+                      // Komponente keinen leeren Kasten baut.
+                      zahlung: meine.paymentStatus === 'NOT_REQUIRED' ? null : meine.paymentStatus,
+                    }
+                  : null
+              }
               belegung={{
                 confirmed: belegung.confirmed,
                 capacity: belegung.capacity,
                 waitlist: belegung.waitlist,
                 full: belegung.full,
               }}
+              eintritt={
+                calendar.kostenpflichtig(event)
+                  ? {
+                      text: calendar.betragText(event.entryFeeCents, event.entryFeeCurrency),
+                      hinweise: event.paymentNote,
+                      /*
+                       * Die Adresse nur, wenn tatsaechlich ein Code
+                       * hinterlegt ist. Sonst stuende dort ein Bildrahmen,
+                       * der 404 laedt - und der sieht aus wie ein Fehler,
+                       * obwohl die Organisation schlicht keinen Code
+                       * hochgeladen hat.
+                       */
+                      qrAdresse: event.paymentQrPath ? `/api/kalender/${event.id}/twint-qr` : null,
+                    }
+                  : null
+              }
               wartelisteMoeglich={event.waitlistEnabled}
               fragen={fragen}
             />

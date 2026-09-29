@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { CheckCircle2, Clock, LogOut, UserPlus } from 'lucide-react';
+import { CheckCircle2, Clock, LogOut, QrCode, UserPlus, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,6 +20,14 @@ import { registerAction, unregisterAction } from '@/modules/calendar/actions';
  * Bewusst kein vorgezogener Zustandswechsel im Browser: ob eine Anmeldung
  * bestaetigt wird oder auf der Warteliste landet, entscheidet erst der
  * Server - beim letzten freien Platz weiss der Browser es nicht besser.
+ *
+ * ## Und bei einem kostenpflichtigen Abend
+ *
+ * Dann steht vor dem Knopf, was er kostet, wie man zahlt und der QR-Code
+ * dazu - und nach dem Anmelden steht dort, dass die Teilnahme **noch nicht**
+ * definitiv ist. Kein Wort wie «Ticket gekauft» oder «Zahlung erfolgreich»:
+ * SwissHub sieht keine Kontobewegung, und ein Satz, der eine behauptet, ist
+ * eine Luege gegenueber der Person, die ihn liest.
  */
 export function AnmeldeBereich({
   csrfToken,
@@ -29,6 +37,7 @@ export function AnmeldeBereich({
   abmeldenGrund,
   meine,
   belegung,
+  eintritt,
   wartelisteMoeglich,
   fragen,
 }: {
@@ -37,8 +46,21 @@ export function AnmeldeBereich({
   darfTeilnehmen: boolean;
   gesperrtGrund: string | null;
   abmeldenGrund: string | null;
-  meine: { status: 'CONFIRMED' | 'WAITLIST' | 'CANCELLED'; position: number | null } | null;
+  meine: {
+    status: 'CONFIRMED' | 'WAITLIST' | 'CANCELLED';
+    position: number | null;
+    /** Der eigene Zahlungsstand. `null`, wenn der Termin nichts kostet. */
+    zahlung: 'NOT_REQUIRED' | 'PENDING' | 'VERIFIED' | 'WAIVED' | 'REFUNDED' | null;
+  } | null;
   belegung: { confirmed: number; capacity: number; waitlist: number; full: boolean };
+  /**
+   * Was der Eintritt kostet - oder `null` bei einem kostenlosen Termin.
+   *
+   * Der Preis kommt fertig formatiert herein («CHF 15.–»), damit die
+   * Schreibweise an einer Stelle steht und nicht in jeder Komponente neu
+   * erfunden wird.
+   */
+  eintritt: { text: string; hinweise: string | null; qrAdresse: string | null } | null;
   wartelisteMoeglich: boolean;
   fragen: Array<{
     id: string;
@@ -61,10 +83,19 @@ export function AnmeldeBereich({
         toast.error(ergebnis.error?.message ?? 'Das hat nicht geklappt.');
         return;
       }
+      /*
+       * Was hier steht, muss stimmen.
+       *
+       * Bei einem kostenpflichtigen Abend ist «Du bist angemeldet» die halbe
+       * Wahrheit: die Anmeldung ist da, die Teilnahme ist es nicht. Der Rest
+       * steht danach im Kasten darueber - hier nur der ehrliche Satz.
+       */
       toast.success(
         ergebnis.data?.waitlisted
           ? `Du stehst auf der Warteliste (Platz ${ergebnis.data.position}).`
-          : 'Du bist angemeldet.',
+          : eintritt
+            ? 'Anmeldung eingegangen. Deine Teilnahme ist noch nicht definitiv.'
+            : 'Du bist angemeldet.',
       );
       setAntworten({});
       router.refresh();
@@ -104,26 +135,14 @@ export function AnmeldeBereich({
 
       {meine ? (
         <>
-          <p
-            className={
-              meine.status === 'CONFIRMED'
-                ? 'flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-500'
-                : 'flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-500'
-            }
-          >
-            {meine.status === 'CONFIRMED' ? (
-              <>
-                <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
-                Du bist angemeldet.
-              </>
-            ) : (
-              <>
-                <Clock className="size-4 shrink-0" aria-hidden="true" />
-                Du stehst auf der Warteliste
-                {meine.position ? ` (Platz ${meine.position})` : null}.
-              </>
-            )}
-          </p>
+          <MeinStand meine={meine} />
+
+          {/*
+            Preis, Hinweise und QR bleiben auch nach der Anmeldung stehen,
+            solange die Zahlung offen ist. Sie danach auszublenden hiesse,
+            genau dem die Anweisung wegzunehmen, der sie noch braucht.
+          */}
+          {eintritt && meine.zahlung === 'PENDING' ? <EintrittsKasten eintritt={eintritt} /> : null}
 
           {abmeldenGrund ? (
             <p className="text-xs text-muted-foreground">{abmeldenGrund}</p>
@@ -168,6 +187,8 @@ export function AnmeldeBereich({
         </p>
       ) : (
         <>
+          {eintritt ? <EintrittsKasten eintritt={eintritt} vorAnmeldung /> : null}
+
           {fragen.length > 0 ? (
             <div className="space-y-3">
               {fragen.map((frage) => (
@@ -210,7 +231,7 @@ export function AnmeldeBereich({
 
           <Button className="w-full" disabled={pending} onClick={() => void anmelden()}>
             <UserPlus aria-hidden="true" />
-            {belegung.full ? 'Auf Warteliste setzen' : 'Teilnehmen'}
+            {belegung.full ? 'Auf Warteliste setzen' : eintritt ? 'Anmeldung bestätigen' : 'Teilnehmen'}
           </Button>
 
           {belegung.full ? (
@@ -220,6 +241,150 @@ export function AnmeldeBereich({
           ) : null}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Der eigene Stand - Platz und Zahlung in einem Satz.
+ *
+ * ## Warum die Formulierungen hier so genau sind
+ *
+ * Weil sie das Einzige sind, woran sich jemand hält, der bezahlt hat und
+ * wissen will, ob es angekommen ist. «Du bist angemeldet» bei offener
+ * Zahlung wäre falsch, «Zahlung erfolgreich» wäre eine Behauptung über ein
+ * Konto, in das SwissHub nie geschaut hat, und «Ticket gekauft» wäre beides.
+ *
+ * Was hier steht, entspricht dem, was in der Datenbank steht - nicht mehr.
+ */
+function MeinStand({
+  meine,
+}: {
+  meine: {
+    status: 'CONFIRMED' | 'WAITLIST' | 'CANCELLED';
+    position: number | null;
+    zahlung: 'NOT_REQUIRED' | 'PENDING' | 'VERIFIED' | 'WAIVED' | 'REFUNDED' | null;
+  };
+}): React.JSX.Element {
+  const warteliste = meine.status === 'WAITLIST';
+  const offen = meine.zahlung === 'PENDING' || meine.zahlung === 'REFUNDED';
+
+  const ton = offen
+    ? 'border-amber-500/40 bg-amber-500/10 text-amber-500'
+    : warteliste
+      ? 'border-amber-500/40 bg-amber-500/10 text-amber-500'
+      : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500';
+
+  const titel = warteliste
+    ? `Du stehst auf der Warteliste${meine.position ? ` (Platz ${meine.position})` : ''}.`
+    : meine.zahlung === 'PENDING'
+      ? 'Anmeldung eingegangen.'
+      : meine.zahlung === 'REFUNDED'
+        ? 'Deine Zahlung wurde zurückerstattet.'
+        : 'Du bist angemeldet.';
+
+  // Die Statuszeile in Versalien - dasselbe Wort, das der Admin in seiner
+  // Liste sieht, damit eine Rueckfrage nicht an zwei Vokabularen scheitert.
+  const marke =
+    meine.zahlung === 'PENDING'
+      ? 'ZAHLUNG AUSSTEHEND'
+      : meine.zahlung === 'VERIFIED'
+        ? 'TEILNAHME BESTÄTIGT'
+        : meine.zahlung === 'WAIVED'
+          ? 'ZAHLUNG ERLASSEN · TEILNAHME BESTÄTIGT'
+          : meine.zahlung === 'REFUNDED'
+            ? 'ZAHLUNG ERSTATTET'
+            : null;
+
+  return (
+    <div className={`space-y-2 rounded-lg border p-3 text-sm ${ton}`}>
+      <p className="flex items-center gap-2">
+        {offen || warteliste ? (
+          <Clock className="size-4 shrink-0" aria-hidden="true" />
+        ) : (
+          <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
+        )}
+        {titel}
+      </p>
+
+      {marke ? <p className="text-xs font-semibold tracking-wide">{marke}</p> : null}
+
+      {meine.zahlung === 'PENDING' ? (
+        <p className="text-xs opacity-90">
+          Deine Teilnahme ist noch nicht definitiv. Nach Eingang der Zahlung wird deine Anmeldung vom
+          SwissHub-Team bestätigt.
+        </p>
+      ) : null}
+      {meine.zahlung === 'VERIFIED' ? (
+        <p className="text-xs opacity-90">Deine Zahlung wurde vom SwissHub-Team bestätigt.</p>
+      ) : null}
+      {meine.zahlung === 'WAIVED' ? (
+        <p className="text-xs opacity-90">Für dich fällt kein Eintritt an. Deine Teilnahme ist definitiv.</p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Preis, Hinweise und der TWINT-Code.
+ *
+ * ## Warum der QR-Code so gross ist
+ *
+ * Weil er gescannt wird, und zwar von einem Telefon, das jemand in der
+ * anderen Hand hält. Ein Code mit 80 Pixeln Kantenlänge ist auf einem
+ * Bildschirm hübsch und in der Praxis nicht zu gebrauchen. Hier sind es 12
+ * bis 16 Rem - auf dem Telefon füllt er damit die halbe Breite, auf dem
+ * Bildschirm ist er gross genug, um ihn mit einem zweiten Gerät zu scannen.
+ *
+ * Der weisse Grund ist kein Stilmittel: ein QR-Code mit transparentem
+ * Hintergrund auf dunkler Fläche ist invertiert, und ein invertierter Code
+ * wird von vielen Kameras nicht erkannt.
+ */
+function EintrittsKasten({
+  eintritt,
+  vorAnmeldung = false,
+}: {
+  eintritt: { text: string; hinweise: string | null; qrAdresse: string | null };
+  vorAnmeldung?: boolean;
+}): React.JSX.Element {
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
+      <p className="flex items-center gap-2 text-sm font-semibold">
+        <Wallet className="size-4 shrink-0" aria-hidden="true" />
+        Eintritt: {eintritt.text}
+      </p>
+
+      {vorAnmeldung ? (
+        <p className="text-xs text-muted-foreground">
+          Die Anmeldung ist zunächst vorläufig. Definitiv wird sie, sobald das SwissHub-Team den
+          Zahlungseingang geprüft und bestätigt hat.
+        </p>
+      ) : null}
+
+      {eintritt.hinweise ? (
+        /*
+          `whitespace-pre-line` und kein Markdown: was die Organisation hier
+          schreibt, ist ein Hinweis und kein Dokument. Absaetze bleiben,
+          alles andere bleibt Text - es gibt keinen Pfad, auf dem daraus
+          Markup wuerde.
+        */
+        <p className="whitespace-pre-line text-xs text-muted-foreground">{eintritt.hinweise}</p>
+      ) : null}
+
+      {eintritt.qrAdresse ? (
+        <div className="space-y-1.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={eintritt.qrAdresse}
+            alt="TWINT-QR-Code zum Bezahlen des Eintritts"
+            className="mx-auto h-48 w-48 rounded-lg bg-white object-contain p-2 sm:h-56 sm:w-56"
+          />
+          <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+            <QrCode className="size-3.5 shrink-0" aria-hidden="true" />
+            Mit der TWINT-App scannen, um den Eintritt zu bezahlen.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

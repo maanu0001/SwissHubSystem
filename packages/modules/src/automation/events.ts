@@ -326,6 +326,30 @@ registerEvent({
   ],
 });
 
+registerEvent({
+  type: 'calendar.payment_verified',
+  label: 'Zahlung für einen Termin bestätigt',
+  description:
+    'Ein berechtigtes Teammitglied hat den Eintritt als eingegangen bestätigt oder ihn erlassen. Die Teilnahme ist damit definitiv.',
+  module: 'calendar',
+  payloadSchema: z.object({
+    eventId: z.string(),
+    registrationId: z.string(),
+    discordId,
+    titel: z.string(),
+    slug: z.string(),
+    /** `VERIFIED` heisst bezahlt, `WAIVED` heisst ohne Zahlung freigegeben. */
+    art: z.enum(['VERIFIED', 'WAIVED']),
+    /** In Rappen - ganzzahlig, wie ueberall, wo es um Geld geht. */
+    betragRappen: z.number().int().optional(),
+  }),
+  variables: [
+    { path: 'payload.titel', label: 'Titel des Termins', type: 'string' },
+    { path: 'payload.slug', label: 'Kurzname des Termins', type: 'string' },
+    { path: 'payload.art', label: 'Art der Freigabe', type: 'string' },
+  ],
+});
+
 // --- Premium ----------------------------------------------------------------
 
 registerEvent({

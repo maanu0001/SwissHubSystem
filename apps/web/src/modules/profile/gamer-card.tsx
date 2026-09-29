@@ -1,4 +1,5 @@
 import type { profile } from '@swisshub/modules';
+import { stufe } from './auszeichnungs-stufe';
 
 /**
  * Die Gamer Card - das eigene Profil als Bild zum Teilen.
@@ -40,6 +41,24 @@ import type { profile } from '@swisshub/modules';
  * mitkommt, sind die **Farben** des Themes - aus derselben Registry, die die
  * Seite benutzt. Die Karte eines Prestige-Profils sieht deshalb nach Prestige
  * aus, ohne dass hier ein zweites Prestige-Design stuende.
+ *
+ * ## Und die Auszeichnungsstufen
+ *
+ * Sie standen hier als graues «GOLD» am rechten Rand - drei Auszeichnungen
+ * nebeneinander sahen damit identisch aus, und ausgerechnet auf dem Bild,
+ * das jemand teilt, war Gold von Bronze nicht zu unterscheiden.
+ *
+ * Nachgezeichnet wird deshalb, was die Seite mit CSS macht, und zwar mit dem,
+ * was Satori kann: eigene Rahmenfarbe, eigener Flaechenverlauf, eigenes
+ * Symbolfeld und eine eigene Eckenrundung je Stufe - Gold am kantigsten,
+ * Bronze am weichsten. Dazu die Marke aus ein bis drei Strichen. Die Werte
+ * stehen in `auszeichnungs-stufe`, also an derselben Stelle wie die der
+ * Seite; die Karte ist dadurch keine zweite Auslegung derselben Sache,
+ * sondern dieselbe Auslegung in einem anderen Werkzeug.
+ *
+ * Kein `clip-path` - Satori kennt ihn nicht. Die facettierten Ecken der
+ * Goldkarte werden hier zu einer sehr kleinen Rundung; die Abstufung bleibt
+ * lesbar, weil sie eine Abstufung ist und keine bestimmte Form.
  */
 
 export const GAMER_CARD_FORMATE = ['story', 'quadrat', 'feed'] as const;
@@ -466,48 +485,77 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
             marginTop: 24,
           }}
         >
-          {auszeichnungen.map((eintrag) => (
-            <div
-              key={eintrag.key}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                marginBottom: 12,
-                paddingTop: 14,
-                paddingBottom: 14,
-                paddingLeft: 20,
-                paddingRight: 20,
-                borderRadius: 18,
-                backgroundColor: flaeche,
-                border: `2px solid ${rand}`,
-              }}
-            >
+          {auszeichnungen.map((eintrag) => {
+            const stufenbild = stufe(eintrag.stufe);
+            return (
               <div
+                key={eintrag.key}
                 style={{
                   display: 'flex',
-                  width: 12,
-                  height: 12,
-                  borderRadius: 999,
-                  backgroundColor: akzent,
-                  marginRight: 18,
-                }}
-              />
-              <div style={{ display: 'flex', fontSize: mass.text, fontWeight: 600, color: WEISS }}>
-                {kuerze(eintrag.label, 30)}
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  marginLeft: 'auto',
-                  fontSize: Math.round(mass.text * 0.72),
-                  letterSpacing: 2,
-                  color: GEDAEMPFT,
+                  alignItems: 'center',
+                  marginBottom: 12,
+                  paddingTop: 14,
+                  paddingBottom: 14,
+                  paddingLeft: 20,
+                  paddingRight: 20,
+                  /* Die Ecke traegt die Stufe mit: Gold kantig, Bronze weich. */
+                  borderRadius: stufenbild.bild.radius,
+                  backgroundImage: stufenbild.bild.flaeche,
+                  border: `2px solid ${stufenbild.bild.rand}`,
                 }}
               >
-                {eintrag.stufe.toUpperCase()}
+                {/* Das Symbolfeld - auf der Seite ein eingepraegtes Feld, hier
+                    eine Scheibe in der Farbe der Stufe. Gold bekommt einen
+                    Ring, damit es auch in Graustufen die aufwendigste bleibt. */}
+                <div
+                  style={{
+                    display: 'flex',
+                    width: 26,
+                    height: 26,
+                    borderRadius: 999,
+                    backgroundColor: stufenbild.bild.feld,
+                    border:
+                      eintrag.stufe === 'gold'
+                        ? `2px solid ${stufenbild.bild.schrift}`
+                        : `2px solid ${stufenbild.bild.rand}`,
+                    marginRight: 18,
+                  }}
+                />
+                <div style={{ display: 'flex', fontSize: mass.text, fontWeight: 600, color: WEISS }}>
+                  {kuerze(eintrag.label, 26)}
+                </div>
+
+                {/* Die Marke: ein bis drei Striche. Das einzige Merkmal, das
+                    keine Farbe ist - und damit das einzige, das auch auf einem
+                    Ausdruck in Graustufen noch die Stufe sagt. */}
+                <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto', gap: 4 }}>
+                  {Array.from({ length: stufenbild.striche }, (_, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        display: 'flex',
+                        width: 4,
+                        height: 14 + stufenbild.striche * 2,
+                        borderRadius: 999,
+                        backgroundColor: stufenbild.bild.schrift,
+                      }}
+                    />
+                  ))}
+                  <div
+                    style={{
+                      display: 'flex',
+                      marginLeft: 10,
+                      fontSize: Math.round(mass.text * 0.72),
+                      letterSpacing: 2,
+                      color: stufenbild.bild.schrift,
+                    }}
+                  >
+                    {stufenbild.label.toUpperCase()}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : null}
 

@@ -4990,6 +4990,43 @@ enum CalendarRegistrationStatus {
   CANCELLED
 }
 
+/// Wie es um die Zahlung einer Anmeldung steht.
+///
+/// ## Warum das neben `CalendarRegistrationStatus` steht und nicht darin
+///
+/// Weil es zwei verschiedene Fragen sind. Der Anmeldestatus beantwortet «hat
+/// diese Person einen Platz?» - er entscheidet ueber die Kapazitaet und ueber
+/// die Warteliste. Dieses Enum beantwortet «ist der Eintritt bezahlt?».
+///
+/// Sie zusammenzulegen haette geheissen, fuer jede Kombination einen Wert zu
+/// erfinden - `CONFIRMED_PENDING`, `WAITLIST_PENDING`, `CONFIRMED_WAIVED` -
+/// und jede bestehende Abfrage auf Plaetze und Warteliste neu zu schreiben.
+/// So bleibt die Kapazitaetslogik unveraendert, und eine Anmeldung mit
+/// `CONFIRMED` + `PENDING` ist genau das, was §28 des Auftrags verlangt: der
+/// Platz ist reserviert, die Teilnahme ist es noch nicht.
+enum CalendarPaymentStatus {
+  /// Der Termin kostet nichts - oder die Anmeldung entstand, als er nichts
+  /// kostete. Der Normalfall und die Vorgabe.
+  NOT_REQUIRED
+  /// Angemeldet, Zahlung noch nicht bestaetigt. Die Teilnahme ist vorlaeufig.
+  PENDING
+  /// Ein Mensch hat den Zahlungseingang geprueft und bestaetigt.
+  ///
+  /// Dieser Wert entsteht **nie** von selbst. Es gibt keinen Weg von PENDING
+  /// hierher, der nicht durch eine ausdrueckliche Handlung einer berechtigten
+  /// Person fuehrt - SwissHub sieht keine Kontobewegung und darf deshalb
+  /// keine behaupten.
+  VERIFIED
+  /// Ohne Zahlung freigegeben - Crew, Sponsor, Gast, Gewinn.
+  ///
+  /// Ausdruecklich nicht dasselbe wie VERIFIED, und darum ein eigener Wert:
+  /// «erlassen» als «bezahlt» zu fuehren hiesse, in der Kasse einen Betrag
+  /// zu erwarten, der nie kommt.
+  WAIVED
+  /// Zurueckerstattet. Die Teilnahme ist damit nicht mehr definitiv.
+  REFUNDED
+}
+
 /// Wofuer eine Ankuendigung oder Benachrichtigung stand.
 ///
 /// Zusammen mit der Termin-Kennung eindeutig - genau das verhindert, dass ein
@@ -5098,6 +5135,34 @@ model CalendarEvent {
   /// Verwaltung?
   participantsPublic   Boolean   @default(true)
 
+  // --- Eintritt & Zahlung --------------------------------------------------
+  /// Kostet der Eintritt etwas?
+  ///
+  /// Ein eigener Schalter und nicht `entryFeeCents > 0`: ein Termin, der
+  /// gerade auf Preis null steht, weil ihn jemand zurueckgesetzt hat, ist
+  /// etwas anderes als ein kostenloser. Der Schalter sagt, was gemeint war.
+  entryFeeEnabled  Boolean @default(false)
+  /// Der Eintritt in Rappen.
+  ///
+  /// Ganzzahlig und nicht als Fliesskommazahl: 15.10 ist im Binaersystem
+  /// nicht darstellbar, und bei Geld fuehrt das frueher oder spaeter zu einer
+  /// Summe, die um einen Rappen danebenliegt. 1500 heisst CHF 15.00.
+  entryFeeCents    Int     @default(0)
+  /// Die Waehrung als ISO-Code. V1 kennt nur CHF; die Spalte steht trotzdem
+  /// da, weil ein Betrag ohne Waehrung keine Aussage ist.
+  entryFeeCurrency String  @default("CHF")
+  /// Freitext der Organisation: wie, bis wann, mit welcher Mitteilung.
+  ///
+  /// Wird ueberall als Text dargestellt, nie als HTML - was jemand hier
+  /// hineinschreibt, ist ein Hinweis und kein Markup.
+  paymentNote      String? @db.Text
+  /// Dateiname des hochgeladenen TWINT-QR-Codes im Upload-Verzeichnis.
+  ///
+  /// Nur der Name, nie ein Pfad: ausgeliefert wird ueber einen Route Handler
+  /// mit festem Content-Type, damit eine hochgeladene Datei nie als HTML
+  /// beim Betrachter ankommt.
+  paymentQrPath    String?
+
   // --- Discord -----------------------------------------------------------
   announceOnDiscord     Boolean @default(false)
   announcementChannelId String?
@@ -5174,6 +5239,29 @@ model CalendarRegistration {
   /// dass ein wiederholter Lauf zweimal schreibt.
   promotionNotifiedAt DateTime?
 
+  // --- Zahlung -------------------------------------------------------------
+  /// Wie es um den Eintritt steht. Siehe `CalendarPaymentStatus`.
+  paymentStatus              CalendarPaymentStatus @default(NOT_REQUIRED)
+  /// Der Betrag in Rappen, wie er zum Zeitpunkt der Anmeldung galt.
+  ///
+  /// Eine Momentaufnahme und kein Verweis auf den Termin: aendert die
+  /// Organisation den Preis nachtraeglich, schuldet niemand rueckwirkend mehr.
+  /// Was in der Teilnehmerliste steht, ist das, was die Person gesehen hat.
+  paymentAmountCents         Int                   @default(0)
+  paymentCurrency            String?
+  /// Wann die Zahlung bestaetigt bzw. erlassen wurde.
+  paymentVerifiedAt          DateTime?
+  /// Wer bestaetigt hat. Der Name steht mit dabei, weil eine Discord-Kennung
+  /// in einer Liste niemandem etwas sagt - und weil die Person spaeter gehen
+  /// kann, ohne dass der Eintrag unlesbar wird.
+  paymentVerifiedByDiscordId String?
+  paymentVerifiedByUsername  String?
+  /// Der freiwillige Grund - bei einem Erlass, bei einer Ruecknahme.
+  ///
+  /// Ausdruecklich kein Feld fuer Zahlungsdaten: hier steht «Crew» oder
+  /// «versehentlich bestaetigt», keine Kontonummer und keine Referenz.
+  paymentReason              String?
+
   answers CalendarAnswer[]
 
   /// Eine Anmeldung je Person und Termin - auf Datenbankebene, nicht nur im
@@ -5183,6 +5271,8 @@ model CalendarRegistration {
   @@index([eventId, status, registeredAt])
   @@index([eventId, status, waitlistPosition])
   @@index([discordId, registeredAt])
+  /// Die Zahlungsuebersicht filtert genau danach.
+  @@index([eventId, paymentStatus, registeredAt])
 }
 
 model CalendarAnswer {
@@ -5479,11 +5569,36 @@ model VerificationBotMessage {
   channelId        String
   discordMessageId String
 
+  /// Wann diese Nachricht selbsttaetig entfernt werden soll.
+  ///
+  /// Der ganze Zeitplan des Auto-Delete steht in dieser einen Spalte - wie
+  /// bei den Erinnerungen und aus demselben Grund: ein `setTimeout` ueberlebt
+  /// kein Deployment. Gerechnet wird der Zeitpunkt einmal beim Senden aus dem
+  /// damals eingestellten Intervall; wer das Intervall spaeter aendert,
+  /// aendert damit die bereits stehenden Nachrichten nicht.
+  ///
+  /// `NULL` heisst **kein Termin**: entweder war das Auto-Delete beim Senden
+  /// aus, oder die Nachricht ist keine Begruessung.
+  deleteAt  DateTime?
+  /// Wann SwissHub sie entfernt hat.
+  ///
+  /// Zwei Aufgaben in einer Spalte, und beide brauchen sie:
+  ///
+  ///  - **Der Riegel gegen doppeltes Loeschen.** Wer sie bedingt von NULL
+  ///    wegsetzt, hat den Auftrag; ein zweiter Durchgang findet nichts mehr.
+  ///  - **Die Unterscheidung zur fremden Loeschung.** Verschwindet eine
+  ///    Begruessung, ohne dass hier etwas steht, hat ein Mensch aufgeraeumt -
+  ///    und nur dann endet die Erinnerungsreihe. Sonst waeren Reminder- und
+  ///    Delete-Intervall nicht unabhaengig, obwohl sie es sein sollen.
+  deletedAt DateTime?
+
   createdAt DateTime @default(now())
 
   /// Dieselbe Discord-Nachricht wird nicht zweimal vermerkt.
   @@unique([requestId, discordMessageId])
   @@index([requestId, createdAt])
+  /// Die faellige Abfrage des Auto-Delete: Art, Termin und Erledigung.
+  @@index([kind, deleteAt, deletedAt])
 }
 
 /// Die einzelnen Nachrichten eines Vorgangs.

@@ -407,7 +407,12 @@ export function createJobRunner(
           return;
         }
         const ergebnis = await verification.runVerificationTick();
-        if (ergebnis.erinnert > 0 || ergebnis.beendet > 0 || ergebnis.bereinigt > 0) {
+        if (
+          ergebnis.erinnert > 0 ||
+          ergebnis.beendet > 0 ||
+          ergebnis.begruessungenEntfernt > 0 ||
+          ergebnis.bereinigt > 0
+        ) {
           log.info('Verifikationen fortgeschrieben', { ...ergebnis });
         }
       },

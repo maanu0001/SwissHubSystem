@@ -8,3 +8,4 @@ export * from './discord';
 export * from './reminders';
 export * from './worker';
 export * from './ics';
+export * from './zahlungen';

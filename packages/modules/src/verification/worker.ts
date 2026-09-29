@@ -2,6 +2,7 @@ import { prisma } from '@swisshub/database';
 import { discord as defaultDiscord, type DiscordGateway } from '@swisshub/discord';
 import { createLogger } from '@swisshub/logger';
 import { sendeErinnerung } from './erinnerung';
+import { loescheFaelligeBegruessungen } from './nachricht-frist';
 import { verificationSettings } from './service';
 
 const logger = createLogger('verification:worker');
@@ -9,9 +10,15 @@ const logger = createLogger('verification:worker');
 /**
  * Zeitsteuerung der Verifikation.
  *
- * Zwei Aufgaben, beide idempotent und beide gegen die Datenbank statt gegen
- * Zeitgeber im Arbeitsspeicher: faellige Erinnerungen senden und alte
- * Nachrichtentexte loeschen.
+ * Drei Aufgaben, alle idempotent und alle gegen die Datenbank statt gegen
+ * Zeitgeber im Arbeitsspeicher: faellige Erinnerungen senden, faellige
+ * Begruessungen entfernen und alte Nachrichtentexte loeschen.
+ *
+ * Die ersten beiden sind ausdruecklich voneinander unabhaengig. Eine
+ * Erinnerung ist ein Anstupser an eine Person; das Entfernen der Begruessung
+ * ist Ordnung im Kanal. Wer beides koppelte, koennte «erinnere taeglich, aber
+ * raeume nach drei Tagen auf» nicht einstellen - und genau das ist der Fall,
+ * den ein Server mit Zulauf braucht.
  *
  * ## Was hier nicht mehr steht
  *
@@ -27,6 +34,8 @@ export interface VerificationTickResult {
   erinnert: number;
   /** Wie viele Reihen in diesem Durchgang geendet haben. */
   beendet: number;
+  /** Wie viele Begruessungen nach Ablauf ihrer Frist entfernt wurden. */
+  begruessungenEntfernt: number;
   bereinigt: number;
 }
 
@@ -95,12 +104,32 @@ export async function runVerificationTick(
     }
   }
 
+  /*
+   * Faellige Begruessungen.
+   *
+   * Unabhaengig von den Erinnerungen und unabhaengig vom Zustand des
+   * Vorgangs: geloescht wird eine Nachricht, deren Frist abgelaufen ist, und
+   * sonst geschieht nichts. Der Vorgang bleibt offen, die Rolle bleibt, die
+   * Person bleibt. Ist das Auto-Delete abgeschaltet, gibt es schlicht keine
+   * Zeile mit einem Termin - die Abfrage kostet dann nichts und findet nichts.
+   */
+  const frist = await loescheFaelligeBegruessungen(now, gateway).catch((error: unknown) => {
+    logger.warn('verification.greeting.auto_delete_round_failed', { error });
+    return { geloescht: 0, schonWeg: 0, fehlgeschlagen: 0 };
+  });
+  const begruessungenEntfernt = frist.geloescht;
+
   const bereinigt = await raeumeAlteTexte(now, settings.retentionDays);
 
-  if (erinnert > 0 || beendet > 0 || bereinigt > 0) {
-    logger.info('Verifikation fortgeschrieben', { erinnert, beendet, bereinigt });
+  if (erinnert > 0 || beendet > 0 || begruessungenEntfernt > 0 || bereinigt > 0) {
+    logger.info('Verifikation fortgeschrieben', {
+      erinnert,
+      beendet,
+      begruessungenEntfernt,
+      bereinigt,
+    });
   }
-  return { erinnert, beendet, bereinigt };
+  return { erinnert, beendet, begruessungenEntfernt, bereinigt };
 }
 
 /**

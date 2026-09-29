@@ -1,6 +1,6 @@
 import type { profile } from '@swisshub/modules';
 import { NavIcon } from '@/components/layout/nav-icon';
-import '../auszeichnungs-stufen.css';
+import { StufenMarke, stufe } from '../auszeichnungs-stufe';
 
 /**
  * Auszeichnungen.
@@ -21,13 +21,10 @@ import '../auszeichnungs-stufen.css';
  *
  * Die Gestaltung liegt jetzt in `auszeichnungs-stufen.css` - je Stufe eine
  * eigene Rahmengeometrie, Materialstruktur, Lichtfuehrung und
- * Symbolumgebung. Hier steht nur noch, welche Klasse welche Stufe bekommt.
+ * Symbolumgebung. Welche Stufe was bekommt, steht in `auszeichnungs-stufe`:
+ * derselbe Satz Angaben, aus dem auch die oeffentliche Profilseite und die
+ * Gamer Card ihre Darstellung nehmen.
  */
-const STUFE_KLASSE: Record<string, string> = {
-  gold: 'az-karte az-gold',
-  silber: 'az-karte az-silber',
-  bronze: 'az-karte az-bronze',
-};
 
 export function ProfilAuszeichnungen({
   auszeichnungen,
@@ -58,7 +55,7 @@ export function ProfilAuszeichnungen({
           key={eintrag.key}
           className={`flex items-start gap-3 p-3 ${
             eintrag.erreicht
-              ? (STUFE_KLASSE[eintrag.stufe] ?? STUFE_KLASSE.bronze)
+              ? stufe(eintrag.stufe).karte
               : 'rounded-xl border border-dashed border-border bg-transparent text-muted-foreground'
           }`}
         >
@@ -70,7 +67,14 @@ export function ProfilAuszeichnungen({
             <NavIcon name={eintrag.symbol} className="size-5" />
           </span>
           <div className="min-w-0">
-            <p className="break-words text-sm font-semibold leading-tight text-foreground">{eintrag.label}</p>
+            <div className="flex items-start justify-between gap-2">
+              <p className="break-words text-sm font-semibold leading-tight text-foreground">
+                {eintrag.label}
+              </p>
+              {/* Die Marke steht nur an erreichten: an einer offenen waere
+                  sie die Stufe von etwas, das es noch nicht gibt. */}
+              {eintrag.erreicht ? <StufenMarke wert={eintrag.stufe} className="mt-0.5 shrink-0" /> : null}
+            </div>
             <p className="mt-0.5 break-words text-xs text-muted-foreground">{eintrag.beschreibung}</p>
             {/* Der Fortschritt steht nur bei offenen: bei erreichten waere
                 «5 von 5» eine Wiederholung des Hakens. */}

@@ -9,6 +9,8 @@ import { PageHeader } from '@/components/shared/page-header';
 import { StatCard } from '@/components/shared/stat-card';
 import { EmptyState, ErrorState } from '@/components/shared/states';
 import { TeilnehmerListe } from '@/modules/calendar/components/teilnehmer-liste';
+import { ZahlungsUebersicht } from '@/modules/calendar/components/zahlungs-uebersicht';
+import { Panel } from '@/components/shared/panel';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 
 export const metadata: Metadata = { title: 'Event – Teilnehmer' };
@@ -16,7 +18,23 @@ export const dynamic = 'force-dynamic';
 
 const P = calendar.CALENDAR_PERMISSIONS;
 
-/** Teilnehmerverwaltung eines Events. */
+/**
+ * Teilnehmerverwaltung eines Events - und, wenn er etwas kostet, die
+ * Zahlungsuebersicht.
+ *
+ * ## Warum das hier steht und nicht auf einer eigenen Seite
+ *
+ * Weil es dieselbe Liste ist. «Wer kommt» und «wer hat bezahlt» sind zwei
+ * Spalten derselben Tabelle, und zwei Seiten dafuer hiessen: zweimal
+ * suchen, zweimal filtern, und zwei Orte, an denen jemand nachsieht, ob
+ * Anna dabei ist. Der Auftrag laesst beides zu - Community-Kalender → Event
+ * → Teilnehmer ist der kuerzere Weg und braucht keinen neuen
+ * Navigationspunkt.
+ *
+ * Die Zahlungsuebersicht erscheint nur bei einem kostenpflichtigen Termin
+ * und nur fuer die, die `payments.view` haben. Ein kostenloser Abend
+ * bekommt keine leere Zahlungstabelle.
+ */
 export default async function TeilnehmerPage({
   params,
 }: {
@@ -57,10 +75,35 @@ export default async function TeilnehmerPage({
   const darfVerwalten =
     can(context, P.manageRegistrations) || can(context, P.edit) || (can(context, P.manageOwn) && zustaendig);
 
-  const [teilnehmer, belegung] = await Promise.all([
+  const kostenpflichtig = calendar.kostenpflichtig(event);
+  const darfZahlungenSehen = kostenpflichtig && can(context, P.paymentsView);
+
+  const [teilnehmer, belegung, zahlungsZeilen, kennzahlen] = await Promise.all([
     calendar.listRegistrations(event.id, { withAnswers: true, includeCancelled: true }),
     calendar.belegung(event.id),
+    /*
+     * Die Zahlungsangaben werden nur geladen, wenn sie auch gezeigt werden.
+     *
+     * Nicht aus Sparsamkeit, sondern weil sie sonst im HTML des Servers
+     * staenden, auch wenn die Komponente sie nicht zeichnet. «Das Frontend
+     * blendet es aus» ist keine Zugriffskontrolle - wer nicht sehen darf,
+     * bekommt es gar nicht erst geschickt.
+     */
+    darfZahlungenSehen ? calendar.ladeZahlungsliste(event.id) : Promise.resolve([]),
+    darfZahlungenSehen ? calendar.zahlungsKennzahlen(event.id) : Promise.resolve(null),
   ]);
+
+  const zeitpunkt = (wert: Date | null): string =>
+    wert
+      ? wert.toLocaleString('de-CH', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Europe/Zurich',
+        })
+      : '–';
 
   return (
     <>
@@ -95,6 +138,44 @@ export default async function TeilnehmerPage({
           hint={belegung.full ? 'Ausgebucht' : 'Anmeldung möglich'}
         />
       </div>
+
+      {darfZahlungenSehen && kennzahlen ? (
+        <Panel
+          title="Anmeldungen & Zahlungen"
+          description={`Eintritt ${calendar.betragText(event.entryFeeCents, event.entryFeeCurrency)}. SwissHub sieht keine Kontobewegung - eine Teilnahme wird erst durch eine ausdrückliche Bestätigung definitiv.`}
+        >
+          <ZahlungsUebersicht
+            csrfToken={csrfTokenFor(context)}
+            slug={event.slug}
+            darfBestaetigen={can(context, P.paymentsVerify)}
+            darfErlassen={can(context, P.paymentsWaive)}
+            darfZuruecknehmen={can(context, P.paymentsRevoke)}
+            kennzahlen={{
+              angemeldet: kennzahlen.angemeldet,
+              ausstehend: kennzahlen.ausstehend,
+              bestaetigt: kennzahlen.bestaetigt,
+              erlassen: kennzahlen.erlassen,
+              storniert: kennzahlen.storniert,
+              erstattet: kennzahlen.erstattet,
+              eingegangen: calendar.betragText(kennzahlen.eingegangenRappen, event.entryFeeCurrency),
+              offen: calendar.betragText(kennzahlen.offenRappen, event.entryFeeCurrency),
+            }}
+            zeilen={zahlungsZeilen.map((zeile) => ({
+              registrationId: zeile.registrationId,
+              name: zeile.name,
+              discordId: zeile.discordId,
+              status: zeile.status,
+              waitlistPosition: zeile.waitlistPosition,
+              angemeldetAm: zeitpunkt(zeile.registeredAt),
+              betrag: calendar.betragText(zeile.betragRappen, zeile.waehrung),
+              zahlung: zeile.zahlung,
+              bestaetigtAm: zeile.verifiedAt ? zeitpunkt(zeile.verifiedAt) : null,
+              bestaetigtVon: zeile.verifiedByUsername,
+              grund: zeile.grund,
+            }))}
+          />
+        </Panel>
+      ) : null}
 
       {teilnehmer.length === 0 ? (
         <EmptyState

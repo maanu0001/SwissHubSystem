@@ -8,3 +8,4 @@ export * from './worker';
 export * from './setup';
 export * from './abschluss';
 export * from './erinnerung';
+export * from './nachricht-frist';

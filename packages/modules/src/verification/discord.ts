@@ -12,6 +12,7 @@ import {
 import { createLogger } from '@swisshub/logger';
 import { VERIFICATION_ACCENT_COLOR, type VerificationSettings } from './config';
 import { planeErsteErinnerung } from './erinnerung';
+import { planeBegruessungsLoeschung } from './nachricht-frist';
 import { statusLabel } from './service';
 
 const logger = createLogger('verification:discord');
@@ -348,6 +349,15 @@ export async function sendGreeting(
       allowedMentions: { parse: [] as never[], users: [request.discordId] },
     });
     await merkeBotNachricht(request.id, 'GREETING', kanal, gesendet.id);
+    /*
+     * Der Termin fuer das selbsttaetige Loeschen - einmal, jetzt.
+     *
+     * Nicht bei jedem Durchgang aus `createdAt` plus der aktuellen
+     * Einstellung gerechnet: wer das Intervall von 72 auf 6 Stunden stellte,
+     * loeschte damit beim naechsten Durchgang alles, was aelter als sechs
+     * Stunden ist. Was gesendet wurde, traegt seinen Termin bei sich.
+     */
+    await planeBegruessungsLoeschung(request.id, gesendet.id, settings);
     /*
      * Erst jetzt beginnt die Erinnerungsreihe.
      *
