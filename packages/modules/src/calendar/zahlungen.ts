@@ -4,7 +4,7 @@ import { createLogger } from '@swisshub/logger';
 import { AppError, conflict } from '@swisshub/shared';
 import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload } from '../branding/storage';
 import { CALENDAR_MODULE_ID, CALENDAR_PERMISSIONS } from './config';
-import { DEFINITIVE_ZAHLUNGSZUSTAENDE } from './tickets';
+import { erledigeTickets, oeffneTickets } from './tickets';
 import { requireEvent } from './service';
 import type { CalendarActor } from './schemas';
 
@@ -234,15 +234,31 @@ export async function bestaetigeZahlung(
     throw conflict('Diese Anmeldung ist storniert. Bitte zuerst die Teilnahme wiederherstellen.');
   }
 
-  const { count } = await prisma.calendarRegistration.updateMany({
-    where: { id: registrationId, paymentStatus: vorher.paymentStatus },
-    data: {
-      paymentStatus: 'VERIFIED',
-      paymentVerifiedAt: jetzt,
-      paymentVerifiedByDiscordId: actor.discordId,
-      paymentVerifiedByUsername: actor.username,
-      paymentReason: null,
-    },
+  const count = await prisma.$transaction(async (tx) => {
+    const { count: getroffen } = await tx.calendarRegistration.updateMany({
+      where: { id: registrationId, paymentStatus: vorher.paymentStatus },
+      data: {
+        paymentStatus: 'VERIFIED',
+        paymentVerifiedAt: jetzt,
+        paymentVerifiedByDiscordId: actor.discordId,
+        paymentVerifiedByUsername: actor.username,
+        paymentReason: null,
+      },
+    });
+    if (getroffen === 1) {
+      /*
+       * Und dieselbe Bestaetigung an jedem offenen Ticket.
+       *
+       * In derselben Transaktion wie die Bestellung: sonst gaebe es einen
+       * Moment, in dem die Bestellung bestaetigt ist und niemand definitiv -
+       * und wenn dazwischen etwas scheitert, bliebe er.
+       *
+       * Nur die **offenen** Tickets. Ein bereits bezahltes behaelt seinen
+       * Zeitpunkt; bestaetigt wird hier der Nachkauf, nicht die Vergangenheit.
+       */
+      await erledigeTickets(tx, registrationId, 'VERIFIED', jetzt);
+    }
+    return getroffen;
   });
   if (count !== 1) {
     // Jemand war schneller. Der gewuenschte Zustand steht - mehr wollte der
@@ -303,15 +319,24 @@ export async function erlasseZahlung(
     throw conflict('Für dieses Event wird kein Eintritt erhoben - es gibt nichts zu erlassen.');
   }
 
-  const { count } = await prisma.calendarRegistration.updateMany({
-    where: { id: registrationId, paymentStatus: vorher.paymentStatus },
-    data: {
-      paymentStatus: 'WAIVED',
-      paymentVerifiedAt: jetzt,
-      paymentVerifiedByDiscordId: actor.discordId,
-      paymentVerifiedByUsername: actor.username,
-      paymentReason: grund?.slice(0, 200) ?? null,
-    },
+  const count = await prisma.$transaction(async (tx) => {
+    const { count: getroffen } = await tx.calendarRegistration.updateMany({
+      where: { id: registrationId, paymentStatus: vorher.paymentStatus },
+      data: {
+        paymentStatus: 'WAIVED',
+        paymentVerifiedAt: jetzt,
+        paymentVerifiedByDiscordId: actor.discordId,
+        paymentVerifiedByUsername: actor.username,
+        paymentReason: grund?.slice(0, 200) ?? null,
+      },
+    });
+    if (getroffen === 1) {
+      // Wieder nur die offenen: ein bereits bezahltes Ticket wird durch einen
+      // spaeteren Erlass nicht rueckwirkend zu «erlassen» - die Kasse faende
+      // sonst einen Betrag nicht wieder, den sie erhalten hat.
+      await erledigeTickets(tx, registrationId, 'WAIVED', jetzt);
+    }
+    return getroffen;
   });
   if (count !== 1) {
     return { registration: await ladeAnmeldung(registrationId), geaendert: false };
@@ -362,20 +387,29 @@ export async function nimmBestaetigungZurueck(
     throw conflict('Diese Anmeldung ist nicht bestätigt - es gibt nichts zurückzunehmen.');
   }
 
-  const { count } = await prisma.calendarRegistration.updateMany({
-    where: { id: registrationId, paymentStatus: vorher.paymentStatus },
-    data: {
-      paymentStatus: zielStatus,
-      /*
-       * Wer und wann bleiben stehen.
-       *
-       * Sie auf NULL zu setzen hiesse, die Spur zu verwischen: dass diese
-       * Anmeldung einmal bestaetigt war und von wem, ist genau die Auskunft,
-       * die man bei einer Ruecknahme braucht. Was der aktuelle Stand ist,
-       * sagt `paymentStatus`.
-       */
-      paymentReason: grund?.slice(0, 200) ?? null,
-    },
+  const count = await prisma.$transaction(async (tx) => {
+    const { count: getroffen } = await tx.calendarRegistration.updateMany({
+      where: { id: registrationId, paymentStatus: vorher.paymentStatus },
+      data: {
+        paymentStatus: zielStatus,
+        /*
+         * Wer und wann bleiben stehen.
+         *
+         * Sie auf NULL zu setzen hiesse, die Spur zu verwischen: dass diese
+         * Anmeldung einmal bestaetigt war und von wem, ist genau die Auskunft,
+         * die man bei einer Ruecknahme braucht. Was der aktuelle Stand ist,
+         * sagt `paymentStatus`.
+         */
+        paymentReason: grund?.slice(0, 200) ?? null,
+      },
+    });
+    if (getroffen === 1) {
+      // Hier **alle** Tickets, nicht nur die offenen: wer eine Bestaetigung
+      // zurueckzieht, zieht sie fuer alle zurueck, die unter ihr definitiv
+      // geworden sind.
+      await oeffneTickets(tx, registrationId);
+    }
+    return getroffen;
   });
   if (count !== 1) {
     return { registration: await ladeAnmeldung(registrationId), geaendert: false };
@@ -486,14 +520,21 @@ export async function zahlungsKennzahlen(eventId: string): Promise<ZahlungsKennz
     }
     kennzahlen.angemeldet += 1;
 
+    /*
+     * Die Betraege kommen weiter unten aus den Tickets, nicht von hier.
+     *
+     * `paymentAmountCents` ist der Gesamtbetrag der Bestellung. Seit ein
+     * Nachkauf eine bestaetigte Bestellung wieder auf `PENDING` setzt, waere
+     * «offen = Gesamtbetrag» falsch: offen ist nur der Nachkauf. Gezaehlt
+     * werden deshalb die Ticketpreise, und die wissen einzeln, ob sie
+     * erledigt sind.
+     */
     switch (zeile.paymentStatus) {
       case 'PENDING':
         kennzahlen.ausstehend += 1;
-        kennzahlen.offenRappen += zeile.paymentAmountCents;
         break;
       case 'VERIFIED':
         kennzahlen.bestaetigt += 1;
-        kennzahlen.eingegangenRappen += zeile.paymentAmountCents;
         break;
       case 'WAIVED':
         // Zaehlt als freigegeben, aber ausdruecklich nicht als eingegangen.
@@ -516,49 +557,96 @@ export async function zahlungsKennzahlen(eventId: string): Promise<ZahlungsKennz
    * sie je auseinanderlaufen, will man an dieser Stelle die Zeilen sehen und
    * nicht die Zusammenfassung.
    */
-  const definitiv = { in: [...DEFINITIVE_ZAHLUNGSZUSTAENDE] };
-  const [reserviert, definitiveTickets, definitiveGaeste, ausstehendeTickets, eingecheckt] =
-    await Promise.all([
-      prisma.calendarTicket.count({
-        where: { eventId, status: 'ACTIVE', registration: { status: { not: 'CANCELLED' } } },
-      }),
-      prisma.calendarTicket.count({
-        where: {
-          eventId,
-          status: 'ACTIVE',
-          registration: { status: 'CONFIRMED', paymentStatus: definitiv },
-        },
-      }),
-      prisma.calendarTicket.count({
-        where: {
-          eventId,
-          status: 'ACTIVE',
-          memberDiscordId: null,
-          registration: { status: 'CONFIRMED', paymentStatus: definitiv },
-        },
-      }),
-      prisma.calendarTicket.count({
-        where: {
-          eventId,
-          status: 'ACTIVE',
-          registration: { status: { not: 'CANCELLED' }, paymentStatus: 'PENDING' },
-        },
-      }),
-      prisma.calendarTicket.count({
-        where: {
-          eventId,
-          status: 'ACTIVE',
-          checkedInAt: { not: null },
-          registration: { status: 'CONFIRMED', paymentStatus: definitiv },
-        },
-      }),
-    ]);
+  /*
+   * Definitiv und offen stehen seit den Nachkaeufen am **Ticket**.
+   *
+   * Eine Bestellung kann beides gleichzeitig enthalten: zwei bezahlte Tickets
+   * und ein spaeter dazugekauftes, das noch offen ist. Ueber den
+   * Zahlungsstatus der Bestellung gezaehlt, waeren entweder alle drei
+   * definitiv oder keines.
+   */
+  const [
+    reserviert,
+    definitiveTickets,
+    definitiveGaeste,
+    ausstehendeTickets,
+    eingecheckt,
+    eingegangen,
+    offen,
+  ] = await Promise.all([
+    prisma.calendarTicket.count({
+      where: { eventId, status: 'ACTIVE', registration: { status: { not: 'CANCELLED' } } },
+    }),
+    prisma.calendarTicket.count({
+      where: {
+        eventId,
+        status: 'ACTIVE',
+        settledStatus: { not: null },
+        registration: { status: 'CONFIRMED' },
+      },
+    }),
+    prisma.calendarTicket.count({
+      where: {
+        eventId,
+        status: 'ACTIVE',
+        memberDiscordId: null,
+        settledStatus: { not: null },
+        registration: { status: 'CONFIRMED' },
+      },
+    }),
+    prisma.calendarTicket.count({
+      where: {
+        eventId,
+        status: 'ACTIVE',
+        settledStatus: null,
+        registration: { status: { not: 'CANCELLED' } },
+      },
+    }),
+    prisma.calendarTicket.count({
+      where: {
+        eventId,
+        status: 'ACTIVE',
+        checkedInAt: { not: null },
+        settledStatus: { not: null },
+        registration: { status: 'CONFIRMED' },
+      },
+    }),
+    /*
+     * Eingegangen: was ein Mensch als erhalten bestaetigt hat.
+     *
+     * Ausdruecklich nur `VERIFIED` - ein Erlass zaehlt hier nicht mit, sonst
+     * suchte jemand spaeter in der Kasse nach einem Betrag, den nie jemand
+     * geschickt hat. Dieselbe Regel wie vorher, nur je Ticket statt je
+     * Bestellung.
+     */
+    prisma.calendarTicket.aggregate({
+      where: {
+        eventId,
+        status: 'ACTIVE',
+        settledStatus: 'VERIFIED',
+        registration: { status: { not: 'CANCELLED' } },
+      },
+      _sum: { priceCents: true },
+    }),
+    /** Offen: was noch niemand erledigt hat. */
+    prisma.calendarTicket.aggregate({
+      where: {
+        eventId,
+        status: 'ACTIVE',
+        settledStatus: null,
+        registration: { status: { not: 'CANCELLED' } },
+      },
+      _sum: { priceCents: true },
+    }),
+  ]);
 
   kennzahlen.reservierteTickets = reserviert;
   kennzahlen.definitiveTickets = definitiveTickets;
   kennzahlen.definitiveGaeste = definitiveGaeste;
   kennzahlen.ausstehendeTickets = ausstehendeTickets;
   kennzahlen.eingecheckt = eingecheckt;
+  kennzahlen.eingegangenRappen = eingegangen._sum.priceCents ?? 0;
+  kennzahlen.offenRappen = offen._sum.priceCents ?? 0;
 
   return kennzahlen;
 }

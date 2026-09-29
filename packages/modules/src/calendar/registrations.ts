@@ -14,7 +14,9 @@ import {
   MAX_TICKETS_JE_BESTELLUNG,
   belegteTickets,
   definitiveTeilnehmer,
+  offenerBetrag,
   ticketDaten,
+  zahlungFuerNeueTickets,
   wartendeTickets,
   type TicketEingabe,
 } from './tickets';
@@ -340,8 +342,18 @@ export async function register(
      * zurueckgegebenen Platz zweimal zu vergeben.
      */
     await tx.calendarTicket.deleteMany({ where: { registrationId: eintrag.id } });
+    /*
+     * Preis und Zahlungsstand kommen aus `frisch` - dem Termin, wie er unter
+     * der Sperre aussieht -, nicht aus der Anfrage und nicht aus der Fassung,
+     * die vor der Transaktion gelesen wurde. Ein kostenloses Ticket ist
+     * sofort erledigt, ein kostenpflichtiges bleibt offen, bis ein Mensch den
+     * Eingang bestaetigt.
+     */
+    const ticketZahlung = zahlungFuerNeueTickets(frisch, now);
     for (const zeile of ticketZeilen) {
-      await tx.calendarTicket.create({ data: { ...zeile, registrationId: eintrag.id, eventId } });
+      await tx.calendarTicket.create({
+        data: { ...zeile, ...ticketZahlung, registrationId: eintrag.id, eventId },
+      });
     }
 
     // Antworten ersetzen - eine erneute Anmeldung soll nicht die alten
@@ -387,6 +399,198 @@ export async function register(
     discordId: identity.discordId,
     status: ergebnis.registration.status,
   });
+  return ergebnis;
+}
+
+export interface NachkaufErgebnis {
+  registration: CalendarRegistration;
+  /** Wie viele Tickets dazugekommen sind. */
+  ergaenzt: number;
+  /** Was durch diesen Nachkauf zusaetzlich zu bezahlen ist - in Rappen. */
+  zusatzbetragRappen: number;
+  /** Was insgesamt offen ist, inklusive aelterer unbezahlter Tickets. */
+  offenRappen: number;
+}
+
+/**
+ * Weitere Tickets zu einer bestehenden Anmeldung.
+ *
+ * ## Warum keine zweite Bestellung
+ *
+ * Weil `(eventId, discordId)` eindeutig ist - eine zweite Bestellung derselben
+ * Person zu demselben Termin laesst die Datenbank gar nicht zu. Und das ist
+ * richtig so: zwei Bestellungen haetten zwei Betraege, zwei Zahlungsstaende
+ * und zwei Zeilen in der Kassenliste fuer einen Menschen, der einmal
+ * ueberweist. Die bestehende Bestellung waechst.
+ *
+ * ## Warum die neuen Tickets nicht bezahlt sind
+ *
+ * Auch dann nicht, wenn die Bestellung bereits bestaetigt ist. SwissHub sieht
+ * keine Kontobewegung; dass jemand zwei Tickets bezahlt hat, sagt nichts
+ * darueber, ob er das dritte auch bezahlt hat. Die neuen Tickets entstehen
+ * mit `settledStatus = null` und werden erst definitiv, wenn ein Mensch den
+ * Eingang bestaetigt.
+ *
+ * **Die bereits bezahlten Tickets behalten ihren Stand.** Sie bleiben
+ * definitiv, und ihr `settledAt` wird nicht angefasst - sonst nahme ein
+ * Nachkauf den Leuten ihre Zusage, die laengst bezahlt haben.
+ *
+ * Die Bestellung selbst geht dabei von `VERIFIED` zurueck auf `PENDING`: es
+ * steht wieder Geld aus, und «bestaetigt» waere in dem Moment eine falsche
+ * Auskunft. `paymentVerifiedAt` und `paymentVerifiedByUsername` bleiben
+ * stehen - sie sind die Spur der ersten Bestaetigung, nicht der aktuelle
+ * Stand.
+ *
+ * ## Kapazitaet
+ *
+ * Erneut geprueft, unter derselben Zeilensperre wie eine Neuanmeldung, und
+ * **nur fuer die neuen Plaetze**: die bestehenden sind bereits reserviert und
+ * werden nicht noch einmal gegengerechnet. Passt die gewuenschte Zahl nicht
+ * ganz, wird abgelehnt - ein halber Nachkauf hinterliesse einen Betrag, der
+ * zu nichts passt.
+ *
+ * Eine Bestellung auf der **Warteliste** kann nicht nachkaufen: sie haelt
+ * noch keinen Platz, und `rueckeNach` prueft, ob eine Bestellung als Ganzes
+ * hineinpasst. Sie waehrend des Wartens wachsen zu lassen hiesse, ihre
+ * Chancen still zu verschlechtern.
+ */
+export async function ergaenzeTickets(
+  identity: TeilnehmerIdentitaet,
+  eventId: string,
+  tickets: TicketEingabe[],
+  now = new Date(),
+): Promise<NachkaufErgebnis> {
+  const event = await requireEvent(eventId);
+  const gesperrt = anmeldungGesperrt(event, now);
+  if (gesperrt) {
+    throw conflict(gesperrt);
+  }
+  if (tickets.length === 0) {
+    throw conflict('Bitte mindestens ein Ticket angeben.');
+  }
+
+  // Wie bei der Neuanmeldung: die Tokens vor der Sperre erzeugen.
+  const neueZeilen = tickets.map((eingabe, index) => ticketDaten(eingabe, index));
+
+  const ergebnis = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "CalendarEvent" WHERE id = ${eventId} FOR UPDATE`;
+    const frisch = await tx.calendarEvent.findUniqueOrThrow({ where: { id: eventId } });
+
+    const bestellung = await tx.calendarRegistration.findUnique({
+      where: { eventId_discordId: { eventId, discordId: identity.discordId } },
+    });
+    if (!bestellung || bestellung.status === 'CANCELLED') {
+      throw conflict('Du bist für dieses Event nicht angemeldet.');
+    }
+    if (bestellung.status === 'WAITLIST') {
+      throw conflict(
+        'Deine Anmeldung steht auf der Warteliste. Weitere Tickets lassen sich erst hinzufügen, wenn du nachgerückt bist.',
+      );
+    }
+
+    const bisher = await tx.calendarTicket.count({
+      where: { registrationId: bestellung.id, status: 'ACTIVE' },
+    });
+    if (bisher + neueZeilen.length > MAX_TICKETS_JE_BESTELLUNG) {
+      throw conflict(
+        `Eine Anmeldung umfasst höchstens ${MAX_TICKETS_JE_BESTELLUNG} Tickets - du hast bereits ${bisher}.`,
+      );
+    }
+
+    // Nur die neuen Plaetze gegenrechnen: die bestehenden stecken schon in
+    // `belegt`.
+    const belegt = await belegteTickets(eventId, tx);
+    if (frisch.capacity > 0 && belegt + neueZeilen.length > frisch.capacity) {
+      const frei = Math.max(0, frisch.capacity - belegt);
+      throw conflict(
+        frei > 0
+          ? `So viele Plätze sind nicht mehr frei - es sind noch ${frei} übrig.`
+          : 'Dieses Event ist ausgebucht.',
+      );
+    }
+
+    /*
+     * Die Position setzt hinter dem letzten bestehenden Ticket auf - auch
+     * hinter stornierten. Zwei Tickets mit derselben Position waeren zwei
+     * Zeilen, die sich in jeder sortierten Ansicht abwechseln koennen.
+     */
+    const letzte = await tx.calendarTicket.aggregate({
+      where: { registrationId: bestellung.id },
+      _max: { position: true },
+    });
+    const ab = (letzte._max.position ?? -1) + 1;
+    const ticketZahlung = zahlungFuerNeueTickets(frisch, now);
+
+    for (const [index, zeile] of neueZeilen.entries()) {
+      await tx.calendarTicket.create({
+        data: {
+          ...zeile,
+          ...ticketZahlung,
+          position: ab + index,
+          registrationId: bestellung.id,
+          eventId,
+        },
+      });
+    }
+
+    const zusatz = ticketZahlung.priceCents * neueZeilen.length;
+    const offen = await offenerBetrag(bestellung.id, tx);
+
+    const aktualisiert = await tx.calendarRegistration.update({
+      where: { id: bestellung.id },
+      data: {
+        ticketCount: bisher + neueZeilen.length,
+        // Der Gesamtbetrag waechst um die neuen Tickets.
+        paymentAmountCents: { increment: zusatz },
+        ...(zusatz > 0 && bestellung.paymentStatus !== 'PENDING'
+          ? {
+              /*
+               * Wieder offen - denn es ist wieder etwas offen.
+               *
+               * `paymentVerifiedAt` und `paymentVerifiedByUsername` bleiben
+               * stehen: sie sagen, wer die erste Zahlung bestaetigt hat, und
+               * genau das will man bei einem Nachkauf wissen. Der aktuelle
+               * Stand steht in `paymentStatus`.
+               */
+              paymentStatus: 'PENDING' as const,
+              paymentCurrency: frisch.entryFeeCurrency,
+            }
+          : {}),
+      },
+    });
+
+    return {
+      registration: aktualisiert,
+      ergaenzt: neueZeilen.length,
+      zusatzbetragRappen: zusatz,
+      offenRappen: offen,
+    };
+  });
+
+  await safeRecordAudit({
+    action: AUDIT_ACTIONS.CALENDAR_TICKETS_ADDED,
+    module: CALENDAR_MODULE_ID,
+    actorDiscordId: identity.discordId,
+    actorUsername: identity.username ?? null,
+    targetLabel: event.title,
+    success: true,
+    metadata: {
+      eventId,
+      registrationId: ergebnis.registration.id,
+      ergaenzt: ergebnis.ergaenzt,
+      zusatzbetragRappen: ergebnis.zusatzbetragRappen,
+      gesamtTickets: ergebnis.registration.ticketCount,
+    },
+  });
+  logger.info('Tickets ergaenzt', {
+    eventId,
+    discordId: identity.discordId,
+    ergaenzt: ergebnis.ergaenzt,
+  });
+
+  // Die Discord-Ankuendigung zieht der Aufrufer nach - genau wie bei
+  // `register`. Sie hier zu holen hiesse, den Discord-Versand in den
+  // Modulkern zu ziehen.
   return ergebnis;
 }
 

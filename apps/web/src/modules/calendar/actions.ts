@@ -294,6 +294,61 @@ export const registerAction = defineAction(
   },
 );
 
+/**
+ * Weitere Tickets zu einer bestehenden Anmeldung.
+ *
+ * `permission: P.participate` und keine Verwaltungsberechtigung: wer
+ * teilnehmen darf, darf auch jemanden mitbringen. **Welche** Bestellung
+ * wächst, entscheidet die Sitzung - `ergaenzeTickets` sucht sie über
+ * `(eventId, discordId)`. Eine Bestellnummer aus der Anfrage gäbe es hier
+ * nicht zu manipulieren, weil keine entgegengenommen wird.
+ */
+export const addTicketsAction = defineAction(
+  {
+    name: 'calendar.tickets.add',
+    module: MODULE_ID,
+    permission: P.participate,
+    schema: calendar.ticketsErgaenzenSchema,
+    rateLimit: 'calendarParticipate',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    const ergebnis = await calendar.ergaenzeTickets(
+      {
+        discordId: ctx.user.discordId,
+        username: ctx.user.username,
+        displayName: ctx.user.displayName,
+      },
+      input.eventId,
+      // Dieselbe Regel wie bei der Anmeldung: die Discord-Kennung setzt diese
+      // Zeile aus `ctx.user`, nicht die Anfrage.
+      input.tickets.map((ticket) =>
+        ticket.fuerMich
+          ? {
+              memberDiscordId: ctx.user.discordId,
+              memberUsername: ctx.user.displayName ?? ctx.user.username,
+            }
+          : {
+              guestFirstName: ticket.guestFirstName,
+              guestLastName: ticket.guestLastName,
+              guestEmail: ticket.guestEmail,
+              guestDiscordName: ticket.guestDiscordName,
+              note: ticket.note,
+            },
+      ),
+    );
+    await calendar.scheduleRefresh(input.eventId);
+    const event = await calendar.requireEvent(input.eventId);
+    revalidateCalendar(event.slug);
+    return {
+      ergaenzt: ergebnis.ergaenzt,
+      zusatzbetragRappen: ergebnis.zusatzbetragRappen,
+      offenRappen: ergebnis.offenRappen,
+    };
+  },
+);
+
 export const unregisterAction = defineAction(
   {
     name: 'calendar.unregister',

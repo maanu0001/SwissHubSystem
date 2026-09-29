@@ -103,9 +103,9 @@ export default async function TeilnehmerPage({
    */
   const darfGaesteSehen =
     can(context, P.guestsView) || can(context, P.manageRegistrations) || can(context, P.checkIn);
-  const [bestellungen, teilnehmende] = await Promise.all([
+  const [bestellungen, teilnehmerGruppen] = await Promise.all([
     darfZahlungenSehen ? calendar.ladeBestellungen(event.id) : Promise.resolve([]),
-    darfGaesteSehen ? calendar.ladeTeilnehmende(event.id) : Promise.resolve([]),
+    darfGaesteSehen ? calendar.ladeTeilnehmerGruppen(event.id) : Promise.resolve([]),
   ]);
   const ticketsJeBestellung = new Map(
     bestellungen.map((zeile) => [
@@ -125,6 +125,31 @@ export default async function TeilnehmerPage({
           timeZone: 'Europe/Zurich',
         })
       : '–';
+
+  /*
+   * Eine Ticketzeile fuer die Ansicht - und ausdruecklich ohne Gast-E-Mail.
+   *
+   * Sie steht in der Bestellliste, wo die Organisation sie braucht, und nicht
+   * in einer Liste, die am Einlass auf einem Telefon herumgeht. Was eine
+   * Server Component nicht uebergibt, steht auch nicht im HTML.
+   */
+  const zurAnsicht = (
+    zeile: Awaited<ReturnType<typeof calendar.ladeTeilnehmende>>[number],
+  ): React.ComponentProps<typeof TeilnehmendeListe>['gruppen'][number]['weitere'][number] => ({
+    ticketId: zeile.ticketId,
+    name: zeile.name,
+    art: zeile.art,
+    bestellerName: zeile.bestellerName,
+    bestellerDiscordId: zeile.bestellerDiscordId,
+    status: zeile.status,
+    zahlung: zeile.zahlung as 'NOT_REQUIRED' | 'PENDING' | 'VERIFIED' | 'WAIVED' | 'REFUNDED',
+    definitiv: zeile.definitiv,
+    checkedInAt: zeile.checkedInAt ? zeitpunkt(zeile.checkedInAt) : null,
+    checkedInByUsername: zeile.checkedInByUsername,
+    guestDiscordName: zeile.guestDiscordName,
+    note: zeile.note,
+    profilSlug: zeile.profilSlug,
+  });
 
   return (
     <>
@@ -189,7 +214,6 @@ export default async function TeilnehmerPage({
             darfErlassen={can(context, P.paymentsWaive)}
             darfZuruecknehmen={can(context, P.paymentsRevoke)}
             kennzahlen={{
-              angemeldet: kennzahlen.angemeldet,
               ausstehend: kennzahlen.ausstehend,
               bestaetigt: kennzahlen.bestaetigt,
               erlassen: kennzahlen.erlassen,
@@ -222,28 +246,24 @@ export default async function TeilnehmerPage({
         </Panel>
       ) : null}
 
-      {darfGaesteSehen && teilnehmende.length > 0 ? (
+      {darfGaesteSehen && teilnehmerGruppen.length > 0 ? (
         <Panel
-          title="Definitive Teilnehmer"
-          description="Jede Person einzeln - bei jedem Gast steht, zu welchem Mitglied er gehört. Diese Liste ist die Einlasssicht."
+          title="Teilnehmende"
+          description="Jede Person einzeln, gruppiert nach Anmeldung: Gäste stehen eingerückt unter dem Mitglied, das sie mitbringt. Diese Liste ist die Einlasssicht."
         >
           <TeilnehmendeListe
             csrfToken={csrfTokenFor(context)}
             slug={event.slug}
             darfEinchecken={can(context, P.checkIn)}
-            zeilen={teilnehmende.map((zeile) => ({
-              ticketId: zeile.ticketId,
-              name: zeile.name,
-              art: zeile.art,
-              bestellerName: zeile.bestellerName,
-              bestellerDiscordId: zeile.bestellerDiscordId,
-              status: zeile.status,
-              zahlung: zeile.zahlung as 'NOT_REQUIRED' | 'PENDING' | 'VERIFIED' | 'WAIVED' | 'REFUNDED',
-              definitiv: zeile.definitiv,
-              checkedInAt: zeile.checkedInAt ? zeitpunkt(zeile.checkedInAt) : null,
-              checkedInByUsername: zeile.checkedInByUsername,
-              guestDiscordName: zeile.guestDiscordName,
-              note: zeile.note,
+            gruppen={teilnehmerGruppen.map((gruppe) => ({
+              registrationId: gruppe.registrationId,
+              bestellerName: gruppe.bestellerName,
+              bestellerDiscordId: gruppe.bestellerDiscordId,
+              bestellerSlug: gruppe.bestellerSlug,
+              bestellungStatus: gruppe.bestellungStatus,
+              kopf: gruppe.kopf ? zurAnsicht(gruppe.kopf) : null,
+              weitere: gruppe.weitere.map(zurAnsicht),
+              anzahl: gruppe.anzahl,
             }))}
           />
         </Panel>

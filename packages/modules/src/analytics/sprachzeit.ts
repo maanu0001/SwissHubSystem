@@ -1,4 +1,4 @@
-import { prisma } from '@swisshub/database';
+import { Prisma, prisma } from '@swisshub/database';
 import { aufStundenVerteilen, aufTageVerteilen, tagesBeginn } from './zeit';
 import type { Zeitraum } from './zeitraum';
 
@@ -121,17 +121,121 @@ export function anteilSekunden(
 /**
  * Das Fenster, in dem die laufende Zeit gezaehlt wird.
  *
- * Es muss genau das abdecken, was die Aggregate abdecken - sonst zaehlte die
- * eine Haelfte einen Zeitraum, den die andere nicht kennt. Die Aggregate
- * rechnen in Zuercher Kalendertagen; ein Zeitraum «letzte 30 Tage», der um
- * 14:00 beginnt, holt deshalb den ganzen Starttag. Genau dort beginnt auch
- * der laufende Anteil.
+ * ## Warum das jetzt genau der Zeitraum ist
+ *
+ * Frueher stand hier `tagesBeginn(zeitraum.von)`. Der Grund war, dass die
+ * andere Haelfte der Sprachzeit aus den **Tagesaggregaten** kam und diese in
+ * ganzen Zuercher Kalendertagen rechnen - der laufende Anteil musste
+ * mitziehen, sonst zaehlte die eine Haelfte einen Zeitraum, den die andere
+ * nicht kannte.
+ *
+ * Damit war «letzte 24 Stunden» aber in Wahrheit «seit Mitternacht des
+ * Vortags»: bis zu 48 Stunden. Und weil sich das bei 7 und 30 Tagen genauso
+ * auswirkte, zeigten alle drei Filter auf einem jungen Server denselben Wert.
+ *
+ * Die Aggregate sind nicht mehr die Quelle der Sprachzeit -
+ * `sprachSekundenImFenster` rechnet sie aus den Abschnitten und schneidet
+ * dabei genau am Rand ab. Damit darf dieses Fenster endlich das sein, was es
+ * heissen soll: der gewaehlte Zeitraum.
  */
 export function sprachzeitFenster(zeitraum: Pick<Zeitraum, 'von' | 'bis'>): {
   von: Date;
   bis: Date;
 } {
+  return { von: zeitraum.von, bis: zeitraum.bis };
+}
+
+/**
+ * Das Fenster, das die **Eimer** abdecken.
+ *
+ * Verlaufsgrafik, Bestenliste und Kanalverteilung lesen Tageszeilen, und eine
+ * Tageszeile ist ein ganzer Kalendertag. Der laufende Anteil, der dort
+ * dazukommt, muss denselben Tag abdecken - sonst traegt derselbe Balken eine
+ * volle Tagessumme aus dem Aggregat und einen abgeschnittenen Rest aus den
+ * offenen Abschnitten.
+ *
+ * Das ist ausdruecklich **nicht** das Fenster der Kennzahl. Die Kennzahl sagt
+ * «in den letzten 24 Stunden» und meint das auch; ein Balken sagt «an diesem
+ * Tag» und meint den Tag. Zwei Fragen, zwei Fenster - frueher war es eines,
+ * und die Kennzahl trug die Antwort auf die andere Frage.
+ */
+export function eimerFenster(zeitraum: Pick<Zeitraum, 'von' | 'bis'>): { von: Date; bis: Date } {
   return { von: tagesBeginn(zeitraum.von), bis: zeitraum.bis };
+}
+
+/**
+ * Die Sprachzeit eines Fensters - exakt, aus den Abschnitten.
+ *
+ * ## Warum nicht aus den Aggregaten
+ *
+ * Weil ein Aggregat einen **ganzen Kalendertag** meint. Ein Zeitraum, der um
+ * 14:37 beginnt, holt aus `AnalyticsDaily` den gesamten Starttag - alles ab
+ * 00:00. Fuer «letzte 24 Stunden» sind das zwei volle Tage.
+ *
+ * Genau dafuer steht in `AnalyticsVoiceSegment`, was wirklich passiert ist:
+ * `joinedAt` und `leftAt` je Abschnitt. Daraus laesst sich der Anteil im
+ * Fenster auf die Sekunde ausrechnen - dieselbe Formel wie in
+ * `anteilSekunden`, nur in der Datenbank statt im Speicher:
+ *
+ *     LEAST(COALESCE(leftAt, jetzt), bis) - GREATEST(joinedAt, von)
+ *
+ * Eine Sitzung von 23:30 bis 01:30 zaehlt in einem Fenster ab 00:30 mit
+ * einer Stunde. Nicht mit zwei, und nicht mit null.
+ *
+ * ## Warum das bezahlbar ist
+ *
+ * Die Summe rechnet Postgres, nicht Node: ueber die Leitung geht eine Zahl.
+ * Der Filter `joinedAt < bis` trifft den Index `[guildId, joinedAt]`; die
+ * zweite Bedingung `COALESCE(leftAt, jetzt) > von` siebt danach die
+ * Abschnitte weg, die vor dem Fenster endeten.
+ *
+ * ## Was dieselben Regeln bleiben
+ *
+ * AFK-Abschnitte zaehlen nicht - dieselbe Regel wie beim Verbuchen. Und Bots
+ * nur, wenn ausdruecklich gewuenscht: ein Musikbot, der nachts im Kanal
+ * steht, ist keine Gemeinschaft.
+ *
+ * Doppelt gezaehlt werden kann nichts, weil hier **alle** Abschnitte gezaehlt
+ * werden - offene wie geschlossene - und die Aggregate fuer die Sprachzeit
+ * nicht mehr befragt werden.
+ */
+export async function sprachSekundenImFenster(
+  guildId: string,
+  fenster: { von: Date; bis: Date },
+  optionen: Optionen = {},
+): Promise<number> {
+  if (!guildId) {
+    return 0;
+  }
+  const jetzt = optionen.jetzt ?? new Date();
+  // Ein Fenster, das in der Zukunft endet, endet fuer die Rechnung jetzt -
+  // Sekunden, die noch nicht vergangen sind, gibt es nicht.
+  const bis = new Date(Math.min(fenster.bis.getTime(), jetzt.getTime()));
+  if (bis <= fenster.von) {
+    return 0;
+  }
+
+  const zeilen = await prisma.$queryRaw<Array<{ sekunden: number | null }>>`
+    SELECT COALESCE(
+             SUM(
+               EXTRACT(
+                 EPOCH FROM (
+                   LEAST(COALESCE("leftAt", ${jetzt}::timestamptz), ${bis}::timestamptz)
+                   - GREATEST("joinedAt", ${fenster.von}::timestamptz)
+                 )
+               )
+             ),
+             0
+           )::double precision AS sekunden
+      FROM "AnalyticsVoiceSegment"
+     WHERE "guildId" = ${guildId}
+       AND "isAfk" = false
+       ${optionen.mitBots ? Prisma.empty : Prisma.sql`AND "isBot" = false`}
+       AND "joinedAt" < ${bis}::timestamptz
+       AND COALESCE("leftAt", ${jetzt}::timestamptz) > ${fenster.von}::timestamptz
+  `;
+
+  return Math.max(0, Math.round(zeilen[0]?.sekunden ?? 0));
 }
 
 interface Optionen {

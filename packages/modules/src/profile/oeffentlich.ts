@@ -337,6 +337,39 @@ export async function indexierbareProfile(
   );
 }
 
+/**
+ * Die oeffentlichen Adressen mehrerer Mitglieder auf einmal.
+ *
+ * Dieselben vier Bedingungen wie bei `slugVon` - ein Slug ist vergeben, das
+ * Profil steht auf `PUBLIC`, es ist nicht gesperrt -, nur fuer eine ganze
+ * Liste. Gebraucht wird das dort, wo Namen nebeneinander stehen und verlinkt
+ * werden sollen: eine Teilnehmerliste mit dreissig Leuten waere sonst
+ * dreissig Abfragen.
+ *
+ * **Die Pruefung bleibt hier und wandert nicht in die Ansicht.** Wer nicht
+ * drin steht, hat kein oeffentliches Profil - und bekommt damit keinen Link.
+ * Eine Liste, die erst alle Slugs holt und die Ansicht entscheiden laesst,
+ * haette die Adresse eines privaten Profils bereits ausgeliefert.
+ */
+export async function slugsVon(discordIds: string[]): Promise<Map<string, string>> {
+  const eindeutig = [...new Set(discordIds.filter(Boolean))];
+  if (eindeutig.length === 0) {
+    return new Map();
+  }
+  const zeilen = await prisma.memberProfile.findMany({
+    where: {
+      discordId: { in: eindeutig },
+      publicSlug: { not: null },
+      visibilityProfile: 'PUBLIC',
+      publicLockedAt: null,
+    },
+    select: { discordId: true, publicSlug: true },
+  });
+  return new Map(
+    zeilen.flatMap((zeile) => (zeile.publicSlug ? [[zeile.discordId, zeile.publicSlug] as const] : [])),
+  );
+}
+
 /** Der Slug eines Mitglieds - fuer den Teilen-Knopf im eigenen Profil. */
 export async function slugVon(discordId: string): Promise<string | null> {
   const zeile = await prisma.memberProfile.findUnique({

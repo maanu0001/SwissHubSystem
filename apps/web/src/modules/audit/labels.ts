@@ -189,6 +189,7 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   CALENDAR_ORDER_CREATED: 'Event-Anmeldung erstellt',
   CALENDAR_TICKET_UPDATED: 'Ticket geändert',
   CALENDAR_TICKET_CANCELLED: 'Ticket storniert',
+  CALENDAR_TICKETS_ADDED: 'Tickets nachbestellt',
   CALENDAR_TICKET_CHECKED_IN: 'Ticket eingecheckt',
   CALENDAR_TICKET_CHECKIN_REVOKED: 'Check-in zurückgenommen',
 

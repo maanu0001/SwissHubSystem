@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analytics } from '@swisshub/modules';
 
-const { anteilSekunden, sprachzeitFenster } = analytics;
+const { anteilSekunden, eimerFenster, sprachzeitFenster } = analytics;
 
 /**
  * Die eine Formel, auf der die Sprachzeit steht.
@@ -81,27 +81,60 @@ describe('Anteil einer Sitzung an einem Fenster', () => {
   });
 });
 
-describe('Das Fenster eines Zeitraums', () => {
-  it('beginnt am Anfang des Zürcher Kalendertages', () => {
-    /*
-     * Die Aggregate rechnen in ganzen Kalendertagen: «letzte 30 Tage» holt
-     * die Tageszeile des Starttags komplett. Der laufende Anteil muss
-     * dasselbe Fenster abdecken - sonst zählte die eine Hälfte einen
-     * Zeitraum, den die andere nicht kennt.
-     */
+describe('Die beiden Fenster eines Zeitraums', () => {
+  /**
+   * ## Warum es zwei sind
+   *
+   * Sie waren einmal eines, und das war der Fehler. Die Sprachzeit kam aus
+   * den **Tagesaggregaten**, und die rechnen in ganzen Zürcher Kalendertagen;
+   * der laufende Anteil musste dasselbe Fenster abdecken, sonst zählte die
+   * eine Hälfte einen Zeitraum, den die andere nicht kannte.
+   *
+   * Damit war «letzte 24 Stunden» aber in Wahrheit «seit Mitternacht des
+   * Vortags» - bis zu 48 Stunden. Auf einem jungen Server zeigten 24h, 7d und
+   * 30d deshalb dieselbe Zahl.
+   *
+   * Jetzt fragen zwei Fenster zwei verschiedene Dinge:
+   *
+   * - `sprachzeitFenster` ist der **Zeitraum**. Die Kennzahl sagt «in den
+   *   letzten 24 Stunden» und meint das auch; gerechnet wird aus den
+   *   Abschnitten, und die lassen sich auf die Sekunde abschneiden.
+   * - `eimerFenster` ist, was die **Balken** abdecken. Ein Balken sagt «an
+   *   diesem Tag» und meint den ganzen Tag - dort wird weiter aus Tageszeilen
+   *   gelesen, und der laufende Anteil muss mitziehen.
+   */
+  it('gibt der Kennzahl genau den gewählten Zeitraum', () => {
     const mittags = new Date(Date.UTC(2026, 8, 23, 12, 34, 56));
     const fenster = sprachzeitFenster({ von: mittags, bis: mittags });
 
-    expect(fenster.von.getTime()).toBeLessThan(mittags.getTime());
+    // Keine Sekunde davor, keine danach.
+    expect(fenster.von).toBe(mittags);
     expect(fenster.bis).toBe(mittags);
-    // Sommerzeit: Zürich liegt zwei Stunden vor UTC, Mitternacht ist 22:00 UTC.
-    expect(fenster.von.toISOString()).toBe('2026-09-22T22:00:00.000Z');
   });
 
-  it('beachtet die Winterzeit', () => {
+  it('gibt den Balken den ganzen Zürcher Kalendertag', () => {
+    const mittags = new Date(Date.UTC(2026, 8, 23, 12, 34, 56));
+    const eimer = eimerFenster({ von: mittags, bis: mittags });
+
+    expect(eimer.von.getTime()).toBeLessThan(mittags.getTime());
+    expect(eimer.bis).toBe(mittags);
+    // Sommerzeit: Zürich liegt zwei Stunden vor UTC, Mitternacht ist 22:00 UTC.
+    expect(eimer.von.toISOString()).toBe('2026-09-22T22:00:00.000Z');
+  });
+
+  it('beachtet bei den Balken die Winterzeit', () => {
     const januar = new Date(Date.UTC(2026, 0, 15, 12, 0, 0));
-    expect(sprachzeitFenster({ von: januar, bis: januar }).von.toISOString()).toBe(
-      '2026-01-14T23:00:00.000Z',
-    );
+    expect(eimerFenster({ von: januar, bis: januar }).von.toISOString()).toBe('2026-01-14T23:00:00.000Z');
+  });
+
+  it('macht das Kennzahlenfenster nicht von der Zeitzone abhängig', () => {
+    // Die Sekunde bleibt die Sekunde - unabhängig von Sommer- oder Winterzeit.
+    for (const zeitpunkt of [
+      new Date(Date.UTC(2026, 0, 15, 12, 0, 0)),
+      new Date(Date.UTC(2026, 6, 15, 12, 0, 0)),
+    ]) {
+      const fenster = sprachzeitFenster({ von: zeitpunkt, bis: zeitpunkt });
+      expect(fenster.von.toISOString()).toBe(zeitpunkt.toISOString());
+    }
   });
 });

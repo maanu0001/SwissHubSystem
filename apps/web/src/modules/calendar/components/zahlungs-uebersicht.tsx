@@ -61,7 +61,6 @@ export interface ZahlungsZeileAnsicht {
 }
 
 export interface ZahlungsKennzahlenAnsicht {
-  angemeldet: number;
   ausstehend: number;
   bestaetigt: number;
   erlassen: number;
@@ -175,8 +174,20 @@ export function ZahlungsUebersicht({
       */}
       <div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Bestellungen</p>
-        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <Kennzahl label="Angemeldet" wert={kennzahlen.angemeldet} />
+        {/*
+          Keine Kachel «Angemeldet» mehr.
+
+          Sie zählte Bestellungen und stand unter einer Überschrift, die
+          «Bestellungen» heisst - die Zahl sagte also zweimal dasselbe. Gelesen
+          wurde sie aber als Teilnehmerzahl, und das war sie nie: acht
+          Anmeldungen können vierzehn Leute sein, weil Gäste in ihr nicht
+          vorkommen.
+
+          Ersatzlos, nicht ersetzt. Wie viele Personen kommen, steht eine Reihe
+          tiefer unter «Tickets» - und dort in zwei Zahlen, weil reserviert und
+          definitiv nicht dasselbe sind.
+        */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Kennzahl label="Zahlung ausstehend" wert={kennzahlen.ausstehend} ton="warnung" />
           <Kennzahl
             label="Bestätigt"

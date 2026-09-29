@@ -201,15 +201,23 @@ describeWithDatabase('Analytics: Sprachzeit ist live', () => {
      * Seit 40 Tagen im Kanal - eine Sitzung, die jeden Filter überspannt.
      * Jetzt ist der 23.09.2026, 12:00 UTC (14:00 Zürich).
      *
-     * Jeder Zeitraum bekommt genau seinen Teil. Die Zahlen sehen zunächst
-     * krumm aus, und das ist richtig so: die Aggregate rechnen in ganzen
-     * **Zürcher** Kalendertagen, und «letzte 24 Stunden» holt deshalb die
-     * Tageszeile des Vortags komplett. Der laufende Anteil muss dasselbe
-     * Fenster abdecken - sonst zählte die eine Hälfte einen Zeitraum, den die
-     * andere nicht kennt, und die Summe wäre von beidem etwas.
+     * Jeder Zeitraum bekommt genau seinen Teil, und «genau» heisst genau:
+     * «letzte 24 Stunden» sind 24 Stunden.
      *
-     * Zürcher Mitternacht des 22.09. ist 21.09. um 22:00 UTC (Sommerzeit),
-     * bis jetzt sind das 38 Stunden.
+     * ## Was hier früher stand
+     *
+     * 38, 182, 734. Die Sprachzeit kam aus den **Tagesaggregaten**, und die
+     * rechnen in ganzen Zürcher Kalendertagen - ein Zeitraum, der um 14:00
+     * beginnt, holte den Starttag ab Mitternacht komplett. «24 Stunden»
+     * waren damit bis zu 48, «7 Tage» acht Tage, «30 Tage» einunddreissig.
+     *
+     * Auf einem Server, dessen Sprachzeit in den letzten ein, zwei Tagen
+     * liegt, lieferten alle drei Filter deshalb **dieselbe Zahl** - genau
+     * das war die Meldung. Der Test hielt das Verhalten fest, statt es zu
+     * beanstanden.
+     *
+     * Gerechnet wird jetzt aus `AnalyticsVoiceSegment` mit der
+     * Überlappungsformel, und die schneidet am Fensterrand ab.
      */
     await betritt(A, new Date(T(0).getTime() - 40 * 86_400_000));
     const jetzt = T(0);
@@ -217,12 +225,36 @@ describeWithDatabase('Analytics: Sprachzeit ist live', () => {
     const stunden = async (id: string): Promise<number> =>
       Math.round((await sprachSekunden(jetzt, id)) / 3600);
 
-    expect(await stunden('24h')).toBe(38); // 24 h + der angebrochene Starttag
-    expect(await stunden('7d')).toBe(182);
-    expect(await stunden('30d')).toBe(734);
+    expect(await stunden('24h')).toBe(24);
+    expect(await stunden('7d')).toBe(24 * 7);
+    expect(await stunden('30d')).toBe(24 * 30);
     // Ab hier begrenzt der Beitritt und nicht mehr der Filter.
     expect(await stunden('90d')).toBe(960);
     expect(await stunden('1y')).toBe(960);
+  });
+
+  it('TEST 41b: gibt jedem Filter einen anderen Wert', async () => {
+    /*
+     * Die Aussage, um die es eigentlich geht - ohne jede Rechnerei.
+     *
+     * Ein Filterwechsel muss die Zahl bewegen. Vorher taten das 24h, 7d und
+     * 30d auf einem jungen Server nicht, weil alle drei denselben
+     * aufgerundeten Zeitraum abdeckten.
+     */
+    await betritt(A, new Date(T(0).getTime() - 40 * 86_400_000));
+    const jetzt = T(0);
+
+    const [h24, d7, d30] = await Promise.all([
+      sprachSekunden(jetzt, '24h'),
+      sprachSekunden(jetzt, '7d'),
+      sprachSekunden(jetzt, '30d'),
+    ]);
+
+    expect(h24).toBeLessThan(d7);
+    expect(d7).toBeLessThan(d30);
+    // Und zwar im richtigen Verhältnis: siebenmal, dann gut viermal.
+    expect(d7 / h24).toBeCloseTo(7, 1);
+    expect(d30 / d7).toBeCloseTo(30 / 7, 1);
   });
 
   it('TEST 35: rechnet «heute» ab Zürcher Mitternacht', async () => {
@@ -245,17 +277,16 @@ describeWithDatabase('Analytics: Sprachzeit ist live', () => {
      * der Tag davor - dort zählt dieser Tag, nicht die Zeit seither. Die
      * laufende Sitzung endet für ihn am Ende seines Fensters, nicht jetzt.
      *
-     * Auch hier die ganzen Zürcher Kalendertage: 20.09. 22:00 UTC bis 22.09.
-     * 12:00 UTC sind 38 Stunden, wie beim laufenden Zeitraum. Die beiden
-     * Fenster überlappen sich dadurch - das ist keine Eigenheit der
-     * laufenden Zeit, sondern die der Tagesaggregate, und beide Hälften
-     * verhalten sich gleich.
+     * Beide Fenster sind exakt 24 Stunden lang, und sie **berühren** sich,
+     * statt sich zu überlappen. Vorher deckten beide je 38 Stunden ab, weil
+     * die Tagesaggregate den angebrochenen Starttag ganz holten - vierzehn
+     * Stunden lagen damit in beiden Zahlen.
      */
     await betritt(A, new Date(T(0).getTime() - 4 * 86_400_000));
     const zahlen = await analytics.statistik.kennzahlen(scope(T(0), '24h'));
 
-    expect(zahlen.sprachSekunden.vorher).toBe(38 * 3600);
-    expect(zahlen.sprachSekunden.wert).toBe(38 * 3600);
+    expect(zahlen.sprachSekunden.vorher).toBe(24 * 3600);
+    expect(zahlen.sprachSekunden.wert).toBe(24 * 3600);
 
     // Der Punkt dieses Tests: der Vergleichszeitraum bekommt **seinen**
     // Ausschnitt und nicht alles bis jetzt. Vier Tage im Kanal sind 96

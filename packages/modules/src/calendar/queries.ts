@@ -10,7 +10,6 @@ import {
 } from '@swisshub/shared';
 import { DEFAULT_TIMEZONE } from './config';
 import { AKTIVE_STATUS, OEFFENTLICHE_STATUS, calendarSettings } from './service';
-import { DEFINITIVE_ZAHLUNGSZUSTAENDE } from './tickets';
 import type { CalendarQuery } from './schemas';
 
 /**
@@ -140,10 +139,10 @@ async function belegungen(
       where: {
         eventId: { in: eventIds },
         status: 'ACTIVE',
-        registration: {
-          status: 'CONFIRMED',
-          paymentStatus: { in: [...DEFINITIVE_ZAHLUNGSZUSTAENDE] },
-        },
+        // Der Zahlungsstand steht am Ticket, seit eine Bestellung
+        // nachtraeglich wachsen kann - siehe `tickets.ts`.
+        settledStatus: { not: null },
+        registration: { status: 'CONFIRMED' },
       },
       _count: { _all: true },
     }),

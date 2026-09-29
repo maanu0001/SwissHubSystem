@@ -352,12 +352,23 @@ export default async function EventDetailPage({
                       // Komponente keinen leeren Kasten baut.
                       zahlung: meine.zahlung === 'NOT_REQUIRED' ? null : meine.zahlung,
                       gesamtbetrag: calendar.betragText(meine.betragRappen, meine.waehrung),
+                      /*
+                       * Was noch zu ueberweisen ist - nicht der Gesamtbetrag.
+                       *
+                       * Nach einem Nachkauf auf eine bezahlte Bestellung sind
+                       * das nur die neuen Tickets. Den Gesamtbetrag zu nennen
+                       * hiesse, eine Zahlung zu verlangen, die zum Teil schon
+                       * geleistet ist.
+                       */
+                      offenerBetrag: calendar.betragText(meine.offenRappen, meine.waehrung),
+                      offenRappen: meine.offenRappen,
                       preisJeTicket: calendar.betragText(meine.preisJeTicketRappen, meine.waehrung),
                       tickets: meine.tickets.map((ticket) => ({
                         ticketId: ticket.ticketId,
                         name: ticket.name,
                         art: ticket.art,
                         istIch: ticket.istIch,
+                        erledigt: ticket.erledigt,
                         checkedInAt: ticket.checkedInAt?.toISOString() ?? null,
                         /*
                          * Der Ticket-Token geht bewusst NICHT an die

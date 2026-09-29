@@ -433,6 +433,42 @@ export const registerSchema = z
     }
   });
 
+/**
+ * Weitere Tickets zu einer bestehenden Anmeldung.
+ *
+ * Kein `registrationId`: welche Bestellung gemeint ist, ergibt sich aus der
+ * Sitzung und dem Termin - `(eventId, discordId)` ist eindeutig. Sie aus der
+ * Anfrage zu nehmen hiesse, eine fremde Bestellung anfassen zu koennen.
+ */
+export const ticketsErgaenzenSchema = z
+  .object({
+    eventId: z.string().min(1),
+    tickets: z.array(ticketEingabeSchema).min(1).max(10),
+  })
+  .superRefine((input, ctx) => {
+    input.tickets.forEach((ticket, index) => {
+      if (!ticket.fuerMich && !ticket.guestFirstName) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['tickets', index, 'guestFirstName'],
+          message: 'Bitte einen Namen für diesen Gast angeben.',
+        });
+      }
+    });
+    /*
+     * Auch beim Nachkauf hoechstens ein Ticket fuer einen selbst - und ob
+     * schon eines besteht, entscheidet der Dienst: hier ist nur zu sehen, was
+     * diese eine Anfrage mitbringt.
+     */
+    if (input.tickets.filter((ticket) => ticket.fuerMich).length > 1) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['tickets'],
+        message: 'Es lässt sich höchstens ein Ticket für dich selbst anlegen.',
+      });
+    }
+  });
+
 export const ticketIdSchema = z.object({ ticketId: z.string().min(1) });
 
 export const ticketAendernSchema = ticketEingabeSchema.extend({

@@ -156,9 +156,22 @@ describe('Die Statistik rechnet an einer Stelle', () => {
   });
 
   it('lässt keine Sprachzahl ohne laufenden Anteil', () => {
-    // Jede Stelle, die `summen` benutzt, reicht den laufenden Anteil herein
-    // oder lässt ihn begründet weg (Textranglisten).
-    expect(statistik).toContain('laufend?.sekunden ?? 0');
+    /*
+     * Früher stand hier `laufend?.sekunden ?? 0` in `summen`: die Sprachzeit
+     * war die Summe der Tagesaggregate **plus** dem laufenden Anteil.
+     *
+     * Die Aggregate sind nicht mehr die Quelle. `sprachSekundenImFenster`
+     * zählt alle Abschnitte - offene wie geschlossene - und schneidet am
+     * Fensterrand ab; damit steckt der laufende Anteil in derselben Zahl,
+     * statt danebengerechnet zu werden. Die Zusage bleibt dieselbe: eine
+     * Sitzung, die gerade läuft, ist in der Kennzahl enthalten.
+     */
+    expect(statistik).toContain('sprachSekundenImFenster');
+    expect(statistik).toContain('async function sprachzeitFuer(');
+    const kennzahlen = statistik.slice(statistik.indexOf('export async function kennzahlen'));
+    expect(kennzahlen).toContain('sprachzeitFuer(scope, zeitraum)');
+    // Und die Bestenlisten führen den laufenden Anteil weiter mit.
+    expect(statistik).toContain('laufend.sekunden');
   });
 });
 

@@ -5373,6 +5373,40 @@ model CalendarTicket {
   /// Die Reihenfolge innerhalb der Bestellung - «Ticket 1», «Ticket 2».
   position Int @default(0)
 
+  // --- Preis und Zahlung ---------------------------------------------------
+  /// Was dieses Ticket kostet - beim Anlegen eingefroren.
+  ///
+  /// Am Ticket und nicht nur an der Bestellung, weil eine Bestellung
+  /// **nachträglich wachsen** kann. Ändert die Organisation den Eintritt
+  /// zwischen der ersten Anmeldung und einem Nachkauf, schuldet niemand
+  /// rückwirkend mehr: jedes Ticket trägt den Preis, der bei seiner
+  /// Reservierung galt.
+  priceCents Int @default(0)
+
+  /// Wie dieses Ticket erledigt wurde - `null` heisst offen.
+  ///
+  /// ## Warum die Zahlung auch am Ticket hängt
+  ///
+  /// Bezahlt wird die **Bestellung**: eine Überweisung, ein Betrag, eine
+  /// Bestätigung durch einen Menschen. Solange eine Bestellung nur einmal
+  /// entsteht, reicht ein Status an ihr.
+  ///
+  /// Ein Nachkauf bricht das. Wer zwei Tickets bezahlt hat und später ein
+  /// drittes dazunimmt, hat zwei bezahlte und ein offenes - und ein
+  /// einzelner Status an der Bestellung kann das nicht sagen. Er müsste
+  /// entweder behaupten, das neue Ticket sei bezahlt, oder den beiden alten
+  /// ihre Zusage nehmen. Beides wäre falsch.
+  ///
+  /// Deshalb steht hier, was für **dieses** Ticket gilt. Die Werte sind
+  /// dieselben wie an der Bestellung - kein zweites Vokabular:
+  /// `NOT_REQUIRED` (der Termin kostet nichts), `VERIFIED` (ein Mensch hat
+  /// den Eingang bestätigt), `WAIVED` (erlassen). `PENDING` und `REFUNDED`
+  /// stehen hier nie: offen ist `null`, und eine Erstattung nimmt die
+  /// Erledigung wieder weg.
+  settledStatus CalendarPaymentStatus?
+  /// Wann es erledigt wurde.
+  settledAt     DateTime?
+
   // --- Check-in ------------------------------------------------------------
   /// Am Ticket, nicht an der Bestellung: drei Leute einer Bestellung treffen
   /// zu drei verschiedenen Zeiten ein.
@@ -5387,6 +5421,9 @@ model CalendarTicket {
 
   /// Die Kapazitaetsfrage: wie viele aktive Tickets hat dieser Termin?
   @@index([eventId, status])
+  /// Die definitiven Teilnehmer eines Termins - ohne Umweg ueber die
+  /// Bestellung, weil der Zahlungsstand jetzt am Ticket steht.
+  @@index([eventId, status, settledStatus])
   @@index([registrationId, position])
   /// Die Suche nach den eigenen Tickets eines Mitglieds ueber alle Termine.
   @@index([memberDiscordId])

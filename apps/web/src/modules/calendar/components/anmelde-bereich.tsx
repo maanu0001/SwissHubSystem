@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ConfirmationDialog } from '@/components/shared/confirmation-dialog';
-import { registerAction, unregisterAction } from '@/modules/calendar/actions';
+import { addTicketsAction, registerAction, unregisterAction } from '@/modules/calendar/actions';
 
 /**
  * Anmeldung und Bestellung auf der Detailseite.
@@ -50,6 +50,8 @@ export interface MeineTicketAnsicht {
   name: string;
   art: 'MITGLIED' | 'GAST';
   istIch: boolean;
+  /** Bezahlt, erlassen oder kostenlos - `false` heisst offen. */
+  erledigt: boolean;
   checkedInAt: string | null;
 }
 
@@ -60,6 +62,9 @@ export interface MeineBestellungAnsicht {
   zahlung: Zahlungsstand | null;
   /** Fertig formatiert - die Schreibweise steht im Modul. */
   gesamtbetrag: string;
+  /** Was jetzt noch zu bezahlen ist - nach einem Nachkauf nur der Nachkauf. */
+  offenerBetrag: string;
+  offenRappen: number;
   preisJeTicket: string;
   tickets: MeineTicketAnsicht[];
 }
@@ -160,6 +165,68 @@ export function AnmeldeBereich({
   const setzeGast = (index: number, teil: Partial<GastEntwurf>): void =>
     setGaeste((alt) => alt.map((gast, i) => (i === index ? { ...gast, ...teil } : gast)));
 
+  /*
+   * Der Nachkauf hat seinen eigenen Entwurf.
+   *
+   * Nicht denselben wie die Erstanmeldung: wer schon angemeldet ist, sieht
+   * das Anmeldeformular nicht mehr, und ein gemeinsamer Zustand hiesse, dass
+   * ein halb ausgefuellter Gast aus dem einen Vorgang im anderen auftaucht.
+   *
+   * Voreinstellung ist **ein Gast**, nicht «fuer mich»: wer bereits angemeldet
+   * ist, hat sein eigenes Ticket schon.
+   */
+  const [nachkaufOffen, setNachkaufOffen] = useState(false);
+  const [nachkauf, setNachkauf] = useState<GastEntwurf[]>([leererGast()]);
+  const nachkaufAnzahl = nachkauf.length;
+  const nachkaufBetrag = useMemo(
+    () => (eintritt ? betrag(eintritt.rappenJeTicket * nachkaufAnzahl, eintritt.waehrung) : null),
+    [eintritt, nachkaufAnzahl],
+  );
+  const setzeNachkauf = (index: number, teil: Partial<GastEntwurf>): void =>
+    setNachkauf((alt) => alt.map((gast, i) => (i === index ? { ...gast, ...teil } : gast)));
+
+  const ergaenzen = async (): Promise<void> => {
+    setPending(true);
+    try {
+      const ergebnis = await addTicketsAction({
+        csrfToken,
+        eventId,
+        tickets: nachkauf.map((gast) => ({
+          fuerMich: gast.fuerMich,
+          guestFirstName: gast.fuerMich ? '' : gast.guestFirstName,
+          guestLastName: gast.fuerMich ? '' : gast.guestLastName,
+          guestEmail: gast.fuerMich ? '' : gast.guestEmail,
+          guestDiscordName: gast.fuerMich ? '' : gast.guestDiscordName,
+          note: '',
+        })),
+      });
+      if (!ergebnis.ok) {
+        toast.error(ergebnis.error?.message ?? 'Das hat nicht geklappt.');
+        return;
+      }
+      /*
+       * Was hier steht, muss stimmen - auch beim Nachkauf.
+       *
+       * Bei einem kostenpflichtigen Abend kommt Geld dazu, und die neuen
+       * Tickets sind **nicht** bezahlt, nur weil die ersten es waren.
+       */
+      const dazu = ergebnis.data?.zusatzbetragRappen ?? 0;
+      toast.success(
+        dazu > 0 && eintritt
+          ? `${ergebnis.data?.ergaenzt} Ticket${ergebnis.data?.ergaenzt === 1 ? '' : 's'} reserviert. ${betrag(
+              dazu,
+              eintritt.waehrung,
+            )} kommen dazu - die neue Teilnahme ist noch nicht definitiv.`
+          : `${ergebnis.data?.ergaenzt} Ticket${ergebnis.data?.ergaenzt === 1 ? '' : 's'} hinzugefügt.`,
+      );
+      setNachkauf([leererGast()]);
+      setNachkaufOffen(false);
+      router.refresh();
+    } finally {
+      setPending(false);
+    }
+  };
+
   const anmelden = async (): Promise<void> => {
     setPending(true);
     try {
@@ -242,15 +309,95 @@ export function AnmeldeBereich({
             Anweisung wegzunehmen, der sie noch braucht, wäre die falsche
             Sparsamkeit.
           */}
-          {eintritt && meine.zahlung === 'PENDING' ? (
+          {eintritt && meine.offenRappen > 0 ? (
             <ZahlungsKasten
               eintritt={eintritt}
-              gesamtbetrag={meine.gesamtbetrag}
-              anzahl={meine.tickets.length}
+              offenerBetrag={meine.offenerBetrag}
+              anzahl={meine.tickets.filter((ticket) => !ticket.erledigt).length}
+              teilweise={meine.tickets.some((ticket) => ticket.erledigt)}
             />
           ) : null}
 
           <MeineTickets tickets={meine.tickets} />
+
+          {/*
+            Weitere Tickets - solange die Anmeldung ueberhaupt offen ist.
+
+            Vorher stand hier nur «Du bist angemeldet», und wer nachtraeglich
+            jemanden mitbringen wollte, hatte keinen Weg dafuer: `register`
+            weist eine zweite Anmeldung ab, und die Datenbank laesst eine
+            zweite Bestellung derselben Person gar nicht zu.
+
+            Nicht auf der Warteliste: dort haelt die Bestellung noch keinen
+            Platz, und sie waehrend des Wartens wachsen zu lassen hiesse, ihre
+            Chancen still zu verschlechtern - `rueckeNach` nimmt nur
+            Bestellungen, die als Ganzes hineinpassen.
+          */}
+          {!abmeldenGrund && darfTeilnehmen && meine.status === 'CONFIRMED' ? (
+            nachkaufOffen ? (
+              <div className="space-y-3 rounded-lg border border-border p-3">
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  <UserPlus className="size-4 shrink-0" aria-hidden="true" />
+                  Weitere Tickets
+                </p>
+                <TicketWaehler
+                  gaeste={nachkauf}
+                  freiePlaetze={freiePlaetze}
+                  aufWarteliste={false}
+                  onAendern={setzeNachkauf}
+                  onHinzufuegen={() => setNachkauf((alt) => [...alt, leererGast()])}
+                  onEntfernen={() => setNachkauf((alt) => alt.slice(0, -1))}
+                />
+
+                {nachkaufBetrag ? (
+                  <div className="space-y-1 rounded-lg bg-muted/40 p-3">
+                    <p className="flex items-baseline justify-between text-sm">
+                      <span className="font-medium">Kommt dazu</span>
+                      <span className="text-lg font-semibold tabular-nums">{nachkaufBetrag}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {nachkaufAnzahl} {nachkaufAnzahl === 1 ? 'Ticket' : 'Tickets'} × {meine.preisJeTicket}
+                    </p>
+                    {/*
+                      Der Satz, der hier stehen muss: bereits bezahlte Tickets
+                      bleiben bezahlt, die neuen sind es nicht.
+                    */}
+                    <p className="text-xs text-muted-foreground">
+                      Die bisherigen Tickets behalten ihren Stand. Für die neuen erscheinen die
+                      Zahlungsinformationen direkt nach dem Hinzufügen.
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                  <Button className="flex-1" disabled={pending} onClick={() => void ergaenzen()}>
+                    <UserPlus aria-hidden="true" />
+                    {nachkaufAnzahl === 1 ? 'Ticket hinzufügen' : `${nachkaufAnzahl} Tickets hinzufügen`}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={pending}
+                    onClick={() => {
+                      setNachkauf([leererGast()]);
+                      setNachkaufOffen(false);
+                    }}
+                  >
+                    Abbrechen
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={pending || freiePlaetze === 0}
+                onClick={() => setNachkaufOffen(true)}
+              >
+                <UserPlus aria-hidden="true" />
+                {freiePlaetze === 0 ? 'Keine Plätze mehr frei' : 'Tickets hinzufügen'}
+              </Button>
+            )
+          ) : null}
 
           {abmeldenGrund ? (
             <p className="text-xs text-muted-foreground">{abmeldenGrund}</p>
@@ -577,24 +724,35 @@ function PreisHinweis({ eintritt }: { eintritt: EintrittsAnsicht }): React.JSX.E
  */
 function ZahlungsKasten({
   eintritt,
-  gesamtbetrag,
+  offenerBetrag,
   anzahl,
+  teilweise,
 }: {
   eintritt: EintrittsAnsicht;
-  gesamtbetrag: string;
+  offenerBetrag: string;
   anzahl: number;
+  /** Sind Teile dieser Bestellung schon bestätigt? Dann ist das ein Nachkauf. */
+  teilweise: boolean;
 }): React.JSX.Element {
   return (
     <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
       <div className="flex items-baseline justify-between">
         <span className="flex items-center gap-2 text-sm font-semibold">
           <Wallet className="size-4 shrink-0" aria-hidden="true" />
-          Zu bezahlen
+          {/*
+            «Noch zu bezahlen», wenn ein Teil schon bestätigt ist.
+
+            Nach einem Nachkauf stimmt «Zu bezahlen» nicht mehr: ein Teil ist
+            geleistet, und den ganzen Betrag zu verlangen hiesse, zweimal zu
+            kassieren.
+          */}
+          {teilweise ? 'Noch zu bezahlen' : 'Zu bezahlen'}
         </span>
-        <span className="text-xl font-semibold tabular-nums">{gesamtbetrag}</span>
+        <span className="text-xl font-semibold tabular-nums">{offenerBetrag}</span>
       </div>
       <p className="text-xs text-muted-foreground">
         {anzahl} {anzahl === 1 ? 'Ticket' : 'Tickets'} × {eintritt.preisJeTicket}
+        {teilweise ? ' · die übrigen sind bestätigt' : null}
       </p>
 
       {eintritt.hinweise ? (
@@ -616,7 +774,7 @@ function ZahlungsKasten({
           />
           <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
             <QrCode className="size-3.5 shrink-0" aria-hidden="true" />
-            Mit der TWINT-App scannen und {gesamtbetrag} überweisen.
+            Mit der TWINT-App scannen und {offenerBetrag} überweisen.
           </p>
         </div>
       ) : (
@@ -659,6 +817,15 @@ function MeineTickets({ tickets }: { tickets: MeineTicketAnsicht[] }): React.JSX
             {ticket.checkedInAt ? (
               <Badge variant="default" className="shrink-0">
                 eingecheckt
+              </Badge>
+            ) : !ticket.erledigt ? (
+              /*
+                Je Ticket, nicht je Bestellung: nach einem Nachkauf ist ein
+                Teil bestätigt und ein Teil offen. Einen gemeinsamen Stand zu
+                zeigen hiesse, einen der beiden falsch darzustellen.
+              */
+              <Badge variant="outline" className="shrink-0 border-amber-500/40 text-amber-500">
+                offen
               </Badge>
             ) : null}
           </li>

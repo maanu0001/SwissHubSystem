@@ -2,12 +2,14 @@ import { prisma } from '@swisshub/database';
 import { getModuleSettings } from '../module-state';
 import { ANALYTICS_MODULE_ID, type AnalyticsSettings } from './config';
 import {
+  eimerFenster,
   laufendeSprachzeit,
   leereSprachzeit,
+  sprachSekundenImFenster,
   sprachzeitFenster,
   type LaufendeSprachzeit,
 } from './sprachzeit';
-import { tag, tagesBeginn, tagesSchluessel, zuercherTeile } from './zeit';
+import { stunde, tag, tagesBeginn, tagesSchluessel, zuercherTeile } from './zeit';
 import { tageZwischen, vergleiche, type Veraenderung, type Zeitraum } from './zeitraum';
 import { trackingStand } from './zaehler';
 
@@ -97,21 +99,43 @@ export interface Kennzahlen {
 }
 
 /**
- * Die Summen eines Zeitraums - Aggregate plus laufender Anteil.
+ * Die Summen eines Zeitraums.
  *
- * `laufend` wird hereingereicht und nicht hier geholt: eine Seite fragt
- * mehrere Kennzahlen ab, und die laufende Sprachzeit soll dafuer einmal
- * gelesen werden und nicht fuenfmal. Wer sie nicht braucht - etwa fuer einen
- * Vergleichszeitraum, in dem nichts mehr waechst - laesst sie weg.
+ * ## Warum Stunden und nicht Tage
+ *
+ * Weil ein Tagesaggregat einen **ganzen Kalendertag** meint. `day >= tag(von)`
+ * holt fuer einen Zeitraum, der um 14:37 beginnt, den Starttag komplett - und
+ * damit alles ab Mitternacht. Bei «letzte 24 Stunden» waren das zwei volle
+ * Tage, bei «7 Tage» acht, bei «30 Tage» einunddreissig. Auf einem Server,
+ * dessen Aktivitaet in den letzten ein, zwei Tagen liegt, lieferten alle drei
+ * Filter deshalb dieselbe Zahl.
+ *
+ * `AnalyticsHourly` traegt dieselben Zaehler auf Stundenbasis, wird an
+ * denselben Stellen geschrieben und ebenso wenig von der Aufbewahrungsfrist
+ * geloescht. Damit liegt der Fehler am Rand bei unter einer Stunde statt bei
+ * bis zu einem Tag.
+ *
+ * ## Warum die Sprachzeit trotzdem anders kommt
+ *
+ * Sie muss nicht auf eine Stunde genau sein, sie kann auf die Sekunde genau
+ * sein: in `AnalyticsVoiceSegment` steht, wann jemand kam und ging.
+ * `sprachSekundenImFenster` schneidet dort exakt am Fensterrand ab - und
+ * deckt offene wie geschlossene Abschnitte ab. Die Stundenwerte werden fuer
+ * die Sprachzeit deshalb gar nicht erst gelesen.
+ *
+ * Nachrichten lassen sich so nicht rechnen: sie sind Zeitpunkte und keine
+ * Strecken, und eine Ereigniszeile je Nachricht gibt es nach Ablauf der
+ * Aufbewahrungsfrist nicht mehr. Die Stunde ist dort die feinste Wahrheit,
+ * die bleibt.
  */
-async function summen(guildId: string, von: Date, bis: Date, laufend?: LaufendeSprachzeit) {
-  const werte = await prisma.analyticsDaily.aggregate({
-    where: { guildId, day: { gte: tag(von), lte: tag(bis) } },
-    _sum: { messages: true, voiceSeconds: true, voiceSessions: true, joins: true, leaves: true },
+async function summen(guildId: string, von: Date, bis: Date, sprachSekunden: number) {
+  const werte = await prisma.analyticsHourly.aggregate({
+    where: { guildId, hourStart: { gte: stunde(von), lt: bis } },
+    _sum: { messages: true, voiceSessions: true, joins: true, leaves: true },
   });
   return {
     messages: werte._sum.messages ?? 0,
-    voiceSeconds: (werte._sum.voiceSeconds ?? 0) + (laufend?.sekunden ?? 0),
+    voiceSeconds: sprachSekunden,
     voiceSessions: werte._sum.voiceSessions ?? 0,
     joins: werte._sum.joins ?? 0,
     leaves: werte._sum.leaves ?? 0,
@@ -125,9 +149,23 @@ async function summen(guildId: string, von: Date, bis: Date, laufend?: LaufendeS
  * dieselbe Rechnung von selbst den richtigen Wert: eine Sitzung, die vor
  * drei Tagen begann und immer noch laeuft, zaehlt dort mit dem Teil, der in
  * den Zeitraum faellt - und nicht mit dem, was seither dazugekommen ist.
+ *
+ * Gebraucht wird davon nur noch, was die Aggregate **nicht** wissen koennen:
+ * wer gerade drin sitzt (fuer «aktive Mitglieder») und wie die laufende Zeit
+ * auf Tage und Stunden faellt (fuer die Verlaufsgrafik). Die Gesamtsumme
+ * kommt aus `sprachSekundenImFenster` und deckt offene wie geschlossene
+ * Abschnitte ab.
  */
 async function laufendFuer(scope: StatistikScope, zeitraum: Pick<Zeitraum, 'von' | 'bis'>) {
-  return laufendeSprachzeit(scope.guildId, sprachzeitFenster(zeitraum), {
+  return laufendeSprachzeit(scope.guildId, eimerFenster(zeitraum), {
+    mitBots: scope.mitBots,
+    jetzt: scope.jetzt,
+  });
+}
+
+/** Die exakte Sprachzeit eines Zeitraums - die eine Stelle, die sie rechnet. */
+async function sprachzeitFuer(scope: StatistikScope, zeitraum: Pick<Zeitraum, 'von' | 'bis'>) {
+  return sprachSekundenImFenster(scope.guildId, sprachzeitFenster(zeitraum), {
     mitBots: scope.mitBots,
     jetzt: scope.jetzt,
   });
@@ -183,16 +221,16 @@ export async function kennzahlen(scope: StatistikScope): Promise<Kennzahlen> {
       ? { von: zeitraum.vergleichVon, bis: zeitraum.vergleichBis }
       : null;
 
-  const [laufend, laufendVorher] = await Promise.all([
+  const [laufend, laufendVorher, sprachJetzt, sprachVorher] = await Promise.all([
     laufendFuer(scope, zeitraum),
     vergleich ? laufendFuer(scope, vergleich) : Promise.resolve(null),
+    sprachzeitFuer(scope, zeitraum),
+    vergleich ? sprachzeitFuer(scope, vergleich) : Promise.resolve(null),
   ]);
 
   const [jetztWerte, vorherWerte, aktivJetzt, aktivVorher, mitglieder] = await Promise.all([
-    summen(guildId, zeitraum.von, zeitraum.bis, laufend),
-    vergleich
-      ? summen(guildId, vergleich.von, vergleich.bis, laufendVorher ?? undefined)
-      : Promise.resolve(null),
+    summen(guildId, zeitraum.von, zeitraum.bis, sprachJetzt),
+    vergleich ? summen(guildId, vergleich.von, vergleich.bis, sprachVorher ?? 0) : Promise.resolve(null),
     aktiveMitglieder(guildId, zeitraum.von, zeitraum.bis, bots, laufend),
     vergleich
       ? aktiveMitglieder(guildId, vergleich.von, vergleich.bis, bots, laufendVorher ?? undefined)
@@ -501,8 +539,21 @@ export async function topMitglieder(
     .sort((a, b) => (nach === 'messages' ? b.messages - a.messages : b.voiceSeconds - a.voiceSeconds))
     .slice(0, Math.min(limit, 50));
 
+  /*
+   * Der Nenner kommt aus derselben Quelle wie die Zaehler.
+   *
+   * Vorher stand hier die Serversumme aus `summen`. Die kommt aus einer
+   * anderen Tabelle und - seit sie stundengenau ist - aus einem anderen
+   * Zeitfenster; der Anteil einer Person konnte damit ueber hundert Prozent
+   * rutschen. Gezaehlt und geteilt wird jetzt beides ueber
+   * `analyticsUserDaily` und denselben Tagesfilter, und die Anteile
+   * addieren sich wieder auf hundert.
+   */
   const [gesamt, profile] = await Promise.all([
-    summen(guildId, zeitraum.von, zeitraum.bis, nach === 'voice' ? laufend : undefined),
+    prisma.analyticsUserDaily.aggregate({
+      where: { guildId, day: tageFilter, ...ohneBots },
+      _sum: { messages: true, voiceSeconds: true },
+    }),
     // Namen in einer Abfrage statt einer je Zeile.
     prisma.analyticsMemberProfile.findMany({
       where: { guildId, discordId: { in: kandidaten.map((eintrag) => eintrag.discordId) } },
@@ -510,7 +561,8 @@ export async function topMitglieder(
     }),
   ]);
   const nachId = new Map(profile.map((eintrag) => [eintrag.discordId, eintrag]));
-  const nenner = nach === 'messages' ? gesamt.messages : gesamt.voiceSeconds;
+  const nenner =
+    nach === 'messages' ? (gesamt._sum.messages ?? 0) : (gesamt._sum.voiceSeconds ?? 0) + laufend.sekunden;
 
   return kandidaten.map((eintrag) => {
     const wert = nach === 'messages' ? eintrag.messages : eintrag.voiceSeconds;
@@ -570,7 +622,15 @@ export async function topKanaele(
           _sum: { messages: true, voiceSeconds: true },
         })
       : Promise.resolve([]),
-    summen(guildId, zeitraum.von, zeitraum.bis, kind === 'VOICE' ? laufend : undefined),
+    /*
+     * Der Nenner aus derselben Tabelle wie die Zaehler - siehe
+     * `topMitglieder`. Eine Serversumme aus einem anderen Zeitfenster ergaebe
+     * Anteile, die sich nicht auf hundert addieren.
+     */
+    prisma.analyticsChannelDaily.aggregate({
+      where: { guildId, kind, day: { gte: tag(zeitraum.von), lte: tag(zeitraum.bis) } },
+      _sum: { messages: true, voiceSeconds: true },
+    }),
   ]);
 
   // Aggregat und laufender Anteil zusammenfuehren; ein Kanal, in dem gerade
@@ -610,7 +670,8 @@ export async function topKanaele(
     ]),
   );
 
-  const nenner = kind === 'TEXT' ? gesamt.messages : gesamt.voiceSeconds;
+  const nenner =
+    kind === 'TEXT' ? (gesamt._sum.messages ?? 0) : (gesamt._sum.voiceSeconds ?? 0) + laufend.sekunden;
 
   return sortiert.map((eintrag) => {
     const wert = kind === 'TEXT' ? eintrag.messages : eintrag.voiceSeconds;

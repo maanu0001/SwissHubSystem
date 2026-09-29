@@ -1,6 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { AUDIT_ACTIONS, prisma, safeRecordAudit } from '@swisshub/database';
-import type { CalendarTicket, CalendarTicketStatus, Prisma } from '@swisshub/database';
+import type {
+  CalendarEvent,
+  CalendarPaymentStatus,
+  CalendarTicket,
+  CalendarTicketStatus,
+  Prisma,
+} from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
 import { AppError, conflict } from '@swisshub/shared';
 import { CALENDAR_MODULE_ID, CALENDAR_PERMISSIONS } from './config';
@@ -91,6 +97,39 @@ export function ticketArt(ticket: { memberDiscordId: string | null }): 'MITGLIED
 }
 
 /**
+ * Preis und Zahlungsstand, mit denen ein frisches Ticket entsteht.
+ *
+ * ## Warum der Preis am Ticket eingefroren wird
+ *
+ * Weil eine Bestellung nachträglich wachsen kann. Ändert die Organisation den
+ * Eintritt zwischen der ersten Anmeldung und einem Nachkauf, schuldet niemand
+ * rückwirkend mehr - jedes Ticket trägt den Preis, der bei seiner
+ * Reservierung galt. Dieselbe Regel wie bisher an der Bestellung, nur eine
+ * Ebene tiefer, wo sie jetzt gebraucht wird.
+ *
+ * ## Warum ein kostenloses Ticket sofort erledigt ist
+ *
+ * Weil es nichts zu bezahlen gibt. `NOT_REQUIRED` ist kein Zwischenzustand,
+ * auf den noch jemand schauen müsste; die Person ist definitiv, sobald sie
+ * angemeldet ist.
+ */
+export interface TicketZahlung {
+  priceCents: number;
+  settledStatus: CalendarPaymentStatus | null;
+  settledAt: Date | null;
+}
+
+export function zahlungFuerNeueTickets(
+  event: Pick<CalendarEvent, 'entryFeeEnabled' | 'entryFeeCents'>,
+  jetzt = new Date(),
+): TicketZahlung {
+  const kostet = event.entryFeeEnabled && event.entryFeeCents > 0;
+  return kostet
+    ? { priceCents: event.entryFeeCents, settledStatus: null, settledAt: null }
+    : { priceCents: 0, settledStatus: 'NOT_REQUIRED', settledAt: jetzt };
+}
+
+/**
  * Eine Ticketeingabe in das, was in die Datenbank geht.
  *
  * Wirft, wenn weder Mitglied noch Gastname da ist. Das prüft auch das
@@ -100,6 +139,7 @@ export function ticketArt(ticket: { memberDiscordId: string | null }): 'MITGLIED
 export function ticketDaten(
   eingabe: TicketEingabe,
   position: number,
+  zahlung: TicketZahlung = { priceCents: 0, settledStatus: 'NOT_REQUIRED', settledAt: new Date() },
 ): Omit<Prisma.CalendarTicketUncheckedCreateInput, 'registrationId' | 'eventId'> {
   const mitglied = eingabe.memberDiscordId?.trim() || null;
   const vorname = eingabe.guestFirstName?.trim() || null;
@@ -112,6 +152,9 @@ export function ticketDaten(
     token: ticketToken(),
     position,
     status: 'ACTIVE',
+    priceCents: zahlung.priceCents,
+    settledStatus: zahlung.settledStatus,
+    settledAt: zahlung.settledAt,
     memberDiscordId: mitglied,
     memberUsername: mitglied ? (eingabe.memberUsername?.trim().slice(0, 64) ?? null) : null,
     /*
@@ -188,32 +231,101 @@ export async function wartendeTickets(
  */
 export const DEFINITIVE_ZAHLUNGSZUSTAENDE = ['NOT_REQUIRED', 'VERIFIED', 'WAIVED'] as const;
 
+/**
+ * Die Bedingung, die ein Ticket definitiv macht - einmal formuliert.
+ *
+ * ## Warum sie am Ticket haengt und nicht mehr an der Bestellung
+ *
+ * Weil eine Bestellung nachtraeglich wachsen kann. Wer zwei Tickets bezahlt
+ * hat und spaeter ein drittes dazunimmt, hat zwei definitive und ein
+ * vorlaeufiges. Der Zahlungsstatus der Bestellung kann das nicht sagen: er
+ * muesste entweder das neue Ticket als bezahlt ausgeben oder den beiden alten
+ * ihre Zusage nehmen.
+ *
+ * `settledStatus` steht deshalb am Ticket. Die Bestellung bleibt die Einheit
+ * der **Zahlung** - eine Ueberweisung, ein Betrag, eine Bestaetigung durch
+ * einen Menschen -, aber ob jemand kommt, entscheidet seine eigene Zeile.
+ *
+ * Die Bestellung muss trotzdem einen Platz halten: eine stornierte oder auf
+ * der Warteliste stehende Bestellung hat keine definitiven Teilnehmer, auch
+ * wenn ihre Tickets einmal bezahlt waren.
+ */
+const DEFINITIV_FILTER = {
+  status: 'ACTIVE',
+  settledStatus: { not: null },
+  registration: { status: 'CONFIRMED' },
+} satisfies Prisma.CalendarTicketWhereInput;
+
 export async function definitiveTeilnehmer(
   eventId: string,
   tx: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<number> {
-  return tx.calendarTicket.count({
-    where: {
-      eventId,
-      status: 'ACTIVE',
-      registration: {
-        status: 'CONFIRMED',
-        paymentStatus: { in: [...DEFINITIVE_ZAHLUNGSZUSTAENDE] },
-      },
-    },
-  });
+  return tx.calendarTicket.count({ where: { eventId, ...DEFINITIV_FILTER } });
 }
 
 /** Ist dieses eine Ticket definitiv? Dieselbe Regel, auf einer Zeile. */
 export function ticketIstDefinitiv(ticket: {
   status: CalendarTicketStatus;
-  registration: { status: string; paymentStatus: string };
+  settledStatus: CalendarPaymentStatus | null;
+  registration: { status: string };
 }): boolean {
   return (
-    ticket.status === 'ACTIVE' &&
-    ticket.registration.status === 'CONFIRMED' &&
-    (DEFINITIVE_ZAHLUNGSZUSTAENDE as readonly string[]).includes(ticket.registration.paymentStatus)
+    ticket.status === 'ACTIVE' && ticket.registration.status === 'CONFIRMED' && ticket.settledStatus !== null
   );
+}
+
+/**
+ * Die offenen Tickets einer Bestellung erledigen.
+ *
+ * Nur die **offenen**: ein Ticket, das schon bestaetigt war, behaelt seinen
+ * Status und seinen Zeitpunkt. Sonst wuerde ein spaeterer Erlass fuer den
+ * Nachkauf rueckwirkend auch die bezahlten Tickets zu «erlassen» machen - und
+ * die Kasse faende einen Betrag nicht wieder, den sie erhalten hat.
+ *
+ * Gibt zurueck, wie viele Tickets dadurch erledigt wurden.
+ */
+export async function erledigeTickets(
+  tx: Prisma.TransactionClient | typeof prisma,
+  registrationId: string,
+  status: 'NOT_REQUIRED' | 'VERIFIED' | 'WAIVED',
+  jetzt: Date,
+): Promise<number> {
+  const { count } = await tx.calendarTicket.updateMany({
+    where: { registrationId, status: 'ACTIVE', settledStatus: null },
+    data: { settledStatus: status, settledAt: jetzt },
+  });
+  return count;
+}
+
+/**
+ * Die Tickets einer Bestellung wieder oeffnen.
+ *
+ * Bei einer Ruecknahme oder Erstattung gilt die ganze Bestellung als offen -
+ * anders als beim Erledigen, wo nur die offenen Zeilen angefasst werden. Wer
+ * eine Bestaetigung zurueckzieht, zieht sie fuer alle zurueck, die unter ihr
+ * definitiv wurden.
+ */
+export async function oeffneTickets(
+  tx: Prisma.TransactionClient | typeof prisma,
+  registrationId: string,
+): Promise<number> {
+  const { count } = await tx.calendarTicket.updateMany({
+    where: { registrationId, status: 'ACTIVE' },
+    data: { settledStatus: null, settledAt: null },
+  });
+  return count;
+}
+
+/** Was fuer diese Bestellung noch offen ist - in Rappen. */
+export async function offenerBetrag(
+  registrationId: string,
+  tx: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<number> {
+  const summe = await tx.calendarTicket.aggregate({
+    where: { registrationId, status: 'ACTIVE', settledStatus: null },
+    _sum: { priceCents: true },
+  });
+  return summe._sum.priceCents ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -653,7 +765,10 @@ export interface TeilnehmerTicketZeile {
   bestellerDiscordId: string;
   bestellerName: string;
   status: CalendarTicketStatus;
+  /** Der Stand **dieses** Tickets - `PENDING`, solange nichts erledigt ist. */
   zahlung: string;
+  /** Der Stand der ganzen Bestellung - fuer die Kassensicht. */
+  bestellungZahlung: string;
   definitiv: boolean;
   checkedInAt: Date | null;
   checkedInByUsername: string | null;
@@ -661,6 +776,8 @@ export interface TeilnehmerTicketZeile {
   guestDiscordName: string | null;
   note: string | null;
   position: number;
+  /** Die oeffentliche Profiladresse - nur bei Mitgliedern, sonst `null`. */
+  profilSlug: string | null;
 }
 
 const bestellerName = (zeile: {
@@ -698,9 +815,16 @@ export async function ladeBestellungen(eventId: string): Promise<BestellZeile[]>
     betragRappen: zeile.paymentAmountCents,
     waehrung: zeile.paymentCurrency ?? zeile.event.entryFeeCurrency,
     zahlung: zeile.paymentStatus,
+    /*
+     * Eine Bestellung gilt als definitiv, wenn sie einen Platz haelt und
+     * **kein** Ticket mehr offen ist. Ein Nachkauf auf eine bestaetigte
+     * Bestellung macht sie damit wieder vorlaeufig - was sie auch ist: es
+     * steht Geld aus.
+     */
     definitiv:
       zeile.status === 'CONFIRMED' &&
-      (DEFINITIVE_ZAHLUNGSZUSTAENDE as readonly string[]).includes(zeile.paymentStatus),
+      zeile.tickets.some((ticket) => ticket.status === 'ACTIVE') &&
+      zeile.tickets.every((ticket) => ticket.status !== 'ACTIVE' || ticket.settledStatus !== null),
     verifiedAt: zeile.paymentVerifiedAt,
     verifiedByUsername: zeile.paymentVerifiedByUsername,
     grund: zeile.paymentReason,
@@ -717,26 +841,24 @@ export async function ladeBestellungen(eventId: string): Promise<BestellZeile[]>
   }));
 }
 
-/** Die einzelnen Teilnehmenden eines Termins. */
-export async function ladeTeilnehmende(eventId: string): Promise<TeilnehmerTicketZeile[]> {
-  const zeilen = await prisma.calendarTicket.findMany({
-    where: { eventId },
-    orderBy: [{ createdAt: 'asc' }, { position: 'asc' }],
-    include: {
-      registration: {
-        select: {
-          id: true,
-          discordId: true,
-          username: true,
-          displayName: true,
-          status: true,
-          paymentStatus: true,
-        },
-      },
+const TEILNEHMER_EINSCHLUSS = {
+  registration: {
+    select: {
+      id: true,
+      discordId: true,
+      username: true,
+      displayName: true,
+      status: true,
+      paymentStatus: true,
     },
-  });
+  },
+} satisfies Prisma.CalendarTicketInclude;
 
-  return zeilen.map((ticket) => ({
+function zuTeilnehmerZeile(
+  ticket: Prisma.CalendarTicketGetPayload<{ include: typeof TEILNEHMER_EINSCHLUSS }>,
+  slugs: Map<string, string>,
+): TeilnehmerTicketZeile {
+  return {
     ticketId: ticket.id,
     registrationId: ticket.registrationId,
     name: ticketName(ticket),
@@ -744,7 +866,16 @@ export async function ladeTeilnehmende(eventId: string): Promise<TeilnehmerTicke
     bestellerDiscordId: ticket.registration.discordId,
     bestellerName: bestellerName(ticket.registration),
     status: ticket.status,
-    zahlung: ticket.registration.paymentStatus,
+    /*
+     * Der Zahlungsstand **dieses** Tickets - nicht der seiner Bestellung.
+     *
+     * Seit Nachkaeufe moeglich sind, koennen sie auseinandergehen: zwei
+     * bezahlte Tickets und ein spaeter dazugekauftes, das noch offen ist.
+     * Den Stand der Bestellung blind zu uebernehmen hiesse, einen der beiden
+     * Gaeste falsch darzustellen.
+     */
+    zahlung: ticket.settledStatus ?? 'PENDING',
+    bestellungZahlung: ticket.registration.paymentStatus,
     definitiv: ticketIstDefinitiv(ticket),
     checkedInAt: ticket.checkedInAt,
     checkedInByUsername: ticket.checkedInByUsername,
@@ -752,7 +883,133 @@ export async function ladeTeilnehmende(eventId: string): Promise<TeilnehmerTicke
     guestDiscordName: ticket.guestDiscordName,
     note: ticket.note,
     position: ticket.position,
-  }));
+    /*
+     * Die oeffentliche Adresse - nur fuer Mitglieder, und nur wenn ihr Profil
+     * wirklich oeffentlich ist.
+     *
+     * Ein Gast bekommt hier nie etwas: er hat kein Konto, und seinen Namen
+     * als Slug zu deuten ergaebe einen Link auf ein fremdes Profil oder ins
+     * Leere. `null` heisst: kein Link.
+     */
+    profilSlug: ticket.memberDiscordId ? (slugs.get(ticket.memberDiscordId) ?? null) : null,
+  };
+}
+
+/** Die oeffentlichen Adressen der Mitglieder einer Ticketliste. */
+async function profilSlugs(tickets: Array<{ memberDiscordId: string | null }>): Promise<Map<string, string>> {
+  const ids = tickets.flatMap((ticket) => (ticket.memberDiscordId ? [ticket.memberDiscordId] : []));
+  if (ids.length === 0) {
+    return new Map();
+  }
+  // Ueber das Profilmodul, damit Sichtbarkeit und Sperre an genau einer
+  // Stelle entschieden werden. Eine eigene Abfrage hier waere eine zweite
+  // Auslegung derselben Regel - und die naechste Aenderung erwischte nur eine.
+  const { slugsVon } = await import('../profile/oeffentlich');
+  return slugsVon(ids);
+}
+
+/** Die einzelnen Teilnehmenden eines Termins - eine flache Zeile je Ticket. */
+export async function ladeTeilnehmende(eventId: string): Promise<TeilnehmerTicketZeile[]> {
+  const zeilen = await prisma.calendarTicket.findMany({
+    where: { eventId },
+    orderBy: [{ createdAt: 'asc' }, { position: 'asc' }],
+    include: TEILNEHMER_EINSCHLUSS,
+  });
+  const slugs = await profilSlugs(zeilen);
+  return zeilen.map((ticket) => zuTeilnehmerZeile(ticket, slugs));
+}
+
+/**
+ * Dieselben Teilnehmenden, nach Bestellung gruppiert.
+ *
+ * ## Warum gruppiert und nicht flach
+ *
+ * Weil ein Gast ohne seinen Besteller ein Name ohne Zusammenhang ist. In
+ * einer flachen Liste stehen «Manuel», «Anna», «Gast A», «Peter», «Gast B» -
+ * und niemand weiss, zu wem Gast A gehoert. Am Einlass ist genau das die
+ * Frage.
+ *
+ * Gruppiert steht die Antwort in der Form selbst:
+ *
+ *     Manuel
+ *       Gast A
+ *       Gast B
+ *
+ * ## Was der Kopf ist
+ *
+ * Das Ticket des Bestellers selbst - er kommt ja meistens mit. Bringt jemand
+ * nur Gaeste und kommt nicht, bleibt `kopf` leer; die Gruppe traegt trotzdem
+ * seinen Namen, denn er ist der Ansprechpartner.
+ *
+ * ## Nur aktive Teilnehmer
+ *
+ * Stornierte Tickets und stornierte Bestellungen sind hier nicht. Wer
+ * zurueckgetreten ist, steht nicht auf der Liste derer, die kommen - die
+ * Kassensicht (`ladeBestellungen`) zeigt ihn weiterhin, dort gehoert er hin.
+ */
+export interface TeilnehmerGruppe {
+  registrationId: string;
+  bestellerDiscordId: string;
+  bestellerName: string;
+  /** Die oeffentliche Adresse des Bestellers - `null`, wenn es keine gibt. */
+  bestellerSlug: string | null;
+  bestellungStatus: string;
+  /** Das Ticket des Bestellers selbst. `null`, wenn er nur Gaeste mitbringt. */
+  kopf: TeilnehmerTicketZeile | null;
+  /** Was unter ihm haengt: Gaeste und Tickets auf andere Mitglieder. */
+  weitere: TeilnehmerTicketZeile[];
+  /** Wie viele Personen diese Gruppe umfasst - Kopf mitgezaehlt. */
+  anzahl: number;
+}
+
+export async function ladeTeilnehmerGruppen(eventId: string): Promise<TeilnehmerGruppe[]> {
+  const zeilen = await prisma.calendarTicket.findMany({
+    where: {
+      eventId,
+      status: 'ACTIVE',
+      registration: { status: { not: 'CANCELLED' } },
+    },
+    orderBy: [{ registrationId: 'asc' }, { position: 'asc' }],
+    include: TEILNEHMER_EINSCHLUSS,
+  });
+
+  const slugs = await profilSlugs(zeilen);
+  const gruppen = new Map<string, TeilnehmerGruppe>();
+
+  for (const ticket of zeilen) {
+    const zeile = zuTeilnehmerZeile(ticket, slugs);
+    let gruppe = gruppen.get(ticket.registrationId);
+    if (!gruppe) {
+      gruppe = {
+        registrationId: ticket.registrationId,
+        bestellerDiscordId: ticket.registration.discordId,
+        bestellerName: bestellerName(ticket.registration),
+        bestellerSlug: slugs.get(ticket.registration.discordId) ?? null,
+        bestellungStatus: ticket.registration.status,
+        kopf: null,
+        weitere: [],
+        anzahl: 0,
+      };
+      gruppen.set(ticket.registrationId, gruppe);
+    }
+
+    // Das Ticket des Bestellers wird der Kopf - egal an welcher Position es
+    // in der Bestellung steht.
+    if (gruppe.kopf === null && ticket.memberDiscordId === ticket.registration.discordId) {
+      gruppe.kopf = zeile;
+    } else {
+      gruppe.weitere.push(zeile);
+    }
+    gruppe.anzahl += 1;
+  }
+
+  /*
+   * Sortiert nach dem Namen des Bestellers, nicht nach der Bestellnummer.
+   *
+   * Wer an der Tuer jemanden sucht, sucht einen Namen. Eine Liste in der
+   * Reihenfolge des Eingangs zwingt zum Scrollen durch alles.
+   */
+  return [...gruppen.values()].sort((a, b) => a.bestellerName.localeCompare(b.bestellerName, 'de-CH'));
 }
 
 /**
@@ -774,12 +1031,24 @@ export async function meineBestellung(eventId: string, discordId: string) {
     return null;
   }
 
+  const aktive = zeile.tickets.filter((ticket) => ticket.status === 'ACTIVE');
+
   return {
     registrationId: zeile.id,
     status: zeile.status,
     waitlistPosition: zeile.waitlistPosition,
     zahlung: zeile.paymentStatus,
     betragRappen: zeile.paymentAmountCents,
+    /*
+     * Was jetzt noch zu bezahlen ist - nicht der Gesamtbetrag.
+     *
+     * Nach einem Nachkauf auf eine bezahlte Bestellung sind das nur die neuen
+     * Tickets. Den Gesamtbetrag zu nennen hiesse, eine Zahlung zu verlangen,
+     * die zum Teil schon geleistet ist.
+     */
+    offenRappen: aktive
+      .filter((ticket) => ticket.settledStatus === null)
+      .reduce((summe, ticket) => summe + ticket.priceCents, 0),
     waehrung: zeile.paymentCurrency ?? zeile.event.entryFeeCurrency,
     preisJeTicketRappen: zeile.event.entryFeeCents,
     tickets: zeile.tickets
@@ -795,6 +1064,8 @@ export async function meineBestellung(eventId: string, discordId: string) {
          * Ansicht: wer ihn hat, kommt herein.
          */
         token: ticket.token,
+        /** Ist dieses eine Ticket erledigt? `null` heisst: noch offen. */
+        erledigt: ticket.settledStatus !== null,
         checkedInAt: ticket.checkedInAt,
         guestFirstName: ticket.guestFirstName,
         guestLastName: ticket.guestLastName,

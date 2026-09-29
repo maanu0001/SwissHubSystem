@@ -401,11 +401,25 @@ describe('TWINT-QR: erst nach der Anmeldung', () => {
     const code = ohneKommentare(ANMELDUNG);
     // Der Kasten haengt an `meine` - es gibt keinen Zweig ohne Bestellung.
     expect(code).toMatch(/meine \?[\s\S]{0,600}<ZahlungsKasten/u);
-    expect(code).toMatch(/eintritt && meine\.zahlung === 'PENDING'/u);
+    /*
+     * Und er haengt am **offenen Betrag**, nicht am Status der Bestellung.
+     *
+     * Vorher stand hier `meine.zahlung === 'PENDING'`. Seit ein Nachkauf eine
+     * bestaetigte Bestellung wieder auf `PENDING` setzt, waere das zu grob:
+     * gezeigt werden soll der Kasten genau dann, wenn wirklich etwas aussteht -
+     * und mit dem Betrag, der aussteht.
+     */
+    expect(code).toMatch(/eintritt && meine\.offenRappen > 0/u);
     const kasten = ANMELDUNG.slice(ANMELDUNG.indexOf('function ZahlungsKasten'));
     expect(kasten).toContain('qrAdresse');
-    // Mit dem Betrag, der aus der Ticketzahl folgt.
-    expect(kasten).toContain('gesamtbetrag');
+    /*
+     * Mit dem Betrag, der aus der Ticketzahl folgt - und zwar dem **offenen**.
+     *
+     * Vorher hiess das Feld `gesamtbetrag`. Seit ein Nachkauf auf eine
+     * bezahlte Bestellung moeglich ist, waere der Gesamtbetrag eine Zahlung,
+     * die zum Teil schon geleistet wurde.
+     */
+    expect(kasten).toContain('offenerBetrag');
   });
 
   it('behauptet nirgends eine Zahlung, die niemand geprüft hat', () => {
@@ -461,7 +475,7 @@ describe('Gastdaten bleiben intern', () => {
     expect(TEILNEHMERSEITE).toMatch(/darfGaesteSehen\s*=/u);
     expect(TEILNEHMERSEITE).toContain('guestsView');
     // Serverseitig getrennt: ohne Berechtigung wird gar nicht erst geladen.
-    expect(TEILNEHMERSEITE).toMatch(/darfGaesteSehen\s*\?\s*[\s\S]{0,120}ladeTeilnehmende/u);
+    expect(TEILNEHMERSEITE).toMatch(/darfGaesteSehen\s*\?\s*[\s\S]{0,120}ladeTeilnehmerGruppen/u);
   });
 
   it('gibt Gast-E-Mail und Adminvermerke nicht an die Mitgliederansicht', () => {
@@ -512,16 +526,65 @@ describe('Anzeige: Reservierung und Zusage sind zwei Zahlen', () => {
     expect(TEILNEHMERSEITE).toContain('reservierteTickets');
   });
 
-  it('nennt bei jedem Gast, zu wem er gehört', () => {
-    expect(TEILNEHMENDE).toContain('Gehört zu');
-    expect(TEILNEHMENDE).toContain('zeile.bestellerName');
+  it('ordnet jeden Gast seinem Mitglied in der Form selbst zu', () => {
+    /*
+     * Vorher stand bei jedem Gast die Zeile «Gehört zu: Manuel». Jetzt sagt
+     * die **Form** es: die Gaeste stehen eingerueckt innerhalb derselben
+     * Karte wie ihr Besteller. Eine Beschriftung daneben waere dieselbe
+     * Auskunft zweimal.
+     *
+     * Geprueft wird deshalb die Struktur: eine Gruppe hat einen Kopf, und die
+     * Gaeste stehen darunter mit Einrueckung und Linie.
+     */
+    expect(TEILNEHMENDE).toContain('gruppe.kopf');
+    expect(TEILNEHMENDE).toContain('weitere.map');
+    // Eingerueckt und mit Linie - das ist die Zuordnung.
+    expect(TEILNEHMENDE).toMatch(/weitere\.map[\s\S]{0,400}border-l-2/u);
+    expect(TEILNEHMENDE).toMatch(/weitere\.map[\s\S]{0,400}pl-/u);
+    // Und der Besteller bleibt auch dann sichtbar, wenn er selbst nicht kommt.
+    expect(TEILNEHMENDE).toContain('gruppe.bestellerName');
+    expect(TEILNEHMENDE).toContain('kommt selbst nicht');
+    // Die Suche findet einen Gast weiter ueber den Namen seines Bestellers.
+    expect(TEILNEHMENDE).toContain('zeile.bestellerName.toLowerCase()');
+  });
+
+  it('verlinkt Mitglieder auf ihr öffentliches Profil und Gäste nicht', () => {
+    const code = ohneKommentare(TEILNEHMENDE);
+    // Die bestehende Adresse ueber die zentrale Route, nicht von Hand gebaut.
+    expect(code).toContain('systemRoutes.oeffentlichesProfil(slug)');
+    // Ohne Slug bleibt der Name Text - der Server entscheidet, ob es einen gibt.
+    expect(code).toMatch(/if \(!slug\)[\s\S]{0,120}<span/u);
+    // Ein Gast bekommt nie einen Link: nur der Mitgliederzweig ruft die
+    // verlinkende Komponente auf.
+    expect(code).toMatch(
+      /art === 'MITGLIED' \?[\s\S]{0,200}<MitgliedName[\s\S]{0,200}<span className="truncate">\{zeile\.name\}/u,
+    );
   });
 
   it('unterscheidet in der Liste definitiv von vorläufig', () => {
     const marke = TEILNEHMENDE.slice(TEILNEHMENDE.indexOf('function StandMarke'));
     expect(marke).toContain("'Definitiv'");
-    expect(marke).toContain("'Vorläufig'");
+    // «Zahlung ausstehend» statt «Vorläufig»: es gibt genau einen Grund, aus
+    // dem ein aktives Ticket nicht definitiv ist, und der steht damit da.
     expect(marke).toContain('Zahlung ausstehend');
+    expect(marke).toContain('Definitiv · erlassen');
+    // Der Stand kommt vom Ticket, nicht von der Bestellung.
+    expect(marke).toContain('zeile.definitiv');
+  });
+
+  it('zeigt den Stand je Person und nicht den der Bestellung', () => {
+    /*
+     * Der Punkt aus dem Auftrag: «Nicht einfach den Status des Bestellers
+     * blind übernehmen, falls Nachkäufe unterschiedliche Zustände haben
+     * können.»
+     *
+     * Die Zeile traegt `settledStatus` ihres eigenen Tickets - im Modulkern
+     * gesetzt, nicht in der Ansicht abgeleitet.
+     */
+    const zeile = TICKETS.slice(TICKETS.indexOf('function zuTeilnehmerZeile'));
+    const rumpf = zeile.slice(0, zeile.indexOf('\n}\n'));
+    expect(rumpf).toContain("zahlung: ticket.settledStatus ?? 'PENDING'");
+    expect(rumpf).toContain('bestellungZahlung: ticket.registration.paymentStatus');
   });
 });
 
