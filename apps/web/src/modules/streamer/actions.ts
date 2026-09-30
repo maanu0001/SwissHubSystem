@@ -42,6 +42,20 @@ const neuLaden = (): void => {
   revalidatePath(systemRoutes.streamerOeffentlich());
 };
 
+/**
+ * Das eigene oeffentliche Profil neu laden.
+ *
+ * Seit es nur noch eines gibt, ist es das Ziel jeder Aenderung an der Vitrine.
+ * Ohne diese Zeile stuende die neue Zeile erst nach einer Minute dort - die
+ * Profilseite hat `revalidate = 60`.
+ */
+const profilNeuLaden = async (discordId: string): Promise<void> => {
+  const slug = await streamer.slugFuerProfil(discordId);
+  if (slug) {
+    revalidatePath(systemRoutes.oeffentlichesProfil(slug));
+  }
+};
+
 // --- Die eigene Bewerbung -----------------------------------------------------
 
 export const speichereBewerbungAction = defineAction(
@@ -78,6 +92,91 @@ export const reicheEinAction = defineAction(
     const ergebnis = await streamer.reicheEin(ctx.user.discordId);
     neuLaden();
     return ergebnis;
+  },
+);
+
+// --- Die eigene Vitrine -------------------------------------------------------
+
+/**
+ * Bis zu drei eigene Clips und eine hervorgehobene Zeile.
+ *
+ * ## Warum `P.apply` und nicht `P.manage`
+ *
+ * Weil es die eigene Seite ist. Dieselbe Berechtigung, mit der jemand seine
+ * Bewerbung pflegt - wer Streamer werden darf, darf seinen Auftritt gestalten.
+ * `manage` ist die Befugnis, in **fremde** Profile zu greifen, und dafuer
+ * braucht es diese Aktionen nicht.
+ *
+ * ## Warum dennoch kein `selfService`
+ *
+ * Es ist Selbstbedienung, und die Kennung kommt ausnahmslos aus der Sitzung -
+ * aber eine feste Permission ist die klarere Auskunft: nur ein **freigegebener**
+ * Streamer hat eine Vitrine, und `verlangeFreigegeben` im Modul prueft genau
+ * das. Zwei Riegel, und der zweite kennt den Zustand des Profils.
+ */
+export const setzeVitrineClipAction = defineAction(
+  {
+    name: 'streamer.setzeVitrineClip',
+    permission: P.apply,
+    schema: z.object({
+      position: z.coerce
+        .number()
+        .int()
+        .min(0)
+        .max(streamer.MAX_VITRINE_CLIPS - 1),
+      url: z.string().trim().min(1).max(500),
+      titel: z.string().trim().max(70).optional(),
+    }),
+    rateLimit: 'streamerBewerbung',
+  },
+  async ({ ctx, input }) => {
+    const clip = await streamer.setzeVitrineClip(
+      ctx.user.discordId,
+      input.position,
+      input.url,
+      input.titel ?? null,
+    );
+    neuLaden();
+    await profilNeuLaden(ctx.user.discordId);
+    return { position: clip.position, provider: clip.provider };
+  },
+);
+
+export const entferneVitrineClipAction = defineAction(
+  {
+    name: 'streamer.entferneVitrineClip',
+    permission: P.apply,
+    schema: z.object({
+      position: z.coerce
+        .number()
+        .int()
+        .min(0)
+        .max(streamer.MAX_VITRINE_CLIPS - 1),
+    }),
+    rateLimit: 'streamerBewerbung',
+  },
+  async ({ ctx, input }) => {
+    await streamer.entferneVitrineClip(ctx.user.discordId, input.position);
+    neuLaden();
+    await profilNeuLaden(ctx.user.discordId);
+    return { entfernt: true };
+  },
+);
+
+export const setzeVitrineCaptionAction = defineAction(
+  {
+    name: 'streamer.setzeVitrineCaption',
+    permission: P.apply,
+    // Ein leerer Text loescht die Zeile - siehe `setzeVitrineCaption`. Deshalb
+    // keine Mindestlaenge: «leer» ist hier eine Angabe und kein Fehler.
+    schema: z.object({ text: z.string().max(streamer.MAX_CAPTION_LAENGE + 1) }),
+    rateLimit: 'streamerBewerbung',
+  },
+  async ({ ctx, input }) => {
+    const caption = await streamer.setzeVitrineCaption(ctx.user.discordId, input.text);
+    neuLaden();
+    await profilNeuLaden(ctx.user.discordId);
+    return { caption };
   },
 );
 

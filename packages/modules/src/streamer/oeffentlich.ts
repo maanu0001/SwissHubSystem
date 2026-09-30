@@ -4,6 +4,7 @@ import { bannervorlage } from '../profile/gestaltung';
 import { getModuleSettings, isModuleEnabled } from '../module-state';
 import { STREAMER_MODULE_ID, type StreamerSettings } from './config';
 import { kanalAdresse, streamAdresse, vorschaubild } from './plattform';
+import { ladeVitrine, type VitrineClip } from './vitrine';
 import type { OeffentlicherKanalDaten, OeffentlicherStreamDaten, OeffentlicherStreamerDaten } from './typen';
 
 /**
@@ -11,7 +12,8 @@ import type { OeffentlicherKanalDaten, OeffentlicherStreamDaten, OeffentlicherSt
  *
  * ## Die eine Stelle
  *
- * Alles, was `/streamer` und `/streamer/<slug>` ausliefern, kommt hier durch.
+ * Alles, was die oeffentliche Streamer-Uebersicht und der Streaming-Abschnitt
+ * des oeffentlichen Profils ausliefern, kommt hier durch.
  * Dieselbe Regel wie beim oeffentlichen Profil (`profile/oeffentlich.ts`):
  * gebaut wird **aufzaehlend**, nicht abziehend. Es entsteht ein neues Objekt
  * aus benannten Feldern, statt aus einem vollen Datensatz etwas zu loeschen.
@@ -521,13 +523,21 @@ export interface ProfilStreaming {
   kanaele: OeffentlicherKanal[];
   live: OeffentlicherStream | null;
   sprachen: string[];
-  /** Die Adresse der Streamer-Seite, falls es sie gibt. */
-  streamerSeite: string | null;
+  /**
+   * Bis zu drei eigene Clips - siehe `streamer/vitrine.ts`.
+   *
+   * Sie sind der Grund, warum diese Seite auch dann etwas zeigt, wenn gerade
+   * niemand streamt. Ein Kanal ist die meiste Zeit offline, und «derzeit nicht
+   * live» ist keine Visitenkarte.
+   */
+  clips: VitrineClip[];
+  /** Die hervorgehobene Zeile - Klartext, vom Streamer selbst. */
+  caption: string | null;
 }
 
 export async function ladeProfilStreaming(
   discordId: string,
-  slug: string | null,
+  hostname: string,
 ): Promise<ProfilStreaming | null> {
   /*
    * Derselbe Schalter wie `/streamer`.
@@ -607,6 +617,6 @@ export async function ladeProfilStreaming(
         }
       : null,
     sprachen: streamer.sprachen,
-    streamerSeite: slug ? `/streamer/${encodeURIComponent(slug)}` : null,
+    ...(await ladeVitrine(discordId, hostname)),
   };
 }

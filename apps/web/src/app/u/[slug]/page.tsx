@@ -9,6 +9,7 @@ import { OeffentlicheProfilseite } from '@/modules/profile/components/oeffentlic
 import { TeilenKnopf } from '@/modules/profile/components/teilen-knopf';
 import { ProfilStreamingAbschnitt } from '@/modules/streamer/components/profil-streaming';
 import { profilMetadaten } from '@/modules/profile/oe-metadaten';
+import { hostnameDerApp } from '@/server/hostname';
 
 /**
  * Das oeffentliche Profil.
@@ -80,9 +81,17 @@ export default async function OeffentlichesProfilPage({
    * der Dienst entscheidet selbst, wem er antwortet: nur einem freigegebenen
    * Streamer mit aktivem Kanal, sonst `null`. Die Abschnittseinstellungen des
    * Profils gelten hier nicht, weil diese Daten nicht aus dem Profil kommen;
-   * sie sind auf `/streamer` ohnehin oeffentlich.
+   * sie sind im Streamer-Verzeichnis ohnehin oeffentlich.
+   *
+   * **Dies ist die einzige oeffentliche Profilseite.** `/streamer/<slug>` war
+   * eine zweite und leitet jetzt hierher um; was dort stand - Kanaele,
+   * Live-Stand, Sprachen - steht hier, dazu die Vitrine mit bis zu drei
+   * eigenen Clips und der hervorgehobenen Zeile.
+   *
+   * Der Hostname geht mit, weil Twitch ihn im Player als `parent` verlangt.
+   * Er kommt aus der zentralen Adresskonfiguration und nie aus der Anfrage.
    */
-  const streaming = await streamer.ladeProfilStreaming(oeffentlich.identitaet.discordId, oeffentlich.slug);
+  const streaming = await streamer.ladeProfilStreaming(oeffentlich.identitaet.discordId, hostnameDerApp());
 
   return (
     <>

@@ -9,3 +9,4 @@ export * from './live';
 export * from './oeffentlich';
 export * from './abfragen';
 export * from './spotlight';
+export * from './vitrine';

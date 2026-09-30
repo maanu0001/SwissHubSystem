@@ -125,7 +125,7 @@ describeWithDatabase('Streamer Hub: oeffentliche Daten', () => {
 
     const liste = alsText(await streamer.ladeOeffentlicheListe());
     const einzeln = alsText(await streamer.ladeOeffentlichenStreamer('lea'));
-    const imProfil = alsText(await streamer.ladeProfilStreaming(LEA, 'lea'));
+    const imProfil = alsText(await streamer.ladeProfilStreaming(LEA, 'swisshub.test'));
 
     for (const [name, text] of [
       ['Uebersicht', liste],
@@ -225,25 +225,34 @@ describeWithDatabase('Streamer Hub: oeffentliche Daten', () => {
      */
     await anlegen(LEA, 'Lea', 'APPROVED');
     expect(await streamer.oeffentlichErlaubt()).toBe(true);
-    expect(await streamer.ladeProfilStreaming(LEA, 'lea')).not.toBeNull();
+    expect(await streamer.ladeProfilStreaming(LEA, 'swisshub.test')).not.toBeNull();
 
     await einstellungen({ oeffentlichAktiv: false });
     expect(await streamer.oeffentlichErlaubt()).toBe(false);
-    expect(await streamer.ladeProfilStreaming(LEA, 'lea')).toBeNull();
+    expect(await streamer.ladeProfilStreaming(LEA, 'swisshub.test')).toBeNull();
 
     await einstellungen({ oeffentlichAktiv: true });
     await setModuleEnabled(streamer.STREAMER_MODULE_ID, false, 'test');
     expect(await streamer.oeffentlichErlaubt()).toBe(false);
-    expect(await streamer.ladeProfilStreaming(LEA, 'lea')).toBeNull();
+    expect(await streamer.ladeProfilStreaming(LEA, 'swisshub.test')).toBeNull();
   });
 
-  it('verlinkt die Streamer-Seite im Profilabschnitt nur mit einem Slug', async () => {
+  it('führt keine zweite Profilseite mehr', async () => {
+    /*
+     * Es gibt genau ein oeffentliches Profil, und es liegt unter `/u/<slug>`.
+     *
+     * Vorher gab es `/streamer/<slug>` daneben - dieselbe Person, zwei
+     * Adressen, zwei Gestaltungen, und die erste Frage danach war, welche die
+     * richtige ist. Der Streaming-Abschnitt traegt die Angaben jetzt selbst;
+     * ein Feld mit einer Adresse auf eine zweite Seite gibt es nicht mehr.
+     */
     await anlegen(LEA, 'Lea', 'APPROVED');
-    const mit = await streamer.ladeProfilStreaming(LEA, 'lea');
-    expect(mit?.streamerSeite).toBe('/streamer/lea');
-    // Ohne Slug kein Knopf - er fuehrte auf eine 404.
-    const ohne = await streamer.ladeProfilStreaming(LEA, null);
-    expect(ohne?.streamerSeite).toBeNull();
+    const abschnitt = await streamer.ladeProfilStreaming(LEA, 'swisshub.test');
+    expect(abschnitt).not.toBeNull();
+    expect(abschnitt).not.toHaveProperty('streamerSeite');
+    // Und die Vitrine ist dabei - leer, solange nichts eingetragen ist.
+    expect(abschnitt?.clips).toEqual([]);
+    expect(abschnitt?.caption).toBeNull();
   });
 
   it('haelt Banner und Spiele zurueck, wenn das Mitgliedsprofil nicht oeffentlich ist', async () => {

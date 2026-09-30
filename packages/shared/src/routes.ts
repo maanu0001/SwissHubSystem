@@ -131,7 +131,23 @@ export const systemRoutes = {
   /** Die oeffentliche Uebersicht - ohne Anmeldung. */
   streamerOeffentlich: (): SystemRoute => '/streamer',
   /** Die oeffentliche Seite eines Streamers, ueber den Profil-Slug. */
-  streamerOeffentlichProfil: (slug: string): SystemRoute => `/streamer/${id(slug)}`,
+  /**
+   * Der Auftritt eines Streamers - das **eine** oeffentliche Profil.
+   *
+   * Zeigt auf `/u/<slug>`, nicht auf `/streamer/<slug>`. Es gab beides, und
+   * beides war dieselbe Person: zwei Adressen, zwei Gestaltungen, und die
+   * erste Frage danach war, welche die richtige ist. Der Streaming-Abschnitt
+   * des Profils traegt jetzt Kanaele, Live-Stand, Vitrine und die
+   * hervorgehobene Zeile.
+   *
+   * Der Name bleibt, damit an den Aufrufstellen lesbar ist, **warum** dort
+   * verlinkt wird - aus dem Streamer-Verzeichnis. Die Adresse ist dieselbe wie
+   * bei `oeffentlichesProfil`.
+   *
+   * `/streamer/<slug>` leitet dauerhaft hierher um: die alte Adresse steht in
+   * Twitch-Bios und in alten Discord-Nachrichten.
+   */
+  streamerOeffentlichProfil: (slug: string): SystemRoute => `/u/${id(slug)}`,
   fragtErgebnis: (abstimmungId: string): SystemRoute => `/fragt/ergebnisse/${id(abstimmungId)}`,
   fragtStudio: (entwurfId: string): SystemRoute => `/fragt/studio/${id(entwurfId)}`,
   clipEinreichen: (): SystemRoute => '/clips/einreichen',

@@ -1,8 +1,8 @@
 import 'server-only';
-import { appUrl } from '@swisshub/config';
 import { can } from '@swisshub/auth';
 import { resolveGuildId } from '@swisshub/discord';
 import { clips, isModuleEnabled } from '@swisshub/modules';
+import { hostnameDerApp } from './hostname';
 import type { AuthContext } from '@swisshub/auth';
 import type { ClipCompetition } from '@swisshub/database';
 
@@ -56,14 +56,6 @@ export function phaseVon(runde: ClipCompetition | null): ClipPhase {
       return 'keine';
   }
 }
-
-const hostnameDerApp = (): string => {
-  try {
-    return new URL(appUrl('/')).hostname;
-  } catch {
-    return 'localhost';
-  }
-};
 
 export async function ladeClipStand(context: AuthContext): Promise<ClipSeitenStand> {
   const aktiv = await isModuleEnabled(clips.CLIPS_MODULE_ID);

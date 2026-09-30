@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { ArrowUpRight, BadgeCheck, Radio, ShieldCheck, Users } from 'lucide-react';
 import { PLATTFORMEN } from '@swisshub/modules/streamer/typen';
 import { formatDateTime } from '@swisshub/shared';
@@ -6,13 +5,26 @@ import type { streamer } from '@swisshub/modules';
 import { OeAbschnitt } from '@/modules/profile/components/oeffentlich/oe-bausteine';
 import { spracheLabel } from './sprache';
 
+/** Wie ein Anbieter heisst, wenn ein Clip keinen eigenen Titel traegt. */
+const ANBIETER_LABEL: Record<string, string> = {
+  twitch: 'Twitch-Clip',
+  youtube: 'YouTube',
+  medal: 'Medal-Clip',
+};
+
 /**
  * Der Streaming-Abschnitt im oeffentlichen Mitgliedsprofil.
  *
  * ## Warum ein Abschnitt und keine zweite Seite
  *
- * Weil es schon eine Seite gibt: `/streamer/<slug>`. Hier geht es um das
- * bestehende Profil, das um einen Abschnitt waechst - mit seinem Theme, seiner
+ * Weil es nur **ein** oeffentliches Profil gibt. Es gab zwei -
+ * `/u/<slug>` und `/streamer/<slug>`, dieselbe Person, zwei Gestaltungen -,
+ * und die erste Frage danach war, welche die richtige ist. Die zweite leitet
+ * jetzt hierher um, und was dort stand, steht in diesem Abschnitt: Kanaele,
+ * Live-Stand, Sprachen, die Vitrine mit bis zu drei eigenen Clips und die
+ * hervorgehobene Zeile.
+ *
+ * Das Profil waechst damit um einen Abschnitt - mit seinem Theme, seiner
  * Reihenfolge und seinen Bauteilen. Deshalb `OeAbschnitt` aus dem Profilmodul
  * und keine eigene Karte: eine Karte, die sich ihr Aussehen selbst gibt, faellt
  * in fuenf von sieben Themes heraus.
@@ -132,16 +144,70 @@ export function ProfilStreamingAbschnitt({
         ))}
       </ul>
 
-      {streaming.streamerSeite ? (
-        <p className="mt-3 text-xs">
-          <Link
-            href={streaming.streamerSeite}
-            className="inline-flex items-center gap-1 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-          >
-            Im SwissHub Streamer Hub ansehen
-            <ArrowUpRight className="size-3" aria-hidden="true" />
-          </Link>
+      {/*
+        Die hervorgehobene Zeile.
+
+        Klartext, vom Streamer selbst - geprüft in `streamer/vitrine.ts` gegen
+        eine Erlaubnisliste, damit hier kein Markdown und keine Adresse
+        landet. Sie steht **unter** den Kanälen und über den Clips: erst wo,
+        dann was, dann wie es aussieht.
+      */}
+      {streaming.caption ? (
+        <p className="mt-4 border-l-2 border-[hsl(var(--profil-akzent)/0.55)] pl-3 text-sm italic text-muted-foreground">
+          {streaming.caption}
         </p>
+      ) : null}
+
+      {/*
+        Die Vitrine.
+
+        Der Grund, warum diese Seite auch etwas zeigt, wenn gerade niemand
+        streamt - und das ist die meiste Zeit. Kein `<iframe>` je Clip: drei
+        Player gleichzeitig laden mehr, als ein Telefon mag, und keiner davon
+        wurde angeklickt. Es steht das Vorschaubild da, und der Klick führt zum
+        Clip beim Anbieter.
+      */}
+      {streaming.clips.length > 0 ? (
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {streaming.clips.length === 1 ? 'Clip' : 'Clips'}
+          </p>
+          <ul className="grid gap-3 sm:grid-cols-3">
+            {streaming.clips.map((clip) => (
+              <li key={clip.position}>
+                <a
+                  href={clip.canonicalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="po-hebt group block overflow-hidden rounded-xl border border-[hsl(var(--profil-rand))]"
+                >
+                  <span className="relative block aspect-video w-full overflow-hidden bg-[hsl(var(--profil-flaeche))]">
+                    {clip.thumbnailUrl ? (
+                      /* eslint-disable-next-line @next/next/no-img-element -- Fremde
+                         CDN mit wechselnden Hosts, wie beim Vorschaubild oben. */
+                      <img
+                        src={clip.thumbnailUrl}
+                        alt=""
+                        loading="lazy"
+                        className="size-full object-cover transition duration-300 motion-safe:group-hover:scale-[1.03]"
+                      />
+                    ) : (
+                      <span className="grid size-full place-items-center">
+                        <Radio className="size-6 text-[hsl(var(--profil-akzent))]" aria-hidden="true" />
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
+                    <span className="truncate font-medium">
+                      {clip.titel ?? ANBIETER_LABEL[clip.provider]}
+                    </span>
+                    <ArrowUpRight className="size-3 shrink-0 opacity-60" aria-hidden="true" />
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
     </OeAbschnitt>
   );

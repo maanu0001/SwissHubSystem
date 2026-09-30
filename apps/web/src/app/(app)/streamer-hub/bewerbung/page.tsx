@@ -5,8 +5,10 @@ import { PageHeader } from '@/components/shared/page-header';
 import { ModulNavigation } from '@/components/shared/modul-navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
+import { hostnameDerApp } from '@/server/hostname';
 import { streamerNavigation } from '@/modules/streamer/navigation';
 import { BewerbungsFormular } from '@/modules/streamer/components/bewerbungs-formular';
+import { VitrineEditor } from '@/modules/streamer/components/vitrine-editor';
 
 export const metadata: Metadata = { title: 'Meine Bewerbung' };
 export const dynamic = 'force-dynamic';
@@ -57,9 +59,18 @@ export default async function MeineBewerbungSeite({
   const csrfToken = csrfTokenFor(context);
   const { twitch } = await searchParams;
 
-  const [bewerbung, twitchEingerichtet] = await Promise.all([
+  const [bewerbung, twitchEingerichtet, vitrine] = await Promise.all([
     streamer.meineBewerbung(context.user.discordId),
     hasSecret(TWITCH_INTEGRATION_ID, 'clientSecret').catch(() => false),
+    /*
+     * Die Vitrine - nur fuer einen freigegebenen Streamer gefuellt.
+     *
+     * `ladeVitrine` entscheidet das selbst und gibt sonst eine leere zurueck.
+     * Der Hostname geht mit, weil der Twitch-Player ihn braucht; hier wird er
+     * nicht gebraucht, aber eine zweite Ladefunktion ohne ihn waere eine
+     * zweite Stelle, an der die Vitrine gelesen wird.
+     */
+    streamer.ladeVitrine(context.user.discordId, hostnameDerApp()),
   ]);
 
   const meldung = twitch
@@ -110,6 +121,28 @@ export default async function MeineBewerbungSeite({
             keine Adresse, auf die eine Karte verweisen könnte.
           </CardContent>
         </Card>
+      ) : null}
+
+      {/*
+        Die Vitrine - nur für Freigegebene.
+
+        Nicht aus Strenge, sondern weil es sonst ein Formular wäre, das auf
+        eine Seite einzahlt, die es noch nicht gibt. `setzeVitrineClip` weist
+        eine offene Bewerbung ohnehin ab; das hier ist die Höflichkeit dazu.
+      */}
+      {bewerbung?.status === 'APPROVED' ? (
+        <VitrineEditor
+          csrfToken={csrfToken}
+          plaetze={streamer.MAX_VITRINE_CLIPS}
+          maxCaptionLaenge={streamer.MAX_CAPTION_LAENGE}
+          caption={vitrine.caption ?? ''}
+          belegt={vitrine.clips.map((clip) => ({
+            position: clip.position,
+            provider: clip.provider,
+            canonicalUrl: clip.canonicalUrl,
+            titel: clip.titel,
+          }))}
+        />
       ) : null}
 
       <BewerbungsFormular

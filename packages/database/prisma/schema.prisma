@@ -8499,16 +8499,87 @@ model StreamerProfil {
   /// Intern, wie der Ablehnungsgrund.
   pausierungsGrund String?
 
+  /// Die eine hervorgehobene Zeile fuer Social Media.
+  ///
+  /// Ein Satz, den ein Streamer selbst schreibt - «Jeden Dienstag 20:00,
+  /// Valheim mit der Crew». Er steht auf dem oeffentlichen Profil und ist das,
+  /// was jemand kopiert, der den Kanal weiterempfiehlt.
+  ///
+  /// **Nur Klartext.** Kein HTML, kein Markdown, keine Adresse - geprueft mit
+  /// einer Erlaubnisliste in `streamer/vitrine.ts`. Die Zeile wird an zwei
+  /// Stellen ausgegeben, von denen die eine Discord ist; ein Sternchen darin
+  /// waere dort Formatierung.
+  socialCaption String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   kanaele    StreamerKanal[]
   spotlights StreamerSpotlight[]
+  vitrine    StreamerClip[]
 
   /// Die oeffentliche Uebersicht filtert darueber: freigegeben und nichts sonst.
   @@index([status])
   /// Die Bewerbungsliste - aelteste zuerst.
   @@index([status, eingereichtAm])
+}
+
+/// Ein Clip in der Vitrine eines Streamers - hoechstens drei.
+///
+/// ## Warum nicht die `Clip`-Tabelle von Clip of the Week
+///
+/// Weil die beiden verschiedene Dinge sind, die nur gleich aussehen. Ein
+/// `Clip` ist eine **Wettbewerbseinreichung**: er hat einen
+/// Moderationszustand, Teilnahmen, Stimmen und Platzierungen, und die
+/// Moderationsliste, die Galerie und das Aufraeumen der Uploads arbeiten auf
+/// ihm. Ein Vitrinen-Clip ist ein Link, den jemand auf seine Seite gestellt
+/// hat.
+///
+/// Haengte man beides an dieselbe Tabelle, braeuchte ab sofort jede
+/// CotW-Abfrage einen Filter «und keine Vitrine» - und die eine, die ihn
+/// vergisst, legt einem Moderator drei fremde Links in die Warteschlange.
+/// Dasselbe Argument wie bei `WrappedEdition` gegen eine gemeinsame Tabelle
+/// mit dem persoenlichen Rueckblick.
+///
+/// ## Was trotzdem geteilt wird
+///
+/// **Die ganze Logik.** Erkennen, Hostliste, Normalisieren und das Bauen der
+/// Einbettungsadresse machen `erkenneClip` und `einbettung` aus
+/// `clips/provider.ts` - dieselben Funktionen, dieselbe Whitelist, dieselben
+/// Einbettungshosts in der CSP. Was hier steht, ist deren Ergebnis.
+///
+/// Kein `upload`: eine Vitrine nimmt Plattformlinks. Eine zweite Stelle, die
+/// Videodateien annimmt, waere ein zweiter Lebenszyklus fuer Dateien auf der
+/// Platte - und das Aufraeumen von Clip of the Week kennt sie nicht.
+model StreamerClip {
+  id       String         @id @default(cuid())
+  profilId String
+  profil   StreamerProfil @relation(fields: [profilId], references: [id], onDelete: Cascade)
+
+  /// Welcher Platz - 0, 1, 2. Die Zahl der Plaetze legt `MAX_VITRINE_CLIPS` fest.
+  position Int
+
+  /// Kleingeschriebener Anbieter - `twitch`, `youtube`, `medal`.
+  provider     String
+  /// Die Kennung beim Anbieter. Daran wird ein Duplikat erkannt.
+  externalId   String
+  /// Die auf eine Form gebrachte Adresse, ohne Tracking-Parameter.
+  canonicalUrl String
+  /// Die Adresse zum Einbetten. Entsteht ausschliesslich aus Anbieter und
+  /// Kennung, nie aus der Eingabe.
+  embedUrl     String
+  thumbnailUrl String?
+  /// Ein eigener Titel, hoechstens eine Zeile. Vom Streamer, nicht vom Anbieter -
+  /// abgerufen wird hier nichts.
+  titel        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Ein Platz ist einmal belegt.
+  @@unique([profilId, position])
+  /// Und derselbe Clip steht nicht zweimal in derselben Vitrine.
+  @@unique([profilId, provider, externalId])
 }
 
 /// Ein Kanal auf einer Plattform.
