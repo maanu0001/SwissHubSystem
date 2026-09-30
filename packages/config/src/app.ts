@@ -20,6 +20,16 @@ export const COOKIE = {
   csrf: 'swisshub_csrf',
   /** Laufende «Ansicht als …». Kurzlebig und signiert - siehe `server/preview.ts`. */
   preview: 'swisshub_preview',
+  /**
+   * Die Kennung eines Gastes in einer Spielauswahl.
+   *
+   * Keine Anmeldung und kein Ersatz dafuer: der Wert traegt ausschliesslich
+   * eine Gastkennung (`gast:<32 Hexzeichen>`), und der Server nimmt nichts
+   * anderes an. Er ist `httpOnly`, damit er nicht aus Skripten lesbar ist -
+   * daraus leitet sich auch das CSRF-Token der oeffentlichen Aktionen ab.
+   * Siehe `modules/spielwahl/gast.ts` und `server/gast.ts`.
+   */
+  spielwahlGast: 'swisshub_spielwahl_gast',
 } as const;
 
 /** Session behaviour derived from the validated environment. */

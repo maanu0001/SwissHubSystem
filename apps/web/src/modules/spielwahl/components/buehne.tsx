@@ -46,6 +46,12 @@ import {
   spielwahlStimmeAction,
   spielwahlVerlassenAction,
 } from '@/modules/spielwahl/aktionen';
+import {
+  gastBeitretenAction,
+  gastHierAction,
+  gastStimmeAction,
+  gastVerlassenAction,
+} from '@/modules/spielwahl/gast-aktionen';
 import '@/modules/spielwahl/spielwahl.css';
 
 /**
@@ -71,6 +77,41 @@ const DREHDAUER_MS = 10_000;
 /** Wie oft ein Lebenszeichen an den Server geht. */
 const LEBENSZEICHEN_MS = 45_000;
 
+/**
+ * Die vier Befehle, die für Mitglied und Gast verschieden heissen.
+ *
+ * ## Warum eine Tabelle und keine Fragezeichen im Code
+ *
+ * Ein Gast läuft durch `defineOeffentlicheAktion` - ohne Anmeldung, ohne
+ * Mitgliedschaft, mit einer Gastkennung aus dem Cookie. Ein Mitglied läuft
+ * durch `defineAction`. Es sind zwei Ketten, weil es zwei Arten von Identität
+ * sind, und genau vier Handlungen stehen einem Gast offen: beitreten,
+ * abstimmen, ein Lebenszeichen, gehen.
+ *
+ * Als Tabelle, damit es an vier Stellen im Code keinen Unterschied macht -
+ * und damit die Liste **hier** vollständig steht. Wer eine fünfte Handlung
+ * für Gäste öffnen will, muss sie in diese Tabelle eintragen, und das fällt
+ * auf.
+ *
+ * Alles Übrige - Phase öffnen, Runde starten, Ergebnis annehmen, Spiel
+ * vorschlagen - erscheint einem Gast nicht, und der Server weist es
+ * ausserdem ab. Beides, weil das eine Höflichkeit und das andere die
+ * Entscheidung ist.
+ */
+const MITGLIEDSBEFEHLE = {
+  stimme: spielwahlStimmeAction,
+  hier: spielwahlHierAction,
+  beitreten: spielwahlBeitretenAction,
+  verlassen: spielwahlVerlassenAction,
+} as const;
+
+const GASTBEFEHLE = {
+  stimme: gastStimmeAction,
+  hier: gastHierAction,
+  beitreten: gastBeitretenAction,
+  verlassen: gastVerlassenAction,
+} as const;
+
 export function Buehne({
   anfang,
   csrfToken,
@@ -85,7 +126,8 @@ export function Buehne({
   const [laeuft, starteUebergang] = useTransition();
   const [abbruchOffen, setAbbruchOffen] = useState(false);
 
-  const darfFuehren = stand.eigeneRolle === 'HOST' || stand.eigeneRolle === 'COHOST';
+  const gast = stand.betrachterIstGast;
+  const darfFuehren = !gast && (stand.eigeneRolle === 'HOST' || stand.eigeneRolle === 'COHOST');
   const dabei = stand.eigeneRolle !== null;
   const rest = useFrist(stand.runde?.endsAt ?? null, stand.jetzt);
 
@@ -101,11 +143,15 @@ export function Buehne({
       return;
     }
     const melden = (): void => {
-      void spielwahlHierAction({ sessionId: stand.id });
+      // Das Lebenszeichen des Mitglieds braucht keinen Token (siehe dort), das
+      // des Gastes schon - `defineOeffentlicheAktion` kennt keine Ausnahme.
+      void (gast
+        ? gastHierAction({ sessionId: stand.id, csrfToken })
+        : spielwahlHierAction({ sessionId: stand.id }));
     };
     const uhr = window.setInterval(melden, LEBENSZEICHEN_MS);
     return () => window.clearInterval(uhr);
-  }, [dabei, stand.id]);
+  }, [dabei, gast, stand.id, csrfToken]);
 
   const befehl = useCallback((arbeit: () => Promise<{ ok: boolean; error?: { message: string } }>) => {
     starteUebergang(async () => {
@@ -116,11 +162,13 @@ export function Buehne({
     });
   }, []);
 
+  const befehle = gast ? GASTBEFEHLE : MITGLIEDSBEFEHLE;
+
   const stimmen = useCallback(
     (candidateId: string, duell = 0) => {
-      befehl(() => spielwahlStimmeAction({ sessionId: stand.id, candidateId, duell, csrfToken }));
+      befehl(() => befehle.stimme({ sessionId: stand.id, candidateId, duell, csrfToken }));
     },
-    [befehl, stand.id, csrfToken],
+    [befehl, befehle, stand.id, csrfToken],
   );
 
   /**
@@ -231,7 +279,13 @@ export function Buehne({
           />
 
           {!dabei && !geschlossen ? (
-            <Beitreten sessionId={stand.id} csrfToken={csrfToken} befehl={befehl} laeuft={laeuft} />
+            <Beitreten
+              sessionId={stand.id}
+              csrfToken={csrfToken}
+              befehl={befehl}
+              laeuft={laeuft}
+              gast={gast}
+            />
           ) : null}
 
           {stand.status === 'LOBBY' || stand.status === 'BEREIT' ? (
@@ -297,6 +351,8 @@ export function Buehne({
           dabei={dabei}
           laeuft={laeuft}
           befehl={befehl}
+          verlassen={befehle.verlassen}
+          darfSchliessen={darfFuehren || darfModerieren}
           aufAbbruch={() => setAbbruchOffen(true)}
         />
       ) : null}
@@ -325,32 +381,79 @@ export function Buehne({
   );
 }
 
+/**
+ * Der Einstieg für jemanden, der nur zusieht.
+ *
+ * Zwei Wege, weil es zwei Arten von Besucher gibt. Ein Mitglied klickt; sein
+ * Name steht in seinem Profil. Ein Gast tippt erst einen Namen ein - es gibt
+ * kein Profil, aus dem er kommen könnte, und «Gast» in der Teilnehmerliste
+ * wäre bei drei Gästen dreimal dasselbe Wort.
+ *
+ * Der Satz darüber unterscheidet sich ebenfalls, und zwar nicht aus Höflichkeit:
+ * einem Gast zu versprechen, er könne Spiele vorschlagen, wäre ein Versprechen,
+ * das der Server bricht.
+ */
 function Beitreten({
   sessionId,
   csrfToken,
   befehl,
   laeuft,
+  gast,
 }: {
   sessionId: string;
   csrfToken: string;
   befehl: (arbeit: () => Promise<{ ok: boolean; error?: { message: string } }>) => void;
   laeuft: boolean;
+  gast: boolean;
 }): React.JSX.Element {
+  const [name, setName] = useState('');
+
   return (
     <div className="rounded-2xl border border-[hsl(var(--sp-rot-hell)/0.35)] bg-[hsl(var(--sp-rot)/0.12)] p-5 text-center">
       <p className="text-base font-semibold text-white">Du schaust nur zu.</p>
-      <p className="mt-1 text-sm text-white/45">Tritt bei, um Spiele vorzuschlagen und mitzuentscheiden.</p>
-      <Button
-        type="button"
-        disabled={laeuft}
-        className="mt-4"
-        onClick={() =>
-          befehl(() => spielwahlBeitretenAction({ sessionId, schluessel: neuerSchluessel(), csrfToken }))
-        }
-      >
-        <DoorOpen className="size-4" aria-hidden="true" />
-        Mitmachen
-      </Button>
+      <p className="mt-1 text-sm text-white/45">
+        {gast
+          ? 'Trag einen Namen ein und stimm mit. Spiele vorschlagen können angemeldete Mitglieder.'
+          : 'Tritt bei, um Spiele vorzuschlagen und mitzuentscheiden.'}
+      </p>
+
+      {gast ? (
+        <form
+          className="mx-auto mt-4 flex max-w-sm flex-wrap items-center justify-center gap-2"
+          onSubmit={(ereignis) => {
+            ereignis.preventDefault();
+            befehl(() => gastBeitretenAction({ sessionId, name: name.trim(), csrfToken }));
+          }}
+        >
+          <label className="min-w-0 flex-1">
+            <span className="sr-only">Dein Name</span>
+            <input
+              value={name}
+              onChange={(ereignis) => setName(ereignis.target.value)}
+              placeholder="Dein Name"
+              maxLength={24}
+              autoComplete="nickname"
+              className="h-10 w-full rounded-lg border border-white/15 bg-black/30 px-3 text-sm text-white outline-none placeholder:text-white/30 focus-visible:border-[hsl(var(--sp-rot-hell))]"
+            />
+          </label>
+          <Button type="submit" disabled={laeuft || name.trim().length < 2}>
+            <DoorOpen className="size-4" aria-hidden="true" />
+            Mitmachen
+          </Button>
+        </form>
+      ) : (
+        <Button
+          type="button"
+          disabled={laeuft}
+          className="mt-4"
+          onClick={() =>
+            befehl(() => spielwahlBeitretenAction({ sessionId, schluessel: neuerSchluessel(), csrfToken }))
+          }
+        >
+          <DoorOpen className="size-4" aria-hidden="true" />
+          Mitmachen
+        </Button>
+      )}
     </div>
   );
 }
@@ -372,6 +475,8 @@ function Steuerung({
   dabei,
   laeuft,
   befehl,
+  verlassen,
+  darfSchliessen,
   aufAbbruch,
 }: {
   stand: Stand;
@@ -380,6 +485,19 @@ function Steuerung({
   dabei: boolean;
   laeuft: boolean;
   befehl: (arbeit: () => Promise<{ ok: boolean; error?: { message: string } }>) => void;
+  /** Der Verlassen-Befehl - je nach Identität der des Mitglieds oder des Gastes. */
+  verlassen: (eingabe: {
+    sessionId: string;
+    csrfToken: string;
+  }) => Promise<{ ok: boolean; error?: { message: string } }>;
+  /**
+   * «Runde beenden» anbieten.
+   *
+   * Nur für die Führung und die Moderation. Der Knopf stand vorher für jeden
+   * da, und ein Gast, der ihn drückte, bekam vom Server eine Absage - richtig
+   * abgewiesen, aber ein Knopf, der nie funktioniert, ist kein Knopf.
+   */
+  darfSchliessen: boolean;
   aufAbbruch: () => void;
 }): React.JSX.Element | null {
   const Symbol = MODUS_SYMBOL[stand.modus];
@@ -504,7 +622,7 @@ function Steuerung({
     );
   }
 
-  if (knoepfe.length === 0 && !dabei) {
+  if (knoepfe.length === 0 && !dabei && !darfSchliessen) {
     return null;
   }
 
@@ -519,22 +637,24 @@ function Steuerung({
             size="sm"
             disabled={laeuft}
             className="text-white/35 hover:text-white/70"
-            onClick={() => befehl(() => spielwahlVerlassenAction({ sessionId: stand.id, csrfToken }))}
+            onClick={() => befehl(() => verlassen({ sessionId: stand.id, csrfToken }))}
           >
             <LogOut className="size-4" aria-hidden="true" />
             Verlassen
           </Button>
         ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="text-white/35 hover:text-destructive"
-          onClick={aufAbbruch}
-        >
-          <XCircle className="size-4" aria-hidden="true" />
-          Runde beenden
-        </Button>
+        {darfSchliessen ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-white/35 hover:text-destructive"
+            onClick={aufAbbruch}
+          >
+            <XCircle className="size-4" aria-hidden="true" />
+            Runde beenden
+          </Button>
+        ) : null}
       </div>
     </div>
   );

@@ -117,11 +117,10 @@ export function RundeLoeschen({
         confirmDisabled={eingabe.trim() !== schluessel}
         description={
           <>
-            Damit gehen <strong>{einreichungen} Einreichungen</strong> und{' '}
-            <strong>{stimmen} Stimmen</strong> mitsamt den Platzierungen dieser Runde verloren. Die Clips
-            selbst bleiben, solange sie in einer anderen Runde antreten; hochgeladene Dateien, auf die
-            danach nichts mehr zeigt, werden von der Platte gelöscht. Das lässt sich nicht rückgängig
-            machen.
+            Damit gehen <strong>{einreichungen} Einreichungen</strong> und <strong>{stimmen} Stimmen</strong>{' '}
+            mitsamt den Platzierungen dieser Runde verloren. Die Clips selbst bleiben, solange sie in einer
+            anderen Runde antreten; hochgeladene Dateien, auf die danach nichts mehr zeigt, werden von der
+            Platte gelöscht. Das lässt sich nicht rückgängig machen.
             <br />
             <br />
             Soll die Runde nur nicht mehr in der Hall of Fame stehen, nimm sie dort heraus - das bleibt

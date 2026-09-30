@@ -7372,6 +7372,16 @@ model SpielwahlSession {
   /// Beitritt waehrend einer laufenden Runde.
   beitrittWaehrendRunde Boolean              @default(true)
 
+  /// Gaeste ohne Discord-Konto zulassen.
+  ///
+  /// Standardmaessig **aus**. Ein Gast kann zusehen und abstimmen, sonst
+  /// nichts - kein Vorschlag, keine Phase, keine Runde. Dass es eine
+  /// Entscheidung je Runde ist und keine Servereinstellung, ist der Punkt:
+  /// eine Abstimmung, an der jeder mit dem Link teilnimmt, ist etwas anderes
+  /// als eine unter Mitgliedern, und wer den Link teilt, soll das wissen.
+  /// Siehe `spielwahl/gast.ts`.
+  gaesteErlaubt         Boolean              @default(false)
+
   /// Einmal neu auslosen - das Zugestaendnis an die enttaeuschte Gruppe.
   nachlosenErlaubt Boolean   @default(true)
   nachgelostAm     DateTime?
@@ -7413,8 +7423,20 @@ model SpielwahlParticipant {
   sessionId String
   session   SpielwahlSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
+  /// Die Discord-Kennung - oder die Gastkennung `gast:<32 Hexzeichen>`.
+  ///
+  /// Eine Spalte fuer beides, damit Zaehlung, Entfernen, Stimmenzuordnung und
+  /// Aufraeumen genau einmal existieren. Die beiden Formen sind nicht
+  /// verwechselbar: eine Discord-Kennung ist eine Ziffernfolge, eine
+  /// Gastkennung traegt das Praefix. Siehe `spielwahl/gast.ts`.
   discordId String
   rolle     SpielwahlRolle @default(GAST)
+
+  /// Der selbstgewaehlte Name eines Gastes - `null` bei Mitgliedern.
+  ///
+  /// Bei einem Mitglied kommt der Name aus dem Profil und wird nicht
+  /// mitgeschrieben; ein Gast hat kein Profil, aus dem er kommen koennte.
+  gastName  String?
 
   joinedAt   DateTime  @default(now())
   /// Gesetzt, wenn jemand die Session verlassen hat oder entfernt wurde.

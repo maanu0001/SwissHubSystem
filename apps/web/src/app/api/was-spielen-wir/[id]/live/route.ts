@@ -2,6 +2,7 @@ import { spielwahl } from '@swisshub/modules';
 import { createLogger } from '@swisshub/logger';
 import { resolveGuildId } from '@swisshub/discord';
 import { getActionAuthContext } from '@/server/auth';
+import { gastKennung } from '@/server/gast';
 import { hoere, spielwahlThema } from '@/server/live-bus';
 
 const log = createLogger('web:spielwahl-live');
@@ -55,7 +56,19 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const context = await getActionAuthContext('cached');
-  if (!context) {
+  /*
+   * Auch ein Gast bekommt den Strom.
+   *
+   * Sonst saesse er vor einer Buehne, die sich nicht bewegt: er sieht die
+   * Abstimmung, aber nicht, dass sie laeuft, und das Ergebnis nie. Ein
+   * Neuladen von Hand waere die schlechtere Antwort auf ein geloestes Problem.
+   *
+   * Gelesen wird die Kennung aus dem Cookie - **nicht** neu vergeben. Ein
+   * Route Handler duerfte das, aber wer keine hat, hat auch nicht
+   * teilgenommen; er bekommt 401 und die Seite laedt neu, sobald er mitmacht.
+   */
+  const gast = context ? null : await gastKennung();
+  if (!context && !gast) {
     return new Response(null, { status: 401 });
   }
 
@@ -77,7 +90,18 @@ export async function GET(
     return new Response(null, { status: 404 });
   }
 
-  const betrachter = context.user.discordId;
+  /*
+   * Und fuer einen Gast ausserdem: laesst diese Runde Gaeste zu?
+   *
+   * Der Strom ist eine Leseoperation, aber er zeigt Namen und Stimmen. Der
+   * Schalter, der die Runde oeffnet, gilt deshalb auch hier - sonst waere er
+   * ein Schalter fuer die Knoepfe und nicht fuer den Zugang.
+   */
+  if (gast && !session.gaesteErlaubt) {
+    return new Response(null, { status: 403 });
+  }
+
+  const betrachter = context ? context.user.discordId : (gast as string);
   const kodierer = new TextEncoder();
   const thema = spielwahlThema(id);
 

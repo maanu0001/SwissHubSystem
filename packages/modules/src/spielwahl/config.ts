@@ -59,6 +59,20 @@ export const spielwahlSettingsSchema = z.object({
   freieVorschlaege: z.boolean().default(true),
 
   /**
+   * Hosts duerfen Gaeste ohne Konto zulassen.
+   *
+   * Standardmaessig **aus**, und zwar auf beiden Ebenen: hier entscheidet der
+   * Server, ob es die Moeglichkeit ueberhaupt gibt, und am Formular
+   * entscheidet der Host, ob er sie fuer seine Runde nutzt. Zwei Schalter,
+   * weil zwei Leute zu fragen sind - der eine haftet fuer den Server, der
+   * andere teilt den Link.
+   *
+   * Ist er hier aus, bleibt `gaesteErlaubt` an jeder Session `false`, egal
+   * was ein Host schickt (siehe `aendereEinstellungen`).
+   */
+  gaesteErlaubt: z.boolean().default(false),
+
+  /**
    * Wie viele Sessions eine Person gleichzeitig offen haben darf.
    *
    * Eine halboffene Session ist kein Schaden, zwanzig davon sind Unordnung -
@@ -120,6 +134,14 @@ const spielwahlSettingsFields: SettingsField[] = [
     label: 'Vorschläge ausserhalb des Katalogs',
     description:
       'Erlaubt Titel, die nicht in der Spieleliste stehen. Sie erscheinen ohne Cover - ein Bild aus einer Eingabe wird nirgends geladen.',
+    group: 'Ablauf',
+  },
+  {
+    key: 'gaesteErlaubt',
+    type: 'boolean',
+    label: 'Teilnahme ohne Konto zulassen',
+    description:
+      'Erlaubt Hosts, ihre Runde über den Einladungslink für Gäste zu öffnen. Ein Gast gibt einen Namen an, sieht zu und stimmt mit - Spiele vorschlagen kann er nicht. Ist das hier aus, bleibt die Möglichkeit für jede Runde gesperrt.',
     group: 'Ablauf',
   },
   {

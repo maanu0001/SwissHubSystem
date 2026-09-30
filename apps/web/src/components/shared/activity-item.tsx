@@ -218,6 +218,11 @@ const ACTION_VIEW: Record<string, { icon: LucideIcon; tone: Tone; verb: string }
     tone: 'accent',
     verb: 'hat die Clip-Runde {target} wieder aktiviert',
   },
+  CLIP_COMPETITION_DELETED: {
+    icon: Clapperboard,
+    tone: 'destructive',
+    verb: 'hat die Clip-Runde {target} endgültig gelöscht',
+  },
 
   // --- Turniere -------------------------------------------------------------
   TOURNAMENT_PUBLISHED: { icon: Trophy, tone: 'info', verb: 'hat das Turnier {target} veröffentlicht' },

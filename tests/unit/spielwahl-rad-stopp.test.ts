@@ -30,9 +30,7 @@ import { drawWeighted, quelleAusSeed } from '../../packages/modules/src/zufall';
  */
 
 /** Die Seeds, mit denen gerechnet wird - Hex, wie `randomBytes(16)` sie liefert. */
-const SEEDS = Array.from({ length: 200 }, (_, index) =>
-  index.toString(16).padStart(32, '7').slice(0, 32),
-);
+const SEEDS = Array.from({ length: 200 }, (_, index) => index.toString(16).padStart(32, '7').slice(0, 32));
 
 describe('streuung', () => {
   it('liegt immer in [0, 1)', () => {

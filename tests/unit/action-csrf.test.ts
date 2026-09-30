@@ -25,7 +25,16 @@ const { globSync, readFileSync } = await import('node:fs');
 const { join } = await import('node:path');
 
 const KOMPONENTEN = globSync('apps/web/src/**/*.tsx', { cwd: process.cwd() }).sort();
-const AKTIONSDATEIEN = globSync('apps/web/src/modules/*/{actions,*-actions}.ts', {
+/**
+ * Aktionsdateien - auf deutsch wie auf englisch benannt.
+ *
+ * Das Muster hiess lange nur `{actions,*-actions}.ts` und liess damit die
+ * Module aus, deren Dateien `aktionen.ts` heissen: Spielwahl, Wrapped, Profil,
+ * Auszeichnungen. Derselbe Fehler stand in
+ * `tests/unit/action-authorization.test.ts` - ein Waechter, der die Haelfte
+ * seiner Tuer nicht kannte.
+ */
+const AKTIONSDATEIEN = globSync('apps/web/src/modules/*/{actions,*-actions,aktionen,*-aktionen}.ts', {
   cwd: process.cwd(),
 }).sort();
 
@@ -41,7 +50,8 @@ function lies(datei: string): string {
  */
 function importierteAktionen(quelltext: string): string[] {
   const namen: string[] = [];
-  const muster = /import\s*\{([^}]+)\}\s*from\s*'([^']*actions)'/gu;
+  // `actions` und `aktionen` - dieselbe Sache, zwei Sprachen.
+  const muster = /import\s*\{([^}]+)\}\s*from\s*'([^']*(?:actions|aktionen))'/gu;
   let treffer: RegExpExecArray | null;
   while ((treffer = muster.exec(quelltext)) !== null) {
     for (const teil of (treffer[1] ?? '').split(',')) {
@@ -50,7 +60,7 @@ function importierteAktionen(quelltext: string): string[] {
         .split(/\s+as\s+/u)
         .pop()
         ?.trim();
-      if (name && name.endsWith('Action')) {
+      if (name && (name.endsWith('Action') || name.endsWith('Aktion'))) {
         namen.push(name);
       }
     }
@@ -83,15 +93,62 @@ describe('CSRF-Token an den Server Actions', () => {
   );
 
   /**
-   * Keine Aktion nimmt sich von der Prüfung aus.
+   * Wer sich von der Prüfung ausnimmt, steht hier namentlich.
    *
-   * Solange das gilt, ist die Regel oben ausnahmslos. Käme je eine Aktion mit
-   * `csrf: false` dazu, fällt dieser Test - und wer sie einführt, muss die
-   * Wache oben bewusst anpassen, statt sie unbemerkt aufzuweichen.
+   * Vorher stand hier «keine einzige Aktion» - und das war falsch, seit das
+   * Dateimuster oben die deutsch benannten Aktionsdateien ausliess: das
+   * Lebenszeichen der Spielauswahl trug `csrf: false`, und dieser Test hatte
+   * die Datei nie gelesen.
+   *
+   * Statt die Ausnahme nun zu verbieten, werden die zwei benannt, die es gibt:
+   *
+   *   - `spielwahl.session.ping` - ein Lebenszeichen. Es schreibt genau ein
+   *     Feld der eigenen Zeile (`lastSeenAt`) und läuft alle zwanzig Sekunden
+   *     aus einem Intervall. Eine fremde Seite, die es auslöst, erreicht
+   *     damit, dass jemand als anwesend gilt, der anwesend ist.
+   *   - `spielwahl.games.search` - eine Suche im gemeinsamen Spielkatalog.
+   *     Sie schreibt nichts. Ein CSRF-Angriff auf eine Leseoperation gibt dem
+   *     Angreifer die Antwort ohnehin nicht zu sehen.
+   *
+   * Der Test wird damit nicht schwächer, sondern genauer: die Namen müssen
+   * **genau** stimmen. Eine dritte Ausnahme fällt auf, eine beseitigte auch.
    */
-  it('kennt keine Aktion ohne CSRF-Prüfung', () => {
-    for (const datei of AKTIONSDATEIEN) {
-      expect(lies(datei), `${datei} nimmt eine Aktion von der CSRF-Prüfung aus`).not.toContain('csrf: false');
+  const CSRF_AUSNAHMEN = ['spielwahl.session.ping', 'spielwahl.games.search'];
+
+  /** Der Name der Aktion, in deren Block ein `csrf: false` steht. */
+  function ausnahmeNamen(quelltext: string): string[] {
+    const namen: string[] = [];
+    for (const treffer of quelltext.matchAll(/csrf: false/gu)) {
+      const davor = quelltext.slice(0, treffer.index);
+      const name = [...davor.matchAll(/name: '([^']+)'/gu)].at(-1)?.[1];
+      namen.push(name ?? '(unbekannt)');
     }
+    return namen;
+  }
+
+  it('kennt genau die benannten Aktionen ohne CSRF-Prüfung', () => {
+    const gefunden = AKTIONSDATEIEN.flatMap((datei) => ausnahmeNamen(lies(datei))).sort();
+    expect(gefunden).toEqual([...CSRF_AUSNAHMEN].sort());
+  });
+
+  it('gibt einer öffentlichen Gast-Aktion keine Ausnahme', () => {
+    /*
+     * Die oeffentlichen Aktionen haben keine Anmeldung, aus der ein Angreifer
+     * schoepfen koennte - und genau deshalb ist CSRF dort *wichtiger* und
+     * nicht unwichtiger: das Gastcookie reist bei jeder Anfrage mit, auch bei
+     * einer, die eine fremde Seite ausloest. `defineOeffentlicheAktion` prueft
+     * das Token immer; hier wird festgehalten, dass es keinen Schalter dafuer
+     * gibt.
+     */
+    const kette = lies('apps/web/src/server/action.ts');
+    const ab = kette.indexOf('export function defineOeffentlicheAktion');
+    expect(ab).toBeGreaterThan(0);
+    const teil = kette.slice(ab);
+    expect(teil, 'defineOeffentlicheAktion prüft kein CSRF-Token').toContain('verifyCsrfToken(');
+    // Kein Schalter: weder ein Feld `csrf?: boolean` in der Definition noch ein
+    // `csrf: false` irgendwo darin.
+    expect(teil, 'defineOeffentlicheAktion kennt einen CSRF-Schalter').not.toMatch(
+      /\bcsrf\??:\s*(?:false|boolean)/u,
+    );
   });
 });

@@ -45,6 +45,14 @@ export function Lobby({
   const [laeuft, starteUebergang] = useTransition();
   const offen = stand.status === 'LOBBY';
   const eigeneRolle = stand.eigeneRolle;
+  /*
+   * Ein Gast schlaegt nichts vor - und sieht das Feld deshalb nicht.
+   *
+   * Es ist eine Gestaltungsfrage, nicht die Entscheidung: `schlageVor` weist
+   * eine Gastkennung selbst ab. Ein Suchfeld, dessen Ergebnis immer eine
+   * Absage ist, waere aber schlimmer als kein Suchfeld.
+   */
+  const darfVorschlagen = !stand.betrachterIstGast;
 
   return (
     <div className="flex w-full flex-col gap-8">
@@ -55,16 +63,18 @@ export function Lobby({
         </h2>
         {offen ? (
           <p className="mt-1.5 text-sm text-white/45">
-            {eigeneRolle
-              ? stand.eigeneVorschlaegeOffen > 0
-                ? `Du hast noch ${stand.eigeneVorschlaegeOffen} ${stand.eigeneVorschlaegeOffen === 1 ? 'Vorschlag' : 'Vorschläge'}.`
-                : 'Deine Vorschläge sind vergeben. Nimm einen zurück, wenn du einen anderen willst.'
-              : 'Tritt bei, um mitzumachen.'}
+            {!darfVorschlagen
+              ? 'Die Mitglieder sammeln Vorschläge. Sobald abgestimmt wird, bist du dabei.'
+              : eigeneRolle
+                ? stand.eigeneVorschlaegeOffen > 0
+                  ? `Du hast noch ${stand.eigeneVorschlaegeOffen} ${stand.eigeneVorschlaegeOffen === 1 ? 'Vorschlag' : 'Vorschläge'}.`
+                  : 'Deine Vorschläge sind vergeben. Nimm einen zurück, wenn du einen anderen willst.'
+                : 'Tritt bei, um mitzumachen.'}
           </p>
         ) : null}
       </div>
 
-      {offen && eigeneRolle && stand.eigeneVorschlaegeOffen > 0 ? (
+      {offen && darfVorschlagen && eigeneRolle && stand.eigeneVorschlaegeOffen > 0 ? (
         <Spielsuche stand={stand} csrfToken={csrfToken} laeuft={laeuft} starte={starteUebergang} />
       ) : null}
 

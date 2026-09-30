@@ -72,6 +72,8 @@ export const sessionEinstellungenSchema = z.object({
   gleichstand: gleichstandSchema.optional(),
   rouletteGewichtet: z.boolean().optional(),
   beitrittWaehrendRunde: z.boolean().optional(),
+  /** Gaeste ohne Konto zulassen - nur, wenn der Server es erlaubt. */
+  gaesteErlaubt: z.boolean().optional(),
   nachlosenErlaubt: z.boolean().optional(),
 });
 

@@ -22,7 +22,15 @@ const quelle = (datei: string): string => readFileSync(join(process.cwd(), datei
 
 const AKTIONEN = 'apps/web/src/modules/spielwahl/aktionen.ts';
 const STROM = 'apps/web/src/app/api/was-spielen-wir/[id]/live/route.ts';
-const SEITE = 'apps/web/src/app/(app)/was-spielen-wir/[token]/page.tsx';
+/*
+ * Die Buehne liegt ausserhalb von `(app)`.
+ *
+ * Seit Gaeste ohne Konto mitstimmen koennen: die Anmeldung liegt in SwissHub
+ * im Layout von `(app)`, und diese eine Seite muss auch ohne sie erreichbar
+ * sein. Die Uebersicht und der Spielkatalog bleiben drin.
+ */
+const SEITE = 'apps/web/src/app/was-spielen-wir/[token]/page.tsx';
+const GAST_AKTIONEN = 'apps/web/src/modules/spielwahl/gast-aktionen.ts';
 const SESSION = 'packages/modules/src/spielwahl/session.ts';
 
 describe('Zugang zur Spielauswahl', () => {
@@ -36,6 +44,16 @@ describe('Zugang zur Spielauswahl', () => {
     for (const datei of [AKTIONEN, STROM, SEITE]) {
       expect(quelle(datei), datei).toContain('resolveGuildId()');
     }
+    /*
+     * Die Gast-Aktionen laden die Session nicht selbst.
+     *
+     * Sie gehen ueber `verlangeGastZugang`, und **dort** steht die Abfrage -
+     * an einer Stelle statt an vier. Eine zweite Ladestelle in dieser Datei
+     * waere die, die den Guild-Filter irgendwann vergisst.
+     */
+    const gast = quelle(GAST_AKTIONEN);
+    expect(gast).not.toContain('resolveGuildId');
+    expect(gast).not.toContain('prisma.');
     const kern = quelle(SESSION);
     expect(kern).toContain('findFirst({ where: { guildId, inviteToken } })');
     expect(kern).toContain('findFirst({ where: { guildId, id: sessionId } })');

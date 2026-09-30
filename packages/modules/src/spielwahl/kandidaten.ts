@@ -1,6 +1,7 @@
 import { prisma } from '@swisshub/database';
-import { conflict, notFound, policyViolation } from '@swisshub/shared';
+import { conflict, forbidden, notFound, policyViolation } from '@swisshub/shared';
 import { coverSrc, listGames } from '../games';
+import { istGastKennung } from './gast';
 import { beruehre, namensKey, sperre } from './session';
 import type { KandidatEingabe } from './schemas';
 
@@ -75,6 +76,25 @@ export async function schlageVor(
   discordId: string,
   eingabe: KandidatEingabe,
 ): Promise<{ candidateId: string; neu: boolean }> {
+  /*
+   * Ein Gast schlaegt nichts vor - und zwar hier, nicht in der Oberflaeche.
+   *
+   * Die oeffentliche Seite zeigt ihm das Formular nicht. Das ist eine
+   * Gestaltungsfrage; die Entscheidung faellt an dieser Zeile. Eine Server
+   * Action ist ein Endpunkt, den man auch ohne die Seite aufruft, und ein
+   * Vorschlag ist das eine, was ein Gast nicht tun darf: er traegt einen
+   * Namen, bleibt im Katalog und wird spaeter gezaehlt.
+   *
+   * Die Sperre steht *vor* der Transaktion: es gibt nichts zu sperren und
+   * nichts zu zaehlen, wenn die Antwort ohnehin nein ist.
+   */
+  if (istGastKennung(discordId)) {
+    throw forbidden(
+      'spielwahl: Gast darf nicht vorschlagen',
+      'Ohne Konto kannst du mitabstimmen, aber keine Spiele vorschlagen. Melde dich an, wenn du eines hinzufügen willst.',
+    );
+  }
+
   return prisma.$transaction(async (tx) => {
     /*
      * Die Sperre sitzt vor dem Zaehlen der eigenen Vorschlaege. Ohne sie

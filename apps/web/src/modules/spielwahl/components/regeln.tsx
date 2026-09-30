@@ -146,6 +146,13 @@ export function Regeln({
             aufAenderung={(wert) => setzen({ nachlosenErlaubt: wert })}
           />
           <Schalter
+            label="Teilnahme ohne Konto"
+            text="Wer den Einladungslink hat, kann mit Namen mitstimmen - Spiele vorschlagen nur angemeldete Mitglieder. Ist es beim Server aus, bleibt der Schalter ohne Wirkung."
+            an={aktiv.gaesteErlaubt}
+            aus={laeuft}
+            aufAenderung={(wert) => setzen({ gaesteErlaubt: wert })}
+          />
+          <Schalter
             label="Titel ausserhalb des Katalogs"
             text="Erscheinen ohne Cover - ein Bild aus einer Eingabe wird nirgends geladen."
             an={aktiv.freieVorschlaege}

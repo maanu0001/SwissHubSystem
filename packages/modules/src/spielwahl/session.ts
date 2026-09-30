@@ -10,6 +10,7 @@ import { createLogger } from '@swisshub/logger';
 import { conflict, forbidden, notFound, policyViolation } from '@swisshub/shared';
 import { getModuleSettings } from '../module-state';
 import { SPIELWAHL_MODULE_ID, type SpielwahlSettings } from './config';
+import { gastNameSchema, istGastKennung } from './gast';
 import { BEITRITT_MOEGLICH, OFFENE_ZUSTAENDE, darfWechseln, grenzenFuer } from './zustand';
 import type { SessionEinstellungen } from './schemas';
 
@@ -164,6 +165,9 @@ export async function eroeffne(eingabe: EroeffnenEingabe): Promise<{ id: string;
         gleichstand: optionen.gleichstand ?? 'STICHWAHL',
         rouletteGewichtet: optionen.rouletteGewichtet ?? false,
         beitrittWaehrendRunde: optionen.beitrittWaehrendRunde ?? true,
+        // Zwei Schalter, beide muessen an sein - der Server erlaubt es, der
+        // Host will es. Siehe `spielwahlSettingsSchema.gaesteErlaubt`.
+        gaesteErlaubt: (optionen.gaesteErlaubt ?? false) && vorgabe.gaesteErlaubt,
         nachlosenErlaubt: optionen.nachlosenErlaubt ?? true,
         expiresAt: new Date(Date.now() + vorgabe.verfallStunden * 3600_000),
       },
@@ -245,6 +249,62 @@ export async function verlangeTeilnahme(sessionId: string, discordId: string): P
   }
 }
 
+/**
+ * Der Waechter der oeffentlichen Aktionen.
+ *
+ * **Die eine Pruefung, die an die Stelle der Anmeldung tritt.** Jede Aktion,
+ * die ein Gast aufrufen kann, ruft zuerst diese Funktion - `defineAction` mit
+ * seiner Kette aus Anmeldung, Mitgliedschaft und Berechtigung steht dort
+ * nicht zur Verfuegung, und eine Aktion ohne Ersatz waere ein offener
+ * Endpunkt.
+ *
+ * Geprueft wird dreierlei:
+ *
+ *  1. **Die Form der Kennung.** Nur `gast:<32 Hexzeichen>`. Damit kann ein
+ *     manipuliertes Cookie keine Discord-Kennung tragen und niemand als ein
+ *     Mitglied handeln - eine Discord-Kennung ist eine Ziffernfolge und
+ *     besteht dieses Muster nie.
+ *  2. **Dass diese Runde Gaeste zulaesst.** Der Schalter steht an der
+ *     Session, nicht in der Oberflaeche. Ein Link, der in einen fremden Chat
+ *     geraet, oeffnet damit nichts, was der Host nicht eingeschaltet hat.
+ *  3. **Dass die Runde ueberhaupt noch laeuft.** Eine abgeschlossene oder
+ *     verfallene Session nimmt keine Stimmen mehr an.
+ *
+ * Was sie ausdruecklich **nicht** prueft: ob der Gast schon dabei ist. Das
+ * macht `verlangeTeilnahme`, und zwar in den Aktionen, die es brauchen -
+ * Beitreten selbst braucht es nicht.
+ */
+export async function verlangeGastZugang(
+  sessionId: string,
+  kennung: string,
+): Promise<{ id: string; guildId: string; status: SpielwahlStatus }> {
+  if (!istGastKennung(kennung)) {
+    throw forbidden(
+      `spielwahl: Kennung «${kennung.slice(0, 12)}» ist keine Gastkennung`,
+      'Diese Sitzung ist abgelaufen. Lade die Seite neu.',
+    );
+  }
+
+  const session = await prisma.spielwahlSession.findUnique({
+    where: { id: sessionId },
+    select: { id: true, guildId: true, status: true, gaesteErlaubt: true, expiresAt: true },
+  });
+  if (!session) {
+    throw notFound('spielwahl: Session unbekannt', 'Diese Runde gibt es nicht mehr.');
+  }
+  if (!session.gaesteErlaubt) {
+    throw forbidden(
+      `spielwahl: Session ${sessionId} laesst keine Gaeste zu`,
+      'Für diese Runde ist die Teilnahme ohne Konto nicht eingeschaltet.',
+    );
+  }
+  if (session.expiresAt < new Date() || !OFFENE_ZUSTAENDE.includes(session.status)) {
+    throw conflict('Diese Runde ist vorbei.');
+  }
+
+  return { id: session.id, guildId: session.guildId, status: session.status };
+}
+
 // ---------------------------------------------------------------------------
 // Beitreten und verlassen
 // ---------------------------------------------------------------------------
@@ -259,18 +319,44 @@ export async function verlangeTeilnahme(sessionId: string, discordId: string): P
 export async function tritteBei(
   sessionId: string,
   discordId: string,
+  gastName?: string | null,
 ): Promise<'neu' | 'zurueck' | 'schon-dabei'> {
+  /*
+   * Der Name eines Gastes wird hier geprueft, nicht in der Oberflaeche.
+   *
+   * Und nur bei einem Gast: einem Mitglied einen Namen mitzugeben waere ein
+   * Weg, den Anzeigenamen in der Teilnehmerliste frei zu setzen - der kommt
+   * aus dem Profil.
+   */
+  const istGast = istGastKennung(discordId);
+  const name = istGast && gastName ? gastNameSchema.parse(gastName) : null;
+
   return prisma.$transaction(async (tx) => {
     await sperre(tx, sessionId);
     const session = await tx.spielwahlSession.findUnique({
       where: { id: sessionId },
-      select: { status: true, maxTeilnehmer: true, beitrittWaehrendRunde: true, expiresAt: true },
+      select: {
+        status: true,
+        maxTeilnehmer: true,
+        beitrittWaehrendRunde: true,
+        expiresAt: true,
+        gaesteErlaubt: true,
+      },
     });
     if (!session) {
       throw notFound('spielwahl: Session unbekannt', 'Diese Runde gibt es nicht mehr.');
     }
     if (session.expiresAt < new Date() || !BEITRITT_MOEGLICH.includes(session.status)) {
       throw conflict('Diese Runde nimmt niemanden mehr auf.');
+    }
+    if (istGast && !session.gaesteErlaubt) {
+      throw forbidden(
+        'spielwahl: Gaeste nicht zugelassen',
+        'Für diese Runde ist die Teilnahme ohne Konto nicht eingeschaltet. Melde dich an, um mitzumachen.',
+      );
+    }
+    if (istGast && !name) {
+      throw policyViolation('Bitte einen Namen angeben, unter dem du in der Liste stehst.');
     }
 
     const vorhanden = await tx.spielwahlParticipant.findUnique({
@@ -281,7 +367,9 @@ export async function tritteBei(
     if (vorhanden && !vorhanden.leftAt) {
       await tx.spielwahlParticipant.update({
         where: { id: vorhanden.id },
-        data: { lastSeenAt: new Date() },
+        // Ein Gast, der sich umbenennt, behaelt seinen Platz und seine
+        // Stimmen - der Name ist eine Beschriftung, keine Identitaet.
+        data: { lastSeenAt: new Date(), ...(name ? { gastName: name } : {}) },
       });
       return 'schon-dabei';
     }
@@ -302,13 +390,16 @@ export async function tritteBei(
           leftAt: null,
           lastSeenAt: new Date(),
           rolle: vorhanden.rolle === 'HOST' ? 'GAST' : vorhanden.rolle,
+          ...(name ? { gastName: name } : {}),
         },
       });
       await beruehre(tx, sessionId);
       return 'zurueck';
     }
 
-    await tx.spielwahlParticipant.create({ data: { sessionId, discordId, rolle: 'GAST' } });
+    await tx.spielwahlParticipant.create({
+      data: { sessionId, discordId, rolle: 'GAST', gastName: name },
+    });
     await beruehre(tx, sessionId);
     return 'neu';
   });
@@ -346,15 +437,32 @@ export async function verlasse(sessionId: string, discordId: string): Promise<vo
 /**
  * Die Fuehrung an den naechsten weitergeben.
  *
- * Reihenfolge: ein Co-Host zuerst, danach der aelteste anwesende Gast. Ist
- * niemand mehr da, wird die Runde abgebrochen - eine verwaiste Session waere
- * ein Einladungslink ins Nichts.
+ * Reihenfolge: ein Co-Host zuerst, danach der aelteste anwesende Teilnehmer.
+ * Ist niemand mehr da, wird die Runde abgebrochen - eine verwaiste Session
+ * waere ein Einladungslink ins Nichts.
+ *
+ * ## Niemals an einen Gast
+ *
+ * Die Fuehrung darf Runden starten, neu auslosen, das Ergebnis annehmen, die
+ * Regeln aendern und Leute entfernen - also genau das, was einem Gast
+ * verwehrt ist. Wanderte sie an ihn, waere der Weg dorthin nicht ein Loch in
+ * einer Pruefung, sondern eine Beloerderung: der Host geht, und der Besucher
+ * mit dem Einladungslink fuehrt die Runde.
+ *
+ * Gefunden hat das der Test dazu, nicht der Entwurf. Die Zeile stand vorher
+ * ohne Filter da, und sie war richtig, solange es nur Mitglieder gab.
+ *
+ * Bleiben nur Gaeste uebrig, wird abgebrochen - dieselbe Antwort wie bei einer
+ * leeren Runde, und aus demselben Grund: es ist niemand da, der sie fuehren
+ * darf. Eine laufende Abstimmung geht dabei nicht verloren, denn `schliesse`
+ * haelt fest, was bis dahin entschieden war.
  */
 async function uebergibFuehrung(tx: Prisma.TransactionClient, sessionId: string): Promise<void> {
-  const naechster = await tx.spielwahlParticipant.findFirst({
+  const anwesende = await tx.spielwahlParticipant.findMany({
     where: { sessionId, leftAt: null },
     orderBy: [{ rolle: 'asc' }, { joinedAt: 'asc' }],
   });
+  const naechster = anwesende.find((teilnehmer) => !istGastKennung(teilnehmer.discordId));
 
   if (!naechster) {
     await tx.spielwahlSession.update({
@@ -369,6 +477,27 @@ async function uebergibFuehrung(tx: Prisma.TransactionClient, sessionId: string)
     where: { id: sessionId },
     data: { hostDiscordId: naechster.discordId },
   });
+}
+
+/**
+ * Eine Rolle, die es fuer einen Gast nicht gibt.
+ *
+ * Host und Co-Host duerfen Runden starten, neu auslosen, das Ergebnis
+ * annehmen, die Regeln aendern und Leute entfernen - genau das, was einem Gast
+ * verwehrt ist. Die Regel «ein Gast stimmt mit und sonst nichts» hat deshalb
+ * auch keine Ausnahme von Hand: es soll nicht moeglich sein, sie durch eine
+ * Ernennung zu umgehen, auch nicht in guter Absicht.
+ *
+ * Wer einem Gast die Fuehrung geben will, hat einen Gast vor sich, der sich
+ * anmelden soll.
+ */
+function verlangeKeinGast(kennung: string, rolle: string): void {
+  if (istGastKennung(kennung)) {
+    throw forbidden(
+      `spielwahl: Gast ${kennung.slice(0, 12)} soll ${rolle} werden`,
+      `Ein Gast ohne Konto kann nicht ${rolle} sein. Wer die Runde führen soll, meldet sich an.`,
+    );
+  }
 }
 
 /**
@@ -422,6 +551,7 @@ export async function setzeCoHost(
   if (rolle !== 'HOST') {
     throw forbidden('spielwahl: nur der Host', 'Co-Hosts ernennt der Host.');
   }
+  verlangeKeinGast(ziel, 'Co-Host');
 
   await prisma.$transaction(async (tx) => {
     const teilnehmer = await tx.spielwahlParticipant.findUnique({
@@ -451,6 +581,7 @@ export async function uebergib(sessionId: string, ziel: string, handelnder: Hand
   if (rolle !== 'HOST') {
     throw forbidden('spielwahl: nur der Host', 'Die Führung übergibt der Host.');
   }
+  verlangeKeinGast(ziel, 'Host');
 
   await prisma.$transaction(async (tx) => {
     const neu = await tx.spielwahlParticipant.findUnique({
@@ -545,6 +676,11 @@ export async function aendereEinstellungen(sessionId: string, optionen: SessionE
   if (optionen.rouletteGewichtet !== undefined) daten.rouletteGewichtet = optionen.rouletteGewichtet;
   if (optionen.beitrittWaehrendRunde !== undefined)
     daten.beitrittWaehrendRunde = optionen.beitrittWaehrendRunde;
+  if (optionen.gaesteErlaubt !== undefined) {
+    // Wie bei `freieVorschlaege`: die Servervorgabe ist die Obergrenze, nicht
+    // die Voreinstellung. Ein Host kann sie nicht uebersteuern.
+    daten.gaesteErlaubt = optionen.gaesteErlaubt && vorgabe.gaesteErlaubt;
+  }
   if (optionen.nachlosenErlaubt !== undefined) daten.nachlosenErlaubt = optionen.nachlosenErlaubt;
 
   if (Object.keys(daten).length === 0) {

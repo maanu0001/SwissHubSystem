@@ -2,6 +2,7 @@ import { prisma } from '@swisshub/database';
 import type { SpielwahlModus, SpielwahlRolle, SpielwahlStatus } from '@swisshub/database';
 import { loadPersonen } from '../members/avatars';
 import { leseBaum, type Baum } from './modi';
+import { istGastKennung } from './gast';
 import { listeKandidaten, type KandidatAnsicht } from './kandidaten';
 
 /**
@@ -43,6 +44,16 @@ export interface TeilnehmerAnsicht {
    */
   anzeigename: string;
   avatarHash: string | null;
+  /**
+   * Teilnahme ohne Konto.
+   *
+   * Steht in der Ansicht, weil die Liste es zeigen muss: «Nina (Gast)» ist
+   * eine andere Auskunft als «Nina». Wer die Runde fuehrt, soll sehen, wer
+   * ueber den Link dazugekommen ist - nicht, um ihn schlechter zu behandeln,
+   * sondern weil eine Abstimmung mit fuenf Gaesten etwas anderes ist als eine
+   * unter fuenf Mitgliedern.
+   */
+  istGast: boolean;
 }
 
 export interface RundeAnsicht {
@@ -91,6 +102,7 @@ export interface SessionAnsicht {
     gleichstand: 'STICHWAHL' | 'ZUFALL';
     rouletteGewichtet: boolean;
     beitrittWaehrendRunde: boolean;
+    gaesteErlaubt: boolean;
     nachlosenErlaubt: boolean;
     nachgelost: boolean;
   };
@@ -104,6 +116,14 @@ export interface SessionAnsicht {
   eigeneRolle: SpielwahlRolle | null;
   /** Wie viele eigene Vorschlaege der Betrachter noch hat. */
   eigeneVorschlaegeOffen: number;
+  /**
+   * Sieht hier ein Gast zu?
+   *
+   * Die Buehne braucht die Antwort, um Vorschlagsfeld, Host-Knoepfe und die
+   * Einstellungen weglassen zu koennen. Sie ist eine Gestaltungshilfe und
+   * keine Sicherung - was ein Gast darf, entscheidet der Server.
+   */
+  betrachterIstGast: boolean;
 }
 
 export async function baueAnsicht(
@@ -179,7 +199,18 @@ export async function baueAnsicht(
     };
   }
 
-  const personen = await loadPersonen(session.participants.map((teilnehmer) => teilnehmer.discordId));
+  /*
+   * Nur Mitglieder nachschlagen.
+   *
+   * Eine Gastkennung ist keine Discord-Kennung; sie zu `loadPersonen` zu
+   * geben hiesse, je Gast eine vergebliche Abfrage zu stellen und im
+   * Zweifelsfall eine Fehlerzeile zu erzeugen.
+   */
+  const personen = await loadPersonen(
+    session.participants
+      .map((teilnehmer) => teilnehmer.discordId)
+      .filter((kennung) => !istGastKennung(kennung)),
+  );
   const eigene = session.participants.find((teilnehmer) => teilnehmer.discordId === betrachterDiscordId);
   const eigeneUnterstuetzungen = await prisma.spielwahlSupport.count({
     where: { discordId: betrachterDiscordId, candidate: { sessionId } },
@@ -204,23 +235,29 @@ export async function baueAnsicht(
       gleichstand: session.gleichstand,
       rouletteGewichtet: session.rouletteGewichtet,
       beitrittWaehrendRunde: session.beitrittWaehrendRunde,
+      gaesteErlaubt: session.gaesteErlaubt,
       nachlosenErlaubt: session.nachlosenErlaubt,
       nachgelost: session.nachgelostAm !== null,
     },
     teilnehmer: session.participants.map((teilnehmer) => {
-      const person = personen.get(teilnehmer.discordId);
+      const gast = istGastKennung(teilnehmer.discordId);
+      const person = gast ? undefined : personen.get(teilnehmer.discordId);
       return {
         discordId: teilnehmer.discordId,
         rolle: teilnehmer.rolle,
         hatGewaehlt: gewaehltHat.has(teilnehmer.discordId),
-        anzeigename: person?.displayName ?? 'Unbekannt',
+        // Der Gastname steht in der Zeile, weil es fuer ihn kein Profil gibt,
+        // aus dem er kommen koennte.
+        anzeigename: gast ? (teilnehmer.gastName ?? 'Gast') : (person?.displayName ?? 'Unbekannt'),
         avatarHash: person?.avatarHash ?? null,
+        istGast: gast,
       };
     }),
     kandidaten,
     runde: ansicht,
     ergebnisCandidateId: session.ergebnisCandidateId,
     betrachter: betrachterDiscordId,
+    betrachterIstGast: istGastKennung(betrachterDiscordId),
     eigeneRolle: eigene?.rolle ?? null,
     eigeneVorschlaegeOffen: Math.max(0, session.vorschlaegeProPerson - eigeneUnterstuetzungen),
   };

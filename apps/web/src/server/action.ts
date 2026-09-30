@@ -262,3 +262,137 @@ function flattenIssues(error: z.ZodError): Record<string, string> {
   }
   return output;
 }
+
+/**
+ * Die Sicherheitskette für Besucher ohne Konto.
+ *
+ * ## Warum sie überhaupt existiert
+ *
+ * `defineAction` beginnt mit einer Anmeldung und einer Guild-Mitgliedschaft.
+ * Für eine Spielauswahl, an der ein Gast über den Einladungslink teilnimmt,
+ * steht beides nicht zur Verfügung - es gibt keinen Benutzer, keine Sitzung
+ * und keine Rollen. Eine Aktion in `defineAction` zu zwingen hiesse, einen
+ * Benutzerkontext zu erfinden; eine erfundene `discordId` in einem
+ * `AuthContext` wäre eine Lüge, die durch das ganze System reist.
+ *
+ * ## Was von der Kette bleibt
+ *
+ * **Alles ausser Anmeldung, Mitgliedschaft und Berechtigung**, und zwar aus
+ * demselben Code: CSRF, Ratengrenze, Eingabeprüfung, Sicherheitsprotokoll,
+ * Fehlerabbildung. Die drei entfallenen Glieder werden durch ein einziges
+ * ersetzt, das der Rumpf aufrufen **muss**:
+ *
+ *     await spielwahl.verlangeGastZugang(sessionId, besucher.kennung)
+ *
+ * Es prüft die Form der Kennung (nur `gast:<hex>` - eine Discord-Kennung
+ * besteht dieses Muster nie), dass diese Runde Gäste zulässt, und dass sie
+ * noch läuft. `tests/unit/action-authorization.test.ts` verlangt den Aufruf
+ * von jeder so definierten Aktion; ohne ihn fällt der Test.
+ *
+ * ## Warum das kein zweites System ist
+ *
+ * Weil es dieselbe Datei, dieselben Primitive und dieselbe Testabdeckung
+ * teilt. Der Unterschied ist die Art der Identität, und die steht im Typ:
+ * `besucher: { kennung }` statt `ctx: AuthContext`. Wer eine Aktion hier
+ * definiert, sieht auf einen Blick, dass er im öffentlichen Teil ist.
+ *
+ * Es gibt genau einen Grund, hier etwas hinzuzufügen: eine Handlung, die ein
+ * Gast in einer Spielauswahl tun darf. Alles andere gehört in `defineAction`.
+ */
+export interface OeffentlicheAktionsDefinition<TSchema extends z.ZodTypeAny> {
+  name: string;
+  module?: string;
+  schema?: TSchema;
+  rateLimit?: RateLimitName;
+}
+
+export interface OeffentlicherHandlerKontext<TInput> {
+  /** Wer da ist - nur eine Kennung, kein Benutzer. */
+  besucher: { kennung: string };
+  input: TInput;
+  metadata: { ipHash: string | null; userAgent: string | null };
+}
+
+export function defineOeffentlicheAktion<TSchema extends z.ZodTypeAny, TResult>(
+  definition: OeffentlicheAktionsDefinition<TSchema>,
+  handler: (context: OeffentlicherHandlerKontext<z.infer<TSchema>>) => Promise<TResult>,
+): (input: ActionInput) => Promise<ActionResult<TResult>> {
+  return async (rawInput: ActionInput): Promise<ActionResult<TResult>> => {
+    const metadata = await getRequestMetadata();
+
+    try {
+      /*
+       * Die Kennung wird hier vergeben, wenn es noch keine gibt.
+       *
+       * Eine Aktion darf Cookies setzen, eine Seite nicht - deshalb entsteht
+       * die Kennung beim ersten Klick und nicht beim Laden. Wer nur zusieht,
+       * bekommt kein Cookie.
+       */
+      const { sicherGastKennung } = await import('./gast');
+      const besucher = await sicherGastKennung();
+
+      const token = typeof rawInput?.csrfToken === 'string' ? rawInput.csrfToken : null;
+      if (!verifyCsrfToken(besucher.kennung, token)) {
+        await recordSecurityEvent({
+          type: SECURITY_EVENTS.CSRF_FAILED,
+          severity: 'HIGH',
+          ipHash: metadata.ipHash,
+          userAgent: metadata.userAgent,
+          path: definition.name,
+        });
+        throw new AppError('FORBIDDEN', {
+          userMessage: 'Sicherheitsprüfung fehlgeschlagen. Bitte Seite neu laden und erneut versuchen.',
+          internalMessage: 'CSRF-Token ungültig (Gast)',
+        });
+      }
+
+      /*
+       * Die Ratengrenze auf die Gastkennung.
+       *
+       * Nicht auf die IP-Adresse: hinter einer sitzt im Zweifel ein
+       * Wohnzimmer mit fünf Leuten, und die Grenze träfe dann alle fünf. Wer
+       * sein Cookie löscht, umgeht sie - das ist dieselbe Offenheit wie beim
+       * Abstimmen selbst, und sie wird an derselben Stelle aufgefangen: ein
+       * Gast steht mit Namen in der Teilnehmerliste.
+       */
+      if (definition.rateLimit) {
+        await enforceRateLimit(definition.rateLimit, besucher.kennung);
+      }
+
+      let input = {} as z.infer<TSchema>;
+      if (definition.schema) {
+        const { csrfToken: _csrfToken, ...payload } = rawInput ?? {};
+        const parsed = definition.schema.safeParse(payload);
+        if (!parsed.success) {
+          await recordSecurityEvent({
+            type: SECURITY_EVENTS.INVALID_INPUT,
+            severity: 'LOW',
+            ipHash: metadata.ipHash,
+            userAgent: metadata.userAgent,
+            path: definition.name,
+            metadata: { fields: parsed.error.issues.map((issue) => issue.path.join('.')) },
+          });
+          throw new AppError('VALIDATION_FAILED', {
+            details: { fieldErrors: flattenIssues(parsed.error) },
+          });
+        }
+        input = parsed.data;
+      }
+
+      const result = await handler({ besucher: { kennung: besucher.kennung }, input, metadata });
+      return ok(result);
+    } catch (error) {
+      const appError = toAppError(error);
+      if (appError.code === 'INTERNAL') {
+        log.error('Öffentliche Aktion fehlgeschlagen', { action: definition.name, error });
+      } else {
+        log.warn('Öffentliche Aktion abgelehnt', {
+          action: definition.name,
+          code: appError.code,
+          reason: appError.internalMessage,
+        });
+      }
+      return fail(appError);
+    }
+  };
+}

@@ -46,6 +46,20 @@ const OEFFENTLICH = new Set([
   'streamer',
   'turniere',
   'u',
+  /*
+   * `/was-spielen-wir/<token>` - die Buehne einer Spielauswahl.
+   *
+   * Nur die Buehne, und nur ueber den Einladungswert: die Uebersicht und der
+   * Spielkatalog liegen weiter **in** `(app)`. Gaeste ohne Discord-Konto
+   * sollen zusehen und mitstimmen koennen, wenn der Host es fuer seine Runde
+   * einschaltet - der Kollege aus dem Sprachkanal, das Geschwister am zweiten
+   * Rechner.
+   *
+   * Was ein Gast darf, entscheidet nicht diese Zeile, sondern
+   * `spielwahl.verlangeGastZugang` und die Sperre in `schlageVor`: zusehen und
+   * abstimmen, sonst nichts.
+   */
+  'was-spielen-wir',
   'wrapped',
   'wrapped-buehne',
 ]);

@@ -81,8 +81,8 @@ export function AusgabeAnlegen({
       <div>
         <p className="text-sm font-medium">Ausgabe erzeugen</p>
         <p className="text-xs text-muted-foreground">
-          Nur für abgeschlossene Zeiträume. Ein laufender Monat hätte morgen andere Zahlen. Wochen zählen
-          nach ISO 8601 - Montag bis Sonntag.
+          Nur für abgeschlossene Zeiträume. Ein laufender Monat hätte morgen andere Zahlen. Wochen zählen nach
+          ISO 8601 - Montag bis Sonntag.
         </p>
       </div>
 

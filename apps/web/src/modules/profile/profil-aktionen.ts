@@ -283,8 +283,23 @@ export const slugPruefenAction = defineAction(
   async ({ ctx, input }) => profile.pruefeSlugWunsch(ctx.user.discordId, input.slug),
 );
 
+/**
+ * Das Banner entfernen.
+ *
+ * Nimmt keine Eingabe - und sagt das mit einem leeren Schema, statt es
+ * weglassen. Eine Aktion ohne `schema` laesst Rohdaten aus dem Browser in den
+ * Rumpf; dass dieser hier nichts davon liest, ist der heutige Zustand und
+ * nicht die Regel. `tests/unit/action-authorization.test.ts` verlangt von
+ * jeder Aktion ein Schema; diese Zeile fehlte, weil das Dateimuster des Tests
+ * die deutsch benannten Aktionsdateien nie erfasst hatte.
+ */
 export const bannerEntfernenAction = defineAction(
-  { name: 'profil.banner.entfernen', selfService: true, rateLimit: 'profilWrite' },
+  {
+    name: 'profil.banner.entfernen',
+    selfService: true,
+    rateLimit: 'profilWrite',
+    schema: z.object({}),
+  },
   async ({ ctx }) => {
     await profile.entferneBanner(ctx.user.discordId);
     await neuLaden(ctx.user.discordId);
