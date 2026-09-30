@@ -1013,6 +1013,110 @@ export async function ladeTeilnehmerGruppen(eventId: string): Promise<Teilnehmer
 }
 
 /**
+ * Die Teilnehmerliste der **Eventseite** - was alle Mitglieder sehen dürfen.
+ *
+ * ## Warum eine eigene Funktion und nicht `ladeTeilnehmerGruppen`
+ *
+ * Weil das zwei verschiedene Listen sind, die zufällig ähnlich aussehen.
+ *
+ * `ladeTeilnehmerGruppen` ist die **Einlasssicht**: Zahlungsstand je Person,
+ * Gast-E-Mail, Adminvermerk, wer eingecheckt hat. Sie steht hinter
+ * `calendar.guests.view` und gehört in die Verwaltung.
+ *
+ * Diese hier steht auf der Eventseite und ist bei `participantsPublic` für
+ * jedes Mitglied sichtbar. Sie beantwortet genau eine Frage - **wer kommt** -
+ * und trägt deshalb nichts weiter: keinen Betrag, keine Adresse, keine
+ * Bemerkung, keine Discord-Kennung.
+ *
+ * Die Trennung liegt in der **Abfrage**, nicht in der Darstellung. Was eine
+ * Server Component lädt, steht im HTML; eine Liste, die alles holt und die
+ * Ansicht aussieben lässt, hat die Adresse eines Gastes bereits ausgeliefert.
+ *
+ * ## Warum die Gäste hier trotzdem stehen
+ *
+ * Weil «wer kommt» sie einschliesst. Eine Liste, die nur die Mitglieder
+ * nennt, zeigt bei einem Abend mit zwanzig Anmeldungen und zwölf Gästen zwei
+ * Drittel der Leute nicht - und wer überlegt, ob er auch kommt, liest eine
+ * falsche Zahl.
+ *
+ * Ein Gast steht mit dem Namen da, den sein Mitglied eingetragen hat, und mit
+ * sonst nichts.
+ */
+export interface OeffentlicheTeilnehmerGruppe {
+  registrationId: string;
+  /** Der Name des Mitglieds, das angemeldet hat. */
+  bestellerName: string;
+  /** Seine öffentliche Profiladresse - `null`, wenn es keine gibt. */
+  bestellerSlug: string | null;
+  status: 'CONFIRMED' | 'WAITLIST';
+  waitlistPosition: number | null;
+  /** Kommt das Mitglied selbst mit? */
+  kommtSelbst: boolean;
+  /** Die Namen der Gäste, in der Reihenfolge der Bestellung. */
+  gaeste: string[];
+  /** Wie viele Personen diese Anmeldung umfasst. */
+  anzahl: number;
+}
+
+export async function ladeOeffentlicheTeilnehmer(eventId: string): Promise<OeffentlicheTeilnehmerGruppe[]> {
+  const zeilen = await prisma.calendarRegistration.findMany({
+    where: { eventId, status: { in: ['CONFIRMED', 'WAITLIST'] } },
+    orderBy: [{ status: 'asc' }, { waitlistPosition: 'asc' }, { registeredAt: 'asc' }],
+    select: {
+      id: true,
+      discordId: true,
+      username: true,
+      displayName: true,
+      status: true,
+      waitlistPosition: true,
+      /*
+       * Ausdruecklich nur diese vier Ticketfelder.
+       *
+       * Kein `guestEmail`, kein `note`, kein `settledStatus`, kein
+       * `checkedInBy`, kein `token`. Was hier nicht steht, kann die Ansicht
+       * auch nicht versehentlich zeigen.
+       */
+      tickets: {
+        where: { status: 'ACTIVE' },
+        orderBy: { position: 'asc' },
+        select: {
+          memberDiscordId: true,
+          memberUsername: true,
+          guestFirstName: true,
+          guestLastName: true,
+        },
+      },
+    },
+  });
+
+  const slugs = await profilSlugs(zeilen.map((zeile) => ({ memberDiscordId: zeile.discordId })));
+
+  return zeilen.map((zeile) => {
+    const gaeste = zeile.tickets.filter((ticket) => ticket.memberDiscordId === null);
+    return {
+      registrationId: zeile.id,
+      bestellerName: bestellerName(zeile),
+      bestellerSlug: slugs.get(zeile.discordId) ?? null,
+      status: zeile.status as 'CONFIRMED' | 'WAITLIST',
+      waitlistPosition: zeile.waitlistPosition,
+      /*
+       * Wer nur Gaeste mitbringt, steht trotzdem in der Liste - er ist der
+       * Ansprechpartner. Dass er selbst nicht kommt, sagt diese Zahl.
+       */
+      kommtSelbst: zeile.tickets.some((ticket) => ticket.memberDiscordId === zeile.discordId),
+      gaeste: gaeste.map((ticket) => ticketName(ticket)),
+      /*
+       * Eine bestehende Einzelanmeldung ohne Ticketzeile zaehlt als eine
+       * Person. Das sollte es nach der Migration nicht geben - aber eine
+       * Liste, die dann «0 Personen» zeigt, waere schlimmer als eine, die
+       * das Naheliegende annimmt.
+       */
+      anzahl: zeile.tickets.length || 1,
+    };
+  });
+}
+
+/**
  * Die eigene Bestellung samt Tickets.
  *
  * Was ein Mitglied über seine eigene Anmeldung sehen darf - und nur das:

@@ -23,6 +23,7 @@ import { ErrorState } from '@/components/shared/states';
 import { Markdown } from '@/components/shared/markdown';
 import { StatCard } from '@/components/shared/stat-card';
 import { AnmeldeBereich } from '@/modules/calendar/components/anmelde-bereich';
+import { TeilnehmendeOeffentlich } from '@/modules/calendar/components/teilnehmende-oeffentlich';
 import { VeroeffentlichenKnopf } from '@/modules/calendar/components/veroeffentlichen-knopf';
 import {
   EventStatusBadge,
@@ -117,13 +118,32 @@ export default async function EventDetailPage({
     can(context, P.manageRegistrations) ||
     darfBearbeiten;
 
-  const teilnehmer = darfTeilnehmerSehen
-    ? await calendar.listRegistrations(event.id, {
-        // Antworten auf Zusatzfragen gehen nur die Organisation etwas an -
-        // sie stehen nie in der oeffentlichen Liste.
-        withAnswers: can(context, P.manageRegistrations) || darfBearbeiten,
-      })
-    : [];
+  /*
+   * Die Teilnehmerliste dieser Seite - «wer kommt».
+   *
+   * `ladeOeffentlicheTeilnehmer` holt vier Ticketfelder und sonst nichts:
+   * keinen Zahlungsstand, keine Gast-E-Mail, keine Bemerkung, keinen
+   * Check-in. Diese Liste ist bei `participantsPublic` fuer jedes Mitglied
+   * sichtbar, und was eine Server Component laedt, steht im HTML.
+   *
+   * Die Einlasssicht mit all dem steht unter «Teilnehmer» und hat ihre eigene
+   * Berechtigung.
+   */
+  const darfAntwortenSehen = can(context, P.manageRegistrations) || darfBearbeiten;
+  const [teilnehmer, antwortenJeAnmeldung] = darfTeilnehmerSehen
+    ? await Promise.all([
+        calendar.ladeOeffentlicheTeilnehmer(event.id),
+        /*
+         * Antworten auf Zusatzfragen gehen nur die Organisation etwas an -
+         * sie werden gar nicht erst geladen, wenn niemand sie sehen darf.
+         */
+        darfAntwortenSehen
+          ? calendar
+              .listRegistrations(event.id, { withAnswers: true })
+              .then((zeilen) => new Map(zeilen.map((zeile) => [zeile.id, zeile.answers])))
+          : Promise.resolve(new Map<string, Array<{ question: string; value: string }>>()),
+      ])
+    : [[], new Map<string, Array<{ question: string; value: string }>>()];
 
   const gesperrt = calendar.anmeldungGesperrt(event);
 
@@ -292,44 +312,26 @@ export default async function EventDetailPage({
 
           {darfTeilnehmerSehen && event.registrationEnabled ? (
             <Panel
-              title="Teilnehmende"
+              title="Wer kommt"
               description={
                 event.participantsPublic
-                  ? 'Diese Liste ist für alle Mitglieder sichtbar.'
+                  ? 'Diese Liste ist für alle Mitglieder sichtbar. Mitgebrachte Gäste stehen bei der Person, die sie anmeldet.'
                   : 'Diese Liste sehen nur Organisation und Verwaltung.'
               }
             >
-              {teilnehmer.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Noch niemand angemeldet.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {teilnehmer.map((eintrag) => (
-                    <li
-                      key={eintrag.id}
-                      className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 px-3 py-2 text-sm"
-                    >
-                      <span className="font-medium">
-                        {eintrag.displayName ?? eintrag.username ?? eintrag.discordId}
-                      </span>
-                      {eintrag.status === 'WAITLIST' ? (
-                        <Badge
-                          variant="outline"
-                          className="border-amber-500/40 bg-amber-500/10 text-amber-500"
-                        >
-                          Warteliste {eintrag.waitlistPosition}
-                        </Badge>
-                      ) : null}
-                      {eintrag.answers.length > 0 ? (
-                        <span className="ml-auto text-xs text-muted-foreground">
-                          {eintrag.answers
-                            .map((antwort) => `${antwort.question}: ${antwort.value}`)
-                            .join(' · ')}
-                        </span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <TeilnehmendeOeffentlich
+                gruppen={teilnehmer.map((gruppe) => ({
+                  registrationId: gruppe.registrationId,
+                  bestellerName: gruppe.bestellerName,
+                  bestellerSlug: gruppe.bestellerSlug,
+                  status: gruppe.status,
+                  waitlistPosition: gruppe.waitlistPosition,
+                  kommtSelbst: gruppe.kommtSelbst,
+                  gaeste: gruppe.gaeste,
+                  anzahl: gruppe.anzahl,
+                  antworten: antwortenJeAnmeldung.get(gruppe.registrationId) ?? [],
+                }))}
+              />
             </Panel>
           ) : null}
         </div>

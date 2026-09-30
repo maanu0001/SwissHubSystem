@@ -327,6 +327,106 @@ describe('Profil-Links', () => {
   });
 });
 
+describe('Die Teilnehmerliste der Eventseite', () => {
+  const EVENTSEITE = lies('apps/web/src/app/(app)/kalender/[slug]/page.tsx');
+  const OEFFENTLICH = lies('apps/web/src/modules/calendar/components/teilnehmende-oeffentlich.tsx');
+
+  it('lädt für die Eventseite die engere Auswahl', () => {
+    /*
+     * Zwei Listen, zwei Abfragen. Die Eventseite ist bei
+     * `participantsPublic` fuer jedes Mitglied sichtbar; die Einlasssicht
+     * unter «Teilnehmer» steht hinter `calendar.guests.view`.
+     *
+     * Was die Eventseite nicht laedt, kann sie auch nicht zeigen - die
+     * Trennung liegt in der Abfrage und nicht in der Darstellung.
+     */
+    expect(EVENTSEITE).toContain('calendar.ladeOeffentlicheTeilnehmer(event.id)');
+    expect(EVENTSEITE).not.toContain('ladeTeilnehmerGruppen');
+    expect(EVENTSEITE).not.toContain('ladeTeilnehmende');
+  });
+
+  it('wählt im Modulkern nur die vier Ticketfelder aus, die jeder sehen darf', () => {
+    const rumpf = funktionen(TICKETS).get('ladeOeffentlicheTeilnehmer')!;
+    const auswahl = rumpf.slice(rumpf.indexOf('tickets: {'), rumpf.indexOf('});'));
+    for (const feld of ['memberDiscordId', 'memberUsername', 'guestFirstName', 'guestLastName']) {
+      expect(auswahl, `${feld} fehlt`).toContain(feld);
+    }
+    for (const geheim of [
+      'guestEmail',
+      'guestDiscordName',
+      'note',
+      'settledStatus',
+      'priceCents',
+      'checkedInAt',
+      'token',
+    ]) {
+      expect(auswahl, `${geheim} steht in der oeffentlichen Auswahl`).not.toContain(geheim);
+    }
+    // Und nur, was tatsaechlich kommt.
+    expect(auswahl).toContain("status: 'ACTIVE'");
+  });
+
+  it('gibt die Discord-Kennung nicht an die Eventseite weiter', () => {
+    // Sie wird gebraucht, um den Slug nachzuschlagen - und bleibt im Server.
+    const rumpf = funktionen(TICKETS).get('ladeOeffentlicheTeilnehmer')!;
+    const ergebnis = rumpf.slice(rumpf.lastIndexOf('return zeilen.map('));
+    expect(ergebnis).not.toMatch(/^\s*discordId:/mu);
+    expect(ergebnis).toContain('bestellerSlug');
+  });
+
+  it('lädt die Antworten auf Zusatzfragen nur für die Organisation', () => {
+    /*
+     * Antworten gehen niemanden ausser der Organisation etwas an. Sie werden
+     * nicht ausgeblendet, sondern gar nicht erst geholt.
+     */
+    expect(EVENTSEITE).toMatch(/darfAntwortenSehen[\s\S]{0,200}listRegistrations/u);
+    expect(EVENTSEITE).toMatch(/darfAntwortenSehen\s*=\s*can\(context, P\.manageRegistrations\)/u);
+  });
+
+  it('verlinkt den Mitgliedsnamen und den Gast nicht', () => {
+    const code = ohneKommentare(OEFFENTLICH);
+    expect(code).toContain('systemRoutes.oeffentlichesProfil(slug)');
+    // Ohne Slug bleibt der Name Text.
+    expect(code).toMatch(/if \(!slug\)[\s\S]{0,140}<span/u);
+    // Die Gaeste sind Text in einem Satzteil - es gibt fuer sie keinen Link.
+    expect(code).toContain('gaesteText(');
+    const gaeste = OEFFENTLICH.slice(OEFFENTLICH.indexOf('function gaesteText'));
+    expect(gaeste.slice(0, gaeste.indexOf('\n}\n'))).not.toContain('Link');
+  });
+
+  it('nennt die Gäste bei der Person, die sie anmeldet', () => {
+    const code = ohneKommentare(OEFFENTLICH);
+    // Ein Eintrag je Anmeldung, und die Gaeste stehen darin.
+    expect(code).toMatch(/gruppen\.map\(\(gruppe\)[\s\S]{0,900}mitgebracht/u);
+    expect(OEFFENTLICH).toContain('mit ${namen}');
+    // Und wer selbst nicht kommt, meldet sie nur an.
+    expect(OEFFENTLICH).toContain('meldet ${namen} an');
+  });
+
+  it('zeigt Personen und Anmeldungen als zwei Zahlen', () => {
+    // «12 Anmeldungen» sagt nichts darueber, wie voll es wird.
+    const code = ohneKommentare(OEFFENTLICH);
+    expect(code).toContain('gruppe.anzahl');
+    expect(code).toMatch(/personen === 1 \? 'Person' : 'Personen'/u);
+    expect(code).toMatch(/gruppen\.length === 1 \? 'Anmeldung' : 'Anmeldungen'/u);
+  });
+
+  it('zeigt auf der Eventseite keine Zahlungs- oder Einlassangaben', () => {
+    const code = ohneKommentare(OEFFENTLICH);
+    for (const feld of [
+      'guestEmail',
+      'settledStatus',
+      'definitiv',
+      'checkedIn',
+      'zahlung',
+      'betrag',
+      'Einchecken',
+    ]) {
+      expect(code, `${feld} steht in der oeffentlichen Liste`).not.toContain(feld);
+    }
+  });
+});
+
 describe('Bestehende Daten laufen weiter', () => {
   it('erweitert das Ticket rein additiv', () => {
     const migration = lies(

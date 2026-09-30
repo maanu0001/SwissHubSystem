@@ -409,6 +409,135 @@ describeWithDatabase('Kalender: Teilnehmende nach Bestellung gruppiert', () => {
     expect(gruppen.every((g) => g.kopf?.profilSlug !== null)).toBe(true);
   });
 
+  // --- Die oeffentliche Liste auf der Eventseite ----------------------------
+
+  it('zeigt auf der Eventseite jedes Mitglied mit seinen Gästen', async () => {
+    const event = await offenesEvent();
+    await calendar.register(MANUEL, event.id, {}, new Date(), {
+      tickets: [fuerMich(MANUEL), gast('Gast A'), gast('Gast B')],
+    });
+    await calendar.register(ANNA, event.id);
+
+    const liste = await calendar.ladeOeffentlicheTeilnehmer(event.id);
+    const manuel = liste.find((g) => g.bestellerName === 'Manuel')!;
+    expect(manuel.gaeste).toEqual(['Gast A', 'Gast B']);
+    expect(manuel.kommtSelbst).toBe(true);
+    expect(manuel.anzahl).toBe(3);
+
+    const anna = liste.find((g) => g.bestellerName === 'Anna')!;
+    expect(anna.gaeste).toEqual([]);
+    expect(anna.anzahl).toBe(1);
+  });
+
+  it('verlinkt in der öffentlichen Liste nur Mitglieder mit öffentlichem Profil', async () => {
+    await profil(MANUEL);
+    await profil(ANNA, { sichtbar: false });
+    const event = await offenesEvent();
+    await calendar.register(MANUEL, event.id);
+    await calendar.register(ANNA, event.id);
+    await calendar.register(PETER, event.id);
+
+    const liste = await calendar.ladeOeffentlicheTeilnehmer(event.id);
+    const nach = new Map(liste.map((g) => [g.bestellerName, g]));
+    expect(nach.get('Manuel')!.bestellerSlug).toBe('manuel');
+    expect(nach.get('Anna')!.bestellerSlug).toBeNull();
+    expect(nach.get('Peter')!.bestellerSlug).toBeNull();
+  });
+
+  it('gibt in der öffentlichen Liste keine internen Angaben heraus', async () => {
+    /*
+     * Die eigentliche Zusage dieser Liste: sie ist bei `participantsPublic`
+     * fuer jedes Mitglied sichtbar und beantwortet genau eine Frage.
+     *
+     * Geprueft wird am Ergebnis und nicht an der Darstellung - was gar nicht
+     * erst geladen wird, kann eine Ansicht auch nicht versehentlich zeigen.
+     */
+    const event = await offenesEvent({ entryFeeEnabled: true, entryFeeCents: 1500 });
+    const { registration } = await calendar.register(MANUEL, event.id, {}, new Date(), {
+      tickets: [
+        fuerMich(MANUEL),
+        {
+          guestFirstName: 'Gast A',
+          guestEmail: 'gast-a@example.invalid',
+          guestDiscordName: 'gasta#1234',
+          note: 'Erdnussallergie',
+        },
+      ],
+    });
+    await calendar.bestaetigeZahlung(CREW, registration.id);
+
+    const alsText = JSON.stringify(await calendar.ladeOeffentlicheTeilnehmer(event.id));
+    for (const geheim of [
+      'gast-a@example.invalid',
+      'gasta#1234',
+      'Erdnussallergie',
+      'VERIFIED',
+      'priceCents',
+      'settledStatus',
+      'checkedIn',
+      'token',
+      MANUEL.discordId,
+    ]) {
+      expect(alsText, `«${geheim}» steht in der oeffentlichen Liste`).not.toContain(geheim);
+    }
+    // Was drinsteht: die Namen.
+    expect(alsText).toContain('Manuel');
+    expect(alsText).toContain('Gast A');
+  });
+
+  it('nennt in der öffentlichen Liste, wer selbst nicht kommt', async () => {
+    const event = await offenesEvent();
+    await calendar.register(MANUEL, event.id, {}, new Date(), {
+      tickets: [gast('Gast A'), gast('Gast B')],
+    });
+
+    const [gruppe] = await calendar.ladeOeffentlicheTeilnehmer(event.id);
+    expect(gruppe!.bestellerName).toBe('Manuel');
+    expect(gruppe!.kommtSelbst).toBe(false);
+    expect(gruppe!.gaeste).toEqual(['Gast A', 'Gast B']);
+    expect(gruppe!.anzahl).toBe(2);
+  });
+
+  it('lässt in der öffentlichen Liste stornierte Tickets und Anmeldungen weg', async () => {
+    const event = await offenesEvent();
+    const { registration } = await calendar.register(MANUEL, event.id, {}, new Date(), {
+      tickets: [fuerMich(MANUEL), gast('Gast A'), gast('Gast B')],
+    });
+    const gastB = await prisma.calendarTicket.findFirstOrThrow({
+      where: { registrationId: registration.id, guestFirstName: 'Gast B' },
+    });
+    await calendar.storniereTicket(CREW, gastB.id, null);
+    await calendar.register(ANNA, event.id);
+    await calendar.unregister(ANNA.discordId, event.id);
+
+    const liste = await calendar.ladeOeffentlicheTeilnehmer(event.id);
+    expect(liste).toHaveLength(1);
+    expect(liste[0]!.gaeste).toEqual(['Gast A']);
+    expect(liste[0]!.anzahl).toBe(2);
+  });
+
+  it('zeigt in der öffentlichen Liste die Warteliste mit ihrem Platz', async () => {
+    const event = await offenesEvent({ capacity: 1, waitlistEnabled: true });
+    await calendar.register(MANUEL, event.id);
+    await calendar.register(ANNA, event.id);
+
+    const liste = await calendar.ladeOeffentlicheTeilnehmer(event.id);
+    // Bestaetigte zuerst, danach die Warteliste in ihrer Reihenfolge.
+    expect(liste.map((g) => g.status)).toEqual(['CONFIRMED', 'WAITLIST']);
+    expect(liste[1]!.bestellerName).toBe('Anna');
+    expect(liste[1]!.waitlistPosition).toBe(1);
+  });
+
+  it('zählt einen Nachkauf in der öffentlichen Liste mit', async () => {
+    const event = await offenesEvent();
+    await calendar.register(MANUEL, event.id);
+    await calendar.ergaenzeTickets(MANUEL, event.id, [gast('Später dazu')]);
+
+    const [gruppe] = await calendar.ladeOeffentlicheTeilnehmer(event.id);
+    expect(gruppe!.gaeste).toEqual(['Später dazu']);
+    expect(gruppe!.anzahl).toBe(2);
+  });
+
   // --- Gastdaten ------------------------------------------------------------
 
   it('gibt den Ticket-Token in der Gruppenansicht nicht heraus', async () => {
