@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { Cover } from './bausteine';
+import { radStopp } from '@/modules/spielwahl/rad-stopp';
 import type { Stand } from '@/modules/spielwahl/verbindung';
 
 /**
@@ -35,9 +36,6 @@ import type { Stand } from '@/modules/spielwahl/verbindung';
  * Liste daneben bleibt vollständig.
  */
 
-/** Mindestens acht volle Umdrehungen, damit der Lauf nicht kurz wirkt. */
-const UMDREHUNGEN = 8;
-
 const PALETTE = ['#83060a', '#a81419', '#6d0508', '#b02025', '#8f1114', '#5c0406'];
 
 export interface RadFeld {
@@ -63,14 +61,21 @@ export function Rad({
   /*
    * Der Endwinkel.
    *
-   * Der Server hat einen Punkt auf der Gewichtsachse gezogen (`losPunkt` von
-   * `losGesamt`). Genau dieser Punkt soll am Ende unter dem Zeiger stehen -
-   * nicht die Mitte des Gewinnerfeldes. Der Unterschied ist sichtbar: fällt
-   * die Ziehung knapp an den Rand eines Feldes, hält das Rad auch knapp am
-   * Rand, und das sieht nach Zufall aus statt nach Choreografie.
+   * Er kommt vollständig aus `radStopp` - aus dem gezogenen Los und dem Seed
+   * der Runde, den der Server mitschickt. Hier steht deshalb keine Rechnung
+   * mehr: die Stelle im Feld und die Zahl der Umdrehungen gehören zusammen und
+   * müssen auf jedem Bildschirm dieselben sein. Eine zweite Rechnung in dieser
+   * Datei wäre die, die beim nächsten Umbau von der ersten abweicht.
+   *
+   * Der Gewinner bleibt der, den der Server gezogen hat. Was sich ändert, ist
+   * nur, *wo* in dessen Feld der Zeiger zu stehen kommt - nicht mehr jedes Mal
+   * genau in der Mitte.
    */
-  const anteil = runde.losGesamt && runde.losGesamt > 0 ? ((runde.losPunkt ?? 0) + 0.5) / runde.losGesamt : 0;
-  const ziel = UMDREHUNGEN * 360 + (360 - anteil * 360);
+  const stopp = useMemo(
+    () => radStopp({ seed: runde.seed, losPunkt: runde.losPunkt, losGesamt: runde.losGesamt }),
+    [runde.seed, runde.losPunkt, runde.losGesamt],
+  );
+  const ziel = stopp.grad;
 
   const vergangen = Math.max(0, Date.parse(serverJetzt) - Date.parse(runde.startedAt));
   const versatzSek = -Math.min(vergangen, dauerMs) / 1000;

@@ -106,9 +106,32 @@ describe('Zugang zur Spielauswahl', () => {
      * dem Wert des Servers - eine einzige `Math.random()` in dieser Datei
      * hiesse, dass zwei Bildschirme verschiedene Ergebnisse zeigen können.
      */
-    const rad = quelle('apps/web/src/modules/spielwahl/components/rad.tsx');
-    expect(rad).not.toContain('Math.random');
-    expect(rad).not.toContain('crypto.getRandomValues');
+    /*
+     * Beide Dateien: das Rad und die Stelle, an der es stehen bleibt.
+     *
+     * `rad-stopp.ts` streut den Haltepunkt innerhalb des Gewinnerfeldes -
+     * genau die Art Zahl, die jemand aus Bequemlichkeit mit `Math.random`
+     * ziehen wuerde. Dann hielte jeder Bildschirm an einer anderen Stelle,
+     * und einer davon unter einem fremden Cover. Sie kommt deshalb aus dem
+     * Seed der Runde, und diese Zeilen halten das fest.
+     */
+    for (const datei of [
+      'apps/web/src/modules/spielwahl/components/rad.tsx',
+      'apps/web/src/modules/spielwahl/rad-stopp.ts',
+    ]) {
+      /*
+       * Ohne die Kommentare gelesen.
+       *
+       * In `rad-stopp.ts` steht `Math.random` in dem Absatz, der erklaert,
+       * warum es dort nicht verwendet wird. Geprueft wird der Code.
+       */
+      const inhalt = quelle(datei)
+        .replaceAll(/\/\*[\s\S]*?\*\//gu, '')
+        .replaceAll(/\/\/.*$/gmu, '');
+      expect(inhalt, datei).not.toContain('Math.random');
+      expect(inhalt, datei).not.toContain('crypto.getRandomValues');
+      expect(inhalt, datei).not.toContain('Date.now()');
+    }
   });
 
   it('lädt kein Bild aus einer Eingabe', () => {
