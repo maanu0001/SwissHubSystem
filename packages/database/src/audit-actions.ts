@@ -358,6 +358,18 @@ export const AUDIT_ACTIONS = {
   CLIP_REMOVED: 'CLIP_REMOVED',
   CLIP_REPORTED: 'CLIP_REPORTED',
   CLIP_REPORT_RESOLVED: 'CLIP_REPORT_RESOLVED',
+  /*
+   * Die zerstoerenden Handlungen des Moduls - eigene Aktionen, nicht als
+   * Sonderfall von CLIP_COMPETITION_CANCELLED gefuehrt.
+   *
+   * Ein Abbruch laesst die Runde stehen und ist umkehrbar. Eine Loeschung
+   * nimmt Einreichungen, Stimmen und Platzierungen mit und ist es nicht. Wer
+   * spaeter fragt, warum eine Woche fehlt, findet die Antwort nur, wenn
+   * beides unterscheidbar protokolliert ist.
+   */
+  CLIP_COMPETITION_DELETED: 'CLIP_COMPETITION_DELETED',
+  CLIP_HALLOFFAME_HIDDEN: 'CLIP_HALLOFFAME_HIDDEN',
+  CLIP_HALLOFFAME_RESTORED: 'CLIP_HALLOFFAME_RESTORED',
 
   // --- SwissHub fragt ------------------------------------------------------
   //

@@ -40,6 +40,21 @@ export default async function ClipRundePage({
     notFound();
   }
 
+  /*
+   * Eine ausgeblendete Runde ist auch ueber ihren Link weg.
+   *
+   * Sonst waere «aus der Hall of Fame nehmen» nur das Entfernen einer Kachel:
+   * die Seite selbst bliebe erreichbar, mitsamt dem Gewinnerclip, wegen dem
+   * jemand die Runde ausgeblendet hat - und der Link steht noch in jeder
+   * alten Discord-Ankuendigung.
+   *
+   * Wer die Hall of Fame verwaltet, sieht sie weiter. Er muss nachsehen
+   * koennen, was er ausgeblendet hat, bevor er es zurueckholt.
+   */
+  if (runde.hallOfFameHiddenAt !== null && !stand.darfRuhmeshalle) {
+    notFound();
+  }
+
   const [treppchen, galerie, zahlen] = await Promise.all([
     clips.siegertreppchen(runde.id, 3),
     clips.galerie({

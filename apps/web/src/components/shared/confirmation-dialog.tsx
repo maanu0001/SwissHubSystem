@@ -20,6 +20,14 @@ interface ConfirmationDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
+  /**
+   * Den Bestätigungsknopf sperren, solange eine Eingabe in `children` fehlt.
+   *
+   * Eine Bequemlichkeit, keine Zusicherung: was die Eingabe bedeutet, prüft
+   * der Server. Hier verhindert sie nur den Klick, der ohnehin abgewiesen
+   * würde.
+   */
+  confirmDisabled?: boolean;
   onConfirm(): Promise<void> | void;
   /**
    * Zusätzliche Felder im Dialog - etwa ein Pflichtgrund.
@@ -43,6 +51,7 @@ export function ConfirmationDialog({
   confirmLabel = 'Bestätigen',
   cancelLabel = 'Abbrechen',
   destructive = false,
+  confirmDisabled = false,
   onConfirm,
   children,
 }: ConfirmationDialogProps): React.JSX.Element {
@@ -86,6 +95,7 @@ export function ConfirmationDialog({
             variant={destructive ? 'destructive' : 'default'}
             onClick={() => void handleConfirm()}
             loading={pending}
+            disabled={confirmDisabled}
           >
             {confirmLabel}
           </Button>

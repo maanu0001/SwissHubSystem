@@ -7,7 +7,8 @@ import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { EmptyState } from '@/components/shared/states';
 import { Pagination } from '@/components/shared/pagination';
 import { ClipAbschnittsNav } from '@/modules/clips/components/abschnitts-nav';
-import { requirePagePermission } from '@/server/auth';
+import { RuhmeshalleSchalter } from '@/modules/clips/components/runde-loeschen';
+import { requirePagePermission, csrfTokenFor } from '@/server/auth';
 import { clipAbschnitte, ladeClipStand } from '@/server/clips';
 
 export const metadata: Metadata = { title: 'Hall of Fame' };
@@ -38,6 +39,7 @@ export default async function HallOfFamePage({
 
   const runden = await clips.hallOfFame(stand.guildId, PRO_SEITE, (seite - 1) * PRO_SEITE);
   const nav = <ClipAbschnittsNav abschnitte={clipAbschnitte(context)} />;
+  const csrfToken = csrfTokenFor(context);
 
   return (
     <div className="space-y-6">
@@ -68,48 +70,68 @@ export default async function HallOfFamePage({
             const name =
               runde.gewinner?.einreicher.displayName ?? runde.gewinner?.einreicher.username ?? 'Unbekannt';
             return (
-              <Link
-                key={runde.key}
-                href={systemRoutes.clipRunde(runde.key)}
-                className="group overflow-hidden rounded-2xl border border-border bg-card transition hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <div className="relative aspect-video w-full bg-secondary">
-                  {runde.gewinner?.thumbnailUrl ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={runde.gewinner.thumbnailUrl}
-                      alt=""
-                      className="size-full object-cover transition duration-300 motion-safe:group-hover:scale-[1.03]"
-                      loading="lazy"
-                    />
-                  ) : null}
-                  <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/70 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
-                    <Trophy className="size-3 text-[hsl(45_92%_58%)]" aria-hidden="true" />
-                    Woche {runde.woche}/{runde.jahr}
-                  </span>
-                </div>
-
-                <div className="space-y-2 p-4">
-                  <h3 className="truncate font-semibold leading-tight">
-                    {runde.gewinner?.titel ?? 'Ohne Gewinner'}
-                  </h3>
-                  {runde.gewinner ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <DiscordAvatar
-                        discordId={runde.gewinner.einreicher.discordId}
-                        avatarHash={runde.gewinner.einreicher.avatarHash}
-                        name={name}
-                        size={20}
+              /*
+                Der Knopf steht *neben* dem Link, nicht darin.
+                
+                Die ganze Kachel ist ein Link; ein Knopf darin waere ein
+                verschachteltes Bedienelement - ungueltiges Markup, und ein
+                Klick daneben wuerde die Runde oeffnen statt sie
+                herauszunehmen. Der Rahmen hier traegt beide nebeneinander.
+              */
+              <div key={runde.key} className="relative">
+                <Link
+                  href={systemRoutes.clipRunde(runde.key)}
+                  className="group overflow-hidden rounded-2xl border border-border bg-card transition hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <div className="relative aspect-video w-full bg-secondary">
+                    {runde.gewinner?.thumbnailUrl ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={runde.gewinner.thumbnailUrl}
+                        alt=""
+                        className="size-full object-cover transition duration-300 motion-safe:group-hover:scale-[1.03]"
+                        loading="lazy"
                       />
-                      <span className="truncate">{name}</span>
-                    </div>
-                  ) : null}
-                  <p className="text-xs text-muted-foreground">
-                    {runde.teilnehmer} {runde.teilnehmer === 1 ? 'Clip' : 'Clips'} · {runde.stimmen}{' '}
-                    {runde.stimmen === 1 ? 'Stimme' : 'Stimmen'}
-                  </p>
-                </div>
-              </Link>
+                    ) : null}
+                    <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/70 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
+                      <Trophy className="size-3 text-[hsl(45_92%_58%)]" aria-hidden="true" />
+                      Woche {runde.woche}/{runde.jahr}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 p-4">
+                    <h3 className="truncate font-semibold leading-tight">
+                      {runde.gewinner?.titel ?? 'Ohne Gewinner'}
+                    </h3>
+                    {runde.gewinner ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <DiscordAvatar
+                          discordId={runde.gewinner.einreicher.discordId}
+                          avatarHash={runde.gewinner.einreicher.avatarHash}
+                          name={name}
+                          size={20}
+                        />
+                        <span className="truncate">{name}</span>
+                      </div>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      {runde.teilnehmer} {runde.teilnehmer === 1 ? 'Clip' : 'Clips'} · {runde.stimmen}{' '}
+                      {runde.stimmen === 1 ? 'Stimme' : 'Stimmen'}
+                    </p>
+                  </div>
+                </Link>
+
+                {stand.darfRuhmeshalle ? (
+                  <div className="absolute right-3 top-3 z-10">
+                    <RuhmeshalleSchalter
+                      competitionId={runde.competitionId}
+                      nummer={runde.nummer}
+                      verborgen={false}
+                      csrfToken={csrfToken}
+                    />
+                  </div>
+                ) : null}
+              </div>
             );
           })}
         </div>

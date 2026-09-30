@@ -214,3 +214,78 @@ export const clipRundeAnlegenAction = defineAction(
     return { key: runde.key, nummer: runde.number };
   },
 );
+
+/**
+ * Eine vergangene Runde loeschen.
+ *
+ * Eigene Berechtigung, nicht `manage`: wer den Wochenablauf pflegt, soll
+ * nicht nebenbei die Geschichte des Moduls ausraeumen koennen. Die
+ * Bestaetigung - der abgetippte Schluessel - prueft `clips.loescheRunde`
+ * selbst; der Dialog fragt danach, entschieden wird es auf dem Server.
+ */
+export const clipRundeLoeschenAction = defineAction(
+  {
+    name: 'clips.deleteRound',
+    module: clips.CLIPS_MODULE_ID,
+    permission: clips.CLIPS_PERMISSIONS.deleteRound,
+    schema: z.object({
+      competitionId: z.string().cuid(),
+      bestaetigung: z.string().trim().min(1).max(40),
+      grund: z.string().trim().max(300).optional(),
+    }),
+    rateLimit: 'clipModerate',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const ergebnis = await clips.loescheRunde(
+      input.competitionId,
+      input.bestaetigung,
+      handelnder(ctx),
+      input.grund ?? null,
+    );
+    neuLaden();
+    revalidatePath(systemRoutes.hallOfFame());
+    return ergebnis;
+  },
+);
+
+/**
+ * Einen Eintrag aus der Hall of Fame nehmen - oder zurueckholen.
+ *
+ * Die umkehrbare Schwester der Loeschung und in den meisten Faellen die
+ * richtige: die Rueckschau zeigt die Runde nicht mehr, die Einreichungen,
+ * Stimmen und Platzierungen bleiben, und die Bilanz eines Mitglieds aendert
+ * sich nicht rueckwirkend.
+ */
+export const clipRuhmeshalleAction = defineAction(
+  {
+    name: 'clips.hallOfFame',
+    module: clips.CLIPS_MODULE_ID,
+    permission: clips.CLIPS_PERMISSIONS.hallOfFame,
+    schema: z.object({
+      competitionId: z.string().cuid(),
+      verbergen: z.boolean(),
+      grund: z.string().trim().max(300).optional(),
+    }),
+    rateLimit: 'clipModerate',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const erfolg = await clips.setzeHallOfFameSichtbarkeit(
+      input.competitionId,
+      input.verbergen,
+      handelnder(ctx),
+      input.grund ?? null,
+    );
+    if (!erfolg) {
+      throw new AppError('CONFLICT', {
+        userMessage: input.verbergen
+          ? 'Diese Runde steht bereits nicht mehr in der Hall of Fame.'
+          : 'Diese Runde steht bereits in der Hall of Fame.',
+      });
+    }
+    neuLaden();
+    revalidatePath(systemRoutes.hallOfFame());
+    return { verborgen: input.verbergen };
+  },
+);

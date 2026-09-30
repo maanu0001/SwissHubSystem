@@ -1,10 +1,11 @@
 import { Prisma, prisma, recordAudit, AUDIT_ACTIONS } from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
-import { AppError } from '@swisshub/shared';
+import { AppError, sanitizeText } from '@swisshub/shared';
 import { getModuleSettings, isModuleEnabled } from '../module-state';
 import { belohneGewinner } from './belohnung';
 import { CLIPS_MODULE_ID, type ClipsSettings } from './config';
 import { inDerWoche, kalenderwoche } from './woche';
+import { VIDEO_NAME_MUSTER, loescheVideo } from './video-speicher';
 import { meldeEreignis } from '../automation/emit';
 import type { ClipCompetition, ClipCompetitionStatus } from '@swisshub/database';
 
@@ -668,4 +669,249 @@ export async function verlangeModul(): Promise<void> {
   if (!(await isModuleEnabled(CLIPS_MODULE_ID))) {
     throw new AppError('FORBIDDEN', { userMessage: 'Clip of the Week ist derzeit ausgeschaltet.' });
   }
+}
+
+// --- Loeschen und Hall of Fame ----------------------------------------------
+
+/**
+ * Was eine Loeschung mitgenommen hat.
+ *
+ * Rueckgabe und nicht nur Protokolleintrag: die Oberflaeche sagt danach
+ * «Runde #14 geloescht - 9 Einreichungen, 31 Stimmen, 2 Dateien». Eine
+ * Bestaetigung ohne Zahlen laesst offen, ob ueberhaupt etwas passiert ist.
+ */
+export interface RundenLoeschung {
+  key: string;
+  nummer: number;
+  einreichungen: number;
+  stimmen: number;
+  /** Clips, die danach in keiner Runde mehr vorkamen. */
+  clipsGeloescht: number;
+  /** Davon Uploads, deren Datei tatsaechlich von der Platte ging. */
+  dateienGeloescht: number;
+}
+
+/** Die Zustaende, aus denen eine Runde geloescht werden darf. */
+const LOESCHBAR: ClipCompetitionStatus[] = ['COMPLETED', 'CANCELLED'];
+
+/**
+ * Eine vergangene Runde endgueltig loeschen.
+ *
+ * ## Nur vergangene
+ *
+ * `COMPLETED` oder `CANCELLED`. Eine laufende Runde zu loeschen hiesse,
+ * mitten in der Abstimmung die Stimmen von Leuten wegzuwerfen, die gerade
+ * dabei sind - wer eine laufende Runde beenden will, bricht sie ab, und das
+ * ist umkehrbar. Danach steht dieser Knopf ohnehin zur Verfuegung.
+ *
+ * ## Was mitgeht, und warum genau das
+ *
+ * Die Runde selbst, ihre Einreichungen, ihre Stimmen und ihre
+ * Gewinnerbelohnung - alles vier haengt an `ClipCompetition` und wird von der
+ * Datenbank mitgenommen (`onDelete: Cascade`). Nicht in der Anwendung
+ * nachgebaut: eine zweite Loeschreihenfolge neben der, die die Datenbank
+ * ohnehin durchsetzt, waere die, die man bei der naechsten neuen Tabelle
+ * vergisst.
+ *
+ * `winnerEntryId` wird vorher geleert. Der Verweis zeigt auf eine Einreichung,
+ * die im selben Zug faellt; ihn zuerst zu loesen macht aus einer Frage nach
+ * der Reihenfolge innerhalb einer Kaskade eine Zeile, die man lesen kann.
+ *
+ * ## Was bleibt
+ *
+ * **Die Clips.** Ein Clip ist eine Sache fuer sich und kann in mehreren
+ * Runden angetreten sein. Geloescht wird er nur, wenn er danach in **keiner**
+ * Runde mehr vorkommt - gezaehlt nach der Loeschung, nicht davor, weil vorher
+ * jeder Clip dieser Runde noch mindestens eine Teilnahme hat.
+ *
+ * **Die Dateien.** Und zwar noch strenger: nur die Datei eines Clips, der
+ * gerade tatsaechlich geloescht wurde, und nur, wenn sein Name das Muster
+ * eines Uploads traegt. Ein Clip, der irgendwo noch haengt, behaelt seine
+ * Datei; eine Datei ohne Clip raeumt spaeter `raeumeVerwaisteVideos` weg.
+ * Eine Datei zu loeschen, auf die noch ein Datensatz zeigt, waere der
+ * schlimmere Fehler von beiden: der Datensatz bliebe, die Seite zeigte einen
+ * schwarzen Player, und niemand wuesste, warum.
+ *
+ * Die Dateien gehen **nach** der Transaktion. Eine Platte, die sich weigert,
+ * darf eine Loeschung nicht halb zuruecklassen.
+ */
+export async function loescheRunde(
+  competitionId: string,
+  bestaetigung: string,
+  actor: { discordId: string; username?: string | null },
+  grund?: string | null,
+): Promise<RundenLoeschung> {
+  const runde = await prisma.clipCompetition.findUnique({
+    where: { id: competitionId },
+    select: {
+      id: true,
+      key: true,
+      number: true,
+      status: true,
+      entries: { select: { clipId: true } },
+      _count: { select: { votes: true } },
+    },
+  });
+  if (!runde) {
+    throw new AppError('NOT_FOUND', { userMessage: 'Diese Runde gibt es nicht.' });
+  }
+  if (!LOESCHBAR.includes(runde.status)) {
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage:
+        'Nur abgeschlossene oder abgebrochene Runden lassen sich löschen. Brich die Runde zuerst ab.',
+      internalMessage: `Runde ${competitionId} im Zustand ${runde.status}`,
+    });
+  }
+
+  /*
+   * Der Schluessel der Runde, abgetippt.
+   *
+   * Geprueft wird hier und nicht im Dialog. Ein Bestaetigungsfeld im Browser
+   * ist eine Bremse fuer den Finger; diese Zeile ist die Bedingung. Wer die
+   * Aktion direkt aufruft - aus der Konsole, aus einem Skript, aus einem
+   * zweiten Klick auf einen veralteten Knopf - muss dieselbe Angabe machen,
+   * und sie trifft genau eine Runde.
+   */
+  if (bestaetigung.trim() !== runde.key) {
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage: `Zum Löschen den Schlüssel der Runde eintippen: ${runde.key}`,
+      internalMessage: `Bestaetigung «${bestaetigung}» passt nicht zu ${runde.key}`,
+    });
+  }
+
+  const betroffeneClips = [...new Set(runde.entries.map((eintrag) => eintrag.clipId))];
+  const einreichungen = runde.entries.length;
+  const stimmen = runde._count.votes;
+  const text = grund ? sanitizeText(grund, 300).trim() : null;
+
+  const verwaisteUploads = await prisma.$transaction(async (tx) => {
+    await tx.clipCompetition.update({ where: { id: competitionId }, data: { winnerEntryId: null } });
+    await tx.clipCompetition.delete({ where: { id: competitionId } });
+
+    if (betroffeneClips.length === 0) {
+      return [] as Array<{ id: string; externalId: string; sourceType: string }>;
+    }
+
+    /*
+     * Welche dieser Clips stehen jetzt allein da?
+     *
+     * `entries: { none: {} }` fragt genau das - und zwar in derselben
+     * Transaktion, in der die Teilnahmen gefallen sind. Ausserhalb koennte
+     * zwischen Loeschung und Frage eine neue Einreichung desselben Clips
+     * eintreffen und wir wuerden ihr den Clip unter den Fuessen wegziehen.
+     */
+    const ohneTeilnahme = await tx.clip.findMany({
+      where: { id: { in: betroffeneClips }, entries: { none: {} } },
+      select: { id: true, externalId: true, sourceType: true },
+    });
+    if (ohneTeilnahme.length > 0) {
+      await tx.clip.deleteMany({ where: { id: { in: ohneTeilnahme.map((clip) => clip.id) } } });
+    }
+    return ohneTeilnahme;
+  });
+
+  let dateienGeloescht = 0;
+  for (const clip of verwaisteUploads) {
+    if (clip.sourceType !== 'UPLOAD' || !VIDEO_NAME_MUSTER.test(clip.externalId)) {
+      continue;
+    }
+    await loescheVideo(clip.externalId);
+    dateienGeloescht += 1;
+  }
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.CLIP_COMPETITION_DELETED,
+    module: CLIPS_MODULE_ID,
+    actorDiscordId: actor.discordId,
+    actorUsername: actor.username ?? null,
+    targetLabel: `Clip of the Week #${runde.number}`,
+    metadata: {
+      competitionId,
+      key: runde.key,
+      nummer: runde.number,
+      zustand: runde.status,
+      einreichungen,
+      stimmen,
+      clipsGeloescht: verwaisteUploads.length,
+      dateienGeloescht,
+      ...(text ? { grund: text } : {}),
+    },
+  });
+
+  log.warn('Clip-Runde geloescht', {
+    competitionId,
+    key: runde.key,
+    einreichungen,
+    stimmen,
+    clipsGeloescht: verwaisteUploads.length,
+    dateienGeloescht,
+  });
+
+  return {
+    key: runde.key,
+    nummer: runde.number,
+    einreichungen,
+    stimmen,
+    clipsGeloescht: verwaisteUploads.length,
+    dateienGeloescht,
+  };
+}
+
+/**
+ * Einen Eintrag aus der Hall of Fame nehmen - oder zurueckholen.
+ *
+ * Die milde Schwester der Loeschung, und meistens die richtige: der
+ * Gewinnerclip einer Runde ist nicht mehr tragbar, die Runde selbst war aber
+ * in Ordnung. Gesetzt wird ein Datum; Einreichungen, Stimmen, Platzierungen
+ * und damit die Bilanz jedes Mitglieds bleiben unangetastet, und die
+ * Entscheidung laesst sich zuruecknehmen.
+ *
+ * Geschrieben wird bedingt - `hallOfFameHiddenAt` muss den erwarteten Zustand
+ * haben. Zwei Leute, die gleichzeitig klicken, erzeugen so einen Eintrag und
+ * nicht zwei; der zweite bekommt `false` und die Oberflaeche laedt neu.
+ */
+export async function setzeHallOfFameSichtbarkeit(
+  competitionId: string,
+  verbergen: boolean,
+  actor: { discordId: string; username?: string | null },
+  grund?: string | null,
+): Promise<boolean> {
+  const runde = await prisma.clipCompetition.findUnique({
+    where: { id: competitionId },
+    select: { key: true, number: true, status: true },
+  });
+  if (!runde) {
+    throw new AppError('NOT_FOUND', { userMessage: 'Diese Runde gibt es nicht.' });
+  }
+  if (runde.status !== 'COMPLETED') {
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage: 'In der Hall of Fame stehen nur abgeschlossene Runden.',
+      internalMessage: `Runde ${competitionId} im Zustand ${runde.status}`,
+    });
+  }
+
+  const text = grund ? sanitizeText(grund, 300).trim() : null;
+  const { count } = await prisma.clipCompetition.updateMany({
+    where: { id: competitionId, hallOfFameHiddenAt: verbergen ? null : { not: null } },
+    data: verbergen
+      ? {
+          hallOfFameHiddenAt: new Date(),
+          hallOfFameHiddenByDiscordId: actor.discordId,
+          hallOfFameHiddenReason: text,
+        }
+      : { hallOfFameHiddenAt: null, hallOfFameHiddenByDiscordId: null, hallOfFameHiddenReason: null },
+  });
+  if (count === 0) {
+    return false;
+  }
+
+  await recordAudit({
+    action: verbergen ? AUDIT_ACTIONS.CLIP_HALLOFFAME_HIDDEN : AUDIT_ACTIONS.CLIP_HALLOFFAME_RESTORED,
+    module: CLIPS_MODULE_ID,
+    actorDiscordId: actor.discordId,
+    actorUsername: actor.username ?? null,
+    targetLabel: `Clip of the Week #${runde.number}`,
+    metadata: { competitionId, key: runde.key, nummer: runde.number, ...(text ? { grund: text } : {}) },
+  });
+  return true;
 }

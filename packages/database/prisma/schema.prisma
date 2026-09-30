@@ -519,9 +519,9 @@ enum ClipSourceType {
   /// Player. Die Kennung ist `<nummer>/<token>` - beide Teile zusammen, weil
   /// der Player ohne den Token nichts abspielt.
   MEDAL
-  /// Direkt hochgeladen. Vorgesehen, aber noch nicht umgesetzt - es gibt in
-  /// dieser Anwendung keine Infrastruktur fuer Videodateien, und eine
-  /// improvisierte waere schlechter als keine.
+  /// Direkt hochgeladen. Die Kennung ist der serverseitig vergebene
+  /// Dateiname; die Datei liegt im zentralen Upload-Verzeichnis und wird
+  /// ueber einen Route Handler ausgeliefert, nie statisch.
   UPLOAD
 }
 
@@ -654,6 +654,23 @@ model ClipCompetition {
   finalizedAt          DateTime?
   cancelledAt          DateTime?
   cancelledByDiscordId String?
+
+  /// Aus der Hall of Fame genommen - die Runde selbst bleibt bestehen.
+  ///
+  /// ## Warum ein Datum und kein Loeschen
+  ///
+  /// «Eintrag aus der Hall of Fame nehmen» und «Runde loeschen» sind zwei
+  /// verschiedene Handlungen. Die erste blendet eine Runde aus der
+  /// oeffentlichen Rueckschau aus - etwa weil der Gewinnerclip nicht mehr
+  /// tragbar ist. Die Einreichungen, die Stimmen und die Platzierungen
+  /// bleiben; die Bilanz eines Mitglieds aendert sich nicht rueckwirkend, und
+  /// die Entscheidung laesst sich zuruecknehmen.
+  ///
+  /// Wer die Runde wirklich los sein will, loescht sie - das ist der andere
+  /// Knopf, und er verlangt eine eigene Berechtigung.
+  hallOfFameHiddenAt        DateTime?
+  hallOfFameHiddenByDiscordId String?
+  hallOfFameHiddenReason      String?
 
   winnerEntryId String?               @unique
   winnerEntry   ClipCompetitionEntry? @relation("Gewinner", fields: [winnerEntryId], references: [id], onDelete: SetNull)

@@ -52,7 +52,9 @@ export async function GET(
   const { key } = await params;
   const guildId = await resolveGuildId();
   const runde = await clips.rundeNachSchluessel(guildId, decodeURIComponent(key));
-  if (!runde || runde.status !== 'COMPLETED') {
+  // Ausgeblendete Runden auch hier nicht - sonst waere die Karte der Weg an
+  // der Ausblendung vorbei, und zwar der, den jeder Chat als Vorschau laedt.
+  if (!runde || runde.status !== 'COMPLETED' || runde.hallOfFameHiddenAt !== null) {
     return new NextResponse(null, { status: 404 });
   }
 

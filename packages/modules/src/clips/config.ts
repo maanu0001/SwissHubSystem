@@ -26,6 +26,17 @@ export const CLIPS_PERMISSIONS = {
   moderate: 'clips.moderate',
   manage: 'clips.manage',
   settings: 'clips.settings',
+
+  /*
+   * Zwei eigene Schluessel fuer die zwei zerstoerenden Handlungen.
+   *
+   * Nicht unter `manage`: eine Runde anzulegen und eine Runde samt allen
+   * Einreichungen und Stimmen zu loeschen sind nicht dieselbe Befugnis. Wer
+   * den Ablauf pflegt, soll nicht nebenbei die Geschichte des Moduls
+   * ausraeumen koennen.
+   */
+  deleteRound: 'clips.rounds.delete',
+  hallOfFame: 'clips.halloffame.manage',
 } as const;
 
 export type ClipsPermission = (typeof CLIPS_PERMISSIONS)[keyof typeof CLIPS_PERMISSIONS];
@@ -381,6 +392,21 @@ export const clipsModule: ModuleDefinition = registerModule({
       key: CLIPS_PERMISSIONS.settings,
       label: 'Einstellungen verwalten',
       description: 'Ablauf, Stimmen und Ankündigungen des Moduls einstellen.',
+      module: CLIPS_MODULE_ID,
+    },
+    {
+      key: CLIPS_PERMISSIONS.deleteRound,
+      label: 'Vergangene Runden löschen',
+      description:
+        'Eine abgeschlossene oder abgebrochene Runde samt ihren Einreichungen, Stimmen und Platzierungen endgültig entfernen. Hochgeladene Videos, auf die danach nichts mehr zeigt, werden mitgelöscht.',
+      module: CLIPS_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: CLIPS_PERMISSIONS.hallOfFame,
+      label: 'Hall of Fame pflegen',
+      description:
+        'Einzelne Runden aus der Hall of Fame nehmen oder wieder aufnehmen. Die Runde selbst und ihre Clips bleiben dabei bestehen.',
       module: CLIPS_MODULE_ID,
     },
   ],

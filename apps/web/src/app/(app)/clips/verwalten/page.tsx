@@ -9,6 +9,7 @@ import { EmptyState, ErrorState } from '@/components/shared/states';
 import { ClipAbschnittsNav } from '@/modules/clips/components/abschnitts-nav';
 import { RundenVerwaltung } from '@/modules/clips/components/runden-verwaltung';
 import { RundeReaktivieren } from '@/modules/clips/components/runde-reaktivieren';
+import { RundeLoeschen, RuhmeshalleSchalter } from '@/modules/clips/components/runde-loeschen';
 import { requirePagePermission, csrfTokenFor } from '@/server/auth';
 import { clipAbschnitte, ladeClipStand } from '@/server/clips';
 import { Clapperboard, Users, Vote } from 'lucide-react';
@@ -24,6 +25,15 @@ const STATUS_TEXT: Record<string, string> = {
   COMPLETED: 'Abgeschlossen',
   CANCELLED: 'Abgebrochen',
 };
+
+/**
+ * Die Zustaende, aus denen eine Runde geloescht werden darf.
+ *
+ * Dieselbe Bedingung, nach der sich auch `clips.loescheRunde` richtet. Sie
+ * steht hier ein zweites Mal, damit der Knopf nicht erscheint, wo er nicht
+ * wirkt - entschieden wird sie trotzdem auf dem Server.
+ */
+const VERGANGEN = new Set(['COMPLETED', 'CANCELLED']);
 
 const zeit = (datum: Date): string =>
   datum.toLocaleString('de-CH', {
@@ -181,6 +191,11 @@ export default async function ClipVerwaltenPage(): Promise<React.JSX.Element> {
                     </td>
                     <td className="px-3 py-3 sm:px-4 text-muted-foreground">
                       {STATUS_TEXT[runde.status] ?? runde.status}
+                      {runde.hallOfFameHiddenAt ? (
+                        <span className="ml-2 whitespace-nowrap rounded-full border border-border px-2 py-0.5 text-xs">
+                          nicht in der Hall of Fame
+                        </span>
+                      ) : null}
                     </td>
                     <td className="hidden px-3 py-3 sm:px-4 text-muted-foreground sm:table-cell">
                       {zeit(runde.submissionEndsAt)}
@@ -193,15 +208,35 @@ export default async function ClipVerwaltenPage(): Promise<React.JSX.Element> {
                       {runde._count.votes}
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 text-right sm:px-4">
-                      {zurueckholbar ? (
-                        <RundeReaktivieren
-                          competitionId={runde.id}
-                          nummer={runde.number}
-                          ziel={zurueckholbar.ziel}
-                          phaseEndetAm={zurueckholbar.phaseEndetAm}
-                          csrfToken={csrfToken}
-                        />
-                      ) : null}
+                      <div className="flex justify-end gap-1.5">
+                        {zurueckholbar ? (
+                          <RundeReaktivieren
+                            competitionId={runde.id}
+                            nummer={runde.number}
+                            ziel={zurueckholbar.ziel}
+                            phaseEndetAm={zurueckholbar.phaseEndetAm}
+                            csrfToken={csrfToken}
+                          />
+                        ) : null}
+                        {stand.darfRuhmeshalle && runde.status === 'COMPLETED' ? (
+                          <RuhmeshalleSchalter
+                            competitionId={runde.id}
+                            nummer={runde.number}
+                            verborgen={runde.hallOfFameHiddenAt !== null}
+                            csrfToken={csrfToken}
+                          />
+                        ) : null}
+                        {stand.darfRundenLoeschen && VERGANGEN.has(runde.status) ? (
+                          <RundeLoeschen
+                            competitionId={runde.id}
+                            nummer={runde.number}
+                            schluessel={runde.key}
+                            einreichungen={runde._count.entries}
+                            stimmen={runde._count.votes}
+                            csrfToken={csrfToken}
+                          />
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );

@@ -356,6 +356,9 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   CLIP_REMOVED: 'Clip entfernt',
   CLIP_REPORTED: 'Clip gemeldet',
   CLIP_REPORT_RESOLVED: 'Clip-Meldung bearbeitet',
+  CLIP_COMPETITION_DELETED: 'Clip-Runde gelöscht',
+  CLIP_HALLOFFAME_HIDDEN: 'Aus der Hall of Fame genommen',
+  CLIP_HALLOFFAME_RESTORED: 'In die Hall of Fame zurückgeholt',
 
   STREAMER_APPLIED: 'Streamer-Bewerbung eingereicht',
   STREAMER_APPROVED: 'Streamer freigegeben',

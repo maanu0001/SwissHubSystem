@@ -30,6 +30,10 @@ export interface ClipSeitenStand {
   darfAbstimmen: boolean;
   darfModerieren: boolean;
   darfVerwalten: boolean;
+  /** Runden aus der Hall of Fame nehmen und zurueckholen. */
+  darfRuhmeshalle: boolean;
+  /** Vergangene Runden endgueltig loeschen - die zerstoerende Befugnis. */
+  darfRundenLoeschen: boolean;
   /** Der Hostname dieser Installation - Twitch verlangt ihn zum Einbetten. */
   hostname: string;
 }
@@ -84,6 +88,8 @@ export async function ladeClipStand(context: AuthContext): Promise<ClipSeitenSta
     darfAbstimmen: can(context, clips.CLIPS_PERMISSIONS.vote),
     darfModerieren: can(context, clips.CLIPS_PERMISSIONS.moderate),
     darfVerwalten: can(context, clips.CLIPS_PERMISSIONS.manage),
+    darfRuhmeshalle: can(context, clips.CLIPS_PERMISSIONS.hallOfFame),
+    darfRundenLoeschen: can(context, clips.CLIPS_PERMISSIONS.deleteRound),
     hostname: hostnameDerApp(),
   };
 }

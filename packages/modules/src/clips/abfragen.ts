@@ -344,6 +344,8 @@ export const offeneModeration = (competitionId: string): Promise<number> =>
 // --- Hall of Fame und Profil ------------------------------------------------
 
 export interface HallOfFameEintrag {
+  /** Fuer die Verwaltung - die Kachel selbst verlinkt ueber den Schluessel. */
+  competitionId: string;
   key: string;
   nummer: number;
   jahr: number;
@@ -354,10 +356,25 @@ export interface HallOfFameEintrag {
   stimmen: number;
 }
 
+/**
+ * Wer in der Hall of Fame steht.
+ *
+ * Abgeschlossen **und** nicht ausgeblendet. Die zweite Bedingung steht in der
+ * Abfrage und nicht in der Anzeige: eine ausgeblendete Runde, die geladen und
+ * dann uebersprungen wird, waere in jeder Zaehlung, jedem Seitenumbruch und
+ * jeder Antwort des Servers weiter enthalten - und irgendwo faende sie den
+ * Weg zurueck auf den Bildschirm.
+ *
+ * Die Runde selbst bleibt bestehen; ausgeblendet ist sie nur hier. Die Bilanz
+ * eines Mitglieds zaehlt weiter ueber alle abgeschlossenen Runden, weil ein
+ * Sieg stattgefunden hat, auch wenn die Rueckschau ihn nicht mehr zeigt.
+ */
+const IN_DER_RUHMESHALLE = { status: 'COMPLETED', hallOfFameHiddenAt: null } as const;
+
 /** Alle abgeschlossenen Runden, neueste zuerst. */
 export async function hallOfFame(guildId: string, limit = 24, offset = 0): Promise<HallOfFameEintrag[]> {
   const runden = await prisma.clipCompetition.findMany({
-    where: { guildId, status: 'COMPLETED' },
+    where: { guildId, ...IN_DER_RUHMESHALLE },
     orderBy: { number: 'desc' },
     take: limit,
     skip: offset,
@@ -375,6 +392,7 @@ export async function hallOfFame(guildId: string, limit = 24, offset = 0): Promi
     const gewinner = runde.entries.find((eintrag) => eintrag.id === runde.winnerEntryId) ?? null;
     const { jahr, woche } = ausSchluessel(runde.key);
     return {
+      competitionId: runde.id,
       key: runde.key,
       nummer: runde.number,
       jahr,
@@ -390,7 +408,7 @@ export async function hallOfFame(guildId: string, limit = 24, offset = 0): Promi
 }
 
 export const hallOfFameAnzahl = (guildId: string): Promise<number> =>
-  prisma.clipCompetition.count({ where: { guildId, status: 'COMPLETED' } });
+  prisma.clipCompetition.count({ where: { guildId, ...IN_DER_RUHMESHALLE } });
 
 export interface ClipBilanz {
   siege: number;
