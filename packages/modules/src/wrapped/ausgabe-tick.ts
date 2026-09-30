@@ -7,12 +7,15 @@ import {
   letztesAbgeschlossenesJahr,
   periodeVon,
   type WrappedPeriode,
+  type WrappedPeriodenArt,
 } from './perioden';
 
 const log = createLogger('wrapped:ausgabe-tick');
 
 /**
  * Der Durchgang, der Monats- und Jahresausgaben anlegt.
+ *
+ * Wochenausgaben legt er nicht an - siehe unten.
  *
  * ## Warum kein Kalender und kein Zeitgeber
  *
@@ -25,6 +28,20 @@ const log = createLogger('wrapped:ausgabe-tick');
  *
  * Das macht ihn von selbst neustartfest, wiederholbar und unabhaengig davon,
  * wie oft er laeuft.
+ *
+ * ## Warum keine Wochenausgaben
+ *
+ * Weil sie niemand bestellt hat. Selbsttaetig erzeugt waeren es zweiundfuenfzig
+ * Ausgaben im Jahr, von denen die meisten ueber eine ruhige Woche fuenf
+ * hoefliche Folien zeigten - und in der Uebersicht stuenden die drei Monate,
+ * die jemand tatsaechlich veroeffentlichen will, zwischen vierzig Entwuerfen,
+ * die niemand angesehen hat.
+ *
+ * Eine Wochenausgabe entsteht deshalb, wenn das Team sie anlegt: nach einem
+ * Turnierwochenende, nach einer Aktion, nach einer Woche, in der etwas war.
+ * Derselbe Ablauf, derselbe Zeichner, dieselbe Erhebung - nur der Anlass
+ * kommt von einem Menschen. Ein gescheiterter Versuch wird auch bei ihnen
+ * wiederholt; das unterscheidet sich nicht.
  *
  * ## Warum zwei Arbeiter sich nicht ins Gehege kommen
  *
@@ -119,7 +136,7 @@ export async function runWrappedAusgabeTick(jetzt = new Date()): Promise<Ausgabe
  */
 async function naechsteGescheiterte(
   guildId: string,
-): Promise<{ id: string; type: 'MONTHLY' | 'YEARLY'; periodKey: string } | null> {
+): Promise<{ id: string; type: WrappedPeriodenArt; periodKey: string } | null> {
   return prisma.wrappedEdition.findFirst({
     where: { guildId, status: 'DRAFT', generatedAt: null, failedAt: { not: null } },
     orderBy: { failedAt: 'asc' },

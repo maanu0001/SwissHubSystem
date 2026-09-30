@@ -51,6 +51,7 @@ export default async function WrappedAusgabenPage(): Promise<React.JSX.Element> 
   });
 
   const jetzt = new Date();
+  const woche = wrapped.letzteAbgeschlosseneWoche(jetzt);
   const monat = wrapped.letzterAbgeschlossenerMonat(jetzt);
   const jahr = wrapped.letztesAbgeschlossenesJahr(jetzt);
 
@@ -67,12 +68,13 @@ export default async function WrappedAusgabenPage(): Promise<React.JSX.Element> 
 
       <PageHeader
         title="Ausgaben"
-        description="Monats- und Jahresrückblicke über die Community - als fertige Bilder für Social Media."
+        description="Wochen-, Monats- und Jahresrückblicke über die Community - als fertige Bilder für Social Media."
       />
 
       {can(context, wrapped.WRAPPED_PERMISSIONS.generate) ? (
         <AusgabeAnlegen
           csrfToken={csrfTokenFor(context)}
+          wochenVorschlag={woche.key}
           monatsVorschlag={monat.key}
           jahresVorschlag={jahr.key}
         />

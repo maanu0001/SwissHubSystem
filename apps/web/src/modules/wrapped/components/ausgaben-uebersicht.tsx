@@ -13,29 +13,47 @@ import { ausgabeErzeugenAction } from '@/modules/wrapped/ausgabe-aktionen';
  *
  * ## Warum das auch der Weg fuer die Vergangenheit ist
  *
- * Der Job erzeugt den zuletzt abgeschlossenen Monat. Wer weiter zurueck
- * will - weil das Modul erst jetzt eingeschaltet wurde -, traegt den
- * Zeitraum hier ein. Erfunden wird dabei nichts: die Stories arbeiten auf
+ * Der Job erzeugt den zuletzt abgeschlossenen Monat und das zuletzt
+ * abgeschlossene Jahr - Wochen gar nicht. Wer weiter zurueck will, weil das
+ * Modul erst jetzt eingeschaltet wurde, oder eine einzelne Woche will, weil in
+ * ihr etwas war, traegt den Zeitraum hier ein. Erfunden wird dabei nichts: die Stories arbeiten auf
  * denselben Daten und lassen weg, wozu es nichts gibt. Ein Monat vor Beginn
  * der Sprachzeitmessung bekommt eben keine Sprachzeit-Folie.
  */
+type PeriodenArt = 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+
+/** Beschriftung und Eingabemuster je Art - an einer Stelle, nicht an dreien. */
+const ARTEN: ReadonlyArray<{ wert: PeriodenArt; label: string; muster: string }> = [
+  { wert: 'WEEKLY', label: 'Woche', muster: 'JJJJ-WNN' },
+  { wert: 'MONTHLY', label: 'Monat', muster: 'JJJJ-MM' },
+  { wert: 'YEARLY', label: 'Jahr', muster: 'JJJJ' },
+];
+
 export function AusgabeAnlegen({
   csrfToken,
+  wochenVorschlag,
   monatsVorschlag,
   jahresVorschlag,
 }: {
   csrfToken: string;
+  wochenVorschlag: string;
   monatsVorschlag: string;
   jahresVorschlag: string;
 }): React.JSX.Element {
   const router = useRouter();
-  const [art, setArt] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
+  const [art, setArt] = useState<PeriodenArt>('MONTHLY');
   const [key, setKey] = useState(monatsVorschlag);
   const [laeuft, setLaeuft] = useState(false);
 
-  const wechsle = (neu: 'MONTHLY' | 'YEARLY'): void => {
+  const vorschlaege: Record<PeriodenArt, string> = {
+    WEEKLY: wochenVorschlag,
+    MONTHLY: monatsVorschlag,
+    YEARLY: jahresVorschlag,
+  };
+
+  const wechsle = (neu: PeriodenArt): void => {
     setArt(neu);
-    setKey(neu === 'MONTHLY' ? monatsVorschlag : jahresVorschlag);
+    setKey(vorschlaege[neu]);
   };
 
   const erzeugen = async (): Promise<void> => {
@@ -63,17 +81,13 @@ export function AusgabeAnlegen({
       <div>
         <p className="text-sm font-medium">Ausgabe erzeugen</p>
         <p className="text-xs text-muted-foreground">
-          Nur für abgeschlossene Zeiträume. Ein laufender Monat hätte morgen andere Zahlen.
+          Nur für abgeschlossene Zeiträume. Ein laufender Monat hätte morgen andere Zahlen. Wochen zählen
+          nach ISO 8601 - Montag bis Sonntag.
         </p>
       </div>
 
       <div className="flex gap-2">
-        {(
-          [
-            ['MONTHLY', 'Monat'],
-            ['YEARLY', 'Jahr'],
-          ] as const
-        ).map(([wert, label]) => (
+        {ARTEN.map(({ wert, label }) => (
           <button
             key={wert}
             type="button"
@@ -95,7 +109,7 @@ export function AusgabeAnlegen({
         <input
           value={key}
           onChange={(event) => setKey(event.target.value)}
-          placeholder={art === 'MONTHLY' ? 'JJJJ-MM' : 'JJJJ'}
+          placeholder={ARTEN.find((eintrag) => eintrag.wert === art)?.muster}
           className="h-10 w-32 rounded-lg border border-border bg-card px-3 text-sm tabular-nums outline-none focus-visible:border-primary-bright"
         />
       </label>
@@ -119,7 +133,7 @@ export function AusgabeAnlegen({
 
 export interface AusgabeZeile {
   id: string;
-  type: 'MONTHLY' | 'YEARLY';
+  type: PeriodenArt;
   periodKey: string;
   titel: string;
   status: string;
@@ -163,7 +177,7 @@ export function AusgabenListe({ ausgaben }: { ausgaben: AusgabeZeile[] }): React
             <div className="flex items-center gap-2">
               <CalendarRange className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <span className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">
-                {ausgabe.type === 'MONTHLY' ? 'Monat' : 'Jahr'}
+                {ARTEN.find((eintrag) => eintrag.wert === ausgabe.type)?.label ?? ausgabe.type}
               </span>
               <span
                 className={`ml-auto shrink-0 rounded-full border px-2 py-0.5 text-[0.65rem] ${

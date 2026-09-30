@@ -234,13 +234,26 @@ function pruefeQuelle(quelle: WrappedQuellen[keyof WrappedQuellen], name: string
   return null;
 }
 
+/**
+ * Der Satz unter der Eroeffnung - je Periodenart einer.
+ *
+ * Als Tabelle und nicht als verschachtelte Bedingung: mit der Woche waeren es
+ * drei Faelle, und die dritte Ebene eines Fragezeichens ist die, in der
+ * jemand die Woche vergisst und sie den Jahressatz bekommt.
+ */
+const EINLEITUNG: Record<WrappedPeriodenArt, string> = {
+  WEEKLY: 'Sieben Tage SwissHub.',
+  MONTHLY: 'So hat SwissHub diesen Monat gezockt.',
+  YEARLY: 'Zwölf Monate. Eine Community.',
+};
+
 // --- Die Stories ------------------------------------------------------------
 
 const INTRO: WrappedStory = {
   key: 'intro',
   label: 'Eröffnung',
   beschreibung: 'Marke, Zeitraum, ein Satz. Steht immer am Anfang.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: { provider: '—', rohdaten: () => null },
   fest: 'anfang',
   erhebe: (kontext) => ({
@@ -253,10 +266,7 @@ const INTRO: WrappedStory = {
       // dieselbe Aussage doppelt. Wer eine eigene Zeile darueber will, traegt
       // sie im Editor ein.
       ueberschrift: '',
-      text:
-        kontext.periode.art === 'MONTHLY'
-          ? 'So hat SwissHub diesen Monat gezockt.'
-          : 'Zwölf Monate. Eine Community.',
+      text: EINLEITUNG[kontext.periode.art],
     },
     score: 0,
   }),
@@ -266,7 +276,7 @@ const COMMUNITY: WrappedStory = {
   key: 'community',
   label: 'Community',
   beschreibung: 'Aktive Mitglieder und Zuwachs.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: {
     provider: 'ladeGemeinschaftszahlen (AnalyticsUserDaily)',
     rohdaten: (kontext) => kontext.zahlen.tageMitDaten,
@@ -297,7 +307,7 @@ const VOICE_TOTAL: WrappedStory = {
   key: 'voice_total',
   label: 'Sprachzeit',
   beschreibung: 'Die gesamte Zeit im Sprachkanal, als grosse Zahl.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: {
     provider: 'ladeGemeinschaftszahlen (AnalyticsUserDaily.voiceSeconds)',
     rohdaten: (kontext) => kontext.zahlen.voiceSeconds,
@@ -336,7 +346,7 @@ const VOICE_RECORD: WrappedStory = {
   key: 'voice_record',
   label: 'Voice-Rekord',
   beschreibung: 'Der stärkste Tag - nur mit belegbarem Vergleich.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: {
     provider: 'bisherigerTagesRekord (AnalyticsGuildDaily)',
     rohdaten: (kontext) => kontext.rekord?.tage ?? 0,
@@ -386,7 +396,7 @@ const MESSAGES: WrappedStory = {
   key: 'messages',
   label: 'Nachrichten',
   beschreibung: 'Geschriebene Nachrichten im Zeitraum.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: {
     provider: 'ladeGemeinschaftszahlen (AnalyticsUserDaily.messages)',
     rohdaten: (kontext) => kontext.zahlen.messages,
@@ -413,7 +423,7 @@ const TOURNAMENT_WINNER: WrappedStory = {
   key: 'tournament_winner',
   label: 'Turniersieger',
   beschreibung: 'Das grösste abgeschlossene Turnier mit seinem Sieger.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: {
     provider: 'ladeTurniere (Tournament, status COMPLETED)',
     rohdaten: (kontext) => kontext.turniere.length,
@@ -449,7 +459,7 @@ const TOURNAMENT_OVERVIEW: WrappedStory = {
   key: 'tournament_overview',
   label: 'Turnierbilanz',
   beschreibung: 'Turniere und Matches im Zeitraum.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: {
     provider: 'ladeTurniere (Tournament, status COMPLETED)',
     rohdaten: (kontext) => kontext.turniere.length,
@@ -483,7 +493,7 @@ const EVENT_OVERVIEW: WrappedStory = {
   key: 'event_overview',
   label: 'Events',
   beschreibung: 'Termine und Anmeldungen.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: { provider: 'ladeTermine (CalendarEvent)', rohdaten: (kontext) => kontext.termine.termine },
   erhebe: (kontext) => {
     const { termine } = kontext;
@@ -512,7 +522,7 @@ const CLIP_WINNER: WrappedStory = {
   key: 'clip_winner',
   label: 'Clip of the Week',
   beschreibung: 'Der meistgewählte Clip des Zeitraums.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: {
     provider: 'ladeClipSieger (ClipCompetition, status COMPLETED)',
     rohdaten: (kontext) => kontext.clips.length,
@@ -541,7 +551,7 @@ const GAME_PICK: WrappedStory = {
   key: 'game_pick',
   label: 'Meistgewähltes Spiel',
   beschreibung: 'Was «Was spielen wir?» am häufigsten ausgewählt hat.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: {
     provider: 'ladeSpielauswahl (SpielwahlRound, status FERTIG)',
     rohdaten: (kontext) => kontext.spiele.length,
@@ -586,7 +596,7 @@ const COMMUNITY_MOMENT: WrappedStory = {
   key: 'community_moment',
   label: 'Community Moment',
   beschreibung: 'Ein besonderer Moment - mit Bild, von Hand gepflegt.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: {
     provider: 'WrappedMoment (includeMonthly/includeYearly im Zeitraum)',
     rohdaten: (kontext) => kontext.momente.length,
@@ -703,7 +713,7 @@ const OUTRO: WrappedStory = {
   key: 'outro',
   label: 'Abschluss',
   beschreibung: 'Dank und Adresse. Steht immer am Ende.',
-  perioden: ['MONTHLY', 'YEARLY'],
+  perioden: ['WEEKLY', 'MONTHLY', 'YEARLY'],
   herkunft: { provider: '—', rohdaten: () => null },
   fest: 'ende',
   erhebe: (kontext) => ({
@@ -712,9 +722,9 @@ const OUTRO: WrappedStory = {
     daten: { periode: periodenLabel(kontext.periode) },
     vorschlag: {
       ueberschrift:
-        kontext.periode.art === 'MONTHLY'
-          ? `Das war ${periodenLabel(kontext.periode)}.`
-          : `Das war ${kontext.periode.jahr}.`,
+        kontext.periode.art === 'YEARLY'
+          ? `Das war ${kontext.periode.jahr}.`
+          : `Das war ${periodenLabel(kontext.periode)}.`,
       text: 'Danke, dass ihr SwissHub zu dem macht, was es ist.',
     },
     score: 0,
@@ -744,6 +754,15 @@ export function storyNach(key: string): WrappedStory | undefined {
 
 /** Wie viele Folien eine Ausgabe hoechstens bekommt. */
 export const FOLIEN_OBERGRENZE: Record<WrappedPeriodenArt, number> = {
+  /*
+   * Die Woche ist kuerzer und bekommt weniger Folien.
+   *
+   * Nicht aus Sparsamkeit, sondern weil sieben Tage weniger hergeben. Acht
+   * Folien ueber eine ruhige Woche waeren acht Folien, von denen fuenf
+   * «niemand war da» in fuenf Formulierungen sagen. Fuenf ist die Zahl, bei
+   * der eine Wochenausgabe noch etwas erzaehlt.
+   */
+  WEEKLY: 5,
   // Fuenf bis acht laut Vorgabe - die Obergrenze verhindert, dass ein
   // besonders reicher Monat zu einem Karussell wird, das niemand durchwischt.
   MONTHLY: 8,

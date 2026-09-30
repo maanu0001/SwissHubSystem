@@ -7076,11 +7076,16 @@ model WrappedView {
 // Geteilt wird trotzdem, was zu teilen ist: die Datenlage-Logik, der
 // Zeichner, der Job im Bot, die Berechtigungen und das Protokoll.
 
-/// Monatlich oder jaehrlich. Beides hat denselben Ablauf und eine andere
-/// Tonlage - siehe `wrapped/perioden.ts`.
+/// Woechentlich, monatlich oder jaehrlich. Alle drei haben denselben Ablauf
+/// und eine andere Tonlage - siehe `wrapped/perioden.ts`.
+///
+/// `WEEKLY` steht am Ende, weil eine Enum-Reihenfolge in Postgres nicht ohne
+/// Tabellenumbau zu aendern ist und ein `ADD VALUE` anhaengt. Die Reihenfolge
+/// bedeutet hier nichts; sortiert wird nach `periodStart`.
 enum WrappedEditionType {
   MONTHLY
   YEARLY
+  WEEKLY
 }
 
 enum WrappedEditionStatus {
@@ -7106,7 +7111,7 @@ model WrappedEdition {
   guildId String
 
   type      WrappedEditionType
-  /// `2026-09` bei Monatsausgaben, `2026` bei Jahresausgaben.
+  /// `2026-W39` bei Wochen-, `2026-09` bei Monats-, `2026` bei Jahresausgaben.
   periodKey String
 
   /// Der Zeitraum in UTC - die Grenzen sind Zuercher Mitternacht, siehe

@@ -68,7 +68,17 @@ export async function sammleKontext(guildId: string, periode: WrappedPeriode): P
       where: {
         guildId,
         happenedAt: { gte: periode.start, lt: periode.end },
-        ...(periode.art === 'MONTHLY' ? { includeMonthly: true } : { includeYearly: true }),
+        /*
+         * Die Woche liest die Monatsmarkierung mit.
+         *
+         * Statt einer dritten Spalte `includeWeekly`: ein Moment, den das
+         * Team fuer den Monatsrueckblick vorgemerkt hat, gehoert erst recht
+         * in die Woche, in der er passiert ist - der Zeitraum ist enger, der
+         * Anlass derselbe. Eine dritte Ankreuzung waere ein drittes Feld im
+         * Formular, das niemand ausfuellt, und eine Wochenausgabe, in der
+         * darum nie ein Moment auftaucht.
+         */
+        ...(periode.art === 'YEARLY' ? { includeYearly: true } : { includeMonthly: true }),
       },
       select: {
         id: true,
@@ -90,13 +100,22 @@ export async function sammleKontext(guildId: string, periode: WrappedPeriode): P
   return { guildId, periode, quellen, zahlen, turniere, termine, clips, spiele, rekord, monate, momente };
 }
 
+/**
+ * Titel und Untertitel einer Ausgabe.
+ *
+ * Je Periodenart ein Paar, nachgeschlagen statt erfragt. Mit drei Arten waere
+ * eine Kette von Fragezeichen genau die Stelle, an der die Woche am Ende den
+ * Jahresuntertitel bekommt - «Zwoelf Monate. Eine Community.» ueber sieben
+ * Tagen.
+ */
 function titelFuer(periode: WrappedPeriode): { title: string; subtitle: string } {
-  return periode.art === 'MONTHLY'
-    ? {
-        title: `SwissHub Wrapped ${periodenLabel(periode)}`,
-        subtitle: 'So hat SwissHub diesen Monat gezockt.',
-      }
-    : { title: `SwissHub Wrapped ${periode.jahr}`, subtitle: 'Zwölf Monate. Eine Community.' };
+  if (periode.art === 'YEARLY') {
+    return { title: `SwissHub Wrapped ${periode.jahr}`, subtitle: 'Zwölf Monate. Eine Community.' };
+  }
+  return {
+    title: `SwissHub Wrapped ${periodenLabel(periode)}`,
+    subtitle: periode.art === 'WEEKLY' ? 'Sieben Tage SwissHub.' : 'So hat SwissHub diesen Monat gezockt.',
+  };
 }
 
 /** Wurde der Verstoss gegen die Eindeutigkeit gemeldet? */

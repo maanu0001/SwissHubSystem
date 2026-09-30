@@ -33,16 +33,33 @@ const neuLaden = (editionId?: string): void => {
 };
 
 const periodenSchema = z.object({
-  type: z.enum(['MONTHLY', 'YEARLY']),
-  /** `2026-09` oder `2026`. */
+  type: z.enum(['WEEKLY', 'MONTHLY', 'YEARLY']),
+  /** `2026-W39`, `2026-09` oder `2026`. */
   periodKey: z.string().trim().max(10),
 });
+
+/**
+ * Was dasteht, wenn der Schluessel nicht passt.
+ *
+ * Je Art ein Satz mit Format und Beispiel. Ein allgemeines «ungueltige
+ * Eingabe» liesse offen, ob `2026-9`, `KW 39` oder `39/2026` gemeint sein
+ * durfte.
+ */
+const FORMAT_HINWEIS: Record<'WEEKLY' | 'MONTHLY' | 'YEARLY', string> = {
+  WEEKLY:
+    'Bitte eine Kalenderwoche im Format JJJJ-WNN angeben, zum Beispiel 2026-W35. Gezählt wird nach ISO 8601 - Montag bis Sonntag.',
+  MONTHLY: 'Bitte einen Monat im Format JJJJ-MM angeben, zum Beispiel 2026-08.',
+  YEARLY: 'Bitte ein Jahr im Format JJJJ angeben, zum Beispiel 2026.',
+};
 
 /**
  * Eine Ausgabe von Hand erzeugen.
  *
  * Das ist zugleich die Nachholfunktion fuer vergangene Zeitraeume: wer den
- * August nachtraeglich will, traegt `2026-08` ein. Erfunden wird dabei
+ * August nachtraeglich will, traegt `2026-08` ein, fuer eine einzelne
+ * Kalenderwoche `2026-W35`. Wochenausgaben entstehen ausschliesslich so - der
+ * Durchgang im Bot legt nur Monate und Jahre an, siehe
+ * `wrapped/ausgabe-tick.ts`. Erfunden wird dabei
  * nichts - die Stories arbeiten auf denselben Daten und lassen weg, wozu es
  * nichts gibt. Ein Monat ohne Sprachzeitmessung bekommt eben keine
  * Sprachzeit-Folie.
@@ -58,12 +75,7 @@ export const ausgabeErzeugenAction = defineAction(
   async ({ ctx, input }) => {
     const periode = wrapped.periodeVon(input.type, input.periodKey);
     if (!periode) {
-      throw new AppError('VALIDATION_FAILED', {
-        userMessage:
-          input.type === 'MONTHLY'
-            ? 'Bitte einen Monat im Format JJJJ-MM angeben, zum Beispiel 2026-08.'
-            : 'Bitte ein Jahr im Format JJJJ angeben, zum Beispiel 2026.',
-      });
+      throw new AppError('VALIDATION_FAILED', { userMessage: FORMAT_HINWEIS[input.type] });
     }
 
     const guildId = await resolveGuildId();

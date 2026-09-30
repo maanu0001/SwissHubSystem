@@ -383,6 +383,101 @@ describeWithDatabase('Wrapped-Ausgaben', () => {
 
   // --- Community Moments --------------------------------------------------------
 
+  // --- Die Woche als dritter Zeitraum ---------------------------------------
+
+  it('erzeugt eine Wochenausgabe mit eigenem Schluessel, Titel und Zeitraum', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+
+    // 2026-W33: Montag 10.08. bis Sonntag 16.08. - mitten im August, damit
+    // die Tageswerte oben den ganzen Zeitraum decken.
+    const woche = wrapped.periodeVon('WEEKLY', '2026-W33')!;
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, woche, { akteur: AKTEUR, jetzt: NACH_AUGUST });
+
+    expect(ergebnis.neu).toBe(true);
+    expect(ergebnis.folien).toBeGreaterThan(0);
+
+    const gespeichert = await prisma.wrappedEdition.findUniqueOrThrow({
+      where: { id: ergebnis.editionId },
+    });
+    expect(gespeichert.type).toBe('WEEKLY');
+    expect(gespeichert.periodKey).toBe('2026-W33');
+    expect(gespeichert.title).toBe('SwissHub Wrapped KW 33 2026');
+    expect(gespeichert.subtitle).toBe('Sieben Tage SwissHub.');
+    expect(gespeichert.periodStart).toEqual(woche.start);
+    expect(gespeichert.periodEnd).toEqual(woche.end);
+  });
+
+  it('haelt Woche, Monat und Jahr desselben Servers auseinander', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+
+    const woche = await wrapped.erzeugeAusgabe(GUILD, wrapped.periodeVon('WEEKLY', '2026-W33')!, {
+      jetzt: NACH_AUGUST,
+    });
+    const monat = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+
+    expect(woche.editionId).not.toBe(monat.editionId);
+    expect(await prisma.wrappedEdition.count()).toBe(2);
+
+    // Und ein zweiter Anlauf derselben Woche legt nichts Zweites an.
+    const nochmal = await wrapped.erzeugeAusgabe(GUILD, wrapped.periodeVon('WEEKLY', '2026-W33')!, {
+      jetzt: NACH_AUGUST,
+    });
+    expect(nochmal.neu).toBe(false);
+    expect(await prisma.wrappedEdition.count()).toBe(2);
+  });
+
+  it('bleibt bei der Woche unter ihrer Folienobergrenze', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+
+    const woche = await wrapped.erzeugeAusgabe(GUILD, wrapped.periodeVon('WEEKLY', '2026-W33')!, {
+      jetzt: NACH_AUGUST,
+    });
+    const monat = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+
+    expect(woche.folien).toBeLessThanOrEqual(wrapped.FOLIEN_OBERGRENZE.WEEKLY);
+    // Und weniger als der Monat - das ist der Sinn der kleineren Grenze.
+    expect(woche.folien).toBeLessThanOrEqual(monat.folien);
+  });
+
+  it('erzeugt keine Wochenausgabe fuer eine laufende Woche', async () => {
+    const woche = wrapped.periodeVon('WEEKLY', '2026-W33')!;
+    // Mittwoch derselben Woche.
+    const mittendrin = new Date('2026-08-12T10:00:00Z');
+
+    await expect(wrapped.erzeugeAusgabe(GUILD, woche, { jetzt: mittendrin })).rejects.toThrow();
+    expect(await prisma.wrappedEdition.count()).toBe(0);
+  });
+
+  it('nimmt einen fuer den Monat vorgemerkten Moment auch in die Woche, in der er war', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    await wrapped.erstelleMoment(
+      GUILD,
+      {
+        title: 'GameNight',
+        description: null,
+        // Mittwoch der Woche 33.
+        happenedOn: '2026-08-12',
+        includeMonthly: true,
+        includeYearly: false,
+        priority: 0,
+      },
+      AKTEUR,
+    );
+
+    const inDerWoche = await wrapped.erzeugeAusgabe(GUILD, wrapped.periodeVon('WEEKLY', '2026-W33')!, {
+      jetzt: NACH_AUGUST,
+    });
+    const ansicht = await wrapped.ladeAusgabe(inDerWoche.editionId);
+    expect(ansicht?.folien.some((folie) => folie.storyKey === 'community_moment')).toBe(true);
+
+    // Und nicht in eine Woche, in der er nicht war.
+    const danach = await wrapped.erzeugeAusgabe(GUILD, wrapped.periodeVon('WEEKLY', '2026-W34')!, {
+      jetzt: NACH_AUGUST,
+    });
+    const ansichtDanach = await wrapped.ladeAusgabe(danach.editionId);
+    expect(ansichtDanach?.folien.some((folie) => folie.storyKey === 'community_moment')).toBe(false);
+  });
+
   it('nimmt einen Moment nur in die Ausgabe seines Zeitraums', async () => {
     await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
     await wrapped.erstelleMoment(
