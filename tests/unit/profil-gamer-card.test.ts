@@ -4,8 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { ImageResponse } from 'next/og';
 import {
   GAMER_CARD_FORMATE,
+  GAMER_CARD_FUSS_LUFT,
   GAMER_CARD_MASSE,
   gamerCardDateiname,
+  gamerCardFussHoehe,
   hslFarbe,
   istGamerCardFormat,
   zeichneGamerCard,
@@ -339,5 +341,161 @@ describe('QR-Code', () => {
     // Prozent Schaden, `M` rund 15. §13.4 verlangt Lesbarkeit auf Papier.
     const quelle = readFileSync(join(process.cwd(), 'apps/web/src/modules/profile/qr.ts'), 'utf8');
     expect(quelle).toContain("qrcode(0, 'Q')");
+  });
+});
+
+/**
+ * Der untere Rand der Karte - an den Pixeln gemessen.
+ *
+ * ## Warum das kein Blick auf den Code leisten kann
+ *
+ * Die Karte ist eine Spalte: Kopfzone, Name, Kennzahlen, Spielliste, ein
+ * Fuellfeld und ganz unten der Fussbalken mit Adresse und QR-Code. Passt der
+ * Inhalt darueber nicht, gibt **das Fuellfeld** nach - es ist das einzige
+ * Stueck mit `flexShrink`, und das ist Absicht: lieber weniger Luft als ein
+ * Fussbalken, der aus der Karte laeuft.
+ *
+ * Genau daran ist der Fehler aber nicht zu sehen. Beim quadratischen Format
+ * war die Karte vollstaendig - Balken da, Adresse da, QR-Code da - und trotzdem
+ * falsch: der Plattform-Chip sass ohne einen Pixel Abstand auf der roten
+ * Kante. Kein Mass war ueberschritten, keine Ausnahme flog, das PNG hatte die
+ * richtige Groesse. Nur das Fuellfeld hatte seinen Abstand hergegeben.
+ *
+ * Deshalb wird hier das fertige Bild gelesen:
+ *
+ *  - **Wie hoch ist das Akzentband unten?** Genau `gamerCardFussHoehe`. Ist es
+ *    null, ist der Fussbalken aus der Karte gelaufen; ist es groesser, hat
+ *    etwas anderes die Farbe.
+ *  - **Wie viele gleichfarbige Zeilen liegen darueber?** Mindestens
+ *    `GAMER_CARD_FUSS_LUFT`. Weniger heisst: das Fuellfeld hat nachgegeben,
+ *    und der Inhalt klebt am Balken.
+ *
+ * Gemessen wird am **vollsten** Profil, das es geben kann - Hoechstlevel, vier
+ * Spiele, drei Auszeichnungen, drei Plattformen, langes Motto -, denn das ist
+ * der Fall, der zuerst anstoesst. Ein duennes Profil bestuende jede dieser
+ * Pruefungen auch mit einem zu knapp gerechneten Format.
+ */
+describe('Gamer Card: der untere Rand', () => {
+  /** Ein Profil, das jede Zone der Karte bis an ihre Grenze fuellt. */
+  const vollesProfil = (): Profil =>
+    profil({
+      identitaet: {
+        discordId: '100000000000000002',
+        name: 'maximiliane_von_hirzenbach',
+        profilname: 'Maximiliane von Hirzenbach',
+        avatarHash: null,
+        mitgliedSeit: new Date('2023-01-01T00:00:00.000Z'),
+        boostet: true,
+      },
+      level: {
+        level: 50,
+        xp: 900_000,
+        fortschritt: 1,
+        naechstesLevelXp: 900_000,
+        fehlendeXp: 0,
+        hoechstlevel: true,
+        rang: 1,
+      },
+      spiele: ['Valorant', 'Counter-Strike 2', 'Lethal Company', 'Helldivers 2'].map((name, index) => ({
+        id: `spiel-${index}`,
+        gameId: `spiel-${index}`,
+        name,
+        kurz: name.slice(0, 3).toUpperCase(),
+        cover: null,
+        plattform: 'PC',
+        notiz: null,
+        favorit: index === 0,
+        archiviert: false,
+        felder: [],
+      })),
+      hervorgehobene: (['gold', 'silber', 'bronze'] as const).map((stufe, index) => ({
+        key: `auszeichnung-${index}`,
+        label: `Auszeichnung mit einem langen Namen ${index + 1}`,
+        beschreibung: 'Eine Beschreibung, die ebenfalls nicht kurz ist.',
+        symbol: 'Trophy',
+        stufe,
+        erreicht: true,
+        fortschritt: null,
+      })),
+    } as Partial<Profil>);
+
+  /**
+   * Zeilenweise Farben aus dem PNG.
+   *
+   * `sharp` und nicht ein eigener Dekoder: das PNG aus `next/og` ist
+   * komprimiert, und ein selbstgebauter Leser waere die zweite Stelle, an der
+   * dieser Test falschliegen koennte.
+   */
+  async function farben(bytes: Uint8Array): Promise<{
+    breite: number;
+    hoehe: number;
+    punkt: (x: number, y: number) => string;
+  }> {
+    const { default: sharp } = await import('sharp');
+    const { data, info } = await sharp(Buffer.from(bytes)).raw().toBuffer({ resolveWithObject: true });
+    return {
+      breite: info.width,
+      hoehe: info.height,
+      punkt: (x, y) => {
+        const start = (y * info.width + x) * info.channels;
+        return `${data[start]},${data[start + 1]},${data[start + 2]}`;
+      },
+    };
+  }
+
+  /*
+   * Gemessen wird an `x = 8`: links vom Polster, also dort, wo der Fussbalken
+   * nur seine eigene Farbe traegt - kein QR-Code, kein Text. Und darueber
+   * liegt an dieser Stelle die Flaeche der Karte, auf der die Chips sitzen.
+   */
+  const MESSSPALTE = 8;
+
+  it.each(GAMER_CARD_FORMATE)(
+    'setzt den Fussbalken in %s an die untere Kante - in voller Hoehe',
+    async (format) => {
+      const bild = await farben(await rendere(format, { profil: vollesProfil() }));
+      const balkenFarbe = bild.punkt(MESSSPALTE, bild.hoehe - 1);
+
+      let band = 0;
+      for (let y = bild.hoehe - 1; y >= 0; y--) {
+        if (bild.punkt(MESSSPALTE, y) !== balkenFarbe) {
+          break;
+        }
+        band++;
+      }
+
+      expect(band, `Akzentband in ${format}`).toBe(gamerCardFussHoehe(format));
+    },
+  );
+
+  it.each(GAMER_CARD_FORMATE)('laesst in %s Luft zwischen Inhalt und Fussbalken', async (format) => {
+    const bild = await farben(await rendere(format, { profil: vollesProfil() }));
+    const obenAmBalken = bild.hoehe - gamerCardFussHoehe(format);
+
+    /*
+     * Die Referenzfarbe kommt vom rechten Rand derselben Zeile. Die Chips
+     * stehen links; rechts davon ist in jedem Fall Flaeche. Damit misst der
+     * Test nicht gegen eine fest eingetragene Farbe, sondern gegen das, was
+     * die Karte an dieser Stelle selbst zeigt - er ueberlebt einen
+     * Themewechsel.
+     */
+    const flaeche = bild.punkt(bild.breite - MESSSPALTE, obenAmBalken - 1);
+
+    let luft = 0;
+    for (let y = obenAmBalken - 1; y >= 0; y--) {
+      let gleich = true;
+      for (let x = 0; x < bild.breite; x += 4) {
+        if (bild.punkt(x, y) !== flaeche) {
+          gleich = false;
+          break;
+        }
+      }
+      if (!gleich) {
+        break;
+      }
+      luft++;
+    }
+
+    expect(luft, `Luft ueber dem Fussbalken in ${format}`).toBeGreaterThanOrEqual(GAMER_CARD_FUSS_LUFT);
   });
 });
