@@ -407,6 +407,87 @@ model DiscordRoleCache {
   @@index([deletedAt])
 }
 
+// =============================================================================
+// Serverrollen - die oeffentliche Rollenuebersicht
+// =============================================================================
+
+/// Eine Kategorie der oeffentlichen Rollenseite.
+///
+/// Discord kennt keine Kategorien fuer Rollen - nur eine Reihenfolge. Was auf
+/// der oeffentlichen Seite «Team», «Sponsor» oder «Levelrollen» heisst, ist
+/// deshalb eine Gruppierung von SwissHub und keine Spiegelung.
+model ServerRoleCategory {
+  id    String @id @default(cuid())
+  /// Wie die Gruppe auf der Seite heisst.
+  name  String
+  /// Ein Satz darunter - optional, meistens braucht es ihn nicht.
+  hinweis String?
+
+  /// Reihenfolge der Gruppen auf der Seite. Kleiner zuerst.
+  sortOrder Int @default(0)
+
+  /// Steht die Gruppe auf der oeffentlichen Seite?
+  ///
+  /// Eine ausgeblendete Gruppe bleibt mitsamt ihren Zuordnungen bestehen -
+  /// «vorbereiten und spaeter zeigen» ist der haeufigere Wunsch als «loeschen».
+  publicVisible Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rollen ServerRoleMeta[]
+
+  @@index([sortOrder])
+}
+
+/// Was SwissHub ueber eine Discord-Rolle zusaetzlich weiss.
+///
+/// **Discord bleibt die Wahrheit** fuer Name, Farbe und Kennung - die stehen
+/// in `DiscordRoleCache` und werden von dort gelesen. Hier steht nur, was
+/// Discord nicht kennt: eine Beschreibung, die Gruppe, die Reihenfolge darin
+/// und ob sich jemand die Rolle selbst geben darf.
+///
+/// Eine Zeile je Rolle, und nur fuer Rollen, zu denen jemand etwas eingetragen
+/// hat. Ohne Zeile ist eine Rolle schlicht nicht auf der oeffentlichen Seite.
+model ServerRoleMeta {
+  id            String @id @default(cuid())
+  /// Die Discord-Rollenkennung. Kein Fremdschluessel: der Zwischenspeicher
+  /// darf geleert und neu aufgebaut werden, ohne diese Angaben mitzunehmen.
+  discordRoleId String @unique
+
+  categoryId String?
+  category   ServerRoleCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  /// Wofuer die Rolle steht - in eigenen Worten.
+  beschreibung String?
+
+  /// Reihenfolge innerhalb der Gruppe. Kleiner zuerst.
+  sortOrder Int @default(0)
+
+  /// Steht die Rolle auf der oeffentlichen Seite?
+  publicVisible Boolean @default(true)
+
+  /// Darf ein Mitglied sich die Rolle selbst geben?
+  ///
+  /// Der Schalter allein genuegt nicht: `pruefeSelbstzuweisung` prueft bei
+  /// jeder Zuweisung erneut gegen die Discord-Rechte der Rolle, gegen
+  /// `managed` und gegen die Bot-Hierarchie. Ein Haken, der hier versehentlich
+  /// gesetzt wurde, oeffnet deshalb keine Admin-Rolle.
+  selfAssignable Boolean @default(false)
+  /// Darf man sie auch wieder abgeben? Vorgabe ja - eine Rolle, die man sich
+  /// selbst gibt und nicht loswird, ist eine Falle.
+  selfRemovable  Boolean @default(true)
+
+  /// Nur wer diese Rolle hat, darf sich die Rolle selbst geben.
+  voraussetzungRoleId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId, sortOrder])
+  @@index([publicVisible])
+}
+
 /// Zwischenspeicher der Discord-Channels.
 model DiscordChannelCache {
   channelId String    @id

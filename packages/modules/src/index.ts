@@ -29,6 +29,7 @@ import './spielwahl/config';
 // SwissHub fragt - Fragen an die Community, Abstimmung, Social-Media-Content.
 import './fragt/config';
 // Streamer Hub - Community-Streamer, Live-Erkennung, Spotlights.
+import './serverrollen/config';
 import './streamer/config';
 import { registerGuildResolver } from './guild/config';
 
@@ -83,6 +84,7 @@ export * as clips from './clips';
 export * as missions from './missions';
 export * as gameserver from './gameserver';
 export * as fragt from './fragt';
+export * as serverrollen from './serverrollen';
 export * as streamer from './streamer';
 export * as wrapped from './wrapped';
 export * as spielwahl from './spielwahl';

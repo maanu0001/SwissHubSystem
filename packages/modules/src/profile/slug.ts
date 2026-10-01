@@ -93,6 +93,7 @@ const GESPERRT = new Set([
   'profil',
   'profile',
   'server',
+  'serverrollen',
   'settings',
   'spieler',
   'streamer-hub',

@@ -371,6 +371,22 @@ export const AUDIT_ACTIONS = {
   CLIP_HALLOFFAME_HIDDEN: 'CLIP_HALLOFFAME_HIDDEN',
   CLIP_HALLOFFAME_RESTORED: 'CLIP_HALLOFFAME_RESTORED',
 
+  /*
+   * Serverrollen - Selbstvergabe.
+   *
+   * Drei Eintraege, und der dritte ist der wichtige: ein **abgelehnter**
+   * Versuch. Der Normalfall dahinter ist eine veraltete Seite, und der ist
+   * harmlos. Ein Muster waere es nicht - zehn Versuche auf eine Rolle mit
+   * Administratorrecht sind etwas anderes als einer, und ohne Eintrag saehe
+   * man den Unterschied nie.
+   *
+   * Die Freigaben selbst (wer eine Rolle selbstvergebbar macht) laufen ueber
+   * die allgemeinen Einstellungs-Eintraege - sie sind Konfiguration.
+   */
+  SERVERROLE_SELF_ADDED: 'SERVERROLE_SELF_ADDED',
+  SERVERROLE_SELF_REMOVED: 'SERVERROLE_SELF_REMOVED',
+  SERVERROLE_SELF_DENIED: 'SERVERROLE_SELF_DENIED',
+
   // --- SwissHub fragt ------------------------------------------------------
   //
   // Protokolliert wird die Verwaltung: wer eine Frage schreibt, aendert,

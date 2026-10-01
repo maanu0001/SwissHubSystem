@@ -35,6 +35,21 @@ const OEFFENTLICH = new Set([
   'leaderboard',
   'login',
   'premium',
+  /*
+   * `/serverrollen` - die oeffentliche Rollenuebersicht.
+   *
+   * Wer die Rollen verstehen will, ist meist neu und oft noch nicht einmal
+   * auf dem Server. Eine Seite, die zuerst den Login verlangt, beantwortet
+   * die Frage fuer genau die Leute nicht, die sie stellen.
+   *
+   * Die Seite existiert nur, wenn das Modul **und** der Schalter
+   * «Oeffentliche Seite» an sind - `oeffentlichErlaubt`; sonst 404. Die
+   * Knoepfe zum Selbstnehmen sind an eine Sitzung gebunden, und was dort
+   * geschieht, entscheidet `aendereEigeneRolle` serverseitig neu. Die
+   * Verwaltung liegt getrennt unter `/server/serverrollen` **innerhalb** von
+   * `(app)`.
+   */
+  'serverrollen',
   'setup',
   /*
    * `/streamer` - die oeffentliche Streamer-Uebersicht und die Streamer-Seiten.

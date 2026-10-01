@@ -73,6 +73,17 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   MEMBERS_SEARCHED: 'Mitglieder gesucht',
   MEMBER_ROLE_GRANTED: 'Rolle vergeben',
   MEMBER_ROLE_REVOKED: 'Rolle entzogen',
+
+  /*
+   * Selbstvergabe aus der oeffentlichen Rollenuebersicht.
+   *
+   * «selbst» steht im Namen, weil der Unterschied zu «Rolle vergeben» genau
+   * der ist: hier hat niemand aus dem Team gehandelt. Der abgelehnte Versuch
+   * steht daneben - ein Muster darauf ist das Erste, was man sehen will.
+   */
+  SERVERROLE_SELF_ADDED: 'Rolle selbst genommen',
+  SERVERROLE_SELF_REMOVED: 'Rolle selbst abgegeben',
+  SERVERROLE_SELF_DENIED: 'Selbstvergabe abgelehnt',
   MEMBER_NOTE_CREATED: 'Mitgliedsnotiz erstellt',
   MEMBER_NOTE_UPDATED: 'Mitgliedsnotiz geändert',
   MEMBER_NOTE_DELETED: 'Mitgliedsnotiz gelöscht',

@@ -414,6 +414,18 @@ export const RATE_LIMITS = {
    * alle aendert.
    */
   spielwahlFuehrung: { limit: 60, windowMs: 5 * 60 * 1000 },
+
+  /**
+   * Eine freigegebene Rolle selbst nehmen oder abgeben.
+   *
+   * Jeder Klick ist ein Discord-Aufruf, und die oeffentliche Rollenseite
+   * zeigt leicht zwanzig Knoepfe nebeneinander - wer durchprobiert, soll das
+   * duerfen, aber nicht in einem Tempo, das Discord uns drosselt.
+   */
+  serverrolleSelbst: { limit: 30, windowMs: 5 * 60 * 1000 },
+
+  /** Gruppen, Beschreibungen und Freigaben pflegen - Redaktion, nicht Alltag. */
+  serverrollenPflege: { limit: 90, windowMs: 10 * 60 * 1000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;
