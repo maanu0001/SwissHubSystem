@@ -101,9 +101,7 @@ export default async function EmojiSeite(): Promise<React.JSX.Element> {
       {/* 2. Was fehlt - das Bot-Recht zuerst, weil ohne es nichts geht */}
       {botRecht ? (
         <Card
-          className={cn(
-            bereich.plaetze.botDarf === false ? 'border-destructive/50' : 'border-amber-500/40',
-          )}
+          className={cn(bereich.plaetze.botDarf === false ? 'border-destructive/50' : 'border-amber-500/40')}
         >
           <CardContent className="flex items-start gap-3 py-5 text-sm">
             <AlertTriangle

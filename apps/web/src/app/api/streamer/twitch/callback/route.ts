@@ -6,7 +6,7 @@ import { streamer } from '@swisshub/modules';
 import { systemRoutes } from '@swisshub/shared';
 import { createLogger } from '@swisshub/logger';
 import { getActionAuthContext } from '@/server/auth';
-import { STATE_COOKIE, rueckwegAdresse } from '../start/route';
+import { STATE_COOKIE, rueckwegAdresse } from '../oauth-rueckweg';
 
 /**
  * Der Rueckweg von Twitch - hier entsteht der Beweis.

@@ -6,6 +6,7 @@ import { streamer } from '@swisshub/modules';
 import { systemRoutes } from '@swisshub/shared';
 import { getActionAuthContext } from '@/server/auth';
 import { enforceRateLimit } from '@/server/rate-limit';
+import { STATE_COOKIE, rueckwegAdresse } from '../oauth-rueckweg';
 
 /**
  * Der Anstoss der Kanalpruefung: weiter zu Twitch.
@@ -29,7 +30,14 @@ import { enforceRateLimit } from '@/server/rate-limit';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export const STATE_COOKIE = 'swisshub_streamer_twitch_state';
+/*
+ * `STATE_COOKIE` und `rueckwegAdresse` liegen in `../oauth-rueckweg`.
+ *
+ * Eine Route darf nur Handler und bekannte Konfigurationsfelder exportieren -
+ * `next build` lehnt alles andere ab. Die beiden Werte sind ausserdem die
+ * Vereinbarung zwischen dieser Route und dem Rueckweg und gehoeren damit keiner
+ * von beiden allein.
+ */
 
 export async function GET(): Promise<Response> {
   const context = await getActionAuthContext('critical');
@@ -65,16 +73,4 @@ export async function GET(): Promise<Response> {
   });
 
   return Response.redirect(streamer.autorisierungsAdresse(zugang.clientId, rueckwegAdresse(), state), 302);
-}
-
-/**
- * Die Redirect-URI - abgeleitet, nicht konfiguriert.
- *
- * Twitch verlangt sie beim Autorisieren **und** beim Einloesen zeichengleich,
- * und sie muss in der Developer Console eingetragen sein. Zwei Quellen fuer
- * dieselbe Adresse waeren eine Fehlerquelle, die sich nur mit «invalid
- * redirect uri» meldet - und zwar erst beim Mitglied.
- */
-export function rueckwegAdresse(): string {
-  return appUrl('/api/streamer/twitch/callback');
 }
