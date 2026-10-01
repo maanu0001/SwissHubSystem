@@ -8,3 +8,4 @@ export * from './katalog';
 export * from './antrag';
 export * from './abstimmung';
 export * from './uebersicht';
+export * from './discord';

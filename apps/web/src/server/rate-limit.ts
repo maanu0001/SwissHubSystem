@@ -426,6 +426,23 @@ export const RATE_LIMITS = {
 
   /** Gruppen, Beschreibungen und Freigaben pflegen - Redaktion, nicht Alltag. */
   serverrollenPflege: { limit: 90, windowMs: 10 * 60 * 1000 },
+
+  /**
+   * Emojis hinzufuegen, umbenennen, loeschen und ueber Vorschlaege entscheiden.
+   *
+   * Eng, weil jeder Aufruf ein Discord-Aufruf ist und Discord Emoji-Aenderungen
+   * sehr knapp begrenzt. Eine Aufraeumrunde mit zwanzig Umbenennungen passt
+   * hinein, ein Skript nicht.
+   */
+  emojiSchreiben: { limit: 40, windowMs: 10 * 60 * 1000 },
+
+  /**
+   * Einen Emoji-Vorschlag einreichen.
+   *
+   * Sehr eng: jeder Vorschlag laedt bis zu 256 KB auf die Platte, und die
+   * fachliche Grenze (offene Vorschlaege je Mitglied) wirkt erst danach.
+   */
+  emojiVorschlagen: { limit: 10, windowMs: 30 * 60 * 1000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

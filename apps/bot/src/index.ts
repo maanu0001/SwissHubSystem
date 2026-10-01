@@ -27,6 +27,7 @@ import { createJobRunner } from './jobs';
 import { startIntegrationWatch } from './integration-reload';
 import { registerVoteJailHandler } from './vote-jail';
 import { registerFragtHandler } from './fragt-buttons';
+import { registerEmojiButtons } from './emoji-buttons';
 import { registerCommandHandler, registerCommands } from './commands/register';
 import { registerRaffleButtons } from './raffle-buttons';
 import { registerCalendarInteractions } from './calendar-interactions';
@@ -177,6 +178,8 @@ async function main(): Promise<void> {
   registerVoteJailHandler(client);
   // Die Antwort-Knoepfe von «SwissHub fragt».
   registerFragtHandler(client);
+  // Emoji-Vorschlaege: Annehmen, Ablehnen, Abstimmen lassen, Stimme abgeben.
+  registerEmojiButtons(client);
   // Verifikation: Beitritt, Nachricht und die beiden Knöpfe der Moderation.
   registerVerification(client);
   registerRejectConfirmation(client);

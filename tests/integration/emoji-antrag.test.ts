@@ -644,3 +644,216 @@ describeWithDatabase('Emoji: der Bereich', () => {
     expect(await emoji.ladeEigeneAntraege(MODERATOR)).toHaveLength(0);
   });
 });
+
+describeWithDatabase('Emoji: die Meldungen auf Discord', () => {
+  /**
+   * Die Moderationsmeldung wird bearbeitet, nicht neu gesendet.
+   *
+   * Sonst wächst der Kanal mit jedem Statuswechsel um eine Nachricht, und am
+   * Ende weiss niemand, welche die aktuelle ist - bei einem Vorschlag, der
+   * durch Abstimmung, Annahme und Aufräumen geht, sind das vier.
+   */
+  /** Ein Zugang, der festhält, was gesendet und was bearbeitet wurde. */
+  function attrappe(options: { editScheitert?: boolean; sendScheitert?: boolean } = {}) {
+    const gesendet: Array<{ channelId: string }> = [];
+    const bearbeitet: Array<{ channelId: string; messageId: string }> = [];
+    const gateway = {
+      channels: {
+        send: async (channelId: string) => {
+          if (options.sendScheitert) {
+            throw new Error('Missing Permissions');
+          }
+          gesendet.push({ channelId });
+          return { id: `m-${gesendet.length}`, channelId };
+        },
+        edit: async (channelId: string, messageId: string) => {
+          if (options.editScheitert) {
+            throw new Error('Unknown Message');
+          }
+          bearbeitet.push({ channelId, messageId });
+        },
+      },
+    };
+    return { gateway, gesendet, bearbeitet };
+  }
+
+  const MOD_KANAL = '900000000000007001';
+
+  beforeAll(() => {
+    pushSchema();
+  });
+
+  beforeEach(async () => {
+    await prisma.$executeRawUnsafe(
+      'TRUNCATE "EmojiStimme","EmojiAntrag","ModuleState","AuditLog" RESTART IDENTITY CASCADE',
+    );
+    clearRevisionCaches();
+    /*
+     * Der globale Zugang bleibt der Mock.
+     *
+     * Die Attrappe unten kennt nur `channels` - sie ersetzt den ganzen Zugang
+     * nicht, sondern wird den Melde-Funktionen als `gateway` mitgegeben.
+     * Andernfalls scheiterte schon das Einreichen an `discord.emojis.list()`,
+     * und der Test prüfte dann einen Fehler, den er selbst gebaut hat.
+     */
+    await raeumeMockEmojisAuf();
+    await setModuleEnabled(emoji.EMOJI_MODULE_ID, true, 'test');
+    await setModuleSettings(
+      emoji.EMOJI_MODULE_ID,
+      {
+        antraegeAktiv: true,
+        moderationChannelId: MOD_KANAL,
+        abstimmungAktiv: true,
+        abstimmungChannelId: '',
+        stimmenZiel: 10,
+        abstimmungMinuten: 10,
+        maxOffeneJeMitglied: 3,
+        erlaubteHosts: 'cdn.discordapp.com',
+        reservePlaetze: 0,
+      },
+      'test',
+    );
+    clearRevisionCaches();
+  });
+
+  it('sendet die Meldung einmal und bearbeitet sie danach', async () => {
+    const id = await reicheEin('pog', png(41));
+    const discord = attrappe();
+
+    await emoji.schreibeModerationsmeldung(id, { gateway: discord.gateway as never });
+    await emoji.schreibeModerationsmeldung(id, { gateway: discord.gateway as never });
+    await emoji.schreibeModerationsmeldung(id, { gateway: discord.gateway as never });
+
+    expect(discord.gesendet).toHaveLength(1);
+    expect(discord.bearbeitet).toHaveLength(2);
+    expect(discord.bearbeitet[0]?.channelId).toBe(MOD_KANAL);
+  });
+
+  it('merkt sich Kanal und Nachricht, damit der Neustart sie wiederfindet', async () => {
+    const id = await reicheEin('pog', png(42));
+    const discord = attrappe();
+
+    await emoji.schreibeModerationsmeldung(id, { gateway: discord.gateway as never });
+
+    const antrag = await prisma.emojiAntrag.findUniqueOrThrow({ where: { id } });
+    expect(antrag.modChannelId).toBe(MOD_KANAL);
+    expect(antrag.modMessageId).toBeTruthy();
+  });
+
+  it('sendet neu, wenn jemand die Meldung gelöscht hat', async () => {
+    const id = await reicheEin('pog', png(43));
+    await emoji.schreibeModerationsmeldung(id, { gateway: attrappe().gateway as never });
+
+    // Die Nachricht ist weg - die Moderation braucht den Fall aber.
+    const kaputt = attrappe({ editScheitert: true });
+    await emoji.schreibeModerationsmeldung(id, { gateway: kaputt.gateway as never });
+
+    expect(kaputt.gesendet).toHaveLength(1);
+  });
+
+  it('legt mit «nurAktualisieren» niemals nach', async () => {
+    /*
+     * Der Fall ist abgeschlossen, und was mit ihm geschah, steht im Verlauf.
+     * Eine neue Meldung wäre eine Arbeitsanweisung für etwas, das niemand mehr
+     * bearbeiten kann.
+     */
+    const id = await reicheEin('pog', png(44));
+    await emoji.schreibeModerationsmeldung(id, { gateway: attrappe().gateway as never });
+
+    const kaputt = attrappe({ editScheitert: true });
+    await emoji.schreibeModerationsmeldung(id, {
+      gateway: kaputt.gateway as never,
+      nurAktualisieren: true,
+    });
+
+    expect(kaputt.gesendet).toEqual([]);
+  });
+
+  it('legt mit «nurAktualisieren» auch ohne bestehende Meldung nichts an', async () => {
+    const id = await reicheEin('pog', png(45));
+    const discord = attrappe();
+
+    await emoji.schreibeModerationsmeldung(id, {
+      gateway: discord.gateway as never,
+      nurAktualisieren: true,
+    });
+
+    expect(discord.gesendet).toEqual([]);
+    expect(discord.bearbeitet).toEqual([]);
+  });
+
+  it('verliert den Vorschlag nicht, wenn die Meldung scheitert', async () => {
+    /*
+     * Ein falsch gesetzter Kanal oder ein fehlendes Schreibrecht darf keine
+     * Einreichung kosten: im Dashboard ist sie sichtbar, und dort kann das Team
+     * sie bearbeiten.
+     */
+    const id = await reicheEin('pog', png(46));
+    const kaputt = attrappe({ sendScheitert: true });
+
+    await expect(
+      emoji.schreibeModerationsmeldung(id, { gateway: kaputt.gateway as never }),
+    ).resolves.toBeUndefined();
+
+    const antrag = await prisma.emojiAntrag.findUniqueOrThrow({ where: { id } });
+    expect(antrag.status).toBe('OFFEN');
+    expect(antrag.modMessageId).toBeNull();
+  });
+
+  it('schreibt nichts, solange kein Moderationskanal gesetzt ist', async () => {
+    await setModuleSettings(
+      emoji.EMOJI_MODULE_ID,
+      {
+        antraegeAktiv: true,
+        moderationChannelId: '',
+        abstimmungAktiv: true,
+        abstimmungChannelId: '',
+        stimmenZiel: 10,
+        abstimmungMinuten: 10,
+        maxOffeneJeMitglied: 3,
+        erlaubteHosts: 'cdn.discordapp.com',
+        reservePlaetze: 0,
+      },
+      'test',
+    );
+    clearRevisionCaches();
+    const id = await reicheEin('pog', png(47));
+    const discord = attrappe();
+
+    await emoji.schreibeModerationsmeldung(id, { gateway: discord.gateway as never });
+
+    expect(discord.gesendet).toEqual([]);
+  });
+
+  it('stellt eine Abstimmung nach einer gelöschten Nachricht nicht zweimal', async () => {
+    /*
+     * Denselben Vorschlag zweimal zur Wahl zu bringen - mit einem Stimmenstand,
+     * der schon läuft - wäre schlimmer als eine fehlende Nachricht. Der Stand
+     * steht weiter im Dashboard.
+     */
+    await setModuleSettings(
+      emoji.EMOJI_MODULE_ID,
+      {
+        antraegeAktiv: true,
+        moderationChannelId: MOD_KANAL,
+        abstimmungAktiv: true,
+        abstimmungChannelId: '900000000000007002',
+        stimmenZiel: 10,
+        abstimmungMinuten: 10,
+        maxOffeneJeMitglied: 3,
+        erlaubteHosts: 'cdn.discordapp.com',
+        reservePlaetze: 0,
+      },
+      'test',
+    );
+    clearRevisionCaches();
+    const id = await reicheEin('pog', png(48));
+    await emoji.starteAbstimmung(id, MODERATOR);
+    await emoji.schreibeAbstimmungsnachricht(id, { gateway: attrappe().gateway as never });
+
+    const kaputt = attrappe({ editScheitert: true });
+    await emoji.schreibeAbstimmungsnachricht(id, { gateway: kaputt.gateway as never });
+
+    expect(kaputt.gesendet).toEqual([]);
+  });
+});
