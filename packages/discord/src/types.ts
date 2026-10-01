@@ -97,7 +97,40 @@ export const discordGuildSchema = z.object({
   approximate_member_count: z.number().nullish(),
   approximate_presence_count: z.number().nullish(),
   owner_id: z.string().nullish(),
+  premium_tier: z.number().nullish(),
 });
+
+/**
+ * Ein Emoji, wie Discord es liefert.
+ *
+ * `name` ist bei Discord nullbar - bei Reaktions-Emojis aus Fremdservern etwa.
+ * Fuer Server-Emojis steht er immer, aber `nullish` zu lesen ist billiger als
+ * ein Fehler bei einem Sonderfall, den wir nicht kennen.
+ */
+export const discordEmojiSchema = z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  animated: z.boolean().nullish(),
+  managed: z.boolean().nullish(),
+  available: z.boolean().nullish(),
+  roles: z.array(z.string()).nullish(),
+  user: z.object({ id: z.string() }).nullish(),
+});
+
+/**
+ * Wie viele Emoji-Plaetze eine Boost-Stufe gibt - je fuer feste und animierte.
+ *
+ * Discords Zahlen, nicht unsere. Sie stehen hier, weil sie zu Discord gehoeren
+ * und nicht zu einem Modul: jedes Modul, das Plaetze zaehlt, soll dieselbe
+ * Tabelle lesen.
+ */
+export const EMOJI_PLAETZE_JE_STUFE: readonly number[] = [50, 100, 150, 250] as const;
+
+/** Die Plaetze je Art fuer eine Boost-Stufe. Unbekannte Stufen fallen auf die Grundzahl. */
+export function emojiPlaetze(premiumTier: number): number {
+  const stufe = Number.isInteger(premiumTier) ? premiumTier : 0;
+  return EMOJI_PLAETZE_JE_STUFE[Math.min(Math.max(stufe, 0), EMOJI_PLAETZE_JE_STUFE.length - 1)] ?? 50;
+}
 
 export type RawDiscordUser = z.infer<typeof discordUserSchema>;
 export type RawDiscordMember = z.infer<typeof discordMemberSchema>;
@@ -173,6 +206,51 @@ export interface GuildSummary {
   /** Ungefähre Anzahl aktuell online Mitglieder. */
   approximatePresenceCount: number | null;
   ownerId: string | null;
+  /**
+   * Die Boost-Stufe (0-3).
+   *
+   * Sie entscheidet ueber die Zahl der Emoji-Plaetze, und zwar sprunghaft:
+   * 50, 100, 150, 250 - je fuer feste und fuer animierte getrennt. Ein Server,
+   * der eine Stufe verliert, behaelt seine Emojis, aber Discord stellt die
+   * ueberzaehligen still (`available: false`).
+   */
+  premiumTier: number;
+}
+
+/**
+ * Ein Server-Emoji.
+ *
+ * `managed` heisst «gehoert einer Integration» - Twitch-Abo-Emojis etwa. Die
+ * kann kein Bot aendern, und ein Knopf dafuer waere ein Knopf, der immer
+ * scheitert.
+ *
+ * `uploaderId` liefert Discord nur, wenn der Bot «Ausdruecke verwalten» hat.
+ * `null` heisst deshalb «nicht bekannt» und nicht «niemand».
+ */
+export interface GuildEmoji {
+  id: string;
+  name: string;
+  animated: boolean;
+  managed: boolean;
+  /** `false`, wenn der Server Boost-Stufen verloren hat und das Emoji stillgelegt ist. */
+  available: boolean;
+  /** Rollen, auf die die Nutzung beschraenkt ist. Leer heisst «alle». */
+  roleIds: string[];
+  uploaderId: string | null;
+}
+
+export interface CreateEmojiInput {
+  name: string;
+  /**
+   * Das Bild als Data-URI (`data:image/png;base64,...`).
+   *
+   * Discord nimmt nichts anderes an - keine URL, keinen Mehrteil-Upload. Die
+   * Bytes muessen also ohnehin durch diesen Prozess, und genau deshalb kann
+   * er sie vorher pruefen.
+   */
+  image: string;
+  /** Nutzung auf diese Rollen beschraenken. Leer oder weggelassen heisst «alle». */
+  roleIds?: string[];
 }
 
 export interface BotIdentity {

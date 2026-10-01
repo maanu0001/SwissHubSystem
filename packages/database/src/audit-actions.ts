@@ -387,6 +387,25 @@ export const AUDIT_ACTIONS = {
   SERVERROLE_SELF_REMOVED: 'SERVERROLE_SELF_REMOVED',
   SERVERROLE_SELF_DENIED: 'SERVERROLE_SELF_DENIED',
 
+  // --- Emoji Management ----------------------------------------------------
+  //
+  // Der Verlauf des Emoji-Bereichs **ist** dieses Log, gefiltert auf das Modul
+  // `emoji` - kein zweiter Verlauf daneben. Deshalb steht hier jeder Vorgang,
+  // der eine Spur hinterlassen soll: was auf dem Server landete, was verschwand
+  // und was abgelehnt wurde.
+  //
+  // Eine abgelehnte Bitte gehoert dazu. Nicht als Vorwurf, sondern weil «mein
+  // Vorschlag ist weg» sonst unbeantwortbar ist.
+  EMOJI_ADDED: 'EMOJI_ADDED',
+  EMOJI_RENAMED: 'EMOJI_RENAMED',
+  EMOJI_DELETED: 'EMOJI_DELETED',
+  EMOJI_REQUESTED: 'EMOJI_REQUESTED',
+  EMOJI_REQUEST_ACCEPTED: 'EMOJI_REQUEST_ACCEPTED',
+  EMOJI_REQUEST_REJECTED: 'EMOJI_REQUEST_REJECTED',
+  EMOJI_VOTE_STARTED: 'EMOJI_VOTE_STARTED',
+  EMOJI_VOTE_PASSED: 'EMOJI_VOTE_PASSED',
+  EMOJI_VOTE_EXPIRED: 'EMOJI_VOTE_EXPIRED',
+
   // --- SwissHub fragt ------------------------------------------------------
   //
   // Protokolliert wird die Verwaltung: wer eine Frage schreibt, aendert,

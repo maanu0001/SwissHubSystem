@@ -84,6 +84,24 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   SERVERROLE_SELF_ADDED: 'Rolle selbst genommen',
   SERVERROLE_SELF_REMOVED: 'Rolle selbst abgegeben',
   SERVERROLE_SELF_DENIED: 'Selbstvergabe abgelehnt',
+
+  /*
+   * Emojis.
+   *
+   * «Vorschlag» und «Emoji» sind getrennt benannt, weil es zwei Dinge sind:
+   * ein angenommener Vorschlag erzeugt zusaetzlich einen Eintrag ueber das
+   * Emoji, das danach auf dem Server liegt. Wer den Verlauf liest, soll den
+   * Weg sehen und nicht nur das Ergebnis.
+   */
+  EMOJI_ADDED: 'Emoji hinzugefügt',
+  EMOJI_RENAMED: 'Emoji umbenannt',
+  EMOJI_DELETED: 'Emoji gelöscht',
+  EMOJI_REQUESTED: 'Emoji vorgeschlagen',
+  EMOJI_REQUEST_ACCEPTED: 'Vorschlag angenommen',
+  EMOJI_REQUEST_REJECTED: 'Vorschlag abgelehnt',
+  EMOJI_VOTE_STARTED: 'Abstimmung gestartet',
+  EMOJI_VOTE_PASSED: 'Abstimmung erreicht das Ziel',
+  EMOJI_VOTE_EXPIRED: 'Abstimmung ohne Ergebnis beendet',
   MEMBER_NOTE_CREATED: 'Mitgliedsnotiz erstellt',
   MEMBER_NOTE_UPDATED: 'Mitgliedsnotiz geändert',
   MEMBER_NOTE_DELETED: 'Mitgliedsnotiz gelöscht',

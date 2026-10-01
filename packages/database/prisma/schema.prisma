@@ -9961,3 +9961,119 @@ model HostImageState {
 
   @@unique([hostId, imageId])
 }
+
+// =============================================================================
+// Emoji Management - Antraege, Abstimmung, Verlauf
+// =============================================================================
+
+/**
+ * Woher die Bytes eines Antrags technisch kommen.
+ *
+ * Bewusst eine *technische* Herkunft und keine Rechteaussage: SwissHub weiss,
+ * ob eine Datei hochgeladen oder von einer freigegebenen Adresse geholt wurde.
+ * Wem das Bild gehoert, weiss es nicht - und behauptet es deshalb nirgends.
+ */
+enum EmojiHerkunft {
+  /** Direkt in der WebApp hochgeladen. */
+  UPLOAD
+  /** Von einer freigegebenen Adresse geholt. */
+  IMPORT
+  /** Anhang einer Discord-Nachricht, vom Bot geholt. */
+  DISCORD_ANHANG
+}
+
+enum EmojiAntragStatus {
+  /** Wartet auf das Team. */
+  OFFEN
+  /** Die Community stimmt ab. */
+  ABSTIMMUNG
+  ANGENOMMEN
+  ABGELEHNT
+  /** Die Abstimmung endete ohne genug Stimmen. */
+  ABGELAUFEN
+}
+
+/**
+ * Ein Emoji-Vorschlag.
+ *
+ * Die Bytes liegen im Upload-Verzeichnis und nicht in dieser Zeile: ein
+ * 256-KiB-Blob je Antrag waere eine Datenbank, die mit Bildern waechst. Der
+ * Dateiname ist ein Zufallsname - der Name beim Hochladen wird nie zum Pfad.
+ */
+model EmojiAntrag {
+  id String @id @default(cuid())
+
+  /** Der vorgeschlagene Name, schon geprueft (2-32, a-z0-9_). */
+  name String
+
+  /**
+   * SHA-256 der Bytes.
+   *
+   * Erkennt dasselbe Bild unter anderem Namen - ohne Bildvergleich, der
+   * teuer waere und bei verlustfrei umkodierten Bildern trotzdem versagt.
+   */
+  pruefsumme String
+
+  /** Zufallsname im Upload-Verzeichnis. */
+  dateiName String
+  mimeTyp   String
+  bytes     Int
+  animiert  Boolean @default(false)
+  breite    Int?
+  hoehe     Int?
+
+  herkunft EmojiHerkunft
+  /** Die geprueufte Quelladresse oder der Anzeigename beim Hochladen - nur Technik. */
+  herkunftNotiz String?
+
+  status          EmojiAntragStatus @default(OFFEN)
+  antragstellerId String
+  begruendung     String?
+
+  /** Die Moderationsnachricht - damit sie bearbeitet und nicht neu gesendet wird. */
+  modChannelId String?
+  modMessageId String?
+
+  /** Abstimmung: Fenster, Ziel und die Nachricht mit dem Knopf. */
+  abstimmungStartetAm DateTime?
+  abstimmungEndetAm   DateTime?
+  stimmenZiel         Int?
+  abstimmungChannelId String?
+  abstimmungMessageId String?
+
+  entschiedenVon  String?
+  entschiedenAm   DateTime?
+  ablehnungsGrund String?
+
+  /** Das entstandene Emoji - `null`, solange keines existiert. */
+  emojiId   String?
+  emojiName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stimmen EmojiStimme[]
+
+  @@index([status])
+  @@index([pruefsumme])
+  @@index([antragstellerId])
+  /** Fuer den Scheduler: welche Abstimmung laeuft ab? */
+  @@index([status, abstimmungEndetAm])
+}
+
+/**
+ * Eine Stimme fuer einen Vorschlag.
+ *
+ * Der eindeutige Schluessel ist die ganze Doppelsperre: zwei Klicks desselben
+ * Mitglieds sind ein Konflikt in der Datenbank und keine Rechnung im Code.
+ */
+model EmojiStimme {
+  id        String      @id @default(cuid())
+  antragId  String
+  antrag    EmojiAntrag @relation(fields: [antragId], references: [id], onDelete: Cascade)
+  discordId String
+  createdAt DateTime    @default(now())
+
+  @@unique([antragId, discordId])
+  @@index([antragId])
+}

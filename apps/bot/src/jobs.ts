@@ -11,6 +11,7 @@ import {
   automation,
   calendar,
   clips,
+  emoji,
   fragt,
   gameserver,
   jail,
@@ -553,6 +554,30 @@ export function createJobRunner(
           return;
         }
         await clips.runClipsTick(guildId);
+      },
+    },
+    {
+      name: 'emoji-abstimmung',
+      /*
+       * Abgelaufene Emoji-Abstimmungen beenden.
+       *
+       * Im Minutentakt, weil die Frist auf die Minute genau endet: «zehn
+       * Minuten» heisst zehn Minuten, und eine Abstimmung, die eine
+       * Viertelstunde spaeter noch Stimmen annimmt, ist keine Frist.
+       *
+       * Die Datenbank ist die Quelle - `abstimmungEndetAm` steht in der Zeile,
+       * nicht in einem `setTimeout`. Ein Neustart verliert dadurch keine
+       * laufende Abstimmung, und ein ausgefallener Durchgang holt beim
+       * naechsten alles nach. Im Normalfall findet der Lauf nichts: eine
+       * indizierte Abfrage auf `(status, abstimmungEndetAm)`.
+       */
+      intervalMs: 60 * 1000,
+      runOnStart: true,
+      async run() {
+        const bericht = await emoji.lasseAbstimmungenAblaufen();
+        if (bericht.abgelaufen > 0 || bericht.nachtraeglichAngenommen > 0) {
+          log.debug('Emoji-Abstimmungen abgeschlossen', { ...bericht });
+        }
       },
     },
     {

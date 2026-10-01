@@ -2,7 +2,9 @@ import type {
   AuditLogEntry,
   BotGuild,
   BotIdentity,
+  CreateEmojiInput,
   GuildChannel,
+  GuildEmoji,
   GuildInvite,
   GuildMember,
   GuildRole,
@@ -263,6 +265,29 @@ export interface DiscordGateway {
        */
       after?: string;
     }): Promise<AuditLogEntry[]>;
+  };
+  /**
+   * Server-Emojis.
+   *
+   * Eigener Bereich und keine Erweiterung von `guild`: Emojis haben einen
+   * Lebenszyklus (anlegen, umbenennen, entfernen) und ein eigenes, sehr enges
+   * Rate-Limit bei Discord. Alle vier Aufrufe brauchen «Ausdruecke verwalten»;
+   * fehlt es, antwortet Discord mit 403 - und das wird geworfen und nicht
+   * verschluckt. «Ich darf nicht» und «es gibt keine» sind verschiedene
+   * Aussagen.
+   */
+  emojis: {
+    list(options?: { force?: boolean }): Promise<GuildEmoji[]>;
+    /**
+     * Legt ein Emoji an.
+     *
+     * Discord nimmt das Bild als Data-URI und begrenzt es auf 256 KiB. Beides
+     * prueft der Aufrufer vorher: eine Fehlermeldung von Discord nennt weder
+     * die gefundene Groesse noch einen Weg.
+     */
+    create(input: CreateEmojiInput, reason?: string): Promise<GuildEmoji>;
+    rename(emojiId: string, name: string, reason?: string): Promise<GuildEmoji>;
+    remove(emojiId: string, reason?: string): Promise<void>;
   };
   bot: {
     identity(): Promise<BotIdentity>;

@@ -8,6 +8,7 @@ import { DISCORD_PERMISSIONS, combinePermissions, toPermissionBits } from './per
 import {
   botGuildSchema,
   discordChannelSchema,
+  discordEmojiSchema,
   discordGuildSchema,
   discordMemberSchema,
   discordRoleSchema,
@@ -15,6 +16,7 @@ import {
   discordUserSchema,
   type BotGuild,
   type GuildChannel,
+  type GuildEmoji,
   type GuildInvite,
   type GuildMember,
   type GuildRole,
@@ -65,6 +67,47 @@ async function cached<T>(key: string, force: boolean, loader: () => Promise<T>):
 
 export function clearDiscordCache(): void {
   cache.clear();
+}
+
+/**
+ * Einen einzelnen Eintrag verwerfen.
+ *
+ * Gebraucht nach einem Schreibvorgang: wer gerade ein Emoji angelegt hat, soll
+ * es in der naechsten Liste sehen. Eine Minute Verzoegerung sieht aus wie ein
+ * Fehlschlag, und `clearDiscordCache()` waere dafuer zu grob - es raeumte auch
+ * Rollen und Kanaele weg.
+ */
+function resetCache(key: string): void {
+  cache.delete(key);
+}
+
+/** Discords Emoji-Form in unsere - `id` und `name` sind hier schon geprueft. */
+function zuEmoji(id: string, name: string, roh: { animated?: boolean | null; managed?: boolean | null; available?: boolean | null; roles?: string[] | null; user?: { id: string } | null }): GuildEmoji {
+  return {
+    id,
+    name,
+    animated: roh.animated ?? false,
+    managed: roh.managed ?? false,
+    // Discord laesst das Feld weg, wenn das Emoji nutzbar ist.
+    available: roh.available ?? true,
+    roleIds: roh.roles ?? [],
+    uploaderId: roh.user?.id ?? null,
+  };
+}
+
+/**
+ * Die Antwort auf ein Anlegen oder Umbenennen.
+ *
+ * Hier wird geworfen und nicht `null` geliefert: Discord hat gerade bestaetigt,
+ * dass es das Emoji gibt. Eine Antwort, die sich nicht lesen laesst, ist ein
+ * Fehler und keine Abwesenheit.
+ */
+function parseEmoji(roh: unknown): GuildEmoji {
+  const geparst = discordEmojiSchema.parse(roh);
+  if (!geparst.id || !geparst.name) {
+    throw new Error('Discord hat ein Emoji ohne Kennung oder Namen geliefert.');
+  }
+  return zuEmoji(geparst.id, geparst.name, geparst);
 }
 
 function normaliseMember(raw: RawDiscordMember): GuildMember | null {
@@ -698,6 +741,7 @@ export function createRestGateway(): DiscordGateway {
           approximateMemberCount: parsed.approximate_member_count ?? null,
           approximatePresenceCount: parsed.approximate_presence_count ?? null,
           ownerId: parsed.owner_id ?? null,
+          premiumTier: parsed.premium_tier ?? 0,
         };
       });
     },
@@ -883,6 +927,59 @@ export function createRestGateway(): DiscordGateway {
     },
   };
 
+  /**
+   * Server-Emojis.
+   *
+   * Der Zwischenspeicher wird nach jeder Aenderung verworfen und nicht nur
+   * nach Ablauf: wer ein Emoji anlegt und danach die Liste liest, soll es
+   * sehen. Eine Minute Verzoegerung sieht sonst wie ein Fehlschlag aus.
+   */
+  const emojis: DiscordGateway['emojis'] = {
+    async list(options = {}) {
+      return cached('emojis', options.force ?? false, async () => {
+        const raw = await discordRequest<unknown[]>(`${await guildRoute()}/emojis`);
+        return (Array.isArray(raw) ? raw : [])
+          .map((entry) => discordEmojiSchema.safeParse(entry))
+          .filter((result) => result.success)
+          .map((result) => result.data)
+          .flatMap((emoji) => (emoji.id && emoji.name ? [zuEmoji(emoji.id, emoji.name, emoji)] : []));
+      });
+    },
+
+    async create(input, reason) {
+      const raw = await discordRequest<unknown>(`${await guildRoute()}/emojis`, {
+        method: 'POST',
+        body: {
+          name: input.name,
+          image: input.image,
+          // Discord will das Feld auch dann sehen, wenn es leer ist.
+          roles: input.roleIds ?? [],
+        },
+        auditLogReason: reason,
+      });
+      resetCache('emojis');
+      return parseEmoji(raw);
+    },
+
+    async rename(emojiId, name, reason) {
+      const raw = await discordRequest<unknown>(`${await guildRoute()}/emojis/${emojiId}`, {
+        method: 'PATCH',
+        body: { name },
+        auditLogReason: reason,
+      });
+      resetCache('emojis');
+      return parseEmoji(raw);
+    },
+
+    async remove(emojiId, reason) {
+      await discordRequest(`${await guildRoute()}/emojis/${emojiId}`, {
+        method: 'DELETE',
+        auditLogReason: reason,
+      });
+      resetCache('emojis');
+    },
+  };
+
   const bot: DiscordGateway['bot'] = {
     async identity(): Promise<BotIdentity> {
       return cached('bot:identity', false, async () => {
@@ -937,7 +1034,18 @@ export function createRestGateway(): DiscordGateway {
     },
   };
 
-  return { members, bans, roles, channels, managedChannels, voice, guild, bot, isMock: false };
+  return {
+    members,
+    bans,
+    roles,
+    channels,
+    managedChannels,
+    voice,
+    guild,
+    emojis,
+    bot,
+    isMock: false,
+  };
 }
 
 function parseMembers(raw: unknown): GuildMember[] {

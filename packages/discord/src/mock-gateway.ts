@@ -2,7 +2,7 @@ import { snowflakeToDate } from '@swisshub/shared';
 import { createLogger } from '@swisshub/logger';
 import { DISCORD_PERMISSIONS } from './permissions';
 import type { DiscordGateway } from './gateway';
-import type { GuildChannel, GuildMember, GuildRole } from './types';
+import type { GuildChannel, GuildEmoji, GuildMember, GuildRole } from './types';
 
 const log = createLogger('discord:mock');
 
@@ -178,6 +178,39 @@ export function createMockGateway(): DiscordGateway {
   /** Banns im Mock. Wie bei Discord unabhaengig von der Mitgliedschaft. */
   const banns = new Map<string, { discordId: string; username: string; reason: string | null }>();
   const sentMessages = new Map<string, { channelId: string }>();
+  /**
+   * Emojis im Mock.
+   *
+   * Zwei zum Anfang, damit eine Liste nicht leer ist, und einer davon
+   * animiert - die beiden Arten haben bei Discord getrennte Platzkontingente,
+   * und eine Rechnung mit nur einer Art prueft die Trennung nicht.
+   */
+  const mockEmojis = new Map<string, GuildEmoji>([
+    [
+      '900000000000000001',
+      {
+        id: '900000000000000001',
+        name: 'swisshub',
+        animated: false,
+        managed: false,
+        available: true,
+        roleIds: [],
+        uploaderId: '100000000000000001',
+      },
+    ],
+    [
+      '900000000000000002',
+      {
+        id: '900000000000000002',
+        name: 'pog_animiert',
+        animated: true,
+        managed: false,
+        available: true,
+        roleIds: [],
+        uploaderId: '100000000000000001',
+      },
+    ],
+  ]);
   /**
    * Der Kanalverlauf des Mocks.
    *
@@ -497,6 +530,10 @@ export function createMockGateway(): DiscordGateway {
           approximateMemberCount: state.size,
           approximatePresenceCount: Math.max(1, Math.round(state.size / 2)),
           ownerId: '100000000000000001',
+          // Stufe 2: hundertfuenfzig Plaetze je Art. Eine Stufe mit Luft, damit
+          // die Platzrechnung im Mock nicht dauernd an die Grenze stoesst - und
+          // nicht die hoechste, damit die Grenze ueberhaupt vorkommt.
+          premiumTier: 2,
         };
       },
       async memberCount() {
@@ -575,6 +612,7 @@ export function createMockGateway(): DiscordGateway {
               approximateMemberCount: state.size,
               approximatePresenceCount: 0,
               ownerId: '100000000000000001',
+              premiumTier: 2,
             }
           : null;
       },
@@ -583,6 +621,44 @@ export function createMockGateway(): DiscordGateway {
         // Antwort: sie fuehrt dazu, dass kein Verursacher zugeordnet wird -
         // genau das soll geschehen, wenn nichts belegbar ist.
         return [];
+      },
+    },
+    /**
+     * Emojis im Mock - mit Zustand, nicht nur mit Rueckgabewerten.
+     *
+     * Wer anlegt und danach liest, soll sehen, was er angelegt hat. Ein Mock,
+     * der immer dieselbe Liste liefert, laesst jede Platzrechnung und jede
+     * Doppelpruefung richtig aussehen, egal was der Code tut.
+     */
+    emojis: {
+      async list() {
+        return [...mockEmojis.values()];
+      },
+      async create(input) {
+        const emoji: GuildEmoji = {
+          id: `9000000000000${String(mockEmojis.size + 1).padStart(5, '0')}`,
+          name: input.name,
+          // Die Data-URI verraet die Art - derselbe Schluss wie bei Discord.
+          animated: input.image.startsWith('data:image/gif'),
+          managed: false,
+          available: true,
+          roleIds: input.roleIds ?? [],
+          uploaderId: BOT_ID,
+        };
+        mockEmojis.set(emoji.id, emoji);
+        return emoji;
+      },
+      async rename(emojiId, name) {
+        const vorhanden = mockEmojis.get(emojiId);
+        if (!vorhanden) {
+          throw new Error(`Mock: Emoji ${emojiId} gibt es nicht.`);
+        }
+        const neu = { ...vorhanden, name };
+        mockEmojis.set(emojiId, neu);
+        return neu;
+      },
+      async remove(emojiId) {
+        mockEmojis.delete(emojiId);
       },
     },
     bot: {
