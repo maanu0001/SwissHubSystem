@@ -8,11 +8,7 @@ import type { emoji as emojiModul } from '@swisshub/modules';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  lehneEmojiAntragAbAction,
-  nimmEmojiAntragAnAction,
-  starteEmojiAbstimmungAction,
-} from '../actions';
+import { lehneEmojiAntragAbAction, nimmEmojiAntragAnAction, starteEmojiAbstimmungAction } from '../actions';
 
 /**
  * Ein Vorschlag mit seinen drei Ausgängen.
@@ -67,7 +63,10 @@ export function VorschlagKarte({
         melde(false, antwort.error?.message ?? 'Das hat nicht geklappt.');
         return;
       }
-      melde(antwort.data.ok, antwort.data.ok ? 'Liegt auf dem Server.' : (antwort.data.grund ?? 'Ging nicht.'));
+      melde(
+        antwort.data.ok,
+        antwort.data.ok ? 'Liegt auf dem Server.' : (antwort.data.grund ?? 'Ging nicht.'),
+      );
     });
   };
 
@@ -122,9 +121,7 @@ export function VorschlagKarte({
 
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <code className="rounded bg-background px-1.5 py-0.5 text-sm font-medium">
-              :{antrag.name}:
-            </code>
+            <code className="rounded bg-background px-1.5 py-0.5 text-sm font-medium">:{antrag.name}:</code>
             <Badge variant={antrag.animiert ? 'secondary' : 'outline'}>
               {antrag.animiert ? 'animiert' : 'fest'}
             </Badge>

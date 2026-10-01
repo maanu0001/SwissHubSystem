@@ -7,11 +7,7 @@ import { Eye, EyeOff, Plus, Trash2 } from 'lucide-react';
 import type { serverrollen } from '@swisshub/modules';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  bearbeiteKategorieAction,
-  erstelleKategorieAction,
-  loescheKategorieAction,
-} from '../actions';
+import { bearbeiteKategorieAction, erstelleKategorieAction, loescheKategorieAction } from '../actions';
 
 /**
  * Die Gruppen, in denen die Rollen stehen.
@@ -123,8 +119,8 @@ export function KategorienVerwaltung({
 
       {kategorien.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-          Noch keine Gruppe. Ohne Gruppen stehen alle Rollen unter «Sonstige» - das geht, wird aber
-          schnell lang.
+          Noch keine Gruppe. Ohne Gruppen stehen alle Rollen unter «Sonstige» - das geht, wird aber schnell
+          lang.
         </p>
       ) : (
         <ul className="space-y-2">

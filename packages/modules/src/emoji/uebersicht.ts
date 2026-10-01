@@ -82,10 +82,7 @@ export interface EmojiBereich {
   einrichtung: EinrichtungsBefund;
 }
 
-function zuAnsicht(
-  antrag: EmojiAntrag & { _count?: { stimmen: number } },
-  stimmen: number,
-): AntragAnsicht {
+function zuAnsicht(antrag: EmojiAntrag & { _count?: { stimmen: number } }, stimmen: number): AntragAnsicht {
   return {
     id: antrag.id,
     name: antrag.name,
@@ -150,9 +147,7 @@ export async function ladeBereich(): Promise<EmojiBereich> {
     katalog,
     offene: ansichten.filter((antrag) => antrag.status === 'OFFEN'),
     abstimmungen: ansichten.filter((antrag) => antrag.status === 'ABSTIMMUNG'),
-    entschieden: ansichten.filter(
-      (antrag) => antrag.status !== 'OFFEN' && antrag.status !== 'ABSTIMMUNG',
-    ),
+    entschieden: ansichten.filter((antrag) => antrag.status !== 'OFFEN' && antrag.status !== 'ABSTIMMUNG'),
     verlauf,
     einstellungen,
     einrichtung: {

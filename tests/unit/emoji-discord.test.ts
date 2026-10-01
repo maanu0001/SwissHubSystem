@@ -140,14 +140,11 @@ describe('Moderationsmeldung: Knöpfe nur, wo sie etwas tun', () => {
     expect(ohne.components?.[0]?.components).toHaveLength(2);
   });
 
-  it.each(['ANGENOMMEN', 'ABGELEHNT', 'ABGELAUFEN'] as const)(
-    'nimmt bei «%s» alle Knöpfe weg',
-    (status) => {
-      // Ein Knopf an einem entschiedenen Vorschlag ist eine Einladung zu einer
-      // Fehlermeldung.
-      expect(moderationsPayload(antrag({ status }), 0).components).toEqual([]);
-    },
-  );
+  it.each(['ANGENOMMEN', 'ABGELEHNT', 'ABGELAUFEN'] as const)('nimmt bei «%s» alle Knöpfe weg', (status) => {
+    // Ein Knopf an einem entschiedenen Vorschlag ist eine Einladung zu einer
+    // Fehlermeldung.
+    expect(moderationsPayload(antrag({ status }), 0).components).toEqual([]);
+  });
 
   it('zeigt die Herkunft als Technik und behauptet nichts über Rechte', () => {
     const payload = moderationsPayload(antrag(), 0);
@@ -161,10 +158,7 @@ describe('Moderationsmeldung: Knöpfe nur, wo sie etwas tun', () => {
   });
 
   it('nennt den Stand einer Abstimmung', () => {
-    const payload = moderationsPayload(
-      antrag({ status: 'ABSTIMMUNG', stimmenZiel: 10 }),
-      4,
-    );
+    const payload = moderationsPayload(antrag({ status: 'ABSTIMMUNG', stimmenZiel: 10 }), 4);
     expect(payload.embeds?.[0]?.description).toContain('4');
     expect(payload.embeds?.[0]?.description).toContain('10');
   });
@@ -174,10 +168,7 @@ describe('Moderationsmeldung: Knöpfe nur, wo sie etwas tun', () => {
      * Sonst liest der Antragsteller eine Entscheidung, die niemand getroffen
      * hat - und hört auf zu fragen.
      */
-    const payload = moderationsPayload(
-      antrag({ status: 'ABGELAUFEN', stimmenZiel: 10 }),
-      3,
-    );
+    const payload = moderationsPayload(antrag({ status: 'ABGELAUFEN', stimmenZiel: 10 }), 3);
     expect(payload.embeds?.[0]?.description).toContain('Entschieden ist damit nichts');
   });
 
@@ -214,10 +205,7 @@ describe('Abstimmungsnachricht', () => {
      * Die Abstimmung steht im Kanal der Community. Wer vorgeschlagen hat,
      * gehört dort nicht hin - das wäre eine Abstimmung über eine Person.
      */
-    const payload = abstimmungsPayload(
-      antrag({ status: 'ABSTIMMUNG', stimmenZiel: 10 }),
-      2,
-    );
+    const payload = abstimmungsPayload(antrag({ status: 'ABSTIMMUNG', stimmenZiel: 10 }), 2);
     expect(JSON.stringify(payload)).not.toContain('900000000000000001');
   });
 });

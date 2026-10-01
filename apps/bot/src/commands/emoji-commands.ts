@@ -303,9 +303,7 @@ async function abstimmenLassen(interaction: ChatInputCommandInteraction, actor: 
  */
 export async function handleEmojiAutocomplete(interaction: {
   commandName: string;
-  respond: (
-    optionen: Array<{ name: string; value: string }>,
-  ) => Promise<void>;
+  respond: (optionen: Array<{ name: string; value: string }>) => Promise<void>;
   options: { getFocused: () => string };
 }): Promise<void> {
   if (!EMOJI_COMMAND_NAMES.has(interaction.commandName as EmojiCommandName)) {

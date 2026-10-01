@@ -182,9 +182,7 @@ export async function benenneEmojiUm(
     // Kein Fehler, nur nichts zu tun. Ein Discord-Aufruf dafür wäre verschenkt.
     return { ok: true, emoji: anreichern(ziel) };
   }
-  const konflikt = vorhandene.find(
-    (emoji) => emoji.id !== emojiId && emoji.name.toLowerCase() === name.name,
-  );
+  const konflikt = vorhandene.find((emoji) => emoji.id !== emojiId && emoji.name.toLowerCase() === name.name);
   if (konflikt) {
     return { ok: false, grund: `«${name.name}» gibt es schon.` };
   }
@@ -214,10 +212,7 @@ export async function benenneEmojiUm(
  * behält deshalb den Namen: ohne ihn stünde im Verlauf eine Kennung, zu der es
  * nichts mehr gibt.
  */
-export async function loescheEmoji(
-  emojiId: string,
-  akteurDiscordId: string,
-): Promise<HinzufuegenErgebnis> {
+export async function loescheEmoji(emojiId: string, akteurDiscordId: string): Promise<HinzufuegenErgebnis> {
   await einstellungen();
 
   const vorhandene = await discord.emojis.list();

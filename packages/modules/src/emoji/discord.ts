@@ -1,7 +1,11 @@
 import { env } from '@swisshub/config';
 import { prisma } from '@swisshub/database';
 import type { EmojiAntrag } from '@swisshub/database';
-import { discord as defaultDiscord, type DiscordGateway, type DiscordMessagePayload } from '@swisshub/discord';
+import {
+  discord as defaultDiscord,
+  type DiscordGateway,
+  type DiscordMessagePayload,
+} from '@swisshub/discord';
 import { createLogger } from '@swisshub/logger';
 import { hmacSha256, safeEqual } from '@swisshub/shared/crypto';
 import { getModuleSettings } from '../module-state';
@@ -147,9 +151,7 @@ function zustandstext(antrag: EmojiAntrag, stimmen: number): string {
     case 'ANGENOMMEN':
       return `Angenommen - liegt als \`:${antrag.emojiName ?? antrag.name}:\` auf dem Server.`;
     case 'ABGELEHNT':
-      return antrag.ablehnungsGrund
-        ? `Abgelehnt: ${antrag.ablehnungsGrund}`
-        : 'Abgelehnt.';
+      return antrag.ablehnungsGrund ? `Abgelehnt: ${antrag.ablehnungsGrund}` : 'Abgelehnt.';
     case 'ABGELAUFEN':
       /*
        * «Abgelaufen» ist keine Ablehnung, und der Text sagt das.

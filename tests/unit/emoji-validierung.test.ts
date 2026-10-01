@@ -244,6 +244,7 @@ describe('Emoji-Plätze: Discord zählt getrennt', () => {
       fest: { belegt: festBelegt, gesamt, frei: gesamt - festBelegt, stillgelegt: 0 },
       animiert: { belegt: animiertBelegt, gesamt, frei: gesamt - animiertBelegt, stillgelegt: 0 },
       boostStufe: 0,
+      botDarf: true,
     };
   }
 
@@ -281,6 +282,7 @@ describe('Emoji-Plätze: Discord zählt getrennt', () => {
       fest: { belegt: 50, gesamt: 50, frei: 0, stillgelegt: 20 },
       animiert: { belegt: 0, gesamt: 50, frei: 50, stillgelegt: 0 },
       boostStufe: 0,
+      botDarf: true,
     };
     expect(pruefePlatz(stand, false, 0).ok).toBe(false);
   });

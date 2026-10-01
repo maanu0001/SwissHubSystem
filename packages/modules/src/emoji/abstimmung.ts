@@ -50,12 +50,7 @@ const log = createLogger('emoji:abstimmung');
  */
 
 export type StimmArt =
-  | 'gezaehlt'
-  | 'ziel_erreicht'
-  | 'schon_gestimmt'
-  | 'nicht_offen'
-  | 'abgelaufen'
-  | 'ausgeschaltet';
+  'gezaehlt' | 'ziel_erreicht' | 'schon_gestimmt' | 'nicht_offen' | 'abgelaufen' | 'ausgeschaltet';
 
 export interface StimmErgebnis {
   art: StimmArt;

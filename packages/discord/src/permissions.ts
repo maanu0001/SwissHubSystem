@@ -32,6 +32,15 @@ export const DISCORD_PERMISSIONS = {
   MANAGE_WEBHOOKS: 1n << 29n,
   USE_APPLICATION_COMMANDS: 1n << 31n,
   MODERATE_MEMBERS: 1n << 40n,
+  /**
+   * Ausdruecke verwalten - Emojis, Sticker, Soundboard.
+   *
+   * Das Recht, das Discord «Manage Expressions» nennt. Ohne es kann der Bot
+   * kein Emoji anlegen, umbenennen oder loeschen, und Discord antwortet mit
+   * 403. Es steht hier, damit das Dashboard **vorher** sagen kann, dass es
+   * fehlt - eine Fehlermeldung beim Hochladen nennt keinen Grund und keinen Weg.
+   */
+  MANAGE_GUILD_EXPRESSIONS: 1n << 30n,
 } as const;
 
 export type DiscordPermissionName = keyof typeof DISCORD_PERMISSIONS;
@@ -43,6 +52,7 @@ export const DISCORD_PERMISSION_LABELS: Record<DiscordPermissionName, string> = 
   ADMINISTRATOR: 'Administrator',
   MANAGE_CHANNELS: 'Channels verwalten',
   MANAGE_GUILD: 'Server verwalten',
+  MANAGE_GUILD_EXPRESSIONS: 'Ausdrücke verwalten (Emojis, Sticker)',
   VIEW_AUDIT_LOG: 'Audit Log ansehen',
   ADD_REACTIONS: 'Reaktionen hinzufügen',
   VIEW_CHANNEL: 'Channels ansehen',

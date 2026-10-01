@@ -1,4 +1,10 @@
-import { discord, emojiPlaetze, type GuildEmoji } from '@swisshub/discord';
+import {
+  combinePermissions,
+  discord,
+  emojiPlaetze,
+  hasDiscordPermission,
+  type GuildEmoji,
+} from '@swisshub/discord';
 
 /**
  * Wie viele Emoji-Plätze noch frei sind.
@@ -38,6 +44,14 @@ export interface PlatzUebersicht {
   fest: PlatzStand;
   animiert: PlatzStand;
   boostStufe: number;
+  /**
+   * Darf der Bot ueberhaupt Emojis anlegen?
+   *
+   * `null` heisst «nicht zu ermitteln» - Discord antwortet nicht, oder der Bot
+   * ist nicht auf dem Server. Das ist etwas anderes als «nein» und wird im
+   * Dashboard auch anders gesagt.
+   */
+  botDarf: boolean | null;
 }
 
 function stand(emojis: readonly GuildEmoji[], gesamt: number): PlatzStand {
@@ -57,7 +71,11 @@ function stand(emojis: readonly GuildEmoji[], gesamt: number): PlatzStand {
  * Discord zwischengespeichert.
  */
 export async function platzUebersicht(): Promise<PlatzUebersicht> {
-  const [emojis, guild] = await Promise.all([discord.emojis.list(), discord.guild.get()]);
+  const [emojis, guild, botDarf] = await Promise.all([
+    discord.emojis.list(),
+    discord.guild.get(),
+    botDarfEmojisVerwalten(),
+  ]);
   const gesamt = emojiPlaetze(guild.premiumTier);
   return {
     fest: stand(
@@ -69,11 +87,50 @@ export async function platzUebersicht(): Promise<PlatzUebersicht> {
       gesamt,
     ),
     boostStufe: guild.premiumTier,
+    botDarf,
   };
 }
 
+/**
+ * Hat der Bot «Ausdruecke verwalten»?
+ *
+ * ## Warum das vorher gefragt wird
+ *
+ * Weil Discord sonst beim Hochladen mit 403 antwortet - und das trifft die
+ * falsche Person zum falschen Zeitpunkt: ein Vorschlag, der drei Tage in der
+ * Moderation lag, scheitert beim Annehmen an einem Recht, das jemand anders
+ * setzen muss. Der Hinweis gehoert ins Dashboard, bevor das erste Emoji
+ * eingereicht wird.
+ *
+ * ## Warum `null` und nicht `false`
+ *
+ * «Ich weiss es nicht» ist etwas anderes als «nein». Antwortet Discord gerade
+ * nicht, waere eine rote Warnung «der Bot darf nicht» eine Falschaussage, und
+ * jemand suchte nach einem Recht, das vorhanden ist.
+ *
+ * Anders als bei der Selbstvergabe wird hier **nicht** gesperrt: ein Upload,
+ * der trotz unklarer Lage versucht wird, scheitert mit Discords eigener
+ * Meldung - und die ist in diesem Fall die genauere Auskunft. Gesperrt wuerde
+ * nur ein Weg, der vielleicht funktioniert.
+ */
+export async function botDarfEmojisVerwalten(): Promise<boolean | null> {
+  try {
+    const [botMitglied, rollen] = await Promise.all([discord.bot.member(), discord.roles.list()]);
+    if (!botMitglied) {
+      return null;
+    }
+    const eigene = new Set(botMitglied.roleIds);
+    const bits = combinePermissions(
+      rollen.filter((rolle) => eigene.has(rolle.id)).map((rolle) => rolle.permissions),
+    );
+    return hasDiscordPermission(bits, 'MANAGE_GUILD_EXPRESSIONS');
+  } catch {
+    return null;
+  }
+}
+
 export interface PlatzBefund {
-  ok: boolean
+  ok: boolean;
   grund?: string;
   frei: number;
 }

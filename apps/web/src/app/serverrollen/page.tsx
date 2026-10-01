@@ -59,7 +59,9 @@ export default async function OeffentlicheRollenSeite(): Promise<React.JSX.Eleme
   const mitglied = context?.isMember ? context : null;
   // Nur für Angemeldete: welche der Rollen hat die Person schon? Für Gäste
   // bleibt die Liste leer - es gibt niemanden, über den etwas zu sagen wäre.
-  const meine = mitglied ? new Set(await serverrollen.eigeneRollen(mitglied.user.discordId)) : new Set<string>();
+  const meine = mitglied
+    ? new Set(await serverrollen.eigeneRollen(mitglied.user.discordId))
+    : new Set<string>();
   const csrfToken = mitglied ? csrfTokenFor(mitglied) : null;
 
   return (

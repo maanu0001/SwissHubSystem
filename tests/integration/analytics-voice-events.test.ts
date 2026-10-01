@@ -63,10 +63,57 @@ function fakeClient() {
       await handler(...args);
     }
     // Der Handler arbeitet bewusst im Hintergrund weiter - eine Statistik
-    // darf kein Gateway-Ereignis aufhalten.
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    // darf kein Gateway-Ereignis aufhalten. Gewartet wird deshalb, bis die
+    // Datenbank zur Ruhe kommt, und nicht eine feste Zahl von Millisekunden.
+    await bisRuhe();
   };
   return { client, feuere };
+}
+
+/**
+ * Warten, bis der Handler fertig geschrieben hat.
+ *
+ * ## Warum keine feste Wartezeit
+ *
+ * Hier standen 120 Millisekunden, und das war ein Versprechen, das unter Last
+ * nicht gilt: laeuft die ganze Testsammlung parallel, braucht ein Schreibvorgang
+ * auch mal mehr. Der Test schlug dann fehl, ohne dass am Code etwas falsch war -
+ * und genau so ein Fehlschlag ist schlimmer als gar keiner, weil er Vertrauen
+ * in alle uebrigen kostet. Gemeldet wurde er als «die Analytics-Tests sind
+ * flaky».
+ *
+ * Gewartet wird jetzt auf einen **Zustand**: solange noch Zeilen dazukommen,
+ * ist der Handler nicht fertig. Zwei Messungen mit derselben Zahl heissen, dass
+ * nichts mehr unterwegs ist.
+ *
+ * Die Mindestwartezeit bleibt - sonst saehe ein Fall, in dem **nichts**
+ * geschrieben werden soll (ein Bot, der AFK-Kanal), sofort stabil aus, und ein
+ * verspaeteter Schreibvorgang kaeme nach der Zusicherung. Sie ist bewusst
+ * laenger als die alten 120 ms; die Frist nach oben ist gross, weil Warten
+ * billiger ist als ein Fehlschlag, der nichts bedeutet.
+ */
+const RUHE_MINDESTENS_MS = 150;
+const RUHE_FRIST_MS = 10_000;
+
+async function bisRuhe(): Promise<void> {
+  const [frueheste, spaeteste] = [Date.now() + RUHE_MINDESTENS_MS, Date.now() + RUHE_FRIST_MS];
+  let vorher = -1;
+  for (;;) {
+    const [abschnitte, ereignisse, profile] = await Promise.all([
+      prisma.analyticsVoiceSegment.count({ where: { guildId: GUILD } }),
+      prisma.discordEvent.count(),
+      prisma.analyticsMemberProfile.count(),
+    ]);
+    const jetzt = abschnitte + ereignisse + profile;
+    if (jetzt === vorher && Date.now() >= frueheste) {
+      return;
+    }
+    if (Date.now() >= spaeteste) {
+      return;
+    }
+    vorher = jetzt;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 /**

@@ -54,10 +54,7 @@ export const IMPORT_FRIST_MS = 8_000;
  * Die Liste pinnt sie trotzdem fest: ohne sie wäre jede Adresse, die als
  * «Anhang» hereinkommt, eine beliebige Adresse.
  */
-export const DISCORD_BILD_HOSTS: readonly string[] = [
-  'cdn.discordapp.com',
-  'media.discordapp.net',
-] as const;
+export const DISCORD_BILD_HOSTS: readonly string[] = ['cdn.discordapp.com', 'media.discordapp.net'] as const;
 
 /**
  * Den Anhang eines Slash Commands holen.
@@ -92,7 +89,13 @@ export interface ImportErgebnis {
 export function erlaubteHostsAus(eingabe: string): string[] {
   return eingabe
     .split(/[\n,;]+/u)
-    .map((eintrag) => eintrag.trim().toLowerCase().replace(/^https?:\/\//u, '').replace(/\/.*$/u, ''))
+    .map((eintrag) =>
+      eintrag
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//u, '')
+        .replace(/\/.*$/u, ''),
+    )
     .filter((eintrag) => eintrag.length > 0);
 }
 
@@ -124,7 +127,8 @@ export async function holeBild(
   if (erlaubteHosts.length === 0) {
     return {
       ok: false,
-      grund: 'Der Import von Adressen ist ausgeschaltet. Lade die Datei hoch, oder trage in den Moduleinstellungen einen erlaubten Host ein.',
+      grund:
+        'Der Import von Adressen ist ausgeschaltet. Lade die Datei hoch, oder trage in den Moduleinstellungen einen erlaubten Host ein.',
     };
   }
 

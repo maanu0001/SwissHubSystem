@@ -73,10 +73,12 @@ export default async function ServerrollenVerwaltungsSeite(): Promise<React.JSX.
             <div className="space-y-1">
               <p className="font-medium">Die Rolle des Bots ist gerade nicht zu ermitteln.</p>
               <p className="text-muted-foreground">
-                Solange das so ist, bleibt jede Selbstvergabe gesperrt - Discord erlaubt einem Bot nur
-                Rollen unterhalb seiner eigenen, und ohne diese Angabe lässt sich das nicht prüfen. Prüfe
-                unter <Link href="/server/roles" className="underline">Server → Rollen</Link>, ob der Bot
-                auf dem Server ist.
+                Solange das so ist, bleibt jede Selbstvergabe gesperrt - Discord erlaubt einem Bot nur Rollen
+                unterhalb seiner eigenen, und ohne diese Angabe lässt sich das nicht prüfen. Prüfe unter{' '}
+                <Link href="/server/roles" className="underline">
+                  Server → Rollen
+                </Link>
+                , ob der Bot auf dem Server ist.
               </p>
             </div>
           </CardContent>
@@ -142,11 +144,7 @@ export default async function ServerrollenVerwaltungsSeite(): Promise<React.JSX.
  * Wer nur `view` hat, soll den Stand sehen können - eine leere Seite wäre eine
  * schlechtere Antwort als eine Liste ohne Bedienelemente.
  */
-function NurLesen({
-  kategorien,
-}: {
-  kategorien: serverrollen.KategorieFuerVerwaltung[];
-}): React.JSX.Element {
+function NurLesen({ kategorien }: { kategorien: serverrollen.KategorieFuerVerwaltung[] }): React.JSX.Element {
   if (kategorien.length === 0) {
     return <p className="text-sm text-muted-foreground">Noch keine Gruppe angelegt.</p>;
   }

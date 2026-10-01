@@ -195,10 +195,7 @@ export interface EntscheidungsErgebnis {
  * als angenommen gilt und nirgends liegt, wäre der schlimmere Zustand: niemand
  * würde ihn noch einmal ansehen.
  */
-export async function nimmAn(
-  antragId: string,
-  akteurDiscordId: string,
-): Promise<EntscheidungsErgebnis> {
+export async function nimmAn(antragId: string, akteurDiscordId: string): Promise<EntscheidungsErgebnis> {
   await settingsOderFehler();
 
   const vorher = await prisma.emojiAntrag.findUnique({ where: { id: antragId } });
@@ -265,8 +262,7 @@ async function legeAufDiscordAb(
   });
 
   await recordAudit({
-    action:
-      weg === 'ABSTIMMUNG' ? AUDIT_ACTIONS.EMOJI_VOTE_PASSED : AUDIT_ACTIONS.EMOJI_REQUEST_ACCEPTED,
+    action: weg === 'ABSTIMMUNG' ? AUDIT_ACTIONS.EMOJI_VOTE_PASSED : AUDIT_ACTIONS.EMOJI_REQUEST_ACCEPTED,
     module: EMOJI_MODULE_ID,
     actorDiscordId: akteurDiscordId,
     targetDiscordId: antrag.antragstellerId,

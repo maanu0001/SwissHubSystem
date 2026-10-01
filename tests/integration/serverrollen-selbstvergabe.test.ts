@@ -81,9 +81,7 @@ function attrappe(eigeneRollen: string[] = []) {
   const gateway = {
     members: {
       get: vi.fn(async (discordId: string) =>
-        discordId === BOT
-          ? mitgliedsAttrappe(BOT, [BOT_ROLLE])
-          : mitgliedsAttrappe(discordId, eigeneRollen),
+        discordId === BOT ? mitgliedsAttrappe(BOT, [BOT_ROLLE]) : mitgliedsAttrappe(discordId, eigeneRollen),
       ),
     },
     roles: {
@@ -206,9 +204,7 @@ describeWithDatabase('Serverrollen: eine Rolle selbst nehmen', () => {
   it('lässt sich den Haken für eine kritische Rolle gar nicht erst setzen', async () => {
     const discord = attrappe();
     setDiscordGateway(discord.gateway as never);
-    await expect(
-      serverrollen.speichereRolle(GEFAEHRLICH, { selfAssignable: true }),
-    ).rejects.toThrow();
+    await expect(serverrollen.speichereRolle(GEFAEHRLICH, { selfAssignable: true })).rejects.toThrow();
   });
 
   it('sperrt eine Rolle über der Bot-Rolle', async () => {

@@ -139,9 +139,7 @@ async function behandleModeration(
   if (art === 'annehmen') {
     const ergebnis = await emoji.nimmAn(antragId, actor.discordId);
     await interaction.editReply({
-      content: ergebnis.ok
-        ? 'Agnoh - s Emoji isch uf em Server.'
-        : (ergebnis.grund ?? 'Das het nöd klappt.'),
+      content: ergebnis.ok ? 'Agnoh - s Emoji isch uf em Server.' : (ergebnis.grund ?? 'Das het nöd klappt.'),
     });
   } else if (art === 'ablehnen') {
     /*
@@ -161,9 +159,7 @@ async function behandleModeration(
       await emoji.schreibeAbstimmungsnachricht(antragId, { basisUrl: appUrl('') });
     }
     await interaction.editReply({
-      content: ergebnis.ok
-        ? 'D Community stimmt jetzt ab.'
-        : (ergebnis.grund ?? 'Das het nöd klappt.'),
+      content: ergebnis.ok ? 'D Community stimmt jetzt ab.' : (ergebnis.grund ?? 'Das het nöd klappt.'),
     });
   }
 

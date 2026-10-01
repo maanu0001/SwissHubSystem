@@ -82,7 +82,17 @@ function resetCache(key: string): void {
 }
 
 /** Discords Emoji-Form in unsere - `id` und `name` sind hier schon geprueft. */
-function zuEmoji(id: string, name: string, roh: { animated?: boolean | null; managed?: boolean | null; available?: boolean | null; roles?: string[] | null; user?: { id: string } | null }): GuildEmoji {
+function zuEmoji(
+  id: string,
+  name: string,
+  roh: {
+    animated?: boolean | null;
+    managed?: boolean | null;
+    available?: boolean | null;
+    roles?: string[] | null;
+    user?: { id: string } | null;
+  },
+): GuildEmoji {
   return {
     id,
     name,

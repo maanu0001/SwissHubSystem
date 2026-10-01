@@ -37,9 +37,7 @@ export function KatalogListe({
   const [suche, setSuche] = useState('');
   const sichtbar = useMemo(() => {
     const begriff = suche.trim().toLowerCase();
-    return begriff.length === 0
-      ? katalog
-      : katalog.filter((eintrag) => eintrag.name.includes(begriff));
+    return begriff.length === 0 ? katalog : katalog.filter((eintrag) => eintrag.name.includes(begriff));
   }, [katalog, suche]);
 
   return (

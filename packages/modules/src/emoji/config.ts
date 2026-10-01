@@ -144,8 +144,7 @@ export const emojiSettingsFields: SettingsField[] = [
     key: 'maxOffeneJeMitglied',
     label: 'Offene Vorschläge je Mitglied',
     type: 'number',
-    description:
-      'Verhindert, dass eine Person die Liste füllt. Entschiedene Vorschläge zählen nicht mit.',
+    description: 'Verhindert, dass eine Person die Liste füllt. Entschiedene Vorschläge zählen nicht mit.',
   },
   {
     key: 'erlaubteHosts',

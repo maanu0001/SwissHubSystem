@@ -161,7 +161,9 @@ function RollenZeile({
   };
 
   const entfernen = (): void => {
-    if (!window.confirm(`«${rolle.name}» von der öffentlichen Seite nehmen? Die Beschreibung geht verloren.`)) {
+    if (
+      !window.confirm(`«${rolle.name}» von der öffentlichen Seite nehmen? Die Beschreibung geht verloren.`)
+    ) {
       return;
     }
     starte(async () => {
@@ -234,9 +236,7 @@ function RollenZeile({
           <span className="text-sm font-medium">Voraussetzung</span>
           <select
             value={entwurf.voraussetzungRoleId}
-            onChange={(ereignis) =>
-              setEntwurf((v) => ({ ...v, voraussetzungRoleId: ereignis.target.value }))
-            }
+            onChange={(ereignis) => setEntwurf((v) => ({ ...v, voraussetzungRoleId: ereignis.target.value }))}
             className="min-h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
           >
             <option value="">Keine</option>

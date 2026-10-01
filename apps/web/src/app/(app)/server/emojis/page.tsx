@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { History, Info, Users } from 'lucide-react';
+import { AlertTriangle, History, Info, Users } from 'lucide-react';
 import { can } from '@swisshub/auth';
 import { emoji } from '@swisshub/modules';
 import { Badge } from '@/components/ui/badge';
@@ -42,6 +42,21 @@ export default async function EmojiSeite(): Promise<React.JSX.Element> {
   const darfEntscheiden = can(context, emoji.EMOJI_PERMISSIONS.moderate);
   const darfVorschlagen = can(context, emoji.EMOJI_PERMISSIONS.request);
 
+  /*
+   * Der Hinweis zum Bot-Recht steht getrennt und zuerst.
+   *
+   * Er ist von anderer Art als die uebrigen: ohne «Ausdruecke verwalten»
+   * funktioniert **nichts** auf dieser Seite, waehrend ein fehlender
+   * Moderationskanal nur eine Bequemlichkeit kostet. Ihn in dieselbe Liste zu
+   * stellen hiesse, den einen Satz zu verstecken, auf den es ankommt.
+   */
+  const botRecht =
+    bereich.plaetze.botDarf === false
+      ? 'Dem Bot fehlt auf Discord das Recht «Ausdrücke verwalten». Ohne es kann er kein Emoji anlegen, umbenennen oder löschen - Discord lehnt jeden Versuch ab. Gib der Bot-Rolle das Recht in den Servereinstellungen von Discord.'
+      : bereich.plaetze.botDarf === null
+        ? 'Ob der Bot «Ausdrücke verwalten» hat, liess sich gerade nicht ermitteln. Hinzufügen funktioniert möglicherweise trotzdem; scheitert es mit einem Rechtefehler, liegt es daran.'
+        : null;
+
   const hinweise = [
     bereich.einrichtung.ohneModerationskanal
       ? 'Vorschläge sind an, aber es ist kein Moderationskanal gesetzt - sie erscheinen nur hier und nicht auf Discord.'
@@ -61,8 +76,8 @@ export default async function EmojiSeite(): Promise<React.JSX.Element> {
         `AppHeader` und kommt aus der Route.
       */}
       <p className="max-w-2xl text-sm text-muted-foreground">
-        Emojis verwalten und Vorschläge entscheiden. Das Discord-Recht «Ausdrücke verwalten» braucht dafür
-        nur der Bot - nicht jede Person, die ein Emoji hinzufügen darf.
+        Emojis verwalten und Vorschläge entscheiden. Das Discord-Recht «Ausdrücke verwalten» braucht dafür nur
+        der Bot - nicht jede Person, die ein Emoji hinzufügen darf.
       </p>
 
       {/* 1. Plätze */}
@@ -77,16 +92,32 @@ export default async function EmojiSeite(): Promise<React.JSX.Element> {
           <CardContent className="text-xs text-muted-foreground">
             Die Stufe entscheidet über die Zahl der Plätze - je Art 50, 100, 150 oder 250.
             {bereich.einstellungen.reservePlaetze > 0 ? (
-              <>
-                {' '}
-                {bereich.einstellungen.reservePlaetze} Plätze bleiben für das Team reserviert.
-              </>
+              <> {bereich.einstellungen.reservePlaetze} Plätze bleiben für das Team reserviert.</>
             ) : null}
           </CardContent>
         </Card>
       </div>
 
-      {/* 2. Was fehlt */}
+      {/* 2. Was fehlt - das Bot-Recht zuerst, weil ohne es nichts geht */}
+      {botRecht ? (
+        <Card
+          className={cn(
+            bereich.plaetze.botDarf === false ? 'border-destructive/50' : 'border-amber-500/40',
+          )}
+        >
+          <CardContent className="flex items-start gap-3 py-5 text-sm">
+            <AlertTriangle
+              className={cn(
+                'mt-0.5 size-5 shrink-0',
+                bereich.plaetze.botDarf === false ? 'text-destructive' : 'text-amber-500',
+              )}
+              aria-hidden="true"
+            />
+            <p className="text-pretty">{botRecht}</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {hinweise.length > 0 ? (
         <Card className="border-amber-500/40">
           <CardContent className="space-y-2 py-5 text-sm">
@@ -135,8 +166,8 @@ export default async function EmojiSeite(): Promise<React.JSX.Element> {
             {bereich.offene.length > 0 ? <Badge>{bereich.offene.length}</Badge> : null}
           </CardTitle>
           <CardDescription>
-            Annehmen legt das Emoji sofort auf dem Server ab. «Abstimmen lassen» gibt die Entscheidung an
-            die Community weiter - das ist kein Veto.
+            Annehmen legt das Emoji sofort auf dem Server ab. «Abstimmen lassen» gibt die Entscheidung an die
+            Community weiter - das ist kein Veto.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -168,8 +199,8 @@ export default async function EmojiSeite(): Promise<React.JSX.Element> {
               Laufende Abstimmungen
             </CardTitle>
             <CardDescription>
-              Ziel und Frist stehen fest, seit die Abstimmung begann - eine Änderung der Einstellungen
-              wirkt erst auf die nächste.
+              Ziel und Frist stehen fest, seit die Abstimmung begann - eine Änderung der Einstellungen wirkt
+              erst auf die nächste.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -199,11 +230,7 @@ export default async function EmojiSeite(): Promise<React.JSX.Element> {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <KatalogListe
-            katalog={bereich.katalog}
-            csrfToken={csrfToken}
-            darfVerwalten={darfVerwalten}
-          />
+          <KatalogListe katalog={bereich.katalog} csrfToken={csrfToken} darfVerwalten={darfVerwalten} />
         </CardContent>
       </Card>
 
@@ -231,9 +258,7 @@ export default async function EmojiSeite(): Promise<React.JSX.Element> {
                   <span className={cn('font-medium', !eintrag.success && 'text-destructive')}>
                     {auditActionLabel(eintrag.action)}
                   </span>
-                  {eintrag.targetLabel ? (
-                    <code className="text-xs">:{eintrag.targetLabel}:</code>
-                  ) : null}
+                  {eintrag.targetLabel ? <code className="text-xs">:{eintrag.targetLabel}:</code> : null}
                   <span className="ml-auto text-xs text-muted-foreground">
                     {eintrag.createdAt.toLocaleString('de-CH', {
                       dateStyle: 'short',
@@ -245,7 +270,7 @@ export default async function EmojiSeite(): Promise<React.JSX.Element> {
             </ul>
           )}
           <p className="pt-3 text-xs text-muted-foreground">
-            <Link href="/system/audit?module=emoji" className="underline">
+            <Link href="/audit?module=emoji" className="underline">
               Den vollständigen Verlauf im Audit Log ansehen
             </Link>
           </p>
@@ -294,13 +319,7 @@ const ZUSTAND: Record<string, string> = {
   ABGELAUFEN: 'Abstimmung ohne Ergebnis',
 };
 
-function PlatzKachel({
-  titel,
-  stand,
-}: {
-  titel: string;
-  stand: emoji.PlatzStand;
-}): React.JSX.Element {
+function PlatzKachel({ titel, stand }: { titel: string; stand: emoji.PlatzStand }): React.JSX.Element {
   const anteil = stand.gesamt > 0 ? Math.min(100, Math.round((stand.belegt / stand.gesamt) * 100)) : 0;
   return (
     <Card>

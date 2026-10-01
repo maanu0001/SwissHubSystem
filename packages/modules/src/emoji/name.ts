@@ -43,7 +43,10 @@ export interface NamensBefund {
  * vergeben, den niemand gewählt hat.
  */
 export function pruefeEmojiName(eingabe: string): NamensBefund {
-  const name = eingabe.trim().replace(/^:+|:+$/gu, '').toLowerCase();
+  const name = eingabe
+    .trim()
+    .replace(/^:+|:+$/gu, '')
+    .toLowerCase();
 
   if (name.length < EMOJI_NAME_MIN) {
     return {
@@ -59,7 +62,8 @@ export function pruefeEmojiName(eingabe: string): NamensBefund {
     return {
       ok: false,
       name,
-      grund: 'Erlaubt sind Buchstaben a-z, Ziffern und Unterstrich - keine Leerzeichen, Umlaute oder Bindestriche.',
+      grund:
+        'Erlaubt sind Buchstaben a-z, Ziffern und Unterstrich - keine Leerzeichen, Umlaute oder Bindestriche.',
     };
   }
   /*
