@@ -4,7 +4,7 @@ import { AppError } from '@swisshub/shared';
 import { createLogger } from '@swisshub/logger';
 import { getModuleSettings, isModuleEnabled } from '../module-state';
 import { EMOJI_MODULE_ID, type EmojiSettings } from './config';
-import { legeBeanspruchtenAntragAb } from './antrag';
+import { legeBeanspruchtenAntragAb, reicheEin } from './antrag';
 
 const log = createLogger('emoji:abstimmung');
 
@@ -328,4 +328,76 @@ export async function lasseAbstimmungenAblaufen(): Promise<AblaufBericht> {
     log.info('Abstimmungen abgeschlossen', { abgelaufen, nachtraeglichAngenommen });
   }
   return { geprueft: faellig.length, abgelaufen, nachtraeglichAngenommen };
+}
+
+export interface DirektAbstimmungErgebnis {
+  ok: boolean;
+  grund?: string;
+  antrag?: EmojiAntrag;
+  /** Das Ziel der laufenden Abstimmung - für die Antwort an die Person. */
+  ziel?: number;
+  minuten?: number;
+}
+
+/**
+ * Einen Vorschlag einreichen **und** sofort zur Abstimmung stellen.
+ *
+ * ## Warum das ein eigener Weg ist
+ *
+ * Weil er einer anderen Person gehört. Der normale Weg ist: ein Mitglied
+ * schlägt vor, das Team entscheidet. Hier entscheidet niemand - die Frage geht
+ * direkt an den Server. Wer `emoji.vote` hat, darf das; das ist bewusst eine
+ * eigene Berechtigung, damit sie an eine Levelrolle gehen kann, während
+ * `emoji.moderate` beim Team bleibt.
+ *
+ * ## Was dabei trotzdem gilt
+ *
+ * Alles, was `reicheEin` prüft: Name, Bild, Doppelung, die Grenze offener
+ * Vorschläge je Mitglied und der Platz - **mit** Reserve. Die Abstimmung
+ * umgeht keine Schranke, sie ersetzt nur die Entscheidung.
+ *
+ * Scheitert das Starten der Abstimmung, bleibt der Vorschlag als `OFFEN`
+ * stehen, statt verloren zu gehen: das Team kann ihn dann von Hand behandeln.
+ * Das ist der Grund, weshalb hier zwei Schritte und kein einziger stehen.
+ */
+export async function reicheEinUndStelleZurAbstimmung(
+  eingabe: Parameters<typeof reicheEin>[0],
+): Promise<DirektAbstimmungErgebnis> {
+  const settings = await settingsOderFehler();
+  if (!settings.abstimmungAktiv) {
+    return {
+      ok: false,
+      grund:
+        'Die Community-Abstimmung ist ausgeschaltet. Das Team kann sie in den Moduleinstellungen einschalten.',
+    };
+  }
+
+  const eingereicht = await reicheEin(eingabe);
+  if (!eingereicht.ok || !eingereicht.antrag) {
+    return { ok: false, ...(eingereicht.grund ? { grund: eingereicht.grund } : {}) };
+  }
+
+  const gestartet = await starteAbstimmung(eingereicht.antrag.id, eingabe.antragstellerId);
+  if (!gestartet.ok) {
+    /*
+     * Der Vorschlag bleibt stehen.
+     *
+     * Ihn hier zu löschen wäre die bequemere Umsetzung und die schlechtere
+     * Antwort: die Person hat eingereicht, und das soll nicht an einem
+     * Folgeschritt verschwinden. Sie erfährt den Grund, das Team sieht den
+     * Vorschlag im Dashboard.
+     */
+    return {
+      ok: false,
+      antrag: eingereicht.antrag,
+      grund: `${gestartet.grund ?? 'Die Abstimmung liess sich nicht starten.'} Der Vorschlag liegt jetzt beim Team.`,
+    };
+  }
+
+  return {
+    ok: true,
+    ...(gestartet.antrag ? { antrag: gestartet.antrag } : {}),
+    ziel: gestartet.antrag?.stimmenZiel ?? settings.stimmenZiel,
+    minuten: settings.abstimmungMinuten,
+  };
 }

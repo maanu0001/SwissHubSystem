@@ -232,40 +232,27 @@ describe('Bot: die drei Befehle und ihre Prüfungen', () => {
     expect(register).toContain('handleEmojiCommand');
   });
 
-  it('prüft jede der drei Berechtigungen', () => {
-    const rumpf = ohneKommentare(befehle);
-    for (const recht of ['manage', 'moderate', 'request']) {
-      expect(rumpf, `${recht} wird nicht geprüft`).toContain(`EMOJI_PERMISSIONS.${recht}`);
-    }
-  });
-
-  it('prüft die Moderationsknöpfe am Recht und nicht am Kanal', () => {
-    /*
-     * Dass eine Nachricht in einem Kanal steht, den nur das Team sieht, ist
-     * keine Prüfung: ein Kanal lässt sich umkonfigurieren, und eine
-     * Knopf-Kennung nachbauen.
-     */
+  /*
+   * Die Befehle selbst stehen in `emoji-fremd.test.ts`.
+   *
+   * Sie nehmen jetzt ein Emoji von einem anderen Server statt eines Bildes, und
+   * `/emoji_vote` hat eine eigene Berechtigung. Was dort geprueft wird - die
+   * drei Berechtigungen, der Weg ueber `uebernehmeEmoji`, keine zweite
+   * Fachlogik - gehoert zum neuen Vertrag und stand vorher hier.
+   *
+   * Hier bleibt, was die Discord-Seite ausmacht: die Knoepfe und die feste
+   * Hostliste.
+   */
+  it('prüft die Moderationsknöpfe und trennt Entscheiden von Abstimmen', () => {
     const rumpf = ohneKommentare(knoepfe);
-    expect(rumpf).toContain('buildCommandActor');
+    // Annehmen und Ablehnen sind Entscheidungen.
     expect(rumpf).toContain('EMOJI_PERMISSIONS.moderate');
-  });
-
-  it('holt den Anhang über die geprüfte Discord-Liste', () => {
-    // Keine freie Adresse: `holeDiscordAnhang` prüft gegen die feste Liste und
-    // danach gegen dieselbe SSRF-Prüfung wie jeder Import.
-    const rumpf = ohneKommentare(befehle);
-    expect(rumpf).toContain('holeDiscordAnhang');
-    expect(rumpf).not.toMatch(/fetch\(/u);
-  });
-
-  it('baut keine zweite Fachlogik, sondern ruft das Modul', () => {
-    const rumpf = ohneKommentare(befehle);
-    for (const funktion of ['fuegeEmojiHinzu', 'reicheEin', 'starteAbstimmung']) {
-      expect(rumpf, `${funktion} wird nicht verwendet`).toContain(`emoji.${funktion}`);
-    }
-    // Und keine eigene Namensprüfung oder Platzrechnung daneben.
-    expect(rumpf).not.toMatch(/a-z0-9_/u);
-    expect(rumpf).not.toContain('premiumTier');
+    /*
+     * «Abstimmen lassen» ist keine - es legt die Frage dem Server vor. Deshalb
+     * genuegt dafuer `emoji.vote`, und genau diese Trennung macht die
+     * Levelrolle moeglich.
+     */
+    expect(rumpf).toContain('EMOJI_PERMISSIONS.voteStart');
   });
 
   it('kennt die Discord-Bild-Hosts fest und nicht aus einer Einstellung', () => {

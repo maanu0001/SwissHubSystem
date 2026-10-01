@@ -14,12 +14,7 @@ import {
   SPIELWAHL_COMMAND_NAMES,
   handleSpielwahlCommand,
 } from './spielwahl-commands';
-import {
-  EMOJI_COMMAND_DEFINITIONS,
-  EMOJI_COMMAND_NAMES,
-  handleEmojiAutocomplete,
-  handleEmojiCommand,
-} from './emoji-commands';
+import { EMOJI_COMMAND_DEFINITIONS, EMOJI_COMMAND_NAMES, handleEmojiCommand } from './emoji-commands';
 import {
   AUTOMATION_COMMAND_DEFINITIONS,
   AUTOMATION_COMMAND_NAMES,
@@ -91,11 +86,13 @@ export function registerCommandHandler(client: Client): void {
     if (interaction.isAutocomplete()) {
       if (AUTOMATION_COMMAND_NAMES.has(interaction.commandName)) {
         void handleAutomationAutocomplete(interaction);
-        return;
       }
-      if (EMOJI_COMMAND_NAMES.has(interaction.commandName as 'emoji_vote')) {
-        void handleEmojiAutocomplete(interaction);
-      }
+      /*
+       * Die Emoji-Befehle brauchen keine Autovervollstaendigung mehr.
+       *
+       * Sie nehmen jetzt ein Emoji aus einem Chat, keine Kennung aus einer
+       * Liste - was man einfuegt, kann niemand vorschlagen.
+       */
       return;
     }
     if (!interaction.isChatInputCommand()) {

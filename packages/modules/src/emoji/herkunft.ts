@@ -46,29 +46,15 @@ export const IMPORT_FRIST_MS = 8_000;
  * Discords eigene Bild-Adressen.
  *
  * Fest und nicht einstellbar, weil sie etwas anderes sind als die
- * Freigabeliste: ein Anhang an einem Slash Command kommt aus Discords eigener
- * Nutzlast und nicht aus einem Textfeld. Die Adresse hat niemand getippt - und
- * genau deshalb darf sie geholt werden, auch wenn das Team den Import
- * ausgeschaltet hat.
+ * Freigabeliste: die Adresse eines uebernommenen Emojis wird aus seiner Kennung
+ * **gebaut** (siehe `fremd.ts`) und nicht eingegeben. Sie hat niemand getippt -
+ * und genau deshalb darf sie geholt werden, auch wenn das Team den Import von
+ * eigenen Adressen ausgeschaltet hat.
  *
- * Die Liste pinnt sie trotzdem fest: ohne sie wäre jede Adresse, die als
- * «Anhang» hereinkommt, eine beliebige Adresse.
+ * Die Liste pinnt den Host trotzdem fest: ohne sie waere jede Adresse, die als
+ * «Discord-CDN» hereinkommt, eine beliebige Adresse.
  */
 export const DISCORD_BILD_HOSTS: readonly string[] = ['cdn.discordapp.com', 'media.discordapp.net'] as const;
-
-/**
- * Den Anhang eines Slash Commands holen.
- *
- * Derselbe Weg wie `holeBild`, nur mit der festen Discord-Liste statt der
- * eingestellten. Die SSRF-Prüfung gilt genauso: ein CDN-Name, der auf eine
- * interne Adresse zeigt, wäre dasselbe Loch, egal woher der Link kam.
- */
-export async function holeDiscordAnhang(
-  url: string,
-  optionen: { fristMs?: number } = {},
-): Promise<ImportErgebnis> {
-  return holeBild(url, DISCORD_BILD_HOSTS, optionen);
-}
 
 export interface ImportErgebnis {
   ok: boolean;

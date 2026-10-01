@@ -857,3 +857,97 @@ describeWithDatabase('Emoji: die Meldungen auf Discord', () => {
     expect(kaputt.gesendet).toEqual([]);
   });
 });
+
+describeWithDatabase('Emoji: direkt zur Abstimmung', () => {
+  /**
+   * Der Weg von `/emoji_vote`.
+   *
+   * Einreichen und Abstimmung starten in einem Zug - und zwar von einem
+   * Mitglied, nicht vom Team. Was dabei trotzdem gilt: alle Pruefungen von
+   * `reicheEin`. Die Abstimmung ersetzt die Entscheidung, nicht die Schranken.
+   */
+  beforeAll(() => {
+    pushSchema();
+  });
+
+  beforeEach(async () => {
+    await prisma.$executeRawUnsafe(
+      'TRUNCATE "EmojiStimme","EmojiAntrag","ModuleState","AuditLog" RESTART IDENTITY CASCADE',
+    );
+    clearRevisionCaches();
+    await raeumeMockEmojisAuf();
+    await setModuleEnabled(emoji.EMOJI_MODULE_ID, true, 'test');
+    await einstellungen({ stimmenZiel: 3, abstimmungMinuten: 10 });
+  });
+
+  const vorschlag = (name: string, bytes = png(61)) => ({
+    name,
+    bytes,
+    antragstellerId: ANTRAGSTELLER,
+    herkunft: 'IMPORT' as const,
+    herkunftNotiz: 'Discord-Emoji 123456789012345678 (:pog:)',
+  });
+
+  it('legt den Vorschlag an und stellt ihn sofort zur Abstimmung', async () => {
+    const ergebnis = await emoji.reicheEinUndStelleZurAbstimmung(vorschlag('pog'));
+
+    expect(ergebnis.ok, ergebnis.grund).toBe(true);
+    expect(ergebnis.antrag?.status).toBe('ABSTIMMUNG');
+    expect(ergebnis.ziel).toBe(3);
+    expect(ergebnis.minuten).toBe(10);
+    // Die Frist steht in der Zeile, nicht in einem Timer.
+    expect(ergebnis.antrag?.abstimmungEndetAm).not.toBeNull();
+  });
+
+  it('bringt das Emoji auf den Server, sobald das Ziel erreicht ist', async () => {
+    const ergebnis = await emoji.reicheEinUndStelleZurAbstimmung(vorschlag('pog', png(62)));
+    const id = ergebnis.antrag?.id ?? '';
+
+    await emoji.stimmeAb(id, 'w1');
+    await emoji.stimmeAb(id, 'w2');
+    const letzte = await emoji.stimmeAb(id, 'w3');
+
+    expect(letzte.art).toBe('ziel_erreicht');
+    const katalog = await discord.emojis.list();
+    expect(katalog.some((eintrag) => eintrag.name === 'pog')).toBe(true);
+  });
+
+  it('haelt die Pruefungen von reicheEin ein', async () => {
+    // Ein unmoeglicher Name darf auch auf diesem Weg nicht durch.
+    const schlecht = await emoji.reicheEinUndStelleZurAbstimmung(vorschlag('mein emoji', png(63)));
+    expect(schlecht.ok).toBe(false);
+    expect(await prisma.emojiAntrag.count()).toBe(0);
+
+    // Und die Grenze offener Vorschlaege je Mitglied gilt ebenso.
+    await einstellungen({ stimmenZiel: 3, maxOffeneJeMitglied: 1 });
+    await emoji.reicheEinUndStelleZurAbstimmung(vorschlag('eins', png(64)));
+    const zweiter = await emoji.reicheEinUndStelleZurAbstimmung(vorschlag('zwei', png(65)));
+    expect(zweiter.ok).toBe(false);
+  });
+
+  it('laesst den Vorschlag stehen, wenn die Abstimmung aus ist', async () => {
+    await einstellungen({ abstimmungAktiv: false });
+    const ergebnis = await emoji.reicheEinUndStelleZurAbstimmung(vorschlag('pog', png(66)));
+
+    expect(ergebnis.ok).toBe(false);
+    /*
+     * Und zwar **bevor** etwas angelegt wird: die Pruefung steht vor dem
+     * Einreichen. Ein Vorschlag, der ohne Abstimmung liegenbleibt, waere hier
+     * nicht falsch - aber er waere eine Ueberraschung.
+     */
+    expect(await prisma.emojiAntrag.count()).toBe(0);
+  });
+
+  it('merkt sich die Herkunft als Kennung, nicht als Rechteaussage', async () => {
+    const ergebnis = await emoji.reicheEinUndStelleZurAbstimmung(vorschlag('pog', png(67)));
+    const antrag = await prisma.emojiAntrag.findUniqueOrThrow({
+      where: { id: ergebnis.antrag?.id ?? '' },
+    });
+
+    expect(antrag.herkunft).toBe('IMPORT');
+    expect(antrag.herkunftNotiz).toContain('123456789012345678');
+    for (const wort of ['Copyright', 'Urheber', 'Lizenz', 'Eigentum']) {
+      expect(antrag.herkunftNotiz ?? '', wort).not.toContain(wort);
+    }
+  });
+});

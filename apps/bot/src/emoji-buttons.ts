@@ -131,8 +131,28 @@ async function behandleModeration(
    * er die Nachricht sieht.
    */
   const actor = await buildCommandActor(interaction);
-  if (!actor.can(emoji.EMOJI_PERMISSIONS.moderate)) {
-    await interaction.editReply({ content: 'Du hesch kei Berächtigung, über Vorschläg z entscheide.' });
+
+  /*
+   * «Abstimmen lassen» ist nicht dasselbe wie entscheiden.
+   *
+   * Annehmen und Ablehnen brauchen `moderate` - das ist eine Entscheidung. Den
+   * Vorschlag der Community vorzulegen entscheidet nichts und braucht deshalb
+   * nur `emoji.vote`; wer `moderate` hat, darf es ohnehin, weil er die
+   * schwerere Handlung darf. Zwei Rechte, zwei Arten von Vertrauen - dieselbe
+   * Trennung wie bei den Slash Commands.
+   */
+  const erlaubt =
+    art === 'abstimmung'
+      ? actor.can(emoji.EMOJI_PERMISSIONS.voteStart) || actor.can(emoji.EMOJI_PERMISSIONS.moderate)
+      : actor.can(emoji.EMOJI_PERMISSIONS.moderate);
+
+  if (!erlaubt) {
+    await interaction.editReply({
+      content:
+        art === 'abstimmung'
+          ? 'Du hesch kei Berächtigung, en Abstimmig z starte.'
+          : 'Du hesch kei Berächtigung, über Vorschläg z entscheide.',
+    });
     return;
   }
 

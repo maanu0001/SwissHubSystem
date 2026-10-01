@@ -130,7 +130,7 @@ function herkunftstext(antrag: EmojiAntrag): string {
       ? 'im Dashboard hochgeladen'
       : antrag.herkunft === 'DISCORD_ANHANG'
         ? 'als Anhang in Discord geschickt'
-        : 'von einer freigegebenen Adresse geholt';
+        : 'von einem anderen Discord-Server kopiert';
   return antrag.herkunftNotiz ? `${woher} (${antrag.herkunftNotiz})` : woher;
 }
 

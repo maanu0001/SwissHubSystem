@@ -47,6 +47,15 @@ export const EMOJI_PERMISSIONS = {
   moderate: 'emoji.moderate',
   /** Einen Vorschlag einreichen. */
   request: 'emoji.request',
+  /**
+   * Eine Community-Abstimmung selbst starten.
+   *
+   * Eigene Berechtigung und nicht Teil von `moderate`, weil sie an eine andere
+   * Art von Vertrauen geknuepft ist: wer sie hat, entscheidet nichts - er legt
+   * die Frage dem Server vor. Genau deshalb kann sie an eine Levelrolle gehen
+   * («ab Level 15»), waehrend `moderate` beim Team bleibt.
+   */
+  voteStart: 'emoji.vote',
 } as const;
 
 export interface EmojiSettings {
@@ -194,6 +203,13 @@ export const emojiModule: ModuleDefinition = registerModule({
       key: EMOJI_PERMISSIONS.request,
       label: 'Emoji vorschlagen',
       description: 'Einen Vorschlag einreichen. Entscheidet nichts.',
+      module: EMOJI_MODULE_ID,
+    },
+    {
+      key: EMOJI_PERMISSIONS.voteStart,
+      label: 'Abstimmung starten',
+      description:
+        'Ein Emoji von einem anderen Server zur Abstimmung stellen. Entscheidet nichts - erreicht die Abstimmung das Ziel, landet das Emoji auf dem Server. Gedacht für eine Levelrolle: ab einem bestimmten Level darf man die Community fragen.',
       module: EMOJI_MODULE_ID,
     },
     {

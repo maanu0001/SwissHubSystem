@@ -1,9 +1,4 @@
-import {
-  ApplicationCommandOptionType,
-  MessageFlags,
-  type Attachment,
-  type ChatInputCommandInteraction,
-} from 'discord.js';
+import { ApplicationCommandOptionType, MessageFlags, type ChatInputCommandInteraction } from 'discord.js';
 import { appUrl } from '@swisshub/config';
 import { createLogger } from '@swisshub/logger';
 import { AppError } from '@swisshub/shared';
@@ -15,72 +10,82 @@ const log = createLogger('bot:commands:emoji');
 /**
  * `/emoji_add`, `/emoji_request`, `/emoji_vote`.
  *
- * ## Drei Befehle, drei Rollen im Vorgang
+ * ## Alle drei nehmen ein Emoji, kein Bild
  *
- * - **`/emoji_add`** ist fürs Team: Bild dran, Name dazu, liegt sofort auf dem
- *   Server. Braucht `emoji.manage`.
- * - **`/emoji_request`** ist für alle: dasselbe Bild, aber als Vorschlag. Das
- *   Team entscheidet.
- * - **`/emoji_vote`** legt einen offenen Vorschlag der Community vor. Braucht
- *   `emoji.moderate` - wer abstimmen lässt, entscheidet darüber, dass nicht das
- *   Team entscheidet.
+ *     /emoji_add emoji:<:pog:123456789012345678> name:pog
+ *
+ * Das ist der Weg, den man von Emoji-Stealer-Bots kennt, und er ist der
+ * richtige: niemand lädt eine Datei hoch, um ein Emoji zu übernehmen, das er
+ * gerade in einem Chat gesehen hat. Was ein Emoji in einer Nachricht ist - ein
+ * Name und eine Kennung - und wie daraus eine Bildadresse auf Discords CDN
+ * wird, steht in `emoji/fremd.ts`.
+ *
+ * **Das ist kein Laden einer beliebigen Adresse.** Die Adresse wird aus der
+ * Kennung gebaut, nicht eingegeben, und der Host ist Discords eigener aus einer
+ * festen Liste. Danach gilt dieselbe SSRF-Prüfung wie für jeden Import.
+ *
+ * ## Drei Befehle, drei Arten von Vertrauen
+ *
+ * - **`/emoji_add`** - `emoji.manage`. Liegt sofort auf dem Server.
+ * - **`/emoji_request`** - `emoji.request`. Geht ans Team.
+ * - **`/emoji_vote`** - `emoji.vote`. Geht an die **Community**: ein Embed mit
+ *   Ja-Knopf im eingestellten Kanal. Erreicht es das Stimmenziel im Zeitfenster,
+ *   landet das Emoji auf dem Server - ohne dass jemand entschieden hat.
+ *
+ * `emoji.vote` ist bewusst eine eigene Berechtigung und nicht Teil von
+ * `moderate`: so lässt sie sich einer Levelrolle geben («ab Level 15 darfst du
+ * die Community fragen»), während das Entscheiden beim Team bleibt.
  *
  * ## Ein Adapter, keine zweite Fachlogik
  *
- * Alle drei rufen dieselben Funktionen auf wie das Dashboard:
- * `emoji.fuegeEmojiHinzu`, `emoji.reicheEin`, `emoji.starteAbstimmung`. Es gibt
- * keine zweite Vorstellung davon, welcher Name erlaubt ist, wie viele Plätze
- * frei sind oder wie viele Vorschläge jemand offen haben darf.
- *
- * ## Der Anhang
- *
- * Discord liefert eine Adresse auf seinem eigenen CDN. Die Bytes holt
- * `emoji.holeDiscordAnhang` - mit derselben SSRF-Prüfung wie jeder Import, aber
- * gegen die feste Discord-Liste statt gegen die eingestellte: diese Adresse hat
- * niemand getippt, sie kam in Discords Nutzlast.
- *
- * Geprüft werden danach trotzdem die Bytes und nicht der angekündigte Typ. Ein
- * `content-type` ist eine Behauptung, auch wenn Discord ihn aufstellt.
+ * Alle drei rufen dieselben Funktionen auf wie das Dashboard. Es gibt keine
+ * zweite Vorstellung davon, welcher Name erlaubt ist, wie viele Plätze frei
+ * sind oder wie viele Vorschläge jemand offen haben darf.
  */
+
+/** Die Beschreibung, die bei allen drei Befehlen am Emoji-Feld steht. */
+const EMOJI_HINWEIS = 'S Emoji vo eme andere Server - ischs Feld inekopiere.';
 
 export const EMOJI_COMMAND_DEFINITIONS = [
   {
     name: 'emoji_add',
-    description: 'Es Emoji direkt uf de Server lade.',
+    description: 'Es Emoji vo eme andere Server uf de Server kopiere.',
     dmPermission: false,
     options: [
       {
-        name: 'name',
-        description: 'Wie söll s Emoji heisse? (a-z, Zahle, Underschtrich)',
+        name: 'emoji',
+        description: EMOJI_HINWEIS,
         type: ApplicationCommandOptionType.String,
         required: true,
-        max_length: 32,
+        max_length: 200,
       },
       {
-        name: 'bild',
-        description: 'S Bild - PNG, JPEG, GIF oder WebP, max 256 KB.',
-        type: ApplicationCommandOptionType.Attachment,
-        required: true,
+        name: 'name',
+        description: 'Neue Name (optional - sunscht de vom Herkunftsserver).',
+        type: ApplicationCommandOptionType.String,
+        required: false,
+        max_length: 32,
       },
     ],
   },
   {
     name: 'emoji_request',
-    description: 'Es Emoji vorschlah - s Team entscheidet.',
+    description: 'Es Emoji vo eme andere Server vorschlah - s Team entscheidet.',
     dmPermission: false,
     options: [
       {
-        name: 'name',
-        description: 'Wie söll s Emoji heisse? (a-z, Zahle, Underschtrich)',
+        name: 'emoji',
+        description: EMOJI_HINWEIS,
         type: ApplicationCommandOptionType.String,
         required: true,
-        max_length: 32,
+        max_length: 200,
       },
       {
-        name: 'bild',
-        description: 'S Bild - PNG, JPEG, GIF oder WebP, max 256 KB.',
-        type: ApplicationCommandOptionType.Attachment,
-        required: true,
+        name: 'name',
+        description: 'Neue Name (optional - sunscht de vom Herkunftsserver).',
+        type: ApplicationCommandOptionType.String,
+        required: false,
+        max_length: 32,
       },
       {
         name: 'begründig',
@@ -93,15 +98,22 @@ export const EMOJI_COMMAND_DEFINITIONS = [
   },
   {
     name: 'emoji_vote',
-    description: 'E offene Vorschlag vo de Community abstimme lah.',
+    description: 'Es Emoji vo eme andere Server de Community zur Abstimmig vorlege.',
     dmPermission: false,
     options: [
       {
-        name: 'vorschlag',
-        description: 'De Name vom Vorschlag.',
+        name: 'emoji',
+        description: EMOJI_HINWEIS,
         type: ApplicationCommandOptionType.String,
         required: true,
-        autocomplete: true,
+        max_length: 200,
+      },
+      {
+        name: 'name',
+        description: 'Neue Name (optional - sunscht de vom Herkunftsserver).',
+        type: ApplicationCommandOptionType.String,
+        required: false,
+        max_length: 32,
       },
     ],
   },
@@ -110,26 +122,57 @@ export const EMOJI_COMMAND_DEFINITIONS = [
 export const EMOJI_COMMAND_NAMES = new Set(EMOJI_COMMAND_DEFINITIONS.map((eintrag) => eintrag.name));
 
 type EmojiCommandName = (typeof EMOJI_COMMAND_DEFINITIONS)[number]['name'];
+type Actor = Awaited<ReturnType<typeof buildCommandActor>>;
+
+interface Uebernommen {
+  bytes: Uint8Array;
+  name: string;
+  /** Die technische Herkunft - die Kennung und die Adresse, nichts weiter. */
+  notiz: string;
+}
 
 /**
- * Die Bytes eines Anhangs - oder ein Grund.
+ * Das Emoji aus den Optionen holen und den Namen bestimmen.
  *
- * Discord nennt Grösse und Typ im Anhang. Die Grösse wird vorab geprüft, weil
- * sie einen Abruf spart; der Typ nicht, weil er eine Behauptung ist.
+ * Gibt `null` zurück und hat dann **schon geantwortet** - die Gründe sind
+ * verschieden («das ist ein Standard-Emoji», «dazu gibt es kein Bild», «ohne
+ * Referenzname brauchst du einen Namen»), und jeder verdient seinen eigenen
+ * Satz. Ein gemeinsames «ging nicht» wäre hier der Verlust der ganzen Arbeit
+ * in `fremd.ts`.
  */
-async function bytesVon(anhang: Attachment): Promise<{ bytes?: Uint8Array; grund?: string }> {
-  if (anhang.size > emoji.EMOJI_MAX_BYTES) {
-    return {
-      grund: `S Bild isch ${Math.round(anhang.size / 1024)} KB gross. Discord nimmt maximal ${Math.round(
-        emoji.EMOJI_MAX_BYTES / 1024,
-      )} KB.`,
-    };
+async function hole(interaction: ChatInputCommandInteraction): Promise<Uebernommen | null> {
+  const eingabe = interaction.options.getString('emoji', true);
+  const ergebnis = await emoji.uebernehmeEmoji(eingabe);
+
+  if (!ergebnis.ok || !ergebnis.bytes || !ergebnis.referenz) {
+    await interaction.editReply({ content: ergebnis.grund ?? 'S Emoji het sich nöd hole lah.' });
+    return null;
   }
-  const ergebnis = await emoji.holeDiscordAnhang(anhang.url);
-  if (!ergebnis.ok || !ergebnis.bytes) {
-    return { grund: ergebnis.grund ?? 'S Bild het sich nöd lade lah.' };
+
+  /*
+   * Der Name: der gewünschte, sonst der vom Herkunftsserver.
+   *
+   * Kam nur eine Kennung, gibt es keinen Herkunftsnamen - dann ist der
+   * Namensparameter Pflicht, und das wird gesagt statt geraten. Ein Emoji
+   * `emoji_123456789012345678` zu nennen wäre ein Name, den niemand wollte.
+   */
+  const gewuenscht = interaction.options.getString('name');
+  const name = gewuenscht ?? ergebnis.referenz.urspruenglicherName;
+  if (!name) {
+    await interaction.editReply({
+      content: 'Zu dere Kennig ghört kein Name - gib bitte `name:` mit aa.',
+    });
+    return null;
   }
-  return { bytes: ergebnis.bytes };
+
+  return {
+    bytes: ergebnis.bytes,
+    name,
+    // Nur Technik. Wem das Emoji gehört, weiss SwissHub nicht.
+    notiz: `Discord-Emoji ${ergebnis.referenz.discordEmojiId}${
+      ergebnis.referenz.urspruenglicherName ? ` (:${ergebnis.referenz.urspruenglicherName}:)` : ''
+    }`,
+  };
 }
 
 export async function handleEmojiCommand(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -156,7 +199,7 @@ export async function handleEmojiCommand(interaction: ChatInputCommandInteractio
 
     switch (interaction.commandName as EmojiCommandName) {
       case 'emoji_add':
-        await hinzufuegen(interaction, actor);
+        await kopieren(interaction, actor);
         return;
       case 'emoji_request':
         await vorschlagen(interaction, actor);
@@ -175,26 +218,22 @@ export async function handleEmojiCommand(interaction: ChatInputCommandInteractio
   }
 }
 
-type Actor = Awaited<ReturnType<typeof buildCommandActor>>;
-
-async function hinzufuegen(interaction: ChatInputCommandInteraction, actor: Actor): Promise<void> {
+async function kopieren(interaction: ChatInputCommandInteraction, actor: Actor): Promise<void> {
   if (!actor.can(emoji.EMOJI_PERMISSIONS.manage)) {
     await interaction.editReply({ content: NO_PERMISSION });
     return;
   }
 
-  const anhang = interaction.options.getAttachment('bild', true);
-  const { bytes, grund } = await bytesVon(anhang);
-  if (!bytes) {
-    await interaction.editReply({ content: grund ?? 'S Bild het sich nöd lade lah.' });
+  const uebernommen = await hole(interaction);
+  if (!uebernommen) {
     return;
   }
 
   const ergebnis = await emoji.fuegeEmojiHinzu({
-    name: interaction.options.getString('name', true),
-    bytes,
+    name: uebernommen.name,
+    bytes: uebernommen.bytes,
     akteurDiscordId: actor.discordId,
-    herkunftNotiz: `Discord-Ahang: ${anhang.name}`,
+    herkunftNotiz: uebernommen.notiz,
     // Das Team darf den letzten Platz belegen - das ist eine Entscheidung.
     ohneReserve: true,
   });
@@ -206,7 +245,7 @@ async function hinzufuegen(interaction: ChatInputCommandInteraction, actor: Acto
 
   await interaction.editReply({
     content: [
-      `${ergebnis.emoji.code} isch da - tipp \`:${ergebnis.emoji.name}:\`.`,
+      `${ergebnis.emoji.code} isch kopiert - tipp \`:${ergebnis.emoji.name}:\`.`,
       ergebnis.hinweis ? `Hinwiis: ${ergebnis.hinweis}` : null,
     ]
       .filter(Boolean)
@@ -220,19 +259,17 @@ async function vorschlagen(interaction: ChatInputCommandInteraction, actor: Acto
     return;
   }
 
-  const anhang = interaction.options.getAttachment('bild', true);
-  const { bytes, grund } = await bytesVon(anhang);
-  if (!bytes) {
-    await interaction.editReply({ content: grund ?? 'S Bild het sich nöd lade lah.' });
+  const uebernommen = await hole(interaction);
+  if (!uebernommen) {
     return;
   }
 
   const ergebnis = await emoji.reicheEin({
-    name: interaction.options.getString('name', true),
-    bytes,
+    name: uebernommen.name,
+    bytes: uebernommen.bytes,
     antragstellerId: actor.discordId,
-    herkunft: 'DISCORD_ANHANG',
-    herkunftNotiz: anhang.name,
+    herkunft: 'IMPORT',
+    herkunftNotiz: uebernommen.notiz,
     begruendung: interaction.options.getString('begründig'),
   });
 
@@ -260,8 +297,16 @@ async function vorschlagen(interaction: ChatInputCommandInteraction, actor: Acto
   });
 }
 
+/**
+ * Die Community fragen.
+ *
+ * Braucht `emoji.vote` - die Berechtigung, die an eine Levelrolle gehen kann.
+ * Entscheidet nichts: es entsteht ein Embed mit Ja-Knopf im eingestellten
+ * Kanal, und erst das Stimmenziel im Zeitfenster bringt das Emoji auf den
+ * Server.
+ */
 async function abstimmenLassen(interaction: ChatInputCommandInteraction, actor: Actor): Promise<void> {
-  if (!actor.can(emoji.EMOJI_PERMISSIONS.moderate)) {
+  if (!actor.can(emoji.EMOJI_PERMISSIONS.voteStart)) {
     await interaction.editReply({ content: NO_PERMISSION });
     return;
   }
@@ -269,56 +314,50 @@ async function abstimmenLassen(interaction: ChatInputCommandInteraction, actor: 
   const settings = await getModuleSettings<emoji.EmojiSettings>(emoji.EMOJI_MODULE_ID);
   if (!settings.abstimmungAktiv) {
     await interaction.editReply({
-      content: 'D Community-Abstimmig isch usgschalte. Du chasch sie i de Modulistellige iischalte.',
+      content: 'D Community-Abstimmig isch usgschalte. S Team chas i de Modulistellige iischalte.',
+    });
+    return;
+  }
+  if (settings.abstimmungChannelId.trim().length === 0) {
+    /*
+     * Ohne Kanal gibt es keine Abstimmung.
+     *
+     * Sie trotzdem zu starten hiesse: eine Frist läuft, und niemand kann
+     * klicken. Das ist schlechter, als sie nicht zu starten - deshalb hier
+     * abbrechen, bevor etwas angelegt wird.
+     */
+    await interaction.editReply({
+      content: 'Es isch kein Abstimmigskanal istellt - ohni dä chönnt niemert abstimme. Säg s em Team.',
     });
     return;
   }
 
-  const antragId = interaction.options.getString('vorschlag', true);
-  const ergebnis = await emoji.starteAbstimmung(antragId, actor.discordId);
+  const uebernommen = await hole(interaction);
+  if (!uebernommen) {
+    return;
+  }
+
+  const ergebnis = await emoji.reicheEinUndStelleZurAbstimmung({
+    name: uebernommen.name,
+    bytes: uebernommen.bytes,
+    antragstellerId: actor.discordId,
+    herkunft: 'IMPORT',
+    herkunftNotiz: uebernommen.notiz,
+  });
+
   if (!ergebnis.ok || !ergebnis.antrag) {
     await interaction.editReply({ content: ergebnis.grund ?? 'Das het nöd klappt.' });
     return;
   }
 
+  // Das Embed mit dem Ja-Knopf in den eingestellten Kanal, und die Meldung ans
+  // Team daneben - das Team soll sehen, worüber abgestimmt wird.
   await Promise.all([
-    emoji.schreibeAbstimmungsnachricht(antragId, { basisUrl: appUrl('') }),
-    emoji.schreibeModerationsmeldung(antragId, { basisUrl: appUrl(''), nurAktualisieren: true }),
+    emoji.schreibeAbstimmungsnachricht(ergebnis.antrag.id, { basisUrl: appUrl('') }),
+    emoji.schreibeModerationsmeldung(ergebnis.antrag.id, { basisUrl: appUrl('') }),
   ]);
 
-  const ziel = ergebnis.antrag.stimmenZiel ?? settings.stimmenZiel;
   await interaction.editReply({
-    content: settings.abstimmungChannelId
-      ? `D Abstimmig über \`:${ergebnis.antrag.name}:\` laufed i <#${settings.abstimmungChannelId}> - ${ziel} Stimme in ${settings.abstimmungMinuten} Minute.`
-      : `D Abstimmig laufed, aber es isch kei Abstimmigskanal istellt. De Stand staht im Dashboard.`,
+    content: `D Abstimmig über \`:${ergebnis.antrag.name}:\` laufed i <#${settings.abstimmungChannelId}> - ${ergebnis.ziel} Stimme in ${ergebnis.minuten} Minute.`,
   });
-}
-
-/**
- * Autovervollständigung für `/emoji_vote`.
- *
- * Es werden nur **offene** Vorschläge angeboten. Einen schon entschiedenen zur
- * Wahl zu stellen wäre ein Eintrag, der beim Klick scheitert - und das
- * Dashboard zeigte dann einen Fehler, den die Liste verursacht hat.
- */
-export async function handleEmojiAutocomplete(interaction: {
-  commandName: string;
-  respond: (optionen: Array<{ name: string; value: string }>) => Promise<void>;
-  options: { getFocused: () => string };
-}): Promise<void> {
-  if (!EMOJI_COMMAND_NAMES.has(interaction.commandName as EmojiCommandName)) {
-    return;
-  }
-  try {
-    const suche = interaction.options.getFocused().trim().toLowerCase();
-    const bereich = await emoji.ladeBereich();
-    const treffer = bereich.offene
-      .filter((antrag) => suche.length === 0 || antrag.name.includes(suche))
-      .slice(0, 25)
-      .map((antrag) => ({ name: `:${antrag.name}:`, value: antrag.id }));
-    await interaction.respond(treffer);
-  } catch (error) {
-    log.debug('Autovervollständigung gescheitert', { error });
-    await interaction.respond([]);
-  }
 }

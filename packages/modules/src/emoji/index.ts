@@ -9,3 +9,4 @@ export * from './antrag';
 export * from './abstimmung';
 export * from './uebersicht';
 export * from './discord';
+export * from './fremd';
