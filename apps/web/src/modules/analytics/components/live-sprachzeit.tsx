@@ -1,7 +1,8 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { stunden, zahl } from '@/modules/analytics/format';
+import { liveSpeicher, type LiveStand, type Momentaufnahme } from '@/modules/analytics/live-speicher';
 
 /**
  * Die Sprachzeit, während man zusieht.
@@ -25,8 +26,10 @@ import { stunden, zahl } from '@/modules/analytics/format';
  *    Stand. Damit kommt auch an, was hier niemand wissen kann: dass jemand
  *    gegangen ist, dazugekommen oder in den AFK-Kanal gewechselt.
  *
- * Ein Abonnement für alle Kacheln, nicht eines je Kachel - sonst holten vier
- * Karten viermal dasselbe. Deshalb der Speicher auf Modulebene.
+ * Ein Abonnement für alle Kacheln, nicht eines je Kachel - sonst holten fünf
+ * Karten fünfmal dasselbe. Der gemeinsame Speicher steht in `live-speicher`;
+ * dort steht auch, warum jeder Stand die Abfrage trägt, zu der er gehört.
+ * Diese Datei ist die Verdrahtung mit React und sonst nichts.
  *
  * ## Wann geruht wird - und wann nicht
  *
@@ -56,59 +59,32 @@ const ABGLEICH_MS = 30_000;
  */
 const TAKT_MS = 5_000;
 
-export interface LiveStand {
-  /** Serverzeit des Standes, als Millisekunden. */
-  asOf: number;
-  zeitraum: { sekunden: number; wachsend: number };
-  heute: { sekunden: number; wachsend: number };
-  imSprachkanal: number;
-  aktive: number;
-  sitzungen: number;
-}
+export type { LiveStand } from '@/modules/analytics/live-speicher';
 
-/**
- * Der gemeinsame Stand.
- *
- * `folge` zählt bei jedem Abgleich **und** bei jedem Takt hoch. Ohne sie
- * bliebe die Momentaufnahme identisch, React zeichnete nicht neu, und die
- * Zahl stünde still, obwohl die Zeit läuft.
- */
-interface Momentaufnahme {
-  folge: number;
-  stand: LiveStand | null;
-}
-
-let aktuell: Momentaufnahme = { folge: 0, stand: null };
-const zuhoerer = new Set<() => void>();
 let abgleichTimer: number | null = null;
 let taktTimer: number | null = null;
 
-function melde(stand: LiveStand | null = aktuell.stand): void {
-  aktuell = { folge: aktuell.folge + 1, stand };
-  for (const ruf of zuhoerer) {
-    ruf();
-  }
-}
-
 async function hole(): Promise<void> {
+  /*
+   * Die Abfrage kommt aus dem Speicher, nicht aus `window.location`.
+   *
+   * Beides stimmt meistens überein, aber «meistens» ist bei einer weichen
+   * Navigation kein Verlass: wessen Zahl die Kachel zeigt, muss dieselbe
+   * Quelle bestimmen, die auch den Schlüssel setzt. Sonst gehört die Antwort
+   * zu einem Zeitraum und der Schlüssel zu einem anderen.
+   */
+  const fuer = liveSpeicher.gewuenschteAbfrage();
   try {
-    /*
-     * Derselbe Zeitraum wie die Seite.
-     *
-     * Er steht in der Adresse - `?zeitraum=30d`, `?zeitraum=custom&von=…`.
-     * Sie einfach weiterzureichen ist genauer, als sie durch die Seite zu
-     * fädeln: was im Browser steht, ist das, was der Mensch gerade ansieht.
-     */
-    const antwort = await fetch(`/api/analytics/live${window.location.search}`, {
-      cache: 'no-store',
-    });
+    const antwort = await fetch(`/api/analytics/live${fuer}`, { cache: 'no-store' });
     if (!antwort.ok) {
       return;
     }
     const nutzlast = (await antwort.json()) as Omit<LiveStand, 'asOf'> & { asOf: string };
-    melde({ ...nutzlast, asOf: Date.parse(nutzlast.asOf) });
-    // Der Stand entscheidet, ob weiter hochgezählt werden muss.
-    taktAnpassen();
+    // `uebernimm` verwirft die Antwort, wenn inzwischen ein anderer Zeitraum
+    // gewählt wurde - zwei Abrufe kommen nicht zwingend der Reihe nach zurück.
+    if (liveSpeicher.uebernimm({ ...nutzlast, asOf: Date.parse(nutzlast.asOf) }, fuer)) {
+      taktAnpassen();
+    }
   } catch {
     // Ein verpasster Abgleich ist kein Problem - der nächste kommt, und bis
     // dahin rechnet die Anzeige weiter.
@@ -119,33 +95,31 @@ async function hole(): Promise<void> {
  * Den Takt an das anpassen, was tatsächlich wächst.
  *
  * Läuft keine Sitzung, ändert sich zwischen zwei Abgleichen nichts - dann
- * gibt es auch nichts neu zu zeichnen. Vor der ersten Antwort wird gezählt,
- * denn bis dahin gilt, was der Server mitgegeben hat.
+ * gibt es auch nichts neu zu zeichnen.
  */
 function taktAnpassen(): void {
-  const stand = aktuell.stand;
-  const waechst = stand ? stand.zeitraum.wachsend > 0 || stand.heute.wachsend > 0 : true;
+  const waechst = liveSpeicher.waechst();
 
-  if (waechst && taktTimer === null && zuhoerer.size > 0) {
-    taktTimer = window.setInterval(() => melde(), TAKT_MS);
+  if (waechst && taktTimer === null && liveSpeicher.zuhoererZahl() > 0) {
+    taktTimer = window.setInterval(() => liveSpeicher.schlag(), TAKT_MS);
     return;
   }
-  if ((!waechst || zuhoerer.size === 0) && taktTimer !== null) {
+  if ((!waechst || liveSpeicher.zuhoererZahl() === 0) && taktTimer !== null) {
     window.clearInterval(taktTimer);
     taktTimer = null;
   }
 }
 
 function abonniere(ruf: () => void): () => void {
-  zuhoerer.add(ruf);
-  if (zuhoerer.size === 1) {
+  const abmelden = liveSpeicher.abonniere(ruf);
+  if (liveSpeicher.zuhoererZahl() === 1) {
     void hole();
     abgleichTimer = window.setInterval(() => void hole(), ABGLEICH_MS);
     taktAnpassen();
   }
   return () => {
-    zuhoerer.delete(ruf);
-    if (zuhoerer.size > 0) {
+    abmelden();
+    if (liveSpeicher.zuhoererZahl() > 0) {
       return;
     }
     for (const timer of [abgleichTimer, taktTimer]) {
@@ -163,13 +137,27 @@ function ruhend(): () => void {
   return () => undefined;
 }
 
-const lies = (): Momentaufnahme => aktuell;
+const lies = (): Momentaufnahme => liveSpeicher.lies();
 /** Auf dem Server gibt es keinen laufenden Stand - dort gilt, was gerendert wurde. */
-const SERVER_STAND: Momentaufnahme = { folge: 0, stand: null };
+const SERVER_STAND: Momentaufnahme = { folge: 0, stand: null, schluessel: null };
 const serverLies = (): Momentaufnahme => SERVER_STAND;
 
-function useStand(aktiv: boolean): LiveStand | null {
-  return useSyncExternalStore(aktiv ? abonniere : ruhend, lies, serverLies).stand;
+/**
+ * Der laufende Stand - aber nur, wenn er zu dieser Abfrage gehört.
+ *
+ * Die Prüfung über `schluessel` steht im Ergebnis und nicht im Effekt: ein
+ * Effekt läuft **nach** dem Zeichnen, und für ein Bild lang stünde sonst die
+ * Zahl des vorigen Zeitraums auf der Kachel. Genau das war der Fehler.
+ */
+function useStand(aktiv: boolean, abfrage: string): LiveStand | null {
+  useEffect(() => {
+    if (aktiv && liveSpeicher.setzeAbfrage(abfrage)) {
+      void hole();
+    }
+  }, [aktiv, abfrage]);
+
+  const momentaufnahme = useSyncExternalStore(aktiv ? abonniere : ruhend, lies, serverLies);
+  return momentaufnahme.schluessel === abfrage ? momentaufnahme.stand : null;
 }
 
 /**
@@ -186,6 +174,7 @@ export function LiveSprachzeit({
   wachsend,
   asOf,
   aktiv,
+  abfrage,
 }: {
   feld: 'zeitraum' | 'heute';
   basisSekunden: number;
@@ -193,8 +182,10 @@ export function LiveSprachzeit({
   asOf: string;
   /** Reicht der gezeigte Zeitraum in die Gegenwart? Nur dann wird gefragt. */
   aktiv: boolean;
+  /** Die Abfrage des gezeigten Zeitraums - `''` oder `'?zeitraum=1d'`. */
+  abfrage: string;
 }): React.JSX.Element {
-  const stand = useStand(aktiv);
+  const stand = useStand(aktiv, abfrage);
 
   const quelle = stand?.[feld] ?? { sekunden: basisSekunden, wachsend };
   const bezug = stand?.asOf ?? Date.parse(asOf);
@@ -208,12 +199,15 @@ export function LiveZahl({
   feld,
   basis,
   aktiv,
+  abfrage,
 }: {
   feld: 'imSprachkanal' | 'aktive' | 'sitzungen';
   basis: number;
   /** Reicht der gezeigte Zeitraum in die Gegenwart? Nur dann wird gefragt. */
   aktiv: boolean;
+  /** Die Abfrage des gezeigten Zeitraums - `''` oder `'?zeitraum=1d'`. */
+  abfrage: string;
 }): React.JSX.Element {
-  const stand = useStand(aktiv);
+  const stand = useStand(aktiv, abfrage);
   return <>{zahl(stand?.[feld] ?? basis)}</>;
 }

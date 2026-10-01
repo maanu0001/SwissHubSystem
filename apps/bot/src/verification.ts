@@ -147,7 +147,22 @@ export function registerVerification(client: Client): void {
       const geschlossen = await verification.markLeft(member.guild.id, member.id);
       if (geschlossen) {
         const settings = await verification.verificationSettings();
-        await verification.pushModNotice(geschlossen.id, settings);
+        /*
+         * `nurAktualisieren`: ein Austritt meldet nichts an.
+         *
+         * Steht der Fall schon im Moderationskanal, soll die Meldung zeigen,
+         * dass er erledigt ist - sonst arbeitet jemand an einem Vorgang, den
+         * es nicht mehr gibt. Stand er nie dort, hat der Kanal mit diesem
+         * Austritt nichts zu tun: niemand hat je geschrieben, niemand muss
+         * etwas ansehen.
+         *
+         * Vorher fehlte diese Unterscheidung, und der Austritt legte die
+         * Meldung erst an. Der Kanal, in dem Moderatoren fuer Verifikationen
+         * gepingt werden, fuellte sich damit mit Leuten, die bloss gegangen
+         * sind. Wo der Austritt hingehoert, steht er weiterhin: `markLeft`
+         * schreibt ihn in den Verlauf.
+         */
+        await verification.pushModNotice(geschlossen.id, settings, { nurAktualisieren: true });
         log.info('Verifikation beim Austritt geschlossen', { requestId: geschlossen.id });
       }
     } catch (error) {

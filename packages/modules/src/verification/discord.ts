@@ -381,11 +381,35 @@ export async function sendGreeting(
  * Ein Vorgang bekommt genau eine Meldung. Erwaehnt wird nur beim ersten Mal:
  * jede Aktualisierung erneut zu pingen waere genau das Fluten, das die
  * Einstellung verhindern soll.
+ *
+ * ## Wann hier **keine** Meldung entstehen darf
+ *
+ * Der Moderationskanal ist eine Arbeitsliste, kein Protokoll. Dorthin gehoert,
+ * was jemand ansehen muss: eine eingegangene Verifikationsnachricht, ein
+ * Fehler bei der Rollenvergabe. Alles andere - Beitritt, Austritt, Zeitablauf,
+ * Statuswechsel - gehoert in den Verlauf.
+ *
+ * Genau das lief auseinander. Beim Austritt rief der Bot diese Funktion auf,
+ * damit eine bereits stehende Meldung den Abschluss zeigt. Hatte die Person
+ * aber nie geschrieben, gab es keine Meldung - und der Zweig unten legte eine
+ * **neue** an. Im Moderationskanal stand damit «hat den Server verlassen» von
+ * jemandem, der dort nie ein Fall war.
+ *
+ * `nurAktualisieren` trennt die beiden Absichten: «schreib den Fall fort,
+ * falls es ihn dort gibt» ist etwas anderes als «melde diesen Fall». Dass ein
+ * Aufrufer es vergessen koennte, ist der Grund, warum es ein Parameter an
+ * dieser Stelle ist und keine Pruefung beim Aufrufer - hier kommt alles
+ * vorbei, was in den Kanal schreibt.
  */
 export async function pushModNotice(
   requestId: string,
   settings: VerificationSettings,
-  options: { gateway?: DiscordGateway; erwaehnen?: boolean } = {},
+  options: {
+    gateway?: DiscordGateway;
+    erwaehnen?: boolean;
+    /** Nur eine bestehende Meldung fortschreiben - niemals eine neue anlegen. */
+    nurAktualisieren?: boolean;
+  } = {},
 ): Promise<void> {
   const gateway = options.gateway ?? defaultDiscord;
   const request = await prisma.verificationRequest.findUnique({ where: { id: requestId } });
@@ -398,10 +422,24 @@ export async function pushModNotice(
       await gateway.channels.edit(request.modChannelId, request.modMessageId, payload(request));
       return;
     } catch (error) {
+      if (options.nurAktualisieren) {
+        /*
+         * Die Meldung ist weg, und nachlegen darf dieser Aufruf nicht.
+         *
+         * Das ist kein Verlust: der Fall ist abgeschlossen, und was mit ihm
+         * geschah, steht im Verlauf. Eine neue Meldung waere eine
+         * Arbeitsanweisung fuer etwas, das niemand mehr bearbeiten kann.
+         */
+        logger.debug('Moderationsmeldung nicht mehr vorhanden - kein Ersatz noetig', { requestId });
+        return;
+      }
       // Die Meldung wurde geloescht. Eine neue zu senden ist hier richtig -
       // anders als bei einer Ankuendigung braucht die Moderation den Fall.
       logger.warn('Moderationsmeldung nicht auffindbar - wird neu gesendet', { requestId, error });
     }
+  } else if (options.nurAktualisieren) {
+    // Es gab nie eine Meldung: dann gibt es auch nichts fortzuschreiben.
+    return;
   }
 
   try {

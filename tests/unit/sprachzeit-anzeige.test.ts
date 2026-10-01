@@ -99,10 +99,14 @@ describe('Die geöffnete Seite rechnet weiter', () => {
   });
 
   it('holt für alle Kacheln zusammen einen Stand', () => {
-    // Ein Abonnement, nicht eines je Kachel - sonst holten vier Karten
-    // viermal dasselbe.
-    expect(live).toContain('if (zuhoerer.size === 1)');
-    expect(live).toContain('if (zuhoerer.size > 0)');
+    /*
+     * Ein Abonnement, nicht eines je Kachel - sonst holten fünf Karten
+     * fünfmal dasselbe. Die Zuhörer liegen inzwischen im Speicher
+     * (`live-speicher`), die Timer weiterhin hier; geprüft wird deshalb die
+     * Bedingung, nicht der Ort.
+     */
+    expect(live).toContain('liveSpeicher.zuhoererZahl() === 1');
+    expect(live).toContain('liveSpeicher.zuhoererZahl() > 0');
   });
 
   it('fragt nicht jede Sekunde nach', () => {
@@ -131,17 +135,21 @@ describe('Die geöffnete Seite rechnet weiter', () => {
      */
     const seite = lies('apps/web/src/app/(app)/analytics/statistik/page.tsx');
     expect(seite).toContain('const reichtBisJetzt = zeitraum.bis.getTime()');
-    // Die Heute-Kacheln fragen immer - sie zeigen die Gegenwart.
-    expect(seite).toContain('feld="imSprachkanal" basis={heuteWerte.imSprachkanal} aktiv />');
+    // Die Heute-Kacheln fragen immer - sie zeigen die Gegenwart. `abfrage`
+    // kam dazu, damit ein Stand aus einem anderen Zeitraum sie nicht erreicht.
+    expect(seite).toContain('feld="imSprachkanal" basis={heuteWerte.imSprachkanal} aktiv abfrage={abfrage}');
     // Und die alte, zu enge Bedingung ist weg.
     expect(seite).not.toContain('const laeuft =');
   });
 
   it('zählt nur hoch, solange wirklich etwas wächst', () => {
     // Getrennt vom Abruf: nachgefragt wird immer, neu gezeichnet nur, wenn
-    // sich zwischen zwei Antworten überhaupt etwas ändern kann.
+    // sich zwischen zwei Antworten überhaupt etwas ändern kann. Die Frage
+    // «wächst gerade etwas?» beantwortet der Speicher, der Takt bleibt hier.
     expect(live).toContain('function taktAnpassen()');
-    expect(live).toContain('stand.zeitraum.wachsend > 0 || stand.heute.wachsend > 0');
+    expect(live).toContain('liveSpeicher.waechst()');
+    const speicher = lies('apps/web/src/modules/analytics/live-speicher.ts');
+    expect(speicher).toContain('stand.zeitraum.wachsend > 0 || stand.heute.wachsend > 0');
   });
 });
 

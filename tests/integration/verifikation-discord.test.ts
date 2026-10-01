@@ -379,6 +379,98 @@ describeWithDatabase('Verifikation über Discord', () => {
     registerRejectConfirmation(bot.client as never);
   });
 
+  // --- Austritt: Arbeitsliste gegen Protokoll ----------------------------
+
+  /**
+   * Der Moderationskanal ist eine Arbeitsliste, kein Protokoll.
+   *
+   * Dorthin gehört, was jemand ansehen muss: eine eingegangene
+   * Verifikationsnachricht, ein Fehler bei der Rollenvergabe. Ein Austritt
+   * gehört nicht dazu - da ist nichts mehr zu tun.
+   *
+   * Gemeldet wurde genau das: im Kanal, in dem Moderatoren für Verifikationen
+   * gepingt werden, standen auch Leute, die bloss gegangen sind. Der Grund
+   * war eine Zeile, die harmlos aussieht - beim Austritt rief der Bot
+   * `pushModNotice`, damit eine **bestehende** Meldung den Abschluss zeigt.
+   * Gab es keine, legte dieselbe Funktion eine neue an.
+   */
+  it('postet einen Austritt nicht in den Moderationskanal, wenn nie eine Meldung dort stand', async () => {
+    const discordId = '900000000000009401';
+    const neu = mitglied(discordId);
+    await bot.feuere('guildMemberAdd', neu);
+
+    // Beitritt und Begrüssung: im Verifikationskanal, nicht beim Moderator.
+    expect(discord.gesendet.filter((eintrag) => eintrag.channelId === MOD_KANAL)).toHaveLength(0);
+
+    await bot.feuere('guildMemberRemove', neu);
+
+    const anDieModeration = discord.gesendet.filter((eintrag) => eintrag.channelId === MOD_KANAL);
+    expect(anDieModeration).toHaveLength(0);
+  });
+
+  it('hält den Austritt trotzdem im Protokoll fest', async () => {
+    const discordId = '900000000000009402';
+    const neu = mitglied(discordId);
+    await bot.feuere('guildMemberAdd', neu);
+    await bot.feuere('guildMemberRemove', neu);
+
+    /*
+     * Nicht gemeldet heisst nicht verschwiegen. Der Austritt steht im Audit
+     * Log - dort, wo man nachliest, was mit einem Vorgang geschah.
+     */
+    const eintrag = await prisma.auditLog.findFirst({
+      where: { action: 'VERIFICATION_LEFT_SERVER', targetDiscordId: discordId },
+    });
+    expect(eintrag).not.toBeNull();
+
+    const vorgang = await prisma.verificationRequest.findFirst({ where: { discordId } });
+    expect(vorgang?.status).toBe('LEFT_SERVER');
+  });
+
+  it('schreibt eine bestehende Meldung beim Austritt fort, statt eine zweite zu senden', async () => {
+    /*
+     * Der andere Fall: wer geschrieben hat, steht im Moderationskanal. Geht
+     * er, muss die Meldung das zeigen - sonst arbeitet jemand an einem
+     * Vorgang, den es nicht mehr gibt. Bearbeiten, nicht nachlegen.
+     */
+    const discordId = '900000000000009403';
+    const neu = mitglied(discordId);
+    await bot.feuere('guildMemberAdd', neu);
+    await bot.feuere('messageCreate', nachricht(discordId, VERIFIKATIONSKANAL, 'Hoi zäme', 'm-9403'));
+    await bisGemeldet(discordId);
+
+    const vorher = discord.gesendet.filter((eintrag) => eintrag.channelId === MOD_KANAL).length;
+    expect(vorher).toBe(1);
+
+    const bearbeitetVorher = discord.bearbeitet.length;
+    await bot.feuere('guildMemberRemove', neu);
+
+    expect(discord.gesendet.filter((eintrag) => eintrag.channelId === MOD_KANAL)).toHaveLength(vorher);
+    expect(discord.bearbeitet.length).toBeGreaterThan(bearbeitetVorher);
+  });
+
+  it('pingt bei weiteren Nachrichten nicht erneut', async () => {
+    /*
+     * Wer dreimal schreibt, ist ein Fall und nicht drei. Erwähnt wird beim
+     * ersten Mal; danach wird die bestehende Meldung fortgeschrieben.
+     */
+    const discordId = '900000000000009404';
+    const neu = mitglied(discordId);
+    await bot.feuere('guildMemberAdd', neu);
+    await bot.feuere('messageCreate', nachricht(discordId, VERIFIKATIONSKANAL, 'Hoi', 'm-9404-1'));
+    await bisGemeldet(discordId);
+    await bot.feuere('messageCreate', nachricht(discordId, VERIFIKATIONSKANAL, 'Nochmal', 'm-9404-2'));
+    await bot.feuere('messageCreate', nachricht(discordId, VERIFIKATIONSKANAL, 'Und nochmal', 'm-9404-3'));
+
+    const anDieModeration = discord.gesendet.filter((eintrag) => eintrag.channelId === MOD_KANAL);
+    expect(anDieModeration).toHaveLength(1);
+    // Und genau diese eine Meldung trug die Erwähnung.
+    const mitErwaehnung = anDieModeration.filter((eintrag) =>
+      String(eintrag.payload.content ?? '').includes(PING_ROLLE),
+    );
+    expect(mitErwaehnung.length).toBeLessThanOrEqual(1);
+  });
+
   // --- Beitritt und Begrüssung ------------------------------------------
 
   it('vergibt die Rolle und begrüsst im Verifikationskanal', async () => {

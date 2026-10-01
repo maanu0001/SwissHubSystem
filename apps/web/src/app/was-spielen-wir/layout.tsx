@@ -16,9 +16,15 @@ import { cn } from '@/lib/utils';
  * liegt, ist geschützt, wer daneben liegt, ist offen. Dasselbe Muster wie beim
  * öffentlichen Profil, der Rangliste, den Turnier- und Streamerseiten.
  *
- * Die Übersicht und der Spielkatalog bleiben in `(app)`: eine Liste eigener
- * Runden und ein Katalog zum Pflegen sind Sachen für Mitglieder. Öffentlich
- * ist genau die eine Adresse, die im Einladungslink steht.
+ * Offen sind die Übersicht **und** die Bühne. Dass nur die Bühne offen war,
+ * ging am Zweck vorbei: wer «was-spielen-wir» eintippt oder im Kopfbereich auf
+ * «Meine Runden» klickt, hat keinen Einladungswert - und landete auf der
+ * Anmeldung, obwohl die Seite dahinter für ihn gedacht ist.
+ *
+ * In `(app)` bleibt nur der Spielkatalog: einen Katalog pflegt man nicht als
+ * Gast. Was ein Gast auf den beiden offenen Seiten darf, entscheidet nicht
+ * die Seite, sondern der Server - die Übersicht gibt ihm keinen
+ * Einladungswert, und die Bühne lässt ihn nur mitstimmen.
  *
  * ## Warum keine Seitenleiste
  *

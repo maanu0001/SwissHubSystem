@@ -47,17 +47,22 @@ const OEFFENTLICH = new Set([
   'turniere',
   'u',
   /*
-   * `/was-spielen-wir/<token>` - die Buehne einer Spielauswahl.
+   * `/was-spielen-wir` - die Uebersicht **und** die Buehne.
    *
-   * Nur die Buehne, und nur ueber den Einladungswert: die Uebersicht und der
-   * Spielkatalog liegen weiter **in** `(app)`. Gaeste ohne Discord-Konto
-   * sollen zusehen und mitstimmen koennen, wenn der Host es fuer seine Runde
-   * einschaltet - der Kollege aus dem Sprachkanal, das Geschwister am zweiten
-   * Rechner.
+   * Zuerst lag hier nur die Buehne, und das war der halbe Weg: wer die
+   * Adresse ohne Einladungswert aufrief - also jeder, der sie eintippt oder
+   * im Kopfbereich auf «Meine Runden» klickt -, landete auf der Anmeldung.
+   * Gemeldet wurde das als «ist immer noch nicht ohne Konto erreichbar», und
+   * es stimmte.
+   *
+   * In `(app)` bleibt nur `was-spielen-wir/games`: einen Spielkatalog pflegt
+   * man nicht als Gast.
    *
    * Was ein Gast darf, entscheidet nicht diese Zeile, sondern
    * `spielwahl.verlangeGastZugang` und die Sperre in `schlageVor`: zusehen und
-   * abstimmen, sonst nichts.
+   * abstimmen, sonst nichts. Die Uebersicht gibt ihm ausserdem keinen
+   * Einladungswert - `ladeOffeneRunden` haelt ihn zurueck, solange der
+   * Betrachter nicht teilnimmt.
    */
   'was-spielen-wir',
   'wrapped',

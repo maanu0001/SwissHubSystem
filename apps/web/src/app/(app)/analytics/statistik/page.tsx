@@ -122,9 +122,17 @@ export default async function StatistikPage({
     );
   }
 
-  /** Übernimmt den gewählten Zeitraum in den Export - sonst exportierte er etwas anderes, als die Seite zeigt. */
-  const exportHref = (art: string): string => {
-    const parameter = new URLSearchParams({ art });
+  /**
+   * Die gewählte Zeitspanne als Abfrage - einmal gebaut, zweimal gebraucht.
+   *
+   * Der Export hängt sie an seine Adresse. Die Live-Kacheln bekommen sie als
+   * **Schlüssel**: sie sagt, zu welchem Zeitraum ein abgerufener Stand
+   * gehört. Ohne sie zeigte eine Kachel nach dem Wechsel weiter die Zahl des
+   * vorigen Zeitraums - der Speicher im Browser überlebt die weiche
+   * Navigation, und sein Inhalt sah aus wie ein aktueller Wert.
+   */
+  const zeitraumParameter = (): URLSearchParams => {
+    const parameter = new URLSearchParams();
     if (query.zeitraum) {
       parameter.set('zeitraum', query.zeitraum);
     }
@@ -134,6 +142,19 @@ export default async function StatistikPage({
     if (query.bis) {
       parameter.set('bis', query.bis);
     }
+    return parameter;
+  };
+
+  /** `''` für die Vorgabe, sonst `'?zeitraum=1d'` - genau das, was auch in der Adresse steht. */
+  const abfrage = ((): string => {
+    const parameter = zeitraumParameter().toString();
+    return parameter === '' ? '' : `?${parameter}`;
+  })();
+
+  /** Übernimmt den gewählten Zeitraum in den Export - sonst exportierte er etwas anderes, als die Seite zeigt. */
+  const exportHref = (art: string): string => {
+    const parameter = zeitraumParameter();
+    parameter.set('art', art);
     return `/api/analytics/statistik-export?${parameter.toString()}`;
   };
 
@@ -255,13 +276,19 @@ export default async function StatistikPage({
                 wachsend={zahlen.wachsend}
                 asOf={zahlen.asOf.toISOString()}
                 aktiv={reichtBisJetzt}
+                abfrage={abfrage}
               />
             }
             veraenderung={zahlen.sprachSekunden}
             live={zahlen.wachsend > 0}
             hinweis={
               <>
-                <LiveZahl feld="sitzungen" basis={zahlen.sprachSitzungen.wert} aktiv={reichtBisJetzt} />{' '}
+                <LiveZahl
+                  feld="sitzungen"
+                  basis={zahlen.sprachSitzungen.wert}
+                  aktiv={reichtBisJetzt}
+                  abfrage={abfrage}
+                />{' '}
                 Sitzungen
               </>
             }
@@ -309,14 +336,18 @@ export default async function StatistikPage({
                 wachsend={heuteWerte.wachsend}
                 asOf={heuteWerte.asOf.toISOString()}
                 aktiv
+                abfrage={abfrage}
               />
             }
             live={heuteWerte.wachsend > 0}
           />
-          <KpiCard label="Aktiv heute" wert={<LiveZahl feld="aktive" basis={heuteWerte.aktive} aktiv />} />
+          <KpiCard
+            label="Aktiv heute"
+            wert={<LiveZahl feld="aktive" basis={heuteWerte.aktive} aktiv abfrage={abfrage} />}
+          />
           <KpiCard
             label="Gerade im Sprachkanal"
-            wert={<LiveZahl feld="imSprachkanal" basis={heuteWerte.imSprachkanal} aktiv />}
+            wert={<LiveZahl feld="imSprachkanal" basis={heuteWerte.imSprachkanal} aktiv abfrage={abfrage} />}
             hinweis="Laufende Anwesenheit"
           />
         </div>

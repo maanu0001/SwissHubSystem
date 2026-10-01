@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-const { readFileSync } = await import('node:fs');
+const { existsSync, readFileSync } = await import('node:fs');
 const { join } = await import('node:path');
+
+/** Kommentare raus, bevor nach verbotenen Aufrufen gesucht wird. */
+function ohneKommentare(quelle: string): string {
+  return quelle.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/\/\/.*$/gmu, '');
+}
 
 /**
  * Wer was darf - statisch nachgelesen.
@@ -175,5 +180,71 @@ describe('Zugang zur Spielauswahl', () => {
     expect(schemas).toContain('freierNameSchema');
     // Eine Erlaubnisliste, keine Verbotsliste.
     expect(schemas).toMatch(/\^\[\\p\{L\}\\p\{N\}/u);
+  });
+});
+
+/**
+ * Die Übersicht ohne Konto.
+ *
+ * ## Warum das eine eigene Gruppe bekommt
+ *
+ * Weil der Fehler zweimal gemeldet wurde. Beim ersten Mal wanderte die Bühne
+ * `/was-spielen-wir/<token>` aus `(app)` heraus, und das sah aus wie die
+ * Lösung: ein geteilter Einladungslink funktionierte. Die **Übersicht** blieb
+ * aber drinnen - und damit jeder Weg, der ohne Einladungswert dorthin führt:
+ * die Adresse eintippen, dem Link im Kopfbereich folgen, ein Lesezeichen.
+ *
+ * Der Smoke-Test sah es sogar («307 /was-spielen-wir»), und es wurde als
+ * gewollt abgehakt. Deshalb steht es jetzt als Prüfung da und nicht als
+ * Erinnerung.
+ */
+describe('Die Übersicht ist ohne Konto erreichbar', () => {
+  const UEBERSICHT = 'apps/web/src/app/was-spielen-wir/page.tsx';
+
+  it('liegt ausserhalb von (app)', () => {
+    // In SwissHub ist das **die** Entscheidung über Anmeldepflicht: das
+    // Layout von `(app)` ruft `requireMember`, die Middleware tut es nicht.
+    expect(existsSync(join(process.cwd(), UEBERSICHT))).toBe(true);
+    expect(existsSync(join(process.cwd(), 'apps/web/src/app/(app)/was-spielen-wir/page.tsx'))).toBe(false);
+  });
+
+  it('verlangt weder Anmeldung noch Mitgliedschaft', () => {
+    const quelle = ohneKommentare(readFileSync(join(process.cwd(), UEBERSICHT), 'utf8'));
+    expect(quelle).not.toContain('requireMember');
+    expect(quelle).not.toContain('requirePagePermission');
+    // Eine Weiterleitung wäre die Anmeldewand mit anderen Mitteln.
+    expect(quelle).not.toMatch(/\bredirect\(/u);
+    expect(quelle).toContain('getOptionalAuthContext');
+  });
+
+  it('lässt den Spielkatalog in (app)', () => {
+    // Zusehen ist öffentlich, Pflegen nicht. Rutschte der Katalog mit heraus,
+    // stünde er ohne Anmeldung offen - und niemand hätte es bemerkt.
+    expect(existsSync(join(process.cwd(), 'apps/web/src/app/(app)/was-spielen-wir/games/page.tsx'))).toBe(
+      true,
+    );
+  });
+
+  it('gibt einem Gast keinen Einladungswert in die Hand', () => {
+    /*
+     * Die Übersicht lädt mit leerem Betrachter. `baueListe` vergleicht ihn mit
+     * den Teilnehmerkennungen - eine Discord-Kennung ist nie leer, also ist
+     * niemand «dabei», und der Einladungswert bleibt leer. Die Sperre sitzt
+     * damit in der Ladefunktion und nicht in der Seite.
+     */
+    const lader = ohneKommentare(
+      readFileSync(join(process.cwd(), 'apps/web/src/server/spielwahl.ts'), 'utf8'),
+    );
+    expect(lader).toContain("inviteToken: dabei ? session.inviteToken : ''");
+
+    const quelle = ohneKommentare(readFileSync(join(process.cwd(), UEBERSICHT), 'utf8'));
+    expect(quelle).toContain("ladeOffeneRunden(guildId, mitglied?.user.discordId ?? '')");
+  });
+
+  it('zeigt einem Gast den Schnellstart nicht', () => {
+    // Die Server Action dahinter prüft ohnehin selbst - aber ein Knopf, der
+    // nur mit einem Fehler antwortet, ist eine Einladung zum Ärger.
+    const quelle = ohneKommentare(readFileSync(join(process.cwd(), UEBERSICHT), 'utf8'));
+    expect(quelle).toContain('{mitglied ? <Schnellstart');
   });
 });
