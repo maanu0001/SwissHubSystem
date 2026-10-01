@@ -1,9 +1,50 @@
 import { z } from 'zod';
-import { registerModule, type ModuleDefinition } from '../registry';
+import { registerModule, registerModuleStatusBadge, type ModuleDefinition } from '../registry';
 import type { SettingsField } from '../settings/fields';
 import type { ModuleHealthCheck, ModuleHealthContext } from '../health/types';
 
 export const CLIPS_MODULE_ID = 'clips';
+
+/**
+ * Was in der Seitenleiste neben «Clip of the Week» steht.
+ *
+ * Eine Woche des Wettbewerbs hat zwei Haelften, und sie verlangen
+ * Verschiedenes: in der Einreichungsphase soll man einen Clip schicken, in der
+ * Abstimmungsphase stimmen. Ohne das Abzeichen muss man die Seite oeffnen, um
+ * zu erfahren, was gerade dran ist - und wer das zweimal umsonst getan hat,
+ * tut es nicht mehr.
+ *
+ * Nichts steht da, wenn nichts laeuft: `DRAFT`, `FINALIZING`, `COMPLETED` und
+ * `CANCELLED` ergeben kein Abzeichen. Ein Abzeichen, das immer da ist, liest
+ * man zweimal und danach nie wieder.
+ *
+ * Der Import ist absichtlich verzoegert: diese Datei laeuft beim Laden der
+ * Module, und ein Datenbankzugriff gehoert nicht in diesen Moment. Gefragt wird
+ * erst, wenn jemand eine Seite aufbaut.
+ */
+registerModuleStatusBadge({
+  moduleId: CLIPS_MODULE_ID,
+  async resolve() {
+    const { resolveGuildId } = await import('@swisshub/discord');
+    const { aktuelleRunde } = await import('./wettbewerb');
+    const guildId = await resolveGuildId();
+    const runde = await aktuelleRunde(guildId);
+    if (runde?.status === 'SUBMISSION') {
+      return { label: 'Einreichung', variant: 'akzent' as const, priority: 10 };
+    }
+    if (runde?.status === 'VOTING') {
+      /*
+       * Lauter als die Einreichung, und mit Absicht.
+       *
+       * Eine Einreichungsphase dauert Tage und laesst sich nachholen. Eine
+       * Abstimmung ist kurz, und wer sie verpasst, kann nichts mehr tun -
+       * danach steht das Ergebnis.
+       */
+      return { label: 'Voting', variant: 'dringend' as const, priority: 20 };
+    }
+    return null;
+  },
+});
 
 /** SwissHub-Rot, wie in den uebrigen Modulen. */
 export const CLIPS_ACCENT_COLOR = 0x83060a;

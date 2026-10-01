@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { registerModule, type ModuleDefinition } from '../registry';
 import type { SettingsField } from '../settings/fields';
+import type { ModuleHealthCheck } from '../health/types';
 
 /**
  * Emoji Management.
@@ -171,6 +172,49 @@ export const emojiSettingsFields: SettingsField[] = [
   },
 ];
 
+/**
+ * Ist der Speicher fuer Vorschlaege bereit?
+ *
+ * ## Warum das eine eigene Pruefung ist
+ *
+ * Weil die Antwort einmal «nein» war und niemand es sah. Die Bytes eines
+ * Vorschlags lagen als Datei im Upload-Verzeichnis, und der Bot darf dort
+ * nicht schreiben - das Volume ist fuer ihn absichtlich nur lesbar gemountet.
+ * `/emoji_request` meldete «Das Upload-Verzeichnis auf dem Server ist nicht
+ * beschreibbar», und das war die einzige Stelle, an der das sichtbar wurde:
+ * im Gesicht der Person, die gerade etwas vorschlagen wollte.
+ *
+ * Die Ursache ist behoben - die Bytes liegen in der Datenbank, die beide
+ * Prozesse teilen (siehe `speicher.ts`). Diese Pruefung bleibt, weil sie die
+ * Frage beantwortet, bevor jemand sie stellt: sie schreibt eine Zeile und
+ * liest sie zurueck, und sie sagt «Speicher nicht bereit», wenn das misslingt.
+ *
+ * ## Warum sie nichts abbricht
+ *
+ * Ein Speicher, der nicht erreichbar ist, ist ein Grund fuer einen Hinweis in
+ * der Oberflaeche - nicht fuer einen Bot, der nicht mehr hochfaehrt. Alles
+ * andere am Server funktioniert ja weiter. Deshalb eine Gesundheitspruefung
+ * und kein Wurf beim Start: der Fehler erscheint dort, wo jemand ihn beheben
+ * kann, und nimmt nicht den Rest mit.
+ */
+async function emojiHealthChecks(): Promise<ModuleHealthCheck[]> {
+  const { pruefeSpeicher } = await import('./speicher');
+  const befund = await pruefeSpeicher();
+  return [
+    befund.ok
+      ? {
+          label: 'Speicher fuer Vorschlaege',
+          status: 'ok',
+          detail: 'Die Bilder eines Vorschlags liegen in der Datenbank - kein Upload-Verzeichnis noetig.',
+        }
+      : {
+          label: 'Speicher nicht bereit',
+          status: 'error',
+          detail: befund.grund,
+        },
+  ];
+}
+
 export const emojiModule: ModuleDefinition = registerModule({
   id: EMOJI_MODULE_ID,
   name: 'Emojis',
@@ -181,6 +225,7 @@ export const emojiModule: ModuleDefinition = registerModule({
   defaultEnabled: false,
   settingsSchema: emojiSettingsSchema,
   settingsFields: emojiSettingsFields,
+  healthChecks: emojiHealthChecks,
   navigation: [
     {
       href: '/server/emojis',

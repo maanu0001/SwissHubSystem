@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createLogger } from '@swisshub/logger';
 import { AppError } from '@swisshub/shared';
@@ -368,4 +369,42 @@ function assertSafeFileName(fileName: string): LogoFormat {
   }
   const extension = match[2];
   return extension === 'jpg' ? 'jpeg' : (extension as LogoFormat);
+}
+
+/**
+ * Laesst sich im Upload-Verzeichnis schreiben?
+ *
+ * ## Warum das eine eigene Frage ist
+ *
+ * Weil die Antwort einmal «nein» war und man es erst erfuhr, als jemand etwas
+ * hochladen wollte. Die haeufige Ursache steht oben bei `schreibeUpload`: ein
+ * frisch angelegtes Docker-Volume gehoert root, der Dienst laeuft
+ * unprivilegiert. Das ist in einer Minute behoben - aber nur, wenn es jemand
+ * sieht, und niemand sieht es, solange niemand hochlaedt.
+ *
+ * ## Warum sie nichts abbricht und nichts schreibt
+ *
+ * `access` und keine Probedatei: eine Pruefung soll nichts hinterlassen. Und
+ * sie wirft nicht, weil ein nicht beschreibbares Verzeichnis ein Grund fuer
+ * einen Hinweis in der Oberflaeche ist und nicht fuer einen Prozess, der nicht
+ * mehr hochfaehrt - der Rest des Servers funktioniert ja.
+ *
+ * ## Im Bot ist «nein» die richtige Antwort
+ *
+ * Dort ist das Volume absichtlich nur lesbar gemountet: der Bot liest
+ * Hintergrundbilder, geschrieben wird ausschliesslich von der WebApp. Diese
+ * Funktion gehoert deshalb in eine Pruefung der WebApp; im Bot waere ihr
+ * «nein» kein Fehler, sondern die Zusicherung.
+ */
+export async function uploadVerzeichnisBeschreibbar(): Promise<{ ok: boolean; pfad: string }> {
+  const pfad = resolve(UPLOAD_DIR);
+  try {
+    // Erst anlegen: fehlt es noch, ist «nicht beschreibbar» keine Auskunft
+    // ueber die Rechte, sondern nur darueber, dass noch nichts da ist.
+    await mkdir(pfad, { recursive: true });
+    await access(pfad, constants.W_OK);
+    return { ok: true, pfad };
+  } catch {
+    return { ok: false, pfad };
+  }
 }

@@ -10014,8 +10014,21 @@ model EmojiAntrag {
    */
   pruefsumme String
 
-  /** Zufallsname im Upload-Verzeichnis. */
-  dateiName String
+  /**
+   * Zufallsname im Upload-Verzeichnis - nur noch fuer Altbestand.
+   *
+   * Die Bytes liegen seit der Umstellung in `EmojiAntragBild`. Der Grund ist
+   * kein Geschmack: der Bot schreibt nicht in das Upload-Volume, es ist fuer
+   * ihn absichtlich nur lesbar gemountet («schreiben tut ausschliesslich die
+   * WebApp»). Ein Vorschlag aus einem Slash Command scheiterte deshalb am
+   * Dateisystem. Ein Emoji ist bei Discord hart auf 256 KiB begrenzt - diese
+   * Bytes gehoeren in die Datenbank, die beide Prozesse ohnehin teilen.
+   *
+   * `null` fuer alles, was danach entstanden ist. Vorhandene Namen bleiben
+   * stehen und werden weiterhin gelesen: ein Vorschlag aus der Zeit davor
+   * soll nicht verschwinden, nur weil die Ablage gewechselt hat.
+   */
+  dateiName String?
   mimeTyp   String
   bytes     Int
   animiert  Boolean @default(false)
@@ -10053,12 +10066,34 @@ model EmojiAntrag {
   updatedAt DateTime @updatedAt
 
   stimmen EmojiStimme[]
+  bild    EmojiAntragBild?
 
   @@index([status])
   @@index([pruefsumme])
   @@index([antragstellerId])
   /** Fuer den Scheduler: welche Abstimmung laeuft ab? */
   @@index([status, abstimmungEndetAm])
+}
+
+/// Die Bytes eines Vorschlags.
+///
+/// Eine eigene Tabelle und keine Spalte an `EmojiAntrag`: die Uebersicht
+/// listet Vorschlaege, und eine Liste soll nicht bei jedem Aufruf ein
+/// Vierteilmegabyte je Zeile mitziehen. Prisma waehlt Spalten, nicht Bytes -
+/// eine getrennte Tabelle ist die Grenze, an der sich das nicht vergessen
+/// laesst.
+///
+/// `onDelete: Cascade`: wird ein Vorschlag geloescht, gehen die Bytes mit. Ein
+/// Bild ohne Vorschlag waere nichts, das noch jemand findet.
+model EmojiAntragBild {
+  antragId String      @id
+  antrag   EmojiAntrag @relation(fields: [antragId], references: [id], onDelete: Cascade)
+
+  /// Hoechstens 256 KiB - Discords harte Grenze fuer ein Emoji, geprueft
+  /// bevor hier etwas landet.
+  daten Bytes
+
+  createdAt DateTime @default(now())
 }
 
 /**

@@ -147,9 +147,20 @@ describeWithDatabase('Emoji: Vorschläge einreichen', () => {
     // Der Name wird kleingeschrieben gespeichert.
     expect(ergebnis.antrag?.name).toBe('pog');
     expect(ergebnis.antrag?.status).toBe('OFFEN');
-    // Und die Datei lässt sich zurücklesen - sonst wäre die Annahme später
-    // ein Vorschlag ohne Bild.
-    expect(await emoji.liesAb(ergebnis.antrag?.dateiName ?? '')).not.toBeNull();
+    /*
+     * Die Bytes liegen in der Datenbank, nicht im Upload-Verzeichnis.
+     *
+     * Das ist der Kern der Umstellung: der Bot darf dort nicht schreiben, das
+     * Volume ist fuer ihn absichtlich nur lesbar. Es genuegt deshalb nicht,
+     * dass `liesAb` irgendetwas liefert - es muss aus `EmojiAntragBild`
+     * kommen, und `dateiName` muss leer bleiben.
+     */
+    expect(ergebnis.antrag?.dateiName).toBeNull();
+    const zurueck = await emoji.liesAb(ergebnis.antrag?.id ?? '');
+    expect(zurueck).not.toBeNull();
+    // Und zwar Byte für Byte dasselbe - sonst wäre die Annahme später ein
+    // anderes Bild als das vorgeschlagene.
+    expect(Buffer.from(zurueck!)).toEqual(Buffer.from(png(1)));
   });
 
   it('lehnt einen unmöglichen Namen ab, bevor etwas gespeichert wird', async () => {
@@ -288,7 +299,9 @@ describeWithDatabase('Emoji: entscheiden', () => {
 
     // Die Bytes liegen jetzt bei Discord - eine zweite Kopie wäre Speicher für
     // nichts. Der Eintrag bleibt und nennt die Emoji-Kennung.
-    expect(await emoji.liesAb(vorher.dateiName)).toBeNull();
+    expect(await emoji.liesAb(vorher.id, vorher.dateiName)).toBeNull();
+    // Und zwar wirklich weg, nicht nur über den Leseweg unsichtbar.
+    expect(await prisma.emojiAntragBild.findUnique({ where: { antragId: id } })).toBeNull();
     const nachher = await prisma.emojiAntrag.findUniqueOrThrow({ where: { id } });
     expect(nachher.emojiId).toBeTruthy();
   });

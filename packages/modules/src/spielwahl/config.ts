@@ -61,16 +61,35 @@ export const spielwahlSettingsSchema = z.object({
   /**
    * Hosts duerfen Gaeste ohne Konto zulassen.
    *
-   * Standardmaessig **aus**, und zwar auf beiden Ebenen: hier entscheidet der
+   * Zwei Schalter, weil zwei Leute zu fragen sind: hier entscheidet der
    * Server, ob es die Moeglichkeit ueberhaupt gibt, und am Formular
-   * entscheidet der Host, ob er sie fuer seine Runde nutzt. Zwei Schalter,
-   * weil zwei Leute zu fragen sind - der eine haftet fuer den Server, der
-   * andere teilt den Link.
+   * entscheidet der Host, ob er sie fuer seine Runde nutzt. Der eine haftet
+   * fuer den Server, der andere teilt den Link.
    *
    * Ist er hier aus, bleibt `gaesteErlaubt` an jeder Session `false`, egal
    * was ein Host schickt (siehe `aendereEinstellungen`).
+   *
+   * ## Warum der Standard **an** ist
+   *
+   * Er war einmal aus, und das war die falsche Vorsicht. «Was spielen wir»
+   * lebt davon, dass ein Link in einen Chat geht und alle mitstimmen - auch
+   * die drei, die kein SwissHub-Konto haben. Ein Gast gibt einen Namen an,
+   * sieht zu und stimmt mit; Spiele vorschlagen kann er nicht. Mehr Schaden
+   * als eine Stimme kann er also nicht anrichten, und dafuer einen Schalter
+   * zu verlangen, den niemand findet, hiess: die Haelfte der Runden lief mit
+   * halber Beteiligung, und niemand wusste, warum.
+   *
+   * ## Was dieser Standard **nicht** tut
+   *
+   * Er aendert nichts an einem Server, der die Einstellungen schon einmal
+   * gespeichert hat. `getModuleSettings` liest die hinterlegte Json und laesst
+   * ein ausdruecklich gesetztes `false` stehen - ein Standard gilt nur, wo
+   * nichts steht. Das ist ausdruecklich so gewollt: wer den Schalter
+   * absichtlich ausgemacht hat, soll ihn nicht durch ein Update wieder an
+   * finden. Es gibt deshalb auch keine Migration, die irgendwo `true`
+   * schreibt.
    */
-  gaesteErlaubt: z.boolean().default(false),
+  gaesteErlaubt: z.boolean().default(true),
 
   /**
    * Wie viele Sessions eine Person gleichzeitig offen haben darf.
@@ -141,7 +160,7 @@ const spielwahlSettingsFields: SettingsField[] = [
     type: 'boolean',
     label: 'Teilnahme ohne Konto zulassen',
     description:
-      'Erlaubt Hosts, ihre Runde über den Einladungslink für Gäste zu öffnen. Ein Gast gibt einen Namen an, sieht zu und stimmt mit - Spiele vorschlagen kann er nicht. Ist das hier aus, bleibt die Möglichkeit für jede Runde gesperrt.',
+      'Standardmässig an. Erlaubt Hosts, ihre Runde über den Einladungslink für Gäste zu öffnen. Ein Gast gibt einen Namen an, sieht zu und stimmt mit - Spiele vorschlagen kann er nicht. Ist das hier aus, bleibt die Möglichkeit für jede Runde gesperrt.',
     group: 'Ablauf',
   },
   {

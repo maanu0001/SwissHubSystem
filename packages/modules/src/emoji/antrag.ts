@@ -94,6 +94,15 @@ export async function reicheEin(eingabe: EinreichenEingabe): Promise<EinreichenE
   if (!bild.ok || !bild.art) {
     return { ok: false, grund: bild.grund };
   }
+  /*
+   * Die erkannte Art in eine eigene Konstante.
+   *
+   * Nicht Kosmetik: die Pruefung oben verengt `bild.art` auf `BildArt`, aber
+   * eine Verengung an einer *Eigenschaft* gilt innerhalb einer Funktion
+   * daneben nicht mehr - und genau dort wird sie unten gebraucht, in der
+   * Transaktion. Eine Konstante traegt die Verengung mit.
+   */
+  const art = bild.art;
 
   const pruefsumme = pruefsummeVon(eingabe.bytes);
   const [vorhandene, dubletteBild, dubletteName, offeneEigene] = await Promise.all([
@@ -143,22 +152,32 @@ export async function reicheEin(eingabe: EinreichenEingabe): Promise<EinreichenE
     return { ok: false, grund: platz.grund };
   }
 
-  const dateiName = await legeAb(eingabe.bytes, bild.art);
-  const antrag = await prisma.emojiAntrag.create({
-    data: {
-      name: name.name,
-      pruefsumme,
-      dateiName,
-      mimeTyp: bild.art,
-      bytes: eingabe.bytes.length,
-      animiert: bild.animiert ?? false,
-      breite: bild.breite ?? null,
-      hoehe: bild.hoehe ?? null,
-      herkunft: eingabe.herkunft,
-      herkunftNotiz: eingabe.herkunftNotiz ? sanitizeText(eingabe.herkunftNotiz, 300) : null,
-      begruendung: eingabe.begruendung ? sanitizeText(eingabe.begruendung, 500) : null,
-      antragstellerId: eingabe.antragstellerId,
-    },
+  /*
+   * Eintrag und Bytes entstehen zusammen oder gar nicht.
+   *
+   * Die Bytes haengen am Eintrag (`EmojiAntragBild.antragId`), er muss also
+   * zuerst da sein. In einer Transaktion, weil die Zwischenzustaende beide
+   * schlecht waeren: ein Eintrag ohne Bild liesse sich nie annehmen, ein Bild
+   * ohne Eintrag faende niemand mehr.
+   */
+  const antrag = await prisma.$transaction(async (tx) => {
+    const angelegt = await tx.emojiAntrag.create({
+      data: {
+        name: name.name,
+        pruefsumme,
+        mimeTyp: art,
+        bytes: eingabe.bytes.length,
+        animiert: bild.animiert ?? false,
+        breite: bild.breite ?? null,
+        hoehe: bild.hoehe ?? null,
+        herkunft: eingabe.herkunft,
+        herkunftNotiz: eingabe.herkunftNotiz ? sanitizeText(eingabe.herkunftNotiz, 300) : null,
+        begruendung: eingabe.begruendung ? sanitizeText(eingabe.begruendung, 500) : null,
+        antragstellerId: eingabe.antragstellerId,
+      },
+    });
+    await legeAb(angelegt.id, eingabe.bytes, tx);
+    return angelegt;
   });
 
   await recordAudit({
@@ -232,7 +251,7 @@ async function legeAufDiscordAb(
   weg: 'ANGENOMMEN' | 'ABSTIMMUNG',
 ): Promise<EntscheidungsErgebnis> {
   const antrag = await prisma.emojiAntrag.findUniqueOrThrow({ where: { id: antragId } });
-  const bytes = await liesAb(antrag.dateiName);
+  const bytes = await liesAb(antrag.id, antrag.dateiName);
 
   if (!bytes) {
     await zurueckAufOffen(antragId);
@@ -273,7 +292,7 @@ async function legeAufDiscordAb(
 
   // Die Bytes liegen jetzt bei Discord. Eine zweite Kopie hier wäre Speicher
   // für nichts - der Eintrag nennt die Emoji-Kennung.
-  await raeumeAuf(antrag.dateiName);
+  await raeumeAuf(antrag.id, antrag.dateiName);
 
   return { ok: true, antrag: fertig, emojiId: ergebnis.emoji.id };
 }
@@ -325,7 +344,7 @@ export async function lehneAb(
 
   // Abgelehnt heisst: die Bytes brauchen wir nicht mehr. Der Eintrag bleibt -
   // «Was ist aus meinem Vorschlag geworden?» soll beantwortbar bleiben.
-  await raeumeAuf(vorher.dateiName);
+  await raeumeAuf(vorher.id, vorher.dateiName);
 
   return {
     ok: true,

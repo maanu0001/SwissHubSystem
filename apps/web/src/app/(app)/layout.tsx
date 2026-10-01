@@ -3,6 +3,7 @@ import { guildIconUrl, guildLink } from '@swisshub/discord/cdn';
 import {
   branding as brandingModule,
   buildNavigation,
+  resolveModuleStatusBadges,
   resolveNavigationSignals,
   moduleViewPermission,
   enabledModuleIds,
@@ -165,7 +166,22 @@ export default async function AppLayout({
           .catch(() => [])
       : [];
 
-  const signals = await resolveNavigationSignals();
+  /*
+   * Kennzeichen und Statusabzeichen, beides einmal.
+   *
+   * Nebeneinander: sie wissen nichts voneinander, und beides sind Abfragen.
+   * Hintereinander waere es die doppelte Wartezeit fuer jede Seite der App.
+   *
+   * Die Abzeichen werden **hier** aufgeloest und nicht in der Seitenleiste:
+   * die Seitenleiste wird dreimal gezeichnet - Desktop, Mobile,
+   * Schnellnavigation -, und eine Abfrage je Darstellung waere dreimal
+   * dasselbe. Ausserdem koennten die drei dann unterschiedliche Zustaende
+   * zeigen.
+   */
+  const [signals, statusAbzeichen] = await Promise.all([
+    resolveNavigationSignals(),
+    resolveModuleStatusBadges(),
+  ]);
   /*
    * Module im Testmodus aus der Seitenleiste nehmen.
    *
@@ -184,15 +200,26 @@ export default async function AppLayout({
     id: group.id,
     collapsible: group.collapsible,
     label: group.label,
-    items: group.items.map((item) => ({
-      href: item.href,
-      label: item.label,
-      icon: item.icon,
-      moduleId: item.moduleId,
-      group: item.group,
-      badge: item.badge,
-      count: item.counter === 'openTickets' ? (offeneTickets ?? undefined) : undefined,
-    })),
+    items: group.items.map((item) => {
+      /*
+       * Der Zustand sticht das statische Label.
+       *
+       * «Voting» ist die Antwort auf die Frage, die man gerade hat; ein `NEU`
+       * daneben waere beides und damit keins. Hat ein Modul gerade nichts zu
+       * melden, bleibt das statische Label stehen.
+       */
+      const abzeichen = statusAbzeichen.get(item.moduleId);
+      return {
+        href: item.href,
+        label: item.label,
+        icon: item.icon,
+        moduleId: item.moduleId,
+        group: item.group,
+        badge: abzeichen?.label ?? item.badge,
+        ...(abzeichen ? { badgeVariant: abzeichen.variant } : {}),
+        count: item.counter === 'openTickets' ? (offeneTickets ?? undefined) : undefined,
+      };
+    }),
   }));
 
   const titles = navigation.flatMap((item) => [

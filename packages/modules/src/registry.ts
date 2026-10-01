@@ -204,6 +204,112 @@ export async function resolveNavigationSignals(): Promise<Set<string>> {
   return gesetzt;
 }
 
+/**
+ * Ein Statusabzeichen am Navigationseintrag eines Moduls.
+ *
+ * ## Was es beantwortet
+ *
+ * Eine Frage, die man **vor** dem Klick hat: laeuft dort gerade etwas. Beim
+ * Clip of the Week ist das «Einreichung» oder «Voting», bei SwissHub fragt
+ * «Frage offen». Ohne das Abzeichen muss man die Seite oeffnen, um zu sehen,
+ * dass es sich gerade nicht lohnt.
+ *
+ * ## Warum es eine Registry ist und kein `if` in der Seitenleiste
+ *
+ * Weil die Bedingung dem Modul gehoert. Stuende in `sidebar-nav.tsx` eine
+ * Abfrage auf `moduleId === 'clips'`, waere die Seitenleiste die Stelle, die
+ * alle Modulzustaende kennt - und jedes neue Abzeichen eine Aenderung an einer
+ * Datei, die mit dem Modul nichts zu tun hat. Dasselbe Muster wie bei
+ * `NavigationSignal`: das Modul meldet an, die Navigation fragt, ohne zu
+ * wissen, was dahintersteckt.
+ *
+ * ## Warum einmal je Seitenaufbau
+ *
+ * Weil die Seitenleiste auf jeder Seite steht. Eine Abfrage je Eintrag und
+ * Aufruf waere ein Dutzend zusaetzlicher Abfragen pro Seite, fuer zwei Woerter
+ * am Rand. `resolveModuleStatusBadges()` loest alle gemeinsam und
+ * nebeneinander auf, und zwar genau einmal - fuer Desktop, Mobile und
+ * Schnellnavigation zusammen, damit die drei nicht auseinanderlaufen koennen.
+ */
+export interface ModuleStatusBadge {
+  /** Zwei Woerter, nicht drei. Es steht am Rand, nicht in der Mitte. */
+  label: string;
+  /**
+   * Wie laut.
+   *
+   * `akzent` fuer «da laeuft etwas» - die Normalform. `dringend` fuer das
+   * Wenige, das wirklich nicht warten kann; es ist rot, und rot verliert seine
+   * Wirkung, sobald es an drei Stellen steht. `ruhig` fuer eine Auskunft, die
+   * keine Aufforderung ist.
+   */
+  variant: 'akzent' | 'dringend' | 'ruhig';
+  /**
+   * Wer gewinnt, wenn ein Modul mehrere Zustaende gleichzeitig haette.
+   *
+   * Hoeher sticht. Ein Eintrag traegt genau ein Abzeichen - zwei
+   * nebeneinander waeren keine Auskunft mehr, sondern Gedraengel.
+   */
+  priority?: number;
+}
+
+/** Die Anmeldung eines Moduls fuer sein Statusabzeichen. */
+export interface ModuleStatusBadgeSource {
+  moduleId: string;
+  /**
+   * Der aktuelle Zustand - oder `null` fuer «nichts zu melden».
+   *
+   * `null` ist der Normalfall und ergibt kein Abzeichen. Ein Abzeichen, das
+   * immer da ist, ist Dekoration: man liest es zweimal und danach nie wieder.
+   */
+  resolve(): Promise<ModuleStatusBadge | null>;
+}
+
+const statusBadgeSources = new Map<string, ModuleStatusBadgeSource>();
+
+export function registerModuleStatusBadge(source: ModuleStatusBadgeSource): void {
+  statusBadgeSources.set(source.moduleId, source);
+}
+
+export function listModuleStatusBadgeSources(): ModuleStatusBadgeSource[] {
+  return [...statusBadgeSources.values()];
+}
+
+/**
+ * Das Statusabzeichen eines einzelnen Moduls.
+ *
+ * Fuer den Einzelfall - eine Modulkachel, eine Uebersicht. Wer eine Navigation
+ * baut, nimmt `resolveModuleStatusBadges()`: ein Aufruf je Eintrag waere genau
+ * die Abfrage pro Render, die hier vermieden werden soll.
+ */
+export async function getModuleStatusBadge(moduleId: string): Promise<ModuleStatusBadge | null> {
+  const quelle = statusBadgeSources.get(moduleId);
+  if (!quelle) {
+    return null;
+  }
+  return quelle.resolve().catch(() => null);
+}
+
+/**
+ * Alle angemeldeten Statusabzeichen auf einmal.
+ *
+ * Nebeneinander, weil sie nichts voneinander wissen. Scheitert eines, gibt es
+ * **kein** Abzeichen - und das ist die richtige Richtung: ein Zustand, ueber
+ * den wir gerade nichts wissen, soll nicht behauptet werden, und ein fehlendes
+ * Abzeichen nimmt niemandem etwas weg.
+ */
+export async function resolveModuleStatusBadges(): Promise<Map<string, ModuleStatusBadge>> {
+  const abzeichen = new Map<string, ModuleStatusBadge>();
+  await Promise.all(
+    listModuleStatusBadgeSources().map(async (quelle) => {
+      const befund = await quelle.resolve().catch(() => null);
+      if (befund) {
+        abzeichen.set(quelle.moduleId, befund);
+      }
+    }),
+  );
+  return abzeichen;
+}
+
 /** Eine eigene Verwaltungsseite eines Moduls - siehe `managementLinks`. */
 export interface ModuleManagementLink {
   href: string;

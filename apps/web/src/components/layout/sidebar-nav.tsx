@@ -14,8 +14,23 @@ export interface NavigationEntry {
   icon: string;
   moduleId: string;
   group: string;
-  /** Statisches Label rechts im Eintrag, z.B. `NEU`. */
+  /**
+   * Label rechts im Eintrag.
+   *
+   * Entweder statisch aus der Registry (`NEU`) oder der aktuelle Zustand des
+   * Moduls - «Einreichung», «Voting», «Frage offen». Woher es kommt, ist hier
+   * gleich; die Darstellung ist dieselbe.
+   */
   badge?: string;
+  /**
+   * Wie laut das Label sein darf.
+   *
+   * Frueher stand hier eine Vermutung: `badge.toLowerCase() === 'neu'` wurde
+   * hervorgehoben, alles andere grau. Das trug genau einen Fall. Ein Zustand
+   * wie «Voting» soll auffallen, «Frage offen» ruhiger sein - das ist eine
+   * Entscheidung des Moduls und keine, die sich aus dem Text ableiten laesst.
+   */
+  badgeVariant?: 'akzent' | 'dringend' | 'ruhig';
   /** Zahl rechts im Eintrag - derzeit nur die offenen Tickets. */
   count?: number;
 }
@@ -57,14 +72,28 @@ function ItemBadge({ entry }: { entry: NavigationEntry }): React.JSX.Element | n
     );
   }
   if (entry.badge) {
-    const highlight = entry.badge.toLowerCase() === 'neu';
+    /*
+     * Drei Lautstaerken, und mehr soll es nicht geben.
+     *
+     * Alle drei tragen in Hell und Dunkel, weil sie aus den Design-Tokens
+     * kommen und keine festen Farbwerte benutzen: `primary` und `destructive`
+     * sind in beiden Themes definiert, `muted` ebenso.
+     *
+     * Rot ist knapp gehalten. Es wirkt nur, solange es selten ist - stuende es
+     * an drei Eintraegen, waere es die neue Normalfarbe und keine Warnung.
+     */
+    const variante = entry.badgeVariant ?? (entry.badge.toLowerCase() === 'neu' ? 'akzent' : 'ruhig');
     return (
       <span
         className={cn(
-          'ml-auto rounded-md px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide',
-          highlight
-            ? 'bg-primary/20 text-primary-bright ring-1 ring-primary/40'
-            : 'bg-muted text-muted-foreground',
+          // `shrink-0`: der Modulname davor ist `truncate`, also kuerzt er
+          // sich. Ohne das hier wuerde stattdessen das Abzeichen schmal
+          // gequetscht, und «Einreichung» waere auf dem Telefon «Einre…».
+          'ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide',
+          variante === 'dringend' &&
+            'bg-destructive/15 text-destructive ring-1 ring-destructive/40 dark:text-red-300',
+          variante === 'akzent' && 'bg-primary/20 text-primary-bright ring-1 ring-primary/40',
+          variante === 'ruhig' && 'bg-muted text-muted-foreground',
         )}
       >
         {entry.badge}

@@ -56,13 +56,13 @@ export async function GET(
 
   const antrag = await prisma.emojiAntrag.findUnique({
     where: { id },
-    select: { dateiName: true, mimeTyp: true },
+    select: { id: true, dateiName: true, mimeTyp: true },
   });
   if (!antrag) {
     return new NextResponse(null, { status: 404 });
   }
 
-  const bytes = await emoji.liesAb(antrag.dateiName);
+  const bytes = await emoji.liesAb(antrag.id, antrag.dateiName);
   if (!bytes) {
     return new NextResponse(null, { status: 404 });
   }

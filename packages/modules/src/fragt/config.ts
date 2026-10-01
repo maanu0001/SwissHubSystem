@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { istBekannteZeitzone } from '@swisshub/shared';
-import { registerModule, type ModuleDefinition } from '../registry';
+import { registerModule, registerModuleStatusBadge, type ModuleDefinition } from '../registry';
 import type { SettingsField } from '../settings/fields';
 
 /**
@@ -33,6 +33,29 @@ import type { SettingsField } from '../settings/fields';
  */
 
 export const FRAGT_MODULE_ID = 'fragt';
+
+/**
+ * Was in der Seitenleiste neben «SwissHub fragt» steht.
+ *
+ * Eine laufende Abstimmung ist der einzige Zustand, der von aussen etwas
+ * verlangt: es ist jetzt zu tun oder nie, denn danach steht das Ergebnis fest.
+ * Eine Frage in der Bibliothek, ein geplanter Termin, ein Entwurf im Studio -
+ * das kann alles warten, und ein Abzeichen dafuer waere Dekoration.
+ *
+ * Die Antwort holt das Modul selbst (`laufendeAbstimmung`); hier steht nur die
+ * Anmeldung. Der Import ist absichtlich verzoegert - diese Datei laeuft beim
+ * Laden der Module, und ein Datenbankzugriff gehoert nicht in diesen Moment.
+ */
+registerModuleStatusBadge({
+  moduleId: FRAGT_MODULE_ID,
+  async resolve() {
+    const { resolveGuildId } = await import('@swisshub/discord');
+    const { laufendeAbstimmung } = await import('./abstimmung');
+    const guildId = await resolveGuildId();
+    const abstimmung = await laufendeAbstimmung(guildId);
+    return abstimmung ? { label: 'Frage offen', variant: 'akzent' as const, priority: 10 } : null;
+  },
+});
 
 /** SwissHub-Rot, wie in den uebrigen Modulen. */
 export const FRAGT_ACCENT_COLOR = 0x83060a;

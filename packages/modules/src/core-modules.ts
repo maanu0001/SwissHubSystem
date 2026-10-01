@@ -3,6 +3,7 @@ import { CORE_PERMISSIONS, MEMBER_CENTER_PERMISSIONS } from '@swisshub/permissio
 import { MODERATION_CENTER_PERMISSIONS } from './moderation/permissions';
 import { STANDARD_REASON_TEMPLATES } from './moderation/reasons';
 import type { SettingsField } from './settings/fields';
+import type { ModuleHealthCheck } from './health/types';
 import { registerModule } from './registry';
 
 /**
@@ -270,6 +271,37 @@ registerModule({
   ],
 });
 
+/**
+ * Gesundheit der Systemeinstellungen.
+ *
+ * Bisher genau eine Frage, und es ist die, die im Betrieb wirklich schiefgeht:
+ * laesst sich im Upload-Verzeichnis schreiben? Logo, Levelkartenhintergrund,
+ * Profilbanner, Clipdateien und TWINT-QR liegen dort. Ein frisch angelegtes
+ * Docker-Volume gehoert root, der Dienst laeuft unprivilegiert - dann scheitert
+ * jeder Upload, und zwar erst in dem Moment, in dem jemand einen versucht.
+ *
+ * Hier ist es vorher sichtbar, mit dem Pfad daneben, damit man weiss, wessen
+ * Rechte zu richten sind. `chown swisshub:swisshub`, nicht `chmod 777`: der
+ * Dienst soll lesen und schreiben duerfen, alle anderen nicht.
+ */
+async function settingsHealthChecks(): Promise<ModuleHealthCheck[]> {
+  const { uploadVerzeichnisBeschreibbar } = await import('./branding/storage');
+  const befund = await uploadVerzeichnisBeschreibbar();
+  return [
+    befund.ok
+      ? {
+          label: 'Upload-Verzeichnis',
+          status: 'ok',
+          detail: `${befund.pfad} ist beschreibbar.`,
+        }
+      : {
+          label: 'Upload-Verzeichnis',
+          status: 'error',
+          detail: `${befund.pfad} ist nicht beschreibbar. Hochgeladene Bilder lassen sich nicht speichern. Auf dem Server: chown -R swisshub:swisshub ${befund.pfad} - nicht chmod 777.`,
+        },
+  ];
+}
+
 registerModule({
   id: 'settings',
   name: 'Einstellungen',
@@ -278,6 +310,7 @@ registerModule({
   permissionPrefix: 'settings',
   core: true,
   defaultEnabled: true,
+  healthChecks: settingsHealthChecks,
   permissions: CORE_PERMISSIONS.filter(
     (entry) =>
       entry.key.startsWith('settings.') ||

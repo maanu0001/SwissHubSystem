@@ -28,7 +28,8 @@ useTestSchema('test_spielwahl_gaeste');
  * beide zusammen stimmt. Eine Attrappe würde genau das nicht zeigen.
  */
 const { prisma } = await import('@swisshub/database');
-const { spielwahl, setModuleSettings } = await import('@swisshub/modules');
+const { spielwahl, getModuleSettings, setModuleSettings } = await import('@swisshub/modules');
+const { clearRevisionCaches } = await import('@swisshub/database');
 
 const GUILD = '000000000000000001';
 const ANNA = { discordId: '100000000000000001', username: 'anna' };
@@ -427,5 +428,62 @@ describeWithDatabase('Was spielen wir?: Gäste ohne Konto', () => {
       where: { sessionId_discordId: { sessionId: session.id, discordId: gast } },
     });
     expect(rolle.rolle).not.toBe('HOST');
+  });
+});
+
+/**
+ * Der Standard: Teilnahme ohne Konto ist neu **an**.
+ *
+ * ## Warum das zwei Tests braucht und nicht einen
+ *
+ * Weil die interessante Aussage nicht «der Standard ist true» ist, sondern die
+ * Grenze daneben: er gilt fuer einen Server, der nichts eingestellt hat, und
+ * **nicht** fuer einen, der den Schalter ausdruecklich ausgemacht hat. Wer ihn
+ * absichtlich aus hat, soll ihn nicht durch ein Update wieder an finden.
+ *
+ * Genau das traegt `getModuleSettings`: es liest die hinterlegte Json durch das
+ * Schema, und ein Standard greift nur, wo ein Wert fehlt. Deshalb braucht es
+ * auch keine Migration - eine, die «alles = true» schriebe, waere der Fehler,
+ * den diese beiden Tests verbieten.
+ */
+describeWithDatabase('Was spielen wir: der Standard fuer Teilnahme ohne Konto', () => {
+  beforeAll(async () => {
+    await pushSchema();
+  });
+
+  beforeEach(async () => {
+    await leeren();
+    await prisma.moduleState.deleteMany({});
+    clearRevisionCaches();
+  });
+
+  it('ist an, solange niemand etwas eingestellt hat', async () => {
+    const einstellungen = await getModuleSettings<spielwahl.SpielwahlSettings>(
+      spielwahl.SPIELWAHL_MODULE_ID,
+    );
+    expect(einstellungen.gaesteErlaubt).toBe(true);
+  });
+
+  it('bleibt aus, wenn ein Server ihn ausdruecklich ausgemacht hat', async () => {
+    await serverErlaubtGaeste(false);
+    clearRevisionCaches();
+
+    const einstellungen = await getModuleSettings<spielwahl.SpielwahlSettings>(
+      spielwahl.SPIELWAHL_MODULE_ID,
+    );
+    // Kein Standard ueberschreibt eine Entscheidung, die schon getroffen ist.
+    expect(einstellungen.gaesteErlaubt).toBe(false);
+  });
+
+  it('laesst sich danach von Hand wieder anschalten', async () => {
+    await serverErlaubtGaeste(false);
+    clearRevisionCaches();
+    await serverErlaubtGaeste(true);
+    clearRevisionCaches();
+
+    const einstellungen = await getModuleSettings<spielwahl.SpielwahlSettings>(
+      spielwahl.SPIELWAHL_MODULE_ID,
+    );
+    expect(einstellungen.gaesteErlaubt).toBe(true);
   });
 });
