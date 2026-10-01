@@ -184,33 +184,35 @@ const RHYTHMUS: Record<
  * aendert, aendert beides zugleich.
  */
 const ABSTAND = {
+  /** Der Ring um das Profilbild. */
+  avatarRing: 5,
   /** Zwischen Profilbild und Name. */
-  nameOben: 28,
-  /** Zwischen Name und Motto. */
+  nameOben: 26,
+  /** Zwischen Name und Kennung. */
+  kennungOben: 10,
+  /** Zwischen Kennung und Motto. */
   mottoOben: 14,
-  /** Ueber der Kennzahlenleiste. */
-  kennzahlenOben: 30,
-  /** Innen, ober- und unterhalb der Kennzahlen. */
-  kennzahlenPolster: 22,
-  /** Zwischen Zahl und Beschriftung. */
-  kennzahlenLuft: 10,
+  /** Ueber der Kennzahlenzeile. */
+  kennzahlenOben: 34,
+  /** Links und rechts des Trennpunkts zwischen zwei Kennzahlen. */
+  punktLuft: 14,
   /** Ueber der Spielliste. */
-  spieleOben: 26,
+  spieleOben: 34,
   /** Zwischen «SPIELT» und der ersten Zeile. */
-  spieleTitelUnten: 14,
-  /** Innen, ober- und unterhalb einer Spielzeile. */
-  spielPolster: 12,
+  spieleTitelUnten: 16,
+  /** Zwischen zwei Spielzeilen. */
+  spielLuft: 10,
   /** Ueber den Auszeichnungen. */
-  auszeichnungenOben: 30,
+  auszeichnungenOben: 32,
   /** Innen, ober- und unterhalb einer Auszeichnung. */
-  auszeichnungPolster: 14,
+  auszeichnungPolster: 13,
   /** Zwischen zwei Auszeichnungen. */
   auszeichnungUnten: 12,
   /** Die Scheibe vor dem Namen einer Auszeichnung. */
-  auszeichnungSymbol: 26,
+  auszeichnungSymbol: 24,
   /** Innen, ober- und unterhalb eines Plattform-Chips. */
   chipPolster: 10,
-  /** Ueber der Plattformreihe. */
+  /** Ueber einer Chip- oder Kanalreihe. */
   chipOben: 12,
   /** Jede Linie und jeder Rahmen dieser Karte. */
   linie: 2,
@@ -285,7 +287,13 @@ interface Aufteilung {
  */
 function platzAufteilen(
   format: GamerCardFormat,
-  vorrat: { spiele: number; auszeichnungen: number; kennzahlen: number; plattformen: number },
+  vorrat: {
+    spiele: number;
+    auszeichnungen: number;
+    kennzahlen: number;
+    plattformen: number;
+    kanaele: number;
+  },
   mitMotto: boolean,
 ): Aufteilung {
   const mass = RHYTHMUS[format];
@@ -303,17 +311,14 @@ function platzAufteilen(
     mass.avatar +
     ABSTAND.nameOben +
     zeilenHoehe(mass.name, 1.02) +
+    // Die Kennung steht immer - sie kommt aus dem Slug, und ohne Slug gaebe
+    // es die Karte nicht.
+    ABSTAND.kennungOben +
+    zeilenHoehe(mass.text) +
     (mitMotto ? ABSTAND.mottoOben + zeilenHoehe(mass.zeile, 1.25) : 0);
 
-  const kennzahlen =
-    vorrat.kennzahlen > 0
-      ? ABSTAND.kennzahlenOben +
-        2 * ABSTAND.linie +
-        2 * ABSTAND.kennzahlenPolster +
-        zeilenHoehe(Math.round(mass.name * 0.72), 1) +
-        ABSTAND.kennzahlenLuft +
-        zeilenHoehe(Math.round(mass.text * 0.72))
-      : 0;
+  // Eine Zeile, keine Leiste: kein Rahmen, kein Innenpolster, nur Text.
+  const kennzahlen = vorrat.kennzahlen > 0 ? ABSTAND.kennzahlenOben + zeilenHoehe(mass.text) : 0;
 
   const plattformen =
     vorrat.plattformen > 0
@@ -323,21 +328,38 @@ function platzAufteilen(
         zeilenHoehe(Math.round(mass.chip * 0.86))
       : 0;
 
+  // Die Kanaele sind blosse Textzeilen - kein Rahmen, kein Polster.
+  const kanaele = vorrat.kanaele > 0 ? ABSTAND.chipOben + zeilenHoehe(Math.round(mass.chip * 0.86)) : 0;
+
   const spielKopf = ABSTAND.spieleOben + zeilenHoehe(Math.round(mass.text * 0.72)) + ABSTAND.spieleTitelUnten;
-  const spielZeile = 2 * ABSTAND.spielPolster + zeilenHoehe(mass.chip);
+  /*
+   * Die erste Spielzeile ist groesser als die uebrigen - sie traegt die
+   * Hervorhebung, die vorher die Ziffer «01» trug. Gerechnet wird mit der
+   * groesseren: eine Rechnung, die den Normalfall nimmt und den Sonderfall
+   * vergisst, liegt genau dann daneben, wenn es knapp wird.
+   */
+  const ersteSpielZeile = zeilenHoehe(Math.round(mass.chip * 1.12));
+  const spielZeile = ABSTAND.spielLuft + zeilenHoehe(mass.chip);
   const ausZeile =
     2 * ABSTAND.auszeichnungPolster +
     2 * ABSTAND.linie +
-    Math.max(ABSTAND.auszeichnungSymbol + 2 * ABSTAND.linie, zeilenHoehe(mass.text)) +
+    Math.max(ABSTAND.auszeichnungSymbol + 2 * ABSTAND.linie, zeilenHoehe(Math.round(mass.text * 0.92))) +
     ABSTAND.auszeichnungUnten;
 
   let rest =
-    hoehe - kopf - kennzahlen - plattformen - gamerCardFussHoehe(format) - GAMER_CARD_FUSS_LUFT - RESERVE;
+    hoehe -
+    kopf -
+    kennzahlen -
+    kanaele -
+    plattformen -
+    gamerCardFussHoehe(format) -
+    GAMER_CARD_FUSS_LUFT -
+    RESERVE;
 
   const ergebnis: Aufteilung = { spiele: 0, auszeichnungen: 0 };
 
-  if (vorrat.spiele > 0 && rest >= spielKopf + spielZeile) {
-    rest -= spielKopf + spielZeile;
+  if (vorrat.spiele > 0 && rest >= spielKopf + ersteSpielZeile) {
+    rest -= spielKopf + ersteSpielZeile;
     ergebnis.spiele = 1;
   }
 
@@ -349,9 +371,8 @@ function platzAufteilen(
     }
   }
 
-  // Die Trennlinie zwischen zwei Spielzeilen kommt erst ab der zweiten dazu.
-  while (ergebnis.spiele < Math.min(vorrat.spiele, mass.spiele) && rest >= spielZeile + ABSTAND.linie) {
-    rest -= spielZeile + ABSTAND.linie;
+  while (ergebnis.spiele < Math.min(vorrat.spiele, mass.spiele) && rest >= spielZeile) {
+    rest -= spielZeile;
     ergebnis.spiele++;
   }
 
@@ -499,6 +520,19 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
   const motto = profil.angaben?.tagline ?? null;
   const alleSpiele = profil.spiele ?? [];
   const plattformen = (profil.angaben?.plattformen ?? []).slice(0, 3);
+  /*
+   * Die Kanaele - woanders zu finden.
+   *
+   * Sie standen bisher nicht auf der Karte, obwohl das Profil sie fuehrt und
+   * sie auf der oeffentlichen Seite sichtbar sind. Eine Visitenkarte ohne den
+   * Weg zum Kanal ist eine halbe.
+   *
+   * `socials` fehlt im DTO, wenn die Besitzerin den Abschnitt nicht
+   * oeffentlich gestellt hat - der Dienst laesst das Feld dann weg, und hier
+   * wird nichts geprueft, was dort schon entschieden ist. Hoechstens drei,
+   * weil eine vierte Zeile die Karte wieder fuellt, statt sie zu beruhigen.
+   */
+  const kanaele = (profil.socials ?? []).slice(0, 3).map((eintrag) => eintrag.handle);
   const level = profil.level;
 
   /*
@@ -547,6 +581,7 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
       auszeichnungen: profil.hervorgehobene.length,
       kennzahlen: kennzahlen.length,
       plattformen: plattformen.length,
+      kanaele: kanaele.length,
     },
     motto !== null,
   );
@@ -629,13 +664,21 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
           }}
         />
 
-        {/* Die Marke, oben links. */}
+        {/*
+          Die Marke, oben in der Mitte.
+
+          Sie stand links, und das war der letzte Rest der alten, linksbuendigen
+          Karte: eine Komposition auf der Mittelachse mit einer Zeile, die an
+          der linken Kante klebt, sieht aus wie zwei Entwuerfe uebereinander.
+        */}
         <div
           style={{
             display: 'flex',
             position: 'absolute',
             top: mass.polster,
-            left: mass.polster,
+            left: 0,
+            right: 0,
+            justifyContent: 'center',
             alignItems: 'center',
           }}
         >
@@ -658,11 +701,12 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
         </div>
       </div>
 
-      {/* --- Kopf: Bild, Name, Motto --- */}
+      {/* --- Kopf: Bild, Name, Kennung, Motto - auf der Mittelachse --- */}
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
+          alignItems: 'center',
           paddingLeft: mass.polster,
           paddingRight: mass.polster,
           marginTop: -Math.round(mass.avatar * 0.55),
@@ -673,8 +717,11 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
             display: 'flex',
             width: mass.avatar,
             height: mass.avatar,
-            borderRadius: Math.round(mass.avatar * 0.26),
-            border: `6px solid ${akzent}`,
+            // Rund statt abgerundetes Quadrat: ein Kreis hat keine Richtung
+            // und sitzt damit auf einer Mittelachse ruhiger als eine Form,
+            // deren Ecken nach aussen zeigen.
+            borderRadius: 999,
+            border: `${ABSTAND.avatarRing}px solid ${akzent}`,
             backgroundColor: flaeche,
             alignItems: 'center',
             justifyContent: 'center',
@@ -699,7 +746,7 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
             <div
               style={{
                 display: 'flex',
-                fontSize: Math.round(mass.avatar * 0.4),
+                fontSize: Math.round(mass.avatar * 0.38),
                 fontWeight: 700,
                 color: GEDAEMPFT,
               }}
@@ -710,20 +757,15 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
         </div>
 
         {/*
-          Name und Motto stehen einzeilig - und zwar doppelt gesichert.
+          Name, Kennung und Motto stehen einzeilig - und zwar doppelt gesichert.
 
-          Vorher standen hier feste Zeichengrenzen je Format (22, und fuer das
-          Quadrat 18). Sie waren geraten, und im Story-Format war die 22 zu
-          gross: «Maximiliane von Hirze…» brauchte bei 92 Pixel Schriftgroesse
-          zwei Zeilen, und die zweite nahm der Karte unten genau die Hoehe, die
-          der letzten Auszeichnung fehlte. Ein Umbruch oben, ein
-          abgeschnittener Balken unten - der Zusammenhang ist nicht zu sehen.
-
-          Jetzt kommt die Grenze aus der Breite und der Schriftgroesse
+          Die Zeichengrenze kommt aus Breite und Schriftgroesse
           (`zeilenGrenze`), und `whiteSpace: nowrap` steht als Riegel dahinter:
           selbst ein Name aus lauter breiten Zeichen bleibt einzeilig. Er wird
           dann am Rand beschnitten statt umgebrochen - unschoen, aber lokal,
-          waehrend ein Umbruch die ganze Karte nach unten schiebt.
+          waehrend ein Umbruch die ganze Karte nach unten schiebt und unten
+          eine Zeile abschneidet, die niemand mit dem Namen in Verbindung
+          bringt.
         */}
         <div
           style={{
@@ -739,6 +781,28 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
           }}
         >
           {kuerze(name, zeilenGrenze(innenBreite, mass.name))}
+        </div>
+
+        {/*
+          Die Kennung - das, was man eintippt.
+
+          Sie stand bisher nur klein im Fussbalken als Teil der Adresse. Wer
+          die Karte sieht, soll aber wissen, wie die Person heisst **und** wie
+          man sie findet; der QR-Code ist dafuer der bequeme Weg, nicht der
+          einzige.
+        */}
+        <div
+          style={{
+            display: 'flex',
+            marginTop: ABSTAND.kennungOben,
+            fontSize: mass.text,
+            letterSpacing: 1,
+            color: akzent,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+          }}
+        >
+          {`@${kuerze(profil.slug, zeilenGrenze(innenBreite, mass.text))}`}
         </div>
 
         {motto ? (
@@ -766,56 +830,66 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
         der Karte, und zwar zusammen mit dem Fussbalken - eine Gamer Card ohne
         Adresse und ohne QR-Code.
 
-        Die Budgets in `RHYTHMUS` sind so gesetzt, dass es nicht dazu kommt.
-        Diese zwei Zeilen sind die Zusicherung fuer den Fall, dass sich eine
-        Schriftgroesse, ein Sprachumbruch oder ein neues Feld einmal anders
-        verhaelt als gerechnet: dann fehlt eine Zeile, aber die Karte ist
-        vollstaendig.
+        Die Budgets aus `platzAufteilen` sind so gesetzt, dass es nicht dazu
+        kommt. Diese zwei Zeilen sind die Zusicherung fuer den Fall, dass sich
+        eine Schriftgroesse, ein Sprachumbruch oder ein neues Feld einmal
+        anders verhaelt als gerechnet: dann fehlt eine Zeile, aber die Karte
+        ist vollstaendig.
       */}
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
+          alignItems: 'center',
           flexGrow: 1,
           flexShrink: 1,
           overflow: 'hidden',
+          paddingLeft: mass.polster,
+          paddingRight: mass.polster,
         }}
       >
-        {/* --- Kennzahlen --- */}
+        {/*
+          Die Kennzahlen - eine Zeile statt dreier Kaesten.
+
+          Vorher stand hier ein Streifen mit Linie oben, Linie unten und zwei
+          senkrechten Trennern dazwischen: fuenf Striche fuer drei Zahlen. Die
+          Karte sah dadurch aus wie eine Tabelle, und die Zahlen wirkten
+          wichtiger als der Name darueber.
+
+          Jetzt eine Zeile auf der Mittelachse, getrennt durch Punkte. Gezeigt
+          wird weiterhin nur, was es gibt: ein Profil ohne Level bekommt keine
+          Zeile «Level -» und eines ohne Spiele keine «0 Spiele». Eine Null ist
+          eine Behauptung ueber jemanden, und auf einer Karte, die geteilt
+          wird, die unfreundlichste.
+        */}
         {kennzahlen.length > 0 ? (
           <div
             style={{
               display: 'flex',
-              alignItems: 'stretch',
+              alignItems: 'center',
               marginTop: ABSTAND.kennzahlenOben,
-              marginLeft: mass.polster,
-              marginRight: mass.polster,
-              paddingTop: ABSTAND.kennzahlenPolster,
-              paddingBottom: ABSTAND.kennzahlenPolster,
-              borderTop: `${ABSTAND.linie}px solid ${rand}`,
-              borderBottom: `${ABSTAND.linie}px solid ${rand}`,
             }}
           >
             {kennzahlen.map((zahl, index) => (
-              <div
-                key={zahl.label}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  flexGrow: 1,
-                  flexBasis: 0,
-                  // Eine feine Linie zwischen den Feldern statt Abstand: drei
-                  // Zahlen ohne Trennung lesen sich als eine lange Zahl.
-                  borderLeft: index === 0 ? 'none' : `${ABSTAND.linie}px solid ${rand}`,
-                  paddingLeft: index === 0 ? 0 : 28,
-                }}
-              >
+              <div key={zahl.label} style={{ display: 'flex', alignItems: 'center' }}>
+                {index > 0 ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      marginLeft: ABSTAND.punktLuft,
+                      marginRight: ABSTAND.punktLuft,
+                      fontSize: mass.text,
+                      color: rand,
+                    }}
+                  >
+                    ·
+                  </div>
+                ) : null}
                 <div
                   style={{
                     display: 'flex',
-                    fontSize: Math.round(mass.name * 0.72),
+                    fontSize: mass.text,
                     fontWeight: 700,
-                    lineHeight: 1,
                     color: zahl.hervor ? akzent : WEISS,
                   }}
                 >
@@ -824,9 +898,9 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
                 <div
                   style={{
                     display: 'flex',
-                    marginTop: ABSTAND.kennzahlenLuft,
-                    fontSize: Math.round(mass.text * 0.72),
-                    letterSpacing: 3,
+                    marginLeft: 10,
+                    fontSize: Math.round(mass.text * 0.78),
+                    letterSpacing: 2,
                     color: GEDAEMPFT,
                   }}
                 >
@@ -837,15 +911,21 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
           </div>
         ) : null}
 
-        {/* --- Spiele als Rangliste --- */}
+        {/*
+          Die Spiele - Namen auf der Achse, ohne Rahmen und ohne Nummern.
+
+          Die Rangliste mit «01», «02» und einer Trennlinie je Zeile war der
+          zweite Grund fuer die Tabellenwirkung. Die Reihenfolge steht
+          weiterhin fest - die erste Zeile ist die, die jemand zuerst nennt -,
+          und sie ist an der Hervorhebung zu erkennen statt an einer Ziffer.
+        */}
         {spiele.length > 0 ? (
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
+              alignItems: 'center',
               marginTop: ABSTAND.spieleOben,
-              paddingLeft: mass.polster,
-              paddingRight: mass.polster,
             }}
           >
             <div
@@ -853,7 +933,7 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
                 display: 'flex',
                 fontSize: Math.round(mass.text * 0.72),
                 letterSpacing: 4,
-                color: GEDAEMPFT,
+                color: rand,
                 marginBottom: ABSTAND.spieleTitelUnten,
               }}
             >
@@ -864,53 +944,43 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
                 key={`spiel-${spiel}`}
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
-                  paddingTop: ABSTAND.spielPolster,
-                  paddingBottom: ABSTAND.spielPolster,
-                  borderBottom: index === spiele.length - 1 ? 'none' : `${ABSTAND.linie}px solid ${rand}`,
+                  marginTop: index === 0 ? 0 : ABSTAND.spielLuft,
+                  fontSize: index === 0 ? Math.round(mass.chip * 1.12) : mass.chip,
+                  fontWeight: index === 0 ? 700 : 500,
+                  color: index === 0 ? WEISS : GEDAEMPFT,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
                 }}
               >
-                {/* Die Nummer - zweistellig, damit die Titel in einer Flucht
-                  stehen. Ohne fuehrende Null ruecken sie bei zehn Eintraegen
-                  auseinander. */}
-                <div
-                  style={{
-                    display: 'flex',
-                    width: Math.round(mass.chip * 2),
-                    fontSize: Math.round(mass.chip * 0.95),
-                    fontWeight: 700,
-                    color: index === 0 ? akzent : rand,
-                  }}
-                >
-                  {String(index + 1).padStart(2, '0')}
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    fontSize: mass.chip,
-                    fontWeight: index === 0 ? 700 : 500,
-                    color: index === 0 ? WEISS : GEDAEMPFT,
-                  }}
-                >
-                  {kuerze(spiel, 26)}
-                </div>
+                {kuerze(spiel, zeilenGrenze(innenBreite, mass.chip))}
               </div>
             ))}
           </div>
         ) : null}
 
-        {/* --- Auszeichnungen --- */}
+        {/*
+          Die Auszeichnungen - hier bleibt der Rahmen, und zwar absichtlich.
+
+          Er ist die einzige Umrandung, die etwas sagt: Form, Marke und Wort
+          tragen zusammen die Stufe, und zwar unabhaengig von der Farbe. Etwa
+          jeder zwoelfte Mann unterscheidet Rot und Gruen schlecht; Braun, Grau
+          und Gelb nebeneinander sind fuer einen Teil davon drei Grautoene. Sie
+          hier zu Textzeilen zu glaetten waere ruhiger und zugleich weniger
+          lesbar - und «ruhig» ist kein Grund, eine Auskunft wegzulassen.
+
+          Ruhiger geworden ist das Mass: die Zeilen sind schmaler als die Karte
+          und sitzen auf der Achse, statt von Rand zu Rand zu laufen.
+        */}
         {auszeichnungen.length > 0 ? (
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
-              paddingLeft: mass.polster,
-              paddingRight: mass.polster,
+              alignItems: 'center',
               marginTop: ABSTAND.auszeichnungenOben,
             }}
           >
-            {auszeichnungen.map((eintrag) => {
+            {auszeichnungen.map((eintrag, index) => {
               const stufenbild = stufe(eintrag.stufe);
               return (
                 <div
@@ -918,11 +988,11 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    marginBottom: ABSTAND.auszeichnungUnten,
+                    marginTop: index === 0 ? 0 : ABSTAND.auszeichnungUnten,
                     paddingTop: ABSTAND.auszeichnungPolster,
                     paddingBottom: ABSTAND.auszeichnungPolster,
-                    paddingLeft: 20,
-                    paddingRight: 20,
+                    paddingLeft: 22,
+                    paddingRight: 22,
                     /* Die Ecke traegt die Stufe mit: Gold kantig, Bronze weich. */
                     borderRadius: stufenbild.bild.radius,
                     backgroundImage: stufenbild.bild.flaeche,
@@ -943,20 +1013,29 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
                         eintrag.stufe === 'gold'
                           ? `${ABSTAND.linie}px solid ${stufenbild.bild.schrift}`
                           : `${ABSTAND.linie}px solid ${stufenbild.bild.rand}`,
-                      marginRight: 18,
+                      marginRight: 16,
                     }}
                   />
-                  <div style={{ display: 'flex', fontSize: mass.text, fontWeight: 600, color: WEISS }}>
-                    {kuerze(eintrag.label, 26)}
+                  <div
+                    style={{
+                      display: 'flex',
+                      fontSize: Math.round(mass.text * 0.92),
+                      fontWeight: 600,
+                      color: WEISS,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {kuerze(eintrag.label, 24)}
                   </div>
 
                   {/* Die Marke: ein bis drei Striche. Das einzige Merkmal, das
                     keine Farbe ist - und damit das einzige, das auch auf einem
                     Ausdruck in Graustufen noch die Stufe sagt. */}
-                  <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto', gap: 4 }}>
-                    {Array.from({ length: stufenbild.striche }, (_, index) => (
+                  <div style={{ display: 'flex', alignItems: 'center', marginLeft: 20, gap: 4 }}>
+                    {Array.from({ length: stufenbild.striche }, (_, strich) => (
                       <div
-                        key={index}
+                        key={strich}
                         style={{
                           display: 'flex',
                           width: 4,
@@ -985,32 +1064,57 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
         ) : null}
 
         {/*
-        Das Feld, das den Rest fuellt.
+          Das Feld, das den Rest fuellt.
 
-        Es ist die eigentliche Antwort auf die leere untere Haelfte: was an
-        Hoehe uebrig bleibt, sammelt sich hier, und der Fussbalken sitzt
-        dadurch immer unten - bei einem vollen Profil ebenso wie bei einem
-        duennen. Plattformen stehen darin, wenn welche eingetragen sind; sonst
-        ist es leerer Raum, der unten und nicht mittendrin liegt.
-      */}
+          Es ist die Antwort auf die leere untere Haelfte: was an Hoehe uebrig
+          bleibt, sammelt sich hier, und der Fussbalken sitzt dadurch immer
+          unten - bei einem vollen Profil ebenso wie bei einem duennen.
+
+          Darin stehen die Kanaele und die Plattformen, beide auf der Achse.
+          Die Kanaele sind das, womit jemand ausserhalb von SwissHub zu finden
+          ist; sie standen bisher gar nicht auf der Karte, obwohl das Profil
+          sie fuehrt.
+        */}
         <div
           style={{
             display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
             flexGrow: 1,
-            alignItems: 'flex-end',
-            paddingLeft: mass.polster,
-            paddingRight: mass.polster,
             paddingBottom: GAMER_CARD_FUSS_LUFT,
           }}
         >
+          {kanaele.length > 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap' }}>
+              {kanaele.map((kanal) => (
+                <div
+                  key={`kanal-${kanal}`}
+                  style={{
+                    display: 'flex',
+                    marginLeft: 7,
+                    marginRight: 7,
+                    marginTop: ABSTAND.chipOben,
+                    fontSize: Math.round(mass.chip * 0.86),
+                    color: GEDAEMPFT,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {kanal}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           {plattformen.length > 0 ? (
-            <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap' }}>
               {plattformen.map((plattform) => (
                 <div
                   key={`plattform-${plattform}`}
                   style={{
                     display: 'flex',
-                    marginRight: 12,
+                    marginLeft: 6,
+                    marginRight: 6,
                     marginTop: ABSTAND.chipOben,
                     paddingLeft: 20,
                     paddingRight: 20,
@@ -1031,23 +1135,29 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
         </div>
       </div>
 
-      {/* --- Fussbalken: Adresse und QR --- */}
+      {/*
+        --- Fussbalken: Adresse und QR ---
+
+        Die beiden stehen als **Gruppe** in der Mitte statt an den
+        Aussenkanten. Mathematisch zentriert waere jedes fuer sich; das sieht
+        auf einem Balken wie zwei getrennte Dinge aus. Zusammen gelesen sind
+        sie eine Sache: hier steht die Adresse, und hier ist der bequeme Weg
+        dorthin.
+      */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
+          justifyContent: 'center',
           height: fussHoehe,
           // Er schrumpft nicht mit: er ist das, was bleiben muss.
           flexShrink: 0,
           paddingLeft: mass.polster,
           paddingRight: mass.polster,
           backgroundColor: akzent,
-          /* Der Abschluss unten war frueher ein zwoelf Pixel hoher Streifen
-             ueber leerem Schwarz. Jetzt traegt der Balken selbst den Inhalt -
-             ein Abschluss, der etwas sagt. */
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <div
             style={{
               display: 'flex',
@@ -1065,6 +1175,7 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
               fontSize: mass.zeile,
               fontWeight: 700,
               color: SCHWARZ,
+              whiteSpace: 'nowrap',
             }}
           >
             {ohneSchema(adresse)}
@@ -1077,6 +1188,7 @@ export function zeichneGamerCard(eingabe: GamerCardEingabe): React.ReactElement 
               display: 'flex',
               width: mass.qr,
               height: mass.qr,
+              marginLeft: 28,
               padding: 12,
               borderRadius: 20,
               backgroundColor: WEISS,
