@@ -8390,6 +8390,17 @@ model FragtEntwurf {
   /// Bild aus der zentralen Medienverwaltung.
   medienDatei String?
 
+  /// Steht die absolute Stimmenzahl auf der Grafik?
+  ///
+  /// Prozentwerte stehen immer darauf - sie sind die Aussage. Die absolute
+  /// Zahl ist eine zweite Frage: bei 300 Stimmen traegt sie, bei 12 lenkt sie
+  /// vom Ergebnis ab. Das entscheidet, wer die Grafik postet, und nicht eine
+  /// feste Regel.
+  ///
+  /// `true` als Vorgabe, weil das der Stand vor dieser Spalte war - bestehende
+  /// Entwuerfe sehen danach aus wie vorher.
+  stimmenZeigen Boolean @default(true)
+
   veroeffentlichtAt DateTime?
 
   createdByDiscordId String?

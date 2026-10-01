@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ImageResponse } from 'next/og';
 import {
@@ -67,6 +69,7 @@ const NORMAL: SocialDaten = {
   gesamt: 100,
   gewinner: { label: 'Minecraft', prozent: 42, stimmen: 42 },
   gleichstand: [],
+  stimmenZeigen: true,
 };
 
 /** Zwei Antworten - der Fall, fuer den die Duell-Vorlage gebaut ist. */
@@ -82,6 +85,7 @@ const DUELL: SocialDaten = {
   gesamt: 59,
   gewinner: { label: 'Maus & Tastatur', prozent: 63, stimmen: 37 },
   gleichstand: [],
+  stimmenZeigen: true,
 };
 
 const ALLE_ARTEN: fragt.FolienArt[] = ['frage', 'gewinner', 'verteilung', 'duell', 'cta'];
@@ -322,5 +326,131 @@ describe('Grafikexport: das Archiv', () => {
       'swisshub-fragt-03-verteilung-feed.png',
       'swisshub-fragt-04-cta-feed.png',
     ]);
+  });
+});
+
+/**
+ * Die Stimmenzahl auf der Grafik - an oder aus.
+ *
+ * ## Was abschaltbar ist und was nicht
+ *
+ * Abschaltbar ist die **absolute** Zahl: «42 Stimmen». Bei 300 Stimmen traegt
+ * sie, bei 12 lenkt sie vom Ergebnis ab, und das entscheidet, wer die Grafik
+ * postet - nicht eine feste Regel.
+ *
+ * Nicht abschaltbar sind die **Prozente**. Sie sind die Aussage; eine Grafik
+ * ohne sie waere keine Auswertung mehr, sondern eine Behauptung. Deshalb
+ * kennt `SocialDaten` einen Schalter und keinen Wert: er laesst eine Zahl weg
+ * oder nicht, und er kann keine setzen.
+ *
+ * ## Warum an den Bytes gemessen wird
+ *
+ * Weil ein Schalter, der im Zustand ankommt und nicht im Bild, genau so
+ * aussieht wie einer, der wirkt. Zwei Renderlaeufe derselben Daten mit
+ * verschiedenem Schalter muessen verschiedene Dateien ergeben - und bei
+ * gleichem Schalter dieselbe, sonst misst der Test etwas anderes.
+ */
+describe('Grafikexport: Anzahl Stimmen ein- und ausblenden', () => {
+  const ohneZahlen: SocialDaten = { ...NORMAL, stimmenZeigen: false };
+
+  /**
+   * Drei Folien tragen die absolute Zahl, zwei nicht.
+   *
+   * «Die Frage» ist absichtlich ohne Zahlen - sie stellt die Frage, sie
+   * beantwortet sie nicht; wer im Feed darueber gleitet, soll weiterwischen
+   * wollen. «Der Aufruf» traegt den Aufruf und sonst nichts.
+   *
+   * Beide Listen stehen hier, weil sonst nur die eine Haelfte geprueft waere:
+   * ein Schalter, der zu viel abschaltet, faellt genauso auf wie einer, der
+   * zu wenig tut.
+   */
+  const MIT_ZAHL: fragt.FolienArt[] = ['gewinner', 'verteilung', 'duell'];
+  const OHNE_ZAHL: fragt.FolienArt[] = ['frage', 'cta'];
+
+  it.each(MIT_ZAHL)('aendert die Folie %s sichtbar', async (art) => {
+    const mit = await rendere(art, 'quadrat', NORMAL);
+    const ohne = await rendere(art, 'quadrat', ohneZahlen);
+    expect(Buffer.from(ohne).equals(Buffer.from(mit))).toBe(false);
+  });
+
+  it.each(OHNE_ZAHL)('laesst die Folie %s unberuehrt - sie traegt ohnehin keine Zahl', async (art) => {
+    const mit = await rendere(art, 'quadrat', NORMAL);
+    const ohne = await rendere(art, 'quadrat', ohneZahlen);
+    expect(Buffer.from(ohne).equals(Buffer.from(mit))).toBe(true);
+  });
+
+  it('deckt mit beiden Listen alle Folienarten ab', () => {
+    // Kommt eine Vorlage dazu, muss jemand entscheiden, in welche Liste sie
+    // gehoert - und nicht vergessen, dass es die Frage gibt.
+    expect([...MIT_ZAHL, ...OHNE_ZAHL].sort()).toEqual([...ALLE_ARTEN].sort());
+  });
+
+  it('nimmt auch der Folie ohne Gewinner die Zahl', async () => {
+    // Gleichstand und null Stimmen bekommen eine eigene Folie, und sie trug
+    // die Zahl in der Fusszeile mit.
+    const gleich: SocialDaten = {
+      ...NORMAL,
+      gewinner: null,
+      gleichstand: ['Minecraft', 'Counter-Strike 2'],
+    };
+    const mit = await rendere('gewinner', 'quadrat', gleich);
+    const ohne = await rendere('gewinner', 'quadrat', { ...gleich, stimmenZeigen: false });
+    expect(Buffer.from(ohne).equals(Buffer.from(mit))).toBe(false);
+  });
+
+  it('bleibt bei gleichem Schalter bei derselben Datei', async () => {
+    // Die Gegenprobe: ohne sie wuerde der Test oben auch dann gruen, wenn das
+    // Rendern schlicht nicht deterministisch waere.
+    const einmal = await rendere('gewinner', 'quadrat', ohneZahlen);
+    const nochmal = await rendere('gewinner', 'quadrat', ohneZahlen);
+    expect(Buffer.from(einmal).equals(Buffer.from(nochmal))).toBe(true);
+  });
+
+  it.each(ALLE_FORMATE)('bleibt in %s bei den exakten Massen', async (format) => {
+    // Eine weggelassene Zeile darf die Flaeche nicht verschieben.
+    const bytes = await rendere('gewinner', format, ohneZahlen);
+    expect(pngMasse(bytes)).toEqual(SOCIAL_MASSE[format]);
+  });
+
+  it('zeichnet auch ohne Stimmenzahl jede Vorlage vollstaendig', async () => {
+    for (const art of ALLE_ARTEN) {
+      const bytes = await rendere(art, 'story', ohneZahlen);
+      // Eine leere Datei waere ein gescheitertes Rendern - Satori liefert bei
+      // einem Fehler kein Bild, sondern nichts.
+      expect(bytes.byteLength).toBeGreaterThan(1000);
+    }
+  });
+
+  it('kommt bei null Stimmen mit beiden Einstellungen zurecht', async () => {
+    const leer: SocialDaten = {
+      ...NORMAL,
+      zeilen: NORMAL.zeilen.map((zeile) => ({ ...zeile, prozent: 0, stimmen: 0, fuehrt: false })),
+      gesamt: 0,
+      gewinner: null,
+      gleichstand: [],
+    };
+    for (const stimmenZeigen of [true, false]) {
+      const bytes = await rendere('verteilung', 'feed', { ...leer, stimmenZeigen });
+      expect(pngMasse(bytes)).toEqual(SOCIAL_MASSE.feed);
+    }
+  });
+});
+
+describe('Der Schalter ist ein Schalter und kein Wert', () => {
+  it('nimmt im Bearbeitungsschema keine Zahl entgegen', () => {
+    /*
+     * Die Zusage aus dem Modul: Zahlen kommen aus dem festgeschriebenen
+     * Ergebnis, nie aus dem Entwurf. Ein Feld `stimmen` oder `prozent` im
+     * Schema waere der Weg, sie doch zu setzen.
+     */
+    const quelle = readFileSync(join(process.cwd(), 'apps/web/src/modules/fragt/actions.ts'), 'utf8');
+    expect(quelle).toContain('stimmenZeigen: z.boolean().optional()');
+    expect(quelle).not.toMatch(/\bstimmen:\s*z\.number/u);
+    expect(quelle).not.toMatch(/\bprozent:\s*z\.number/u);
+  });
+
+  it('gibt die Vorgabe auf «anzeigen», damit bestehende Entwuerfe gleich bleiben', () => {
+    const schema = readFileSync(join(process.cwd(), 'packages/database/prisma/schema.prisma'), 'utf8');
+    expect(schema).toContain('stimmenZeigen Boolean @default(true)');
   });
 });

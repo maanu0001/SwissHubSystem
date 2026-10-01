@@ -158,6 +158,8 @@ export interface EntwurfEingabe {
   cta?: string;
   folien?: FolienEintrag[];
   medienDatei?: string | null;
+  /** Soll die absolute Stimmenzahl auf der Grafik stehen? Prozente immer. */
+  stimmenZeigen?: boolean;
 }
 
 /**
@@ -201,6 +203,7 @@ export async function bearbeiteEntwurf(entwurfId: string, eingabe: EntwurfEingab
         ? { folien: normalisiereFolien(eingabe.folien) as unknown as Prisma.InputJsonValue }
         : {}),
       ...(eingabe.medienDatei !== undefined ? { medienDatei: eingabe.medienDatei } : {}),
+      ...(eingabe.stimmenZeigen !== undefined ? { stimmenZeigen: eingabe.stimmenZeigen } : {}),
     },
   });
 }

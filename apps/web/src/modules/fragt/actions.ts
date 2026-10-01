@@ -243,7 +243,12 @@ export const fragtEntwurfBearbeitenAction = defineAction(
        * Es gibt in diesem Schema kein Feld fuer eine Prozentzahl oder eine
        * Stimmenzahl, und im Datenmodell auch keine Spalte dafuer. Die Zahlen
        * kommen beim Rendern aus dem festgeschriebenen Ergebnis.
+       *
+       * `stimmenZeigen` ist davon keine Ausnahme: ein Schalter, kein Wert. Er
+       * laesst die absolute Zahl weg oder nicht und kann keine setzen. Die
+       * Prozente stehen in jedem Fall auf der Grafik - sie sind die Aussage.
        */
+      stimmenZeigen: z.boolean().optional(),
       ueberschrift: z.string().trim().min(1).max(240).optional(),
       untertitel: z.string().trim().max(240).nullable().optional(),
       cta: z.string().trim().min(1).max(200).optional(),

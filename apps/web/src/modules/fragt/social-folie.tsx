@@ -124,14 +124,19 @@ function Marke({ klein }: { klein: boolean }): React.JSX.Element {
   );
 }
 
-/** Die Fusszeile - die Zahl der Stimmen, nie erfunden. */
+/**
+ * Die Fusszeile - die Zahl der Stimmen, nie erfunden.
+ *
+ * `stimmen: null` heisst «nicht zeigen» und nicht «null Stimmen». Deshalb
+ * `null` und keine 0: eine 0 waere eine Aussage, und zwar eine falsche.
+ */
 function Fuss({
   klein,
   stimmen,
   zusatz,
 }: {
   klein: boolean;
-  stimmen: number;
+  stimmen: number | null;
   zusatz?: string;
 }): React.JSX.Element {
   return (
@@ -149,9 +154,11 @@ function Fuss({
         >
           {gross(zusatz ?? 'Die SwissHub Community hat entschieden.')}
         </div>
-        <div style={{ display: 'flex', fontSize: klein ? 24 : 28, color: LEISE }}>
-          {stimmen} {stimmen === 1 ? 'Stimme' : 'Stimmen'}
-        </div>
+        {stimmen === null ? null : (
+          <div style={{ display: 'flex', fontSize: klein ? 24 : 28, color: LEISE }}>
+            {stimmen} {stimmen === 1 ? 'Stimme' : 'Stimmen'}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -176,6 +183,19 @@ export interface SocialDaten {
   gewinner: { label: string; prozent: number; stimmen: number } | null;
   /** Bei Gleichstand die beteiligten Antworten - dann gibt es keinen Gewinner. */
   gleichstand: string[];
+  /**
+   * Steht die absolute Stimmenzahl auf der Folie?
+   *
+   * Die **Prozente stehen immer** darauf - sie sind die Aussage, und ein
+   * Ergebnis ohne sie waere keines. Abschaltbar ist nur die absolute Zahl:
+   * bei 300 Stimmen traegt sie, bei 12 lenkt sie vom Ergebnis ab. Diese
+   * Entscheidung trifft, wer die Grafik postet.
+   *
+   * Sie kommt aus dem Entwurf und ist die einzige Angabe von dort, die das
+   * Bild veraendert. Verfaelschen kann sie nichts: sie laesst eine Zahl weg
+   * oder nicht, sie setzt keine.
+   */
+  stimmenZeigen: boolean;
 }
 
 export interface FolienAuftrag {
@@ -385,7 +405,7 @@ function FolieGewinner({ format, daten }: FolienAuftrag): React.JSX.Element {
   }
 
   return (
-    <Buehne format={format} fuss={<Fuss klein={klein} stimmen={daten.gesamt} />}>
+    <Buehne format={format} fuss={<Fuss klein={klein} stimmen={daten.stimmenZeigen ? daten.gesamt : null} />}>
       <div
         style={{
           display: 'flex',
@@ -472,16 +492,18 @@ function FolieGewinner({ format, daten }: FolienAuftrag): React.JSX.Element {
           </div>
         </div>
 
-        <div
-          style={{
-            display: 'flex',
-            marginTop: klein ? 22 : 30,
-            fontSize: klein ? 28 : 32,
-            color: LEISE,
-          }}
-        >
-          {daten.gewinner.stimmen} von {daten.gesamt} {daten.gesamt === 1 ? 'Stimme' : 'Stimmen'}
-        </div>
+        {daten.stimmenZeigen ? (
+          <div
+            style={{
+              display: 'flex',
+              marginTop: klein ? 22 : 30,
+              fontSize: klein ? 28 : 32,
+              color: LEISE,
+            }}
+          >
+            {daten.gewinner.stimmen} von {daten.gesamt} {daten.gesamt === 1 ? 'Stimme' : 'Stimmen'}
+          </div>
+        ) : null}
       </div>
     </Buehne>
   );
@@ -512,7 +534,7 @@ function FolieOhneGewinner({
       fuss={
         <Fuss
           klein={klein}
-          stimmen={daten.gesamt}
+          stimmen={daten.stimmenZeigen ? daten.gesamt : null}
           zusatz={gleichstand ? 'Kein Sieger. Auch das ist ein Ergebnis.' : undefined}
         />
       }
@@ -599,7 +621,7 @@ function FolieVerteilung({ format, daten }: FolienAuftrag): React.JSX.Element {
   const balkenHoehe = Math.min(Math.max(Math.round(zeilenHoehe * 0.2), 12), 28);
 
   return (
-    <Buehne format={format} fuss={<Fuss klein={klein} stimmen={daten.gesamt} />}>
+    <Buehne format={format} fuss={<Fuss klein={klein} stimmen={daten.stimmenZeigen ? daten.gesamt : null} />}>
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', flexGrow: 1 }}>
         <div
           style={{
@@ -758,16 +780,18 @@ function FolieDuell({ format, daten }: FolienAuftrag): React.JSX.Element {
       >
         {zeile.label}
       </div>
-      <div
-        style={{
-          display: 'flex',
-          marginTop: klein ? 14 : 20,
-          fontSize: klein ? 26 : 30,
-          color: fuehrend ? 'rgba(255,255,255,0.7)' : LEISE,
-        }}
-      >
-        {zeile.stimmen} {zeile.stimmen === 1 ? 'Stimme' : 'Stimmen'}
-      </div>
+      {daten.stimmenZeigen ? (
+        <div
+          style={{
+            display: 'flex',
+            marginTop: klein ? 14 : 20,
+            fontSize: klein ? 26 : 30,
+            color: fuehrend ? 'rgba(255,255,255,0.7)' : LEISE,
+          }}
+        >
+          {zeile.stimmen} {zeile.stimmen === 1 ? 'Stimme' : 'Stimmen'}
+        </div>
+      ) : null}
     </div>
   );
 
@@ -872,7 +896,13 @@ function FolieDuell({ format, daten }: FolienAuftrag): React.JSX.Element {
           color: 'rgba(255,255,255,0.7)',
         }}
       >
-        {gross(`${daten.gesamt} ${daten.gesamt === 1 ? 'Stimme' : 'Stimmen'} · SwissHub Community`)}
+        {/* Ohne die Zahl bleibt die Marke stehen - eine leere Zeile waere eine
+            Luecke, und die Zeile traegt hier auch den Absender. */}
+        {gross(
+          daten.stimmenZeigen
+            ? `${daten.gesamt} ${daten.gesamt === 1 ? 'Stimme' : 'Stimmen'} · SwissHub Community`
+            : 'SwissHub Community',
+        )}
       </div>
     </div>
   );

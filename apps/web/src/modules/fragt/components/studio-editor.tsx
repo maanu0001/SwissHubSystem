@@ -8,6 +8,7 @@ import type { fragt } from '@swisshub/modules';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   fragtEntwurfBearbeitenAction,
   fragtEntwurfFinalisierenAction,
@@ -48,6 +49,8 @@ export interface StudioAnsicht {
   cta: string;
   folien: Array<{ art: fragt.FolienArt; aktiv: boolean; position: number }>;
   frageText: string;
+  /** Steht die absolute Stimmenzahl auf der Grafik? Prozente immer. */
+  stimmenZeigen: boolean;
   /** Nur zur Anzeige - unveraenderlich. */
   zahlen: { gesamt: number; gewinner: string | null; prozent: number | null };
 }
@@ -87,6 +90,7 @@ export function StudioEditor({
   const [untertitel, setUntertitel] = useState(ansicht.untertitel);
   const [cta, setCta] = useState(ansicht.cta);
   const [folien, setFolien] = useState(ansicht.folien);
+  const [stimmenZeigen, setStimmenZeigen] = useState(ansicht.stimmenZeigen);
   const [laeuft, setLaeuft] = useState<string | null>(null);
   /*
    * Die Vorschau muss sich nach dem Speichern neu laden.
@@ -114,6 +118,7 @@ export function StudioEditor({
       untertitel: untertitel.trim() || null,
       cta: cta.trim(),
       folien,
+      stimmenZeigen,
     });
     setLaeuft(null);
     if (!antwort.ok) {
@@ -276,6 +281,33 @@ export function StudioEditor({
               Diese Werte lassen sich nicht bearbeiten. Sie stammen aus dem Ergebnis, das beim Schliessen
               festgeschrieben wurde.
             </p>
+          </div>
+
+          {/*
+            Der Schalter steht bewusst direkt unter den Zahlen.
+
+            Er gehört zu ihnen und nicht zu den Texten darüber: er ändert
+            keinen Wert, er lässt die absolute Zahl weg. Was er nicht kann,
+            steht daneben - die Prozente bleiben, sonst wäre es kein Ergebnis
+            mehr.
+          */}
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border px-3 py-2.5">
+            <div className="min-w-0">
+              <Label htmlFor="studio-stimmen" className="cursor-pointer">
+                Anzahl Stimmen anzeigen
+              </Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {stimmenZeigen
+                  ? `Auf der Grafik steht «${ansicht.zahlen.gesamt} ${ansicht.zahlen.gesamt === 1 ? 'Stimme' : 'Stimmen'}».`
+                  : 'Auf der Grafik stehen nur die Prozente.'}
+              </p>
+            </div>
+            <Switch
+              id="studio-stimmen"
+              checked={stimmenZeigen}
+              disabled={gesperrt}
+              onCheckedChange={setStimmenZeigen}
+            />
           </div>
         </div>
 

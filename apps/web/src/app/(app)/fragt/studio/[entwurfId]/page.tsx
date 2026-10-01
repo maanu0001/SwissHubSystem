@@ -57,6 +57,7 @@ export default async function FragtStudioPage({
     cta: quelle.entwurf.cta,
     folien: quelle.folien,
     frageText: quelle.abstimmung.frageText,
+    stimmenZeigen: quelle.entwurf.stimmenZeigen,
     zahlen: {
       gesamt: quelle.ergebnis.gesamt,
       gewinner: quelle.ergebnis.gewinner?.label ?? null,

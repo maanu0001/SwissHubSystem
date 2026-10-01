@@ -51,5 +51,13 @@ export function socialDaten(quelle: fragt.EntwurfsDaten): SocialDaten | null {
         }
       : null,
     gleichstand: ergebnis.gleichstand.map((zeile) => zeile.label),
+    /*
+     * Die einzige Angabe hier, die aus dem Entwurf kommt und keine Zahl ist.
+     *
+     * Sie veraendert keinen Wert - sie entscheidet, ob die absolute Zahl
+     * ueberhaupt gezeichnet wird. Prozente bleiben davon unberuehrt; wer sie
+     * abschalten wollte, haette kein Ergebnis mehr, sondern eine Behauptung.
+     */
+    stimmenZeigen: entwurf.stimmenZeigen,
   };
 }
