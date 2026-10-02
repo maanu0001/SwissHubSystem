@@ -87,7 +87,24 @@ describe('Seitentitel', () => {
      * passiert.
      */
     expect(navigation.length).toBeGreaterThan(25);
-    expect(navByHref.has('/system/wrapped'), 'Wrapped Studio fehlt in der Navigation').toBe(true);
+    /*
+     * Mehrere Kanarienvoegel statt einem.
+     *
+     * Hier stand `/system/wrapped`, weil dort der doppelte Titel aufgefallen
+     * war. Dieser Eintrag ist aus der Seitenleiste verschwunden - der Weg zum
+     * Wrapped Studio laeuft jetzt ueber Social Media -, und damit taugt er als
+     * Zeuge nicht mehr.
+     *
+     * Ersetzt wird er nicht durch einen einzelnen anderen: ein Wachhund, der an
+     * genau einer Route haengt, faellt beim naechsten Umzug wieder aus. Vier
+     * Routen aus vier verschiedenen Gruppen der Seitenleiste pruefen dasselbe
+     * - dass die Navigation nicht fast leer zurueckkommt - und ueberleben, dass
+     * eine davon einmal umzieht, weil dann drei uebrig sind und der Test
+     * trotzdem rot wird.
+     */
+    for (const route of ['/dashboard', '/clips', '/fragt', '/social-media']) {
+      expect(navByHref.has(route), `${route} fehlt in der Navigation`).toBe(true);
+    }
   });
 
   it.each(pages.map((file) => [relative(APP_DIR, file), file] as const))(

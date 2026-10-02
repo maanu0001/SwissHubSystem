@@ -239,15 +239,40 @@ export const wrappedModule: ModuleDefinition = registerModule({
       module: WRAPPED_MODULE_ID,
     },
   ],
+  /*
+   * Der Eintrag steht bei den Modulen, nicht bei System.
+   *
+   * Er hiess «Wrapped Studio» und lag unter «System», direkt neben
+   * Discord-Sync und den Sicherungen. Das war der Grund, warum ihn niemand
+   * fand: System ist der Ort fuer die Verwaltung des Servers, und ein
+   * Jahresrueckblick fuer Instagram ist keine Verwaltung. Wer etwas posten
+   * wollte, suchte unter den Modulen.
+   *
+   * Jetzt liegt er dort - gleich hinter «Social Media», dem Bereich, der
+   * saemtliche Exporte buendelt und von dem aus die Rueckblicke ohnehin
+   * verlinkt sind. Die Adresse bleibt `/system/wrapped`: ein Lesezeichen soll
+   * nicht ins Leere laufen, und ein Umzug der Dateien waere ein Umbau quer
+   * durch Routenhelfer, `revalidatePath` und ein Dutzend Verweise - fuer eine
+   * Adresse, die niemand liest.
+   *
+   * ## Warum der Eintrag nicht einfach verschwindet
+   *
+   * Weil «Modul sehen» daran haengt. `moduleViewPermissionOf` leitet
+   * `wrapped.module.view` aus der Navigation ab und liefert `null`, wenn ein
+   * Modul keinen Eintrag hat - und ohne diesen Schluessel pruefte
+   * `requirePagePermission` ihn auch nicht mehr. Der Eintrag aus der
+   * Seitenleiste zu nehmen hiesse also, einen Riegel vor dem Studio zu
+   * entfernen. Das ist kein Preis fuer eine aufgeraeumte Navigation.
+   */
   navigation: [
     {
       href: systemRoutes.wrappedStudio(),
-      label: 'Wrapped Studio',
+      label: 'Wrapped',
       description: 'Jahresrückblick vorbereiten, testen und veröffentlichen',
       permission: WRAPPED_PERMISSIONS.studioView,
       icon: 'Gift',
-      group: 'system',
-      order: 45,
+      group: 'modules',
+      order: 28,
     },
   ],
 });

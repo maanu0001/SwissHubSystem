@@ -458,21 +458,17 @@ describeWithDatabase('Was spielen wir: der Standard fuer Teilnahme ohne Konto', 
   });
 
   it('ist an, solange niemand etwas eingestellt hat', async () => {
-    const einstellungen = await getModuleSettings<spielwahl.SpielwahlSettings>(
-      spielwahl.SPIELWAHL_MODULE_ID,
-    );
-    expect(einstellungen.gaesteErlaubt).toBe(true);
+    const einstellungen = await getModuleSettings<Record<string, unknown>>(spielwahl.SPIELWAHL_MODULE_ID);
+    expect(einstellungen.gaesteErlaubt as boolean).toBe(true);
   });
 
   it('bleibt aus, wenn ein Server ihn ausdruecklich ausgemacht hat', async () => {
     await serverErlaubtGaeste(false);
     clearRevisionCaches();
 
-    const einstellungen = await getModuleSettings<spielwahl.SpielwahlSettings>(
-      spielwahl.SPIELWAHL_MODULE_ID,
-    );
+    const einstellungen = await getModuleSettings<Record<string, unknown>>(spielwahl.SPIELWAHL_MODULE_ID);
     // Kein Standard ueberschreibt eine Entscheidung, die schon getroffen ist.
-    expect(einstellungen.gaesteErlaubt).toBe(false);
+    expect(einstellungen.gaesteErlaubt as boolean).toBe(false);
   });
 
   it('laesst sich danach von Hand wieder anschalten', async () => {
@@ -481,9 +477,7 @@ describeWithDatabase('Was spielen wir: der Standard fuer Teilnahme ohne Konto', 
     await serverErlaubtGaeste(true);
     clearRevisionCaches();
 
-    const einstellungen = await getModuleSettings<spielwahl.SpielwahlSettings>(
-      spielwahl.SPIELWAHL_MODULE_ID,
-    );
-    expect(einstellungen.gaesteErlaubt).toBe(true);
+    const einstellungen = await getModuleSettings<Record<string, unknown>>(spielwahl.SPIELWAHL_MODULE_ID);
+    expect(einstellungen.gaesteErlaubt as boolean).toBe(true);
   });
 });

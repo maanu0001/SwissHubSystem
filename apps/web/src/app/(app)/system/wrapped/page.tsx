@@ -55,9 +55,9 @@ export default async function WrappedStudioPage(): Promise<React.JSX.Element> {
   return (
     <div className="space-y-6">
       {/*
-       * Keine eigene Kopfzeile: «Wrapped Studio» steht schon in der
-       * Navigation und damit in `AppHeader`. Hier stand derselbe Titel ein
-       * zweites Mal, direkt darunter.
+       * Keine eigene Kopfzeile: «Wrapped» steht schon in der Navigation und
+       * damit in `AppHeader`. Hier stand derselbe Titel ein zweites Mal,
+       * direkt darunter.
        *
        * Die Aktion bleibt - sie gehoert zur Seite und nicht in die
        * Kopfzeile der Anwendung.

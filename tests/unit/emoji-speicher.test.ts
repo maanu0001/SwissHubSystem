@@ -29,9 +29,7 @@ describe('Emoji-Speicher: keine Schreibzugriffe auf das Upload-Verzeichnis', () 
   const quelle = readFileSync('packages/modules/src/emoji/speicher.ts', 'utf8');
 
   /** Kommentare raus - ein Wort in einer Erklaerung ist kein Aufruf. */
-  const ohneKommentare = quelle
-    .replace(/\/\*[\s\S]*?\*\//gu, '')
-    .replace(/^\s*\/\/.*$/gmu, '');
+  const ohneKommentare = quelle.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/^\s*\/\/.*$/gmu, '');
 
   it.each(['writeFile', 'appendFile', 'mkdir', 'createWriteStream', 'copyFile', 'rename'])(
     'ruft %s nicht auf',

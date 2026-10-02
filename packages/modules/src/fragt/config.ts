@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { istBekannteZeitzone } from '@swisshub/shared';
+import { istBekannteZeitzone, istFarbe } from '@swisshub/shared';
 import { registerModule, registerModuleStatusBadge, type ModuleDefinition } from '../registry';
 import type { SettingsField } from '../settings/fields';
 
@@ -179,6 +179,78 @@ export const fragtSettingsSchema = z.object({
 
   /** Die Rolle, die erwaehnt wird, wenn `resultMention = rolle`. */
   resultMentionRoleId: z.string().nullable().default(null),
+
+  /*
+   * --- Das Aussehen der Social-Media-Grafiken ---------------------------------
+   *
+   * Drei Angaben, und sie gelten fuer **beides**: die Frage-Folie und die
+   * Ergebnis-Folien. Das ist der Punkt - eine Frage in Serverfarben und ein
+   * Ergebnis in SwissHub-Rot waeren zwei Accounts.
+   *
+   * Alle drei duerfen leer bleiben. Leer heisst dann: Standardfarbe, das
+   * gezeichnete Signet, der Standardsatz in der Fusszeile. Ein leeres Feld ist
+   * die normale Art zu sagen «nimm, was vorgesehen ist», und keine Einstellung,
+   * die man erst wegklicken muss.
+   */
+
+  /**
+   * Die Akzentfarbe der Grafiken.
+   *
+   * Leer heisst SwissHub-Rot (`#83060a`). Der hellere Ton fuer Schrift und
+   * Akzente wird daraus abgeleitet - siehe `heller()` -, damit nicht zwei
+   * Farben einzustellen sind, von denen man den Unterschied nur sieht, wenn man
+   * beide Grafiken nebeneinanderlegt.
+   *
+   * Geprueft wird serverseitig durch `normalisiereFarbe`: angenommen werden
+   * `#rrggbb`, `#rgb` und `rgb(r, g, b)`, alles andere gilt als «nicht
+   * eingestellt». Was in die Grafik geht, hat genau sechs Hexziffern - ein
+   * Farbwert aus einem Formular landet in einem `style`, und dort waere eine
+   * durchgereichte Zeichenkette ein offenes Tor.
+   */
+  exportAkzentfarbe: z
+    .string()
+    .max(32)
+    .default('')
+    .refine((wert) => wert.trim() === '' || istFarbe(wert), {
+      message: 'Keine erkennbare Farbe. Erlaubt sind #rrggbb, #rgb und rgb(r, g, b).',
+    }),
+
+  /**
+   * Was oben links auf der Grafik steht.
+   *
+   * `signet` ist die Vorgabe: das rote Rechteck mit dem Wortzeichen daneben,
+   * gezeichnet, ohne Datei. `serverlogo` nimmt das Logo, das unter
+   * Einstellungen → Branding ohnehin hochgeladen ist. `keins` laesst die Stelle
+   * frei - fuer wen die Grafik in einem Account steht, dessen Name schon
+   * darueber steht.
+   *
+   * ## Warum hier kein eigener Upload steht
+   *
+   * Weil es schon einen gibt. Ein zweites Logo waere eine zweite Datei, ein
+   * zweiter Namensraum im Upload-Verzeichnis und ein zweites Feld, das jemand
+   * aktuell halten muss - und ein Serverlogo, das auf der Website anders
+   * aussieht als auf Instagram, ist kein Merkmal, sondern ein Versehen.
+   *
+   * Es ist ausserdem die sicherere Form: in den Einstellungen steht hier
+   * **kein Pfad**, sondern eines von drei Woertern. Ein manipulierter Pfad kann
+   * deshalb nicht entstehen - nicht weil er geprueft wird, sondern weil es
+   * keinen gibt.
+   */
+  exportLogo: z.enum(['signet', 'serverlogo', 'keins']).default('signet'),
+
+  /**
+   * Ein eigener Satz in der Fusszeile.
+   *
+   * Leer heisst «Die SwissHub Community hat entschieden.» - der Satz, der
+   * bisher immer dort stand.
+   *
+   * Nur Text, und zwar geprueft: `sanitizeText` nimmt Steuerzeichen heraus und
+   * kuerzt. 80 Zeichen, weil die Zeile neben der Stimmenzahl steht und bei
+   * mehr nicht laenger wird, sondern nur kleiner - und irgendwann unlesbar.
+   * Kein HTML: Satori stellt ohnehin keines dar, aber die Grenze gehoert an
+   * den Eingang und nicht an die Darstellung.
+   */
+  exportZusatztext: z.string().max(80).default(''),
 });
 
 export type FragtSettings = z.infer<typeof fragtSettingsSchema>;
@@ -292,6 +364,47 @@ const fragtSettingsFields: SettingsField[] = [
     description:
       'Aus: die Zahlen erscheinen erst nach Abstimmungsende. Ein sichtbarer Zwischenstand beeinflusst, wer danach abstimmt. Das Dashboard zeigt den Stand unabhängig davon.',
     group: 'Abstimmung',
+  },
+
+  /*
+   * Das Aussehen der Grafiken - fuer Frage und Ergebnis gemeinsam.
+   *
+   * Ein eigener Abschnitt, weil es eine andere Frage ist als «wie laeuft die
+   * Abstimmung ab». Und drei Felder, nicht sechs: Frage- und Ergebnisgrafik
+   * teilen das Aussehen. Zwei Saetze davon waeren zwei Accounts.
+   */
+  {
+    key: 'exportAkzentfarbe',
+    type: 'color',
+    label: 'Akzentfarbe der Grafiken',
+    description:
+      'Gilt für Frage- und Ergebnisgrafik. Leer lassen für SwissHub-Rot. Erlaubt sind #rrggbb, #rgb und rgb(r, g, b) - der hellere Ton für Schrift entsteht daraus von selbst.',
+    fallback: '#83060a',
+    placeholder: '#83060a',
+    group: 'Grafiken',
+  },
+  {
+    key: 'exportLogo',
+    type: 'select',
+    label: 'Zeichen oben links',
+    description:
+      'Das Serverlogo ist das, das unter Einstellungen → Branding hochgeladen ist - es wird nicht hier noch einmal hochgeladen.',
+    options: [
+      { value: 'signet', label: 'SwissHub-Signet (gezeichnet)' },
+      { value: 'serverlogo', label: 'Logo aus dem Branding' },
+      { value: 'keins', label: 'Kein Zeichen' },
+    ],
+    group: 'Grafiken',
+  },
+  {
+    key: 'exportZusatztext',
+    type: 'text',
+    label: 'Zusatztext in der Fusszeile',
+    description:
+      'Steht unten links auf jeder Grafik. Leer lassen für «Die SwissHub Community hat entschieden.» Höchstens 80 Zeichen - was länger ist, wird nur kleiner.',
+    placeholder: 'Die SwissHub Community hat entschieden.',
+    maxLength: 80,
+    group: 'Grafiken',
   },
 ];
 

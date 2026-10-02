@@ -318,6 +318,50 @@ function FieldRow({
         />
       ) : null}
 
+      {field.type === 'color' ? (
+        /*
+         * Waehler und Wert nebeneinander.
+         *
+         * Der Waehler allein genuegt nicht: er kennt kein «leer», sondern
+         * steht immer auf irgendeiner Farbe - und «leer» ist hier die
+         * Einstellung «nimm den Standard». Das Textfeld traegt diesen Zustand
+         * und nimmt ausserdem den Wert aus einem Styleguide an, den man
+         * hineinkopiert statt zusammenzuklicken.
+         *
+         * Geprueft wird serverseitig (`normalisiereFarbe`). Hier steht keine
+         * zweite Pruefung, die davon abweichen koennte - nur ein Hinweis, der
+         * sagt, was angenommen wird.
+         */
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            aria-label={`${field.label} auswählen`}
+            value={/^#[0-9a-fA-F]{6}$/u.test(text) ? text : (field.fallback ?? '#83060a')}
+            onChange={(event) => onChange(event.target.value)}
+            disabled={disabled}
+            className="size-9 shrink-0 cursor-pointer rounded-md border border-input bg-background/60 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <Input
+            id={id}
+            value={text}
+            maxLength={32}
+            placeholder={field.placeholder ?? field.fallback}
+            onChange={(event) => onChange(event.target.value)}
+            disabled={disabled}
+          />
+          {text.trim() === '' ? null : (
+            <button
+              type="button"
+              onClick={() => onChange('')}
+              disabled={disabled}
+              className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Zurücksetzen
+            </button>
+          )}
+        </div>
+      ) : null}
+
       {field.type === 'select' ? (
         <Select value={text} onValueChange={(next) => onChange(next)} disabled={disabled}>
           <SelectTrigger id={id}>

@@ -31,6 +31,7 @@ import './fragt/config';
 // Streamer Hub - Community-Streamer, Live-Erkennung, Spotlights.
 import './emoji/config';
 import './serverrollen/config';
+import './socialmedia/config';
 import './streamer/config';
 import { registerGuildResolver } from './guild/config';
 
@@ -87,6 +88,7 @@ export * as gameserver from './gameserver';
 export * as fragt from './fragt';
 export * as emoji from './emoji';
 export * as serverrollen from './serverrollen';
+export * as socialmedia from './socialmedia';
 export * as streamer from './streamer';
 export * as wrapped from './wrapped';
 export * as spielwahl from './spielwahl';

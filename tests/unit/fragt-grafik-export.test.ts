@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { deflateSync } from 'node:zlib';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ImageResponse } from 'next/og';
@@ -6,6 +7,8 @@ import {
   SOCIAL_MASSE,
   folienDateiname,
   zeichneSocialFolie,
+  STANDARD_MARKE,
+  type FolienMarke,
   type SocialDaten,
   type SocialFormat,
 } from '../../apps/web/src/modules/fragt/social-folie';
@@ -45,9 +48,14 @@ function pngMasse(bytes: Uint8Array): { breite: number; hoehe: number } {
   return { breite: sicht.getUint32(16), hoehe: sicht.getUint32(20) };
 }
 
-async function rendere(art: fragt.FolienArt, format: SocialFormat, daten: SocialDaten): Promise<Uint8Array> {
+async function rendere(
+  art: fragt.FolienArt,
+  format: SocialFormat,
+  daten: SocialDaten,
+  marke?: FolienMarke,
+): Promise<Uint8Array> {
   const mass = SOCIAL_MASSE[format];
-  const bild = new ImageResponse(zeichneSocialFolie({ art, format, daten }), {
+  const bild = new ImageResponse(zeichneSocialFolie({ art, format, daten, ...(marke ? { marke } : {}) }), {
     width: mass.breite,
     height: mass.hoehe,
   });
@@ -454,3 +462,133 @@ describe('Der Schalter ist ein Schalter und kein Wert', () => {
     expect(schema).toContain('stimmenZeigen Boolean @default(true)');
   });
 });
+
+/**
+ * Farbe, Zeichen und Zusatztext - und zwar auf **jeder** Folie.
+ *
+ * ## Warum die Vollstaendigkeit das Interessante ist
+ *
+ * Nicht «die Farbe kommt an» - das ist eine Zeile. Sondern: sie kommt auf allen
+ * fuenf Folien an. Die Farbe stand vorher als Konstante im Modul und wurde an
+ * neun Stellen benutzt; eine davon beim Umbau zu vergessen ergibt eine Grafik,
+ * die zu 80 Prozent in Serverfarben ist und an einer Stelle rot bleibt. Das
+ * sieht man erst, wenn es gepostet ist.
+ *
+ * Deshalb `it.each` ueber alle Arten - fuer Frage **und** Ergebnis, denn das
+ * ist der Punkt der Einstellung: eine Frage in Serverfarben und ein Ergebnis in
+ * SwissHub-Rot waeren zwei Accounts.
+ *
+ * ## Warum an den Bytes und nicht am Code
+ *
+ * Weil der Vergleich dann beweist, dass die Farbe im **Bild** anders ist, und
+ * nicht nur, dass eine Variable weitergereicht wurde. Ein `marke` das
+ * durchgereicht und nie benutzt wird, bestaende jede Code-Pruefung.
+ */
+describe('Grafikexport: die eingestellte Marke', () => {
+  const daten = (art: fragt.FolienArt): SocialDaten => (art === 'duell' ? DUELL : NORMAL);
+
+  const BLAU: FolienMarke = {
+    akzent: '#1f3d8f',
+    akzentHell: '#5b7ad4',
+    logo: null,
+    zusatztext: null,
+  };
+
+  it.each(ALLE_ARTEN)('faerbt die Folie %s sichtbar um', async (art) => {
+    const standard = await rendere(art, 'quadrat', daten(art), STANDARD_MARKE);
+    const blau = await rendere(art, 'quadrat', daten(art), BLAU);
+    expect(Buffer.from(standard).equals(Buffer.from(blau))).toBe(false);
+  });
+
+  it.each(ALLE_ARTEN)('setzt den Zusatztext auf der Folie %s durch', async (art) => {
+    const ohne = await rendere(art, 'quadrat', daten(art), STANDARD_MARKE);
+    const mit = await rendere(art, 'quadrat', daten(art), {
+      ...STANDARD_MARKE,
+      zusatztext: 'Von der Gaming-Gemeinschaft entschieden',
+    });
+    expect(Buffer.from(ohne).equals(Buffer.from(mit))).toBe(false);
+  });
+
+  it.each(ALLE_ARTEN)('laesst die Folie %s auch ohne Zeichen entstehen', async (art) => {
+    // «Kein Zeichen» ist eine Einstellung und kein Fehler: die Folie muss
+    // trotzdem ein vollstaendiges PNG in den richtigen Massen ergeben.
+    const bytes = await rendere(art, 'quadrat', daten(art), { ...STANDARD_MARKE, logo: 'keins' });
+    expect(bytes.byteLength).toBeGreaterThan(0);
+    expect(pngMasse(bytes)).toEqual({ breite: 1080, hoehe: 1080 });
+  });
+
+  it.each(ALLE_ARTEN)('zeichnet ein hochgeladenes Logo in die Folie %s', async (art) => {
+    /*
+     * Ein echtes PNG als data-URI.
+     *
+     * Satori laedt keine Adressen in diesem Test - die Bytes stehen in der
+     * `src`. Genau so laeuft es im Betrieb: `readUpload` holt die Datei von der
+     * Platte, der Export greift auf nichts im Netz zu.
+     */
+    const signet = await rendere(art, 'quadrat', daten(art), STANDARD_MARKE);
+    const mitLogo = await rendere(art, 'quadrat', daten(art), {
+      ...STANDARD_MARKE,
+      logo: EIN_PNG,
+    });
+    expect(mitLogo.byteLength).toBeGreaterThan(0);
+    expect(Buffer.from(signet).equals(Buffer.from(mitLogo))).toBe(false);
+  });
+
+  it('ergibt ohne Marke dasselbe wie mit der Standardmarke', async () => {
+    // Die Zusage hinter dem optionalen Feld: ein Aufrufer, der die Marke
+    // vergisst, bekommt genau das Bild, das es vorher gab - und kein schwarzes.
+    const ohne = await rendere('gewinner', 'quadrat', NORMAL);
+    const standard = await rendere('gewinner', 'quadrat', NORMAL, STANDARD_MARKE);
+    expect(Buffer.from(ohne).equals(Buffer.from(standard))).toBe(true);
+  });
+});
+
+/**
+ * Ein 2x2-PNG als data-URI - gross genug, dass Satori es zeichnet.
+ *
+ * Von Hand gebaut und nicht aus einer Datei: ein Test, der eine Beispieldatei
+ * braucht, scheitert eines Tages daran, dass sie verschoben wurde.
+ */
+const EIN_PNG = (() => {
+  const breite = 2;
+  const hoehe = 2;
+  const kopf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  const crc = (daten: Buffer): Buffer => {
+    let rest = 0xffffffff;
+    for (const byte of daten) {
+      rest ^= byte;
+      for (let bit = 0; bit < 8; bit += 1) {
+        rest = rest & 1 ? (rest >>> 1) ^ 0xedb88320 : rest >>> 1;
+      }
+    }
+    const aus = Buffer.alloc(4);
+    aus.writeUInt32BE((rest ^ 0xffffffff) >>> 0);
+    return aus;
+  };
+
+  const block = (typ: string, inhalt: Buffer): Buffer => {
+    const laenge = Buffer.alloc(4);
+    laenge.writeUInt32BE(inhalt.length);
+    const koerper = Buffer.concat([Buffer.from(typ, 'ascii'), inhalt]);
+    return Buffer.concat([laenge, koerper, crc(koerper)]);
+  };
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(breite, 0);
+  ihdr.writeUInt32BE(hoehe, 4);
+  ihdr[8] = 8; // 8 Bit je Kanal
+  ihdr[9] = 2; // Echtfarben, kein Alpha
+  // 10-12 bleiben 0: Deflate, Standardfilter, nicht interlaced.
+
+  // Je Zeile ein Filterbyte und drei Bytes je Pixel - ein weisses Quadrat.
+  const rohdaten = Buffer.concat(
+    Array.from({ length: hoehe }, () => Buffer.concat([Buffer.from([0]), Buffer.alloc(breite * 3, 0xff)])),
+  );
+  return `data:image/png;base64,${Buffer.concat([
+    kopf,
+    block('IHDR', ihdr),
+    block('IDAT', deflateSync(rohdaten)),
+    block('IEND', Buffer.alloc(0)),
+  ]).toString('base64')}`;
+})();

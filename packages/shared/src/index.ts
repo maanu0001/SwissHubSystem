@@ -8,4 +8,5 @@ export * from './zeitzone';
 export * from './pagination';
 export * from './text';
 export * from './format';
+export * from './farbe';
 export * from './routes';

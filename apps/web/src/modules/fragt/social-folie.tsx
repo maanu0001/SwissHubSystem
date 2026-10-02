@@ -50,14 +50,53 @@ export const SOCIAL_MASSE: Record<SocialFormat, { breite: number; hoehe: number 
 // und Satori kennt keine. Die Werte sind dieselben - `--swisshub-rot` ist
 // #83060a, und das steht so auch im Discord-Embed (`FRAGT_ACCENT_COLOR`).
 
-const ROT = '#83060a';
-const ROT_HELL = '#b81219';
+export const STANDARD_AKZENT = '#83060a';
+export const STANDARD_AKZENT_HELL = '#b81219';
 const SCHWARZ = '#0a0a0b';
 const TIEF = '#131316';
 const WEISS = '#ffffff';
 const GEDAEMPFT = 'rgba(255,255,255,0.62)';
 const LEISE = 'rgba(255,255,255,0.34)';
 const LINIE = 'rgba(255,255,255,0.10)';
+
+// --- Die Marke ---------------------------------------------------------------
+
+/**
+ * Was ein Server an seinen Grafiken selbst bestimmt.
+ *
+ * Drei Angaben, und sie gelten fuer **jede** Folie - Frage wie Ergebnis. Eine
+ * Frage in Serverfarben und ein Ergebnis in SwissHub-Rot waeren zwei Accounts.
+ *
+ * Kein Feld ist Pflicht, und `STANDARD_MARKE` ist genau das, was vorher fest
+ * im Code stand. Wer nichts einstellt, bekommt deshalb Bild fuer Bild dasselbe
+ * wie bisher.
+ */
+export interface FolienMarke {
+  /** Der satte Ton fuer Flaechen. Immer `#rrggbb` - siehe `normalisiereFarbe`. */
+  akzent: string;
+  /** Der hellere Ton fuer Schrift und Akzente auf dunklem Grund. */
+  akzentHell: string;
+  /**
+   * Das Zeichen oben links.
+   *
+   * `null` heisst «das gezeichnete Signet» - ein rotes Rechteck und das
+   * Wortzeichen daneben, ohne Datei. Eine Zeichenkette ist eine `data:`-URI
+   * mit den Bytes darin, nie eine Adresse: Satori wuerde eine Adresse abrufen,
+   * und dann haengt der Export an einem fremden Server. `'keins'` laesst die
+   * Stelle leer.
+   */
+  logo: string | null | 'keins';
+  /** Der Satz unten links. `null` heisst: der Standardsatz. */
+  zusatztext: string | null;
+}
+
+/** Was gilt, solange ein Server nichts eingestellt hat - wie bisher. */
+export const STANDARD_MARKE: FolienMarke = {
+  akzent: STANDARD_AKZENT,
+  akzentHell: STANDARD_AKZENT_HELL,
+  logo: null,
+  zusatztext: null,
+};
 
 // --- Hilfsmittel -------------------------------------------------------------
 
@@ -93,19 +132,58 @@ function passendeGroesse(text: string, breite: number, basis: number, maxZeilen 
 /** Grossschreibung in JavaScript, weil Satori `text-transform` nicht kennt. */
 const gross = (text: string): string => text.toLocaleUpperCase('de-CH');
 
-/** Die Marke oben links - in jeder Vorlage dieselbe, damit sie wiedererkennbar ist. */
-function Marke({ klein }: { klein: boolean }): React.JSX.Element {
+/**
+ * Die Marke oben links - in jeder Vorlage dieselbe, damit sie wiedererkennbar ist.
+ *
+ * ## Drei Faelle, und sie sind eine Entscheidung des Servers
+ *
+ * `'keins'` laesst die Stelle leer: fuer wen die Grafik in einem Account steht,
+ * dessen Name schon darueber steht. Eine `data:`-URI zeichnet das Logo, das
+ * unter Branding hochgeladen ist. `null` zeichnet das Signet - ein Rechteck in
+ * der Akzentfarbe und das Wortzeichen daneben.
+ *
+ * ## Warum das Logo als Bytes kommt und nicht als Adresse
+ *
+ * Weil Satori eine Adresse abrufen wuerde. Der Export haengt dann an einem
+ * Server, der antworten muss, waehrend jemand auf eine PNG-Datei wartet - und
+ * bei einer Adresse aus fremder Hand waere es ausserdem ein Abruf, den
+ * jemand anderes bestimmt. Die Bytes kommen deshalb von der Platte, gelesen
+ * durch `readUpload`, und stehen fertig in der Komponente.
+ */
+function Marke({ klein, marke }: { klein: boolean; marke: FolienMarke }): React.JSX.Element | null {
+  if (marke.logo === 'keins') {
+    return null;
+  }
+  if (marke.logo !== null) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- Satori kennt
+            kein next/image; die Bytes stehen ohnehin schon in der `src`. */}
+        <img
+          src={marke.logo}
+          alt=""
+          /*
+           * Hoehe fest, Breite laeuft mit.
+           *
+           * Ein hochgeladenes Logo kann quadratisch oder breit sein. Beide auf
+           * dieselbe Breite zu zwingen hiesse, eines davon zu verzerren - die
+           * Hoehe ist die Groesse, die neben dem Text stimmen muss.
+           */
+          height={klein ? 44 : 54}
+          style={{ height: klein ? 44 : 54, objectFit: 'contain' }}
+        />
+      </div>
+    );
+  }
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
-      {/* Ein rotes Rechteck als Signet. Kein Logo aus einer Datei: das Bild
-          soll ohne Netzwerkzugriff entstehen, sonst haengt der Export an
-          einer Adresse. */}
+      {/* Ein Rechteck in der Akzentfarbe als Signet - gezeichnet, keine Datei. */}
       <div
         style={{
           display: 'flex',
           width: klein ? 10 : 12,
           height: klein ? 34 : 42,
-          backgroundColor: ROT_HELL,
+          backgroundColor: marke.akzentHell,
         }}
       />
       <div
@@ -123,6 +201,9 @@ function Marke({ klein }: { klein: boolean }): React.JSX.Element {
     </div>
   );
 }
+
+/** Der Satz, der unten links stand, bevor er einstellbar war. */
+export const STANDARD_ZUSATZTEXT = 'Die SwissHub Community hat entschieden.';
 
 /**
  * Die Fusszeile - die Zahl der Stimmen, nie erfunden.
@@ -152,7 +233,7 @@ function Fuss({
             maxWidth: '72%',
           }}
         >
-          {gross(zusatz ?? 'Die SwissHub Community hat entschieden.')}
+          {gross(zusatz ?? STANDARD_ZUSATZTEXT)}
         </div>
         {stimmen === null ? null : (
           <div style={{ display: 'flex', fontSize: klein ? 24 : 28, color: LEISE }}>
@@ -202,6 +283,15 @@ export interface FolienAuftrag {
   art: fragt.FolienArt;
   format: SocialFormat;
   daten: SocialDaten;
+  /**
+   * Farbe, Zeichen und Zusatztext dieses Servers.
+   *
+   * Optional, damit kein Aufrufer sie setzen **muss** - fehlt sie, gilt
+   * `STANDARD_MARKE`, also genau das, was vorher fest im Code stand. Das ist
+   * keine Nachsicht gegenueber Aufrufern, sondern die Zusage, dass eine
+   * vergessene Marke ein richtiges Bild ergibt und kein schwarzes.
+   */
+  marke?: FolienMarke;
 }
 
 /** Ein Dateiname, der in einem ZIP und auf einem Telefon Sinn ergibt. */
@@ -219,19 +309,25 @@ export function folienDateiname(position: number, art: fragt.FolienArt, format: 
  * sobald eines davon angefasst wird.
  */
 export function zeichneSocialFolie(auftrag: FolienAuftrag): React.JSX.Element {
+  // Die Marke genau hier einsetzen und nicht in jeder Folie: so gibt es eine
+  // Stelle, die entscheidet, was «nicht eingestellt» bedeutet.
+  const vollstaendig: Erfuellt = { ...auftrag, marke: auftrag.marke ?? STANDARD_MARKE };
   switch (auftrag.art) {
     case 'frage':
-      return <FolieFrage {...auftrag} />;
+      return <FolieFrage {...vollstaendig} />;
     case 'gewinner':
-      return <FolieGewinner {...auftrag} />;
+      return <FolieGewinner {...vollstaendig} />;
     case 'verteilung':
-      return <FolieVerteilung {...auftrag} />;
+      return <FolieVerteilung {...vollstaendig} />;
     case 'duell':
-      return <FolieDuell {...auftrag} />;
+      return <FolieDuell {...vollstaendig} />;
     case 'cta':
-      return <FolieAufruf {...auftrag} />;
+      return <FolieAufruf {...vollstaendig} />;
   }
 }
+
+/** Ein Auftrag, dessen Marke schon gesetzt ist - was die Folien bekommen. */
+type Erfuellt = FolienAuftrag & { marke: FolienMarke };
 
 /** Die Vorlage eines Einzelbildes auf die Folienart abbilden. */
 export function vorlageZuFolienArt(vorlage: fragt.Vorlage): fragt.FolienArt {
@@ -241,12 +337,14 @@ export function vorlageZuFolienArt(vorlage: fragt.Vorlage): fragt.FolienArt {
 /** Der gemeinsame Rahmen: Hintergrund, Rand, Marke oben, Inhalt darunter. */
 function Buehne({
   format,
+  marke,
   children,
   fuss,
   /** Ein zweiter Farbton unten - gibt der Flaeche Tiefe ohne ein Bild. */
   glut = true,
 }: {
   format: SocialFormat;
+  marke: FolienMarke;
   children: React.ReactNode;
   fuss: React.ReactNode;
   glut?: boolean;
@@ -286,7 +384,7 @@ function Buehne({
             bottom: 0,
             width: mass.breite,
             height: Math.round(mass.hoehe * 0.55),
-            backgroundImage: `linear-gradient(to top, ${ROT}33, ${SCHWARZ}00)`,
+            backgroundImage: `linear-gradient(to top, ${marke.akzent}33, ${SCHWARZ}00)`,
             display: 'flex',
           }}
         />
@@ -307,7 +405,7 @@ function Buehne({
       />
 
       <div style={{ display: 'flex', flexDirection: 'column', position: 'relative' }}>
-        <Marke klein={klein} />
+        <Marke klein={klein} marke={marke} />
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', position: 'relative', flexGrow: 1 }}>
@@ -326,7 +424,7 @@ function Buehne({
  * stellen, nicht sie beantworten. Wer im Feed daruebergleitet, liest die Frage
  * und wischt weiter, um das Ergebnis zu sehen.
  */
-function FolieFrage({ format, daten }: FolienAuftrag): React.JSX.Element {
+function FolieFrage({ format, daten, marke }: Erfuellt): React.JSX.Element {
   const mass = SOCIAL_MASSE[format];
   const klein = format !== 'story';
   const innen = mass.breite - (klein ? 76 : 96) * 2;
@@ -334,6 +432,7 @@ function FolieFrage({ format, daten }: FolienAuftrag): React.JSX.Element {
   return (
     <Buehne
       format={format}
+      marke={marke}
       glut={false}
       fuss={
         <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -341,7 +440,16 @@ function FolieFrage({ format, daten }: FolienAuftrag): React.JSX.Element {
             style={{ display: 'flex', height: 1, backgroundColor: LINIE, marginBottom: klein ? 20 : 26 }}
           />
           <div style={{ display: 'flex', fontSize: klein ? 26 : 30, letterSpacing: 3, color: GEDAEMPFT }}>
-            {gross('Abgestimmt auf unserem Discord')}
+            {/*
+              Der eingestellte Zusatztext gilt auch hier.
+              
+              Diese Folie hat eine eigene Fusszeile und keine `<Fuss>`: sie
+              traegt keine Stimmenzahl, denn sie stellt die Frage und
+              beantwortet sie nicht. Der Satz unten muss trotzdem derselbe sein
+              wie auf dem Ergebnis - sonst steht die Frage in Serverfarben mit
+              Serversatz und das Ergebnis daneben mit einem anderen.
+            */}
+            {gross(marke.zusatztext ?? 'Abgestimmt auf unserem Discord')}
           </div>
         </div>
       }
@@ -357,7 +465,9 @@ function FolieFrage({ format, daten }: FolienAuftrag): React.JSX.Element {
       >
         {/* Die rote Marke vor der Frage - dasselbe Zeichen wie im Signet, nur
             gross. Sie fuehrt das Auge an den Textanfang. */}
-        <div style={{ display: 'flex', width: klein ? 84 : 104, height: 8, backgroundColor: ROT_HELL }} />
+        <div
+          style={{ display: 'flex', width: klein ? 84 : 104, height: 8, backgroundColor: marke.akzentHell }}
+        />
         <div
           style={{
             display: 'flex',
@@ -395,17 +505,27 @@ function FolieFrage({ format, daten }: FolienAuftrag): React.JSX.Element {
  * Gleichstand gibt es keinen Gewinner - dann steht das da, statt einer von zwei
  * gleichstarken Antworten.
  */
-function FolieGewinner({ format, daten }: FolienAuftrag): React.JSX.Element {
+function FolieGewinner({ format, daten, marke }: Erfuellt): React.JSX.Element {
   const mass = SOCIAL_MASSE[format];
   const klein = format !== 'story';
   const innen = mass.breite - (klein ? 76 : 96) * 2;
 
   if (!daten.gewinner) {
-    return <FolieOhneGewinner format={format} daten={daten} />;
+    return <FolieOhneGewinner format={format} daten={daten} marke={marke} />;
   }
 
   return (
-    <Buehne format={format} fuss={<Fuss klein={klein} stimmen={daten.stimmenZeigen ? daten.gesamt : null} />}>
+    <Buehne
+      format={format}
+      marke={marke}
+      fuss={
+        <Fuss
+          klein={klein}
+          stimmen={daten.stimmenZeigen ? daten.gesamt : null}
+          {...(marke.zusatztext ? { zusatz: marke.zusatztext } : {})}
+        />
+      }
+    >
       <div
         style={{
           display: 'flex',
@@ -457,7 +577,7 @@ function FolieGewinner({ format, daten }: FolienAuftrag): React.JSX.Element {
               marginLeft: klein ? 14 : 20,
               fontSize: klein ? 84 : 108,
               fontWeight: 700,
-              color: ROT_HELL,
+              color: marke.akzentHell,
             }}
           >
             %
@@ -475,7 +595,7 @@ function FolieGewinner({ format, daten }: FolienAuftrag): React.JSX.Element {
             paddingBottom: klein ? 18 : 24,
             paddingLeft: klein ? 26 : 34,
             paddingRight: klein ? 26 : 34,
-            backgroundColor: ROT,
+            backgroundColor: marke.akzent,
             maxWidth: '100%',
           }}
         >
@@ -519,9 +639,11 @@ function FolieGewinner({ format, daten }: FolienAuftrag): React.JSX.Element {
 function FolieOhneGewinner({
   format,
   daten,
+  marke,
 }: {
   format: SocialFormat;
   daten: SocialDaten;
+  marke: FolienMarke;
 }): React.JSX.Element {
   const mass = SOCIAL_MASSE[format];
   const klein = format !== 'story';
@@ -531,11 +653,19 @@ function FolieOhneGewinner({
   return (
     <Buehne
       format={format}
+      marke={marke}
       fuss={
         <Fuss
           klein={klein}
           stimmen={daten.stimmenZeigen ? daten.gesamt : null}
-          zusatz={gleichstand ? 'Kein Sieger. Auch das ist ein Ergebnis.' : undefined}
+          /*
+           * «Kein Sieger» sticht den eingestellten Zusatztext.
+           *
+           * Der Satz ist hier nicht Schmuck, sondern die Erklaerung der Folie:
+           * ohne ihn steht «Gleichstand» da und niemand weiss, ob das Absicht
+           * ist. Ein Serversatz ueber Gleichstand erklaert nichts.
+           */
+          zusatz={gleichstand ? 'Kein Sieger. Auch das ist ein Ergebnis.' : (marke.zusatztext ?? undefined)}
         />
       }
     >
@@ -569,7 +699,7 @@ function FolieOhneGewinner({
               marginTop: klein ? 30 : 42,
               fontSize: passendeGroesse(daten.gleichstand.join(' · '), innen, klein ? 48 : 58, 3),
               lineHeight: 1.2,
-              color: ROT_HELL,
+              color: marke.akzentHell,
               fontWeight: 700,
             }}
           >
@@ -600,7 +730,7 @@ function FolieOhneGewinner({
  * meint «keine generischen SaaS-Charts»: hier gibt es nichts zu entschluesseln,
  * die Zahl steht am Balken.
  */
-function FolieVerteilung({ format, daten }: FolienAuftrag): React.JSX.Element {
+function FolieVerteilung({ format, daten, marke }: Erfuellt): React.JSX.Element {
   const mass = SOCIAL_MASSE[format];
   const klein = format !== 'story';
   const innen = mass.breite - (klein ? 76 : 96) * 2;
@@ -621,7 +751,17 @@ function FolieVerteilung({ format, daten }: FolienAuftrag): React.JSX.Element {
   const balkenHoehe = Math.min(Math.max(Math.round(zeilenHoehe * 0.2), 12), 28);
 
   return (
-    <Buehne format={format} fuss={<Fuss klein={klein} stimmen={daten.stimmenZeigen ? daten.gesamt : null} />}>
+    <Buehne
+      format={format}
+      marke={marke}
+      fuss={
+        <Fuss
+          klein={klein}
+          stimmen={daten.stimmenZeigen ? daten.gesamt : null}
+          {...(marke.zusatztext ? { zusatz: marke.zusatztext } : {})}
+        />
+      }
+    >
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', flexGrow: 1 }}>
         <div
           style={{
@@ -675,7 +815,7 @@ function FolieVerteilung({ format, daten }: FolienAuftrag): React.JSX.Element {
                     fontSize: zahlGroesse,
                     fontWeight: 700,
                     lineHeight: 1,
-                    color: zeile.fuehrt ? ROT_HELL : LEISE,
+                    color: zeile.fuehrt ? marke.akzentHell : LEISE,
                   }}
                 >
                   {zeile.prozent} %
@@ -700,7 +840,7 @@ function FolieVerteilung({ format, daten }: FolienAuftrag): React.JSX.Element {
                     // Zeile ohne jeden Balken sieht aus wie ein Fehler.
                     width: `${Math.max(zeile.prozent, 1)}%`,
                     height: '100%',
-                    backgroundColor: zeile.fuehrt ? ROT_HELL : 'rgba(255,255,255,0.26)',
+                    backgroundColor: zeile.fuehrt ? marke.akzentHell : 'rgba(255,255,255,0.26)',
                   }}
                 />
               </div>
@@ -720,7 +860,7 @@ function FolieVerteilung({ format, daten }: FolienAuftrag): React.JSX.Element {
  * sich anders teilen laesst als eine breite, und eine Story mit zwei schmalen
  * Spalten waere zwei Spalten Text.
  */
-function FolieDuell({ format, daten }: FolienAuftrag): React.JSX.Element {
+function FolieDuell({ format, daten, marke }: Erfuellt): React.JSX.Element {
   const mass = SOCIAL_MASSE[format];
   const klein = format !== 'story';
   const uebereinander = format === 'story';
@@ -728,10 +868,20 @@ function FolieDuell({ format, daten }: FolienAuftrag): React.JSX.Element {
   // Ohne genau zwei Antworten ist die Duell-Komposition sinnlos - dann die
   // Liste. Besser eine passende Vorlage als eine leere Haelfte.
   if (daten.zeilen.length !== 2) {
-    return <FolieVerteilung art="verteilung" format={format} daten={daten} />;
+    return <FolieVerteilung art="verteilung" format={format} daten={daten} marke={marke} />;
   }
 
   const [links, rechts] = daten.zeilen as [SocialDaten['zeilen'][0], SocialDaten['zeilen'][0]];
+  /*
+   * Wer unten als Absender steht.
+   *
+   * Diese Folie hat eine einzeilige Fusszeile statt `<Fuss>` - die beiden
+   * Haelften fuellen die Flaeche, eine zweizeilige Zeile daneben haette keinen
+   * Platz. Der Absender ist deshalb kurz, und ein eingestellter Zusatztext
+   * ersetzt ihn: «SwissHub Community» steht sonst auch auf der Grafik eines
+   * Servers, der nicht SwissHub ist.
+   */
+  const absender = marke.zusatztext ?? 'SwissHub Community';
   const haelfteBreite = uebereinander ? mass.breite : mass.breite / 2;
 
   const Haelfte = ({
@@ -752,7 +902,7 @@ function FolieDuell({ format, daten }: FolienAuftrag): React.JSX.Element {
         padding: klein ? 64 : 88,
         // Die Haelfte der fuehrenden Antwort ist rot, die andere fast schwarz.
         // Das ist die Aussage dieser Vorlage: eine Seite hat gewonnen.
-        backgroundColor: fuehrend ? ROT : TIEF,
+        backgroundColor: fuehrend ? marke.akzent : TIEF,
       }}
     >
       <div
@@ -870,7 +1020,7 @@ function FolieDuell({ format, daten }: FolienAuftrag): React.JSX.Element {
           maxWidth: mass.breite - (klein ? 128 : 176),
         }}
       >
-        <Marke klein={klein} />
+        <Marke klein={klein} marke={marke} />
         <div
           style={{
             display: 'flex',
@@ -896,12 +1046,13 @@ function FolieDuell({ format, daten }: FolienAuftrag): React.JSX.Element {
           color: 'rgba(255,255,255,0.7)',
         }}
       >
-        {/* Ohne die Zahl bleibt die Marke stehen - eine leere Zeile waere eine
-            Luecke, und die Zeile traegt hier auch den Absender. */}
+        {/* Ohne die Zahl bleibt der Absender stehen - eine leere Zeile waere
+            eine Luecke, und die Zeile traegt hier auch den Absender. Der
+            Absender ist der eingestellte Zusatztext, wenn es einen gibt. */}
         {gross(
           daten.stimmenZeigen
-            ? `${daten.gesamt} ${daten.gesamt === 1 ? 'Stimme' : 'Stimmen'} · SwissHub Community`
-            : 'SwissHub Community',
+            ? `${daten.gesamt} ${daten.gesamt === 1 ? 'Stimme' : 'Stimmen'} · ${absender}`
+            : absender,
         )}
       </div>
     </div>
@@ -914,7 +1065,7 @@ function FolieDuell({ format, daten }: FolienAuftrag): React.JSX.Element {
  * Die letzte Folie eines Carousels. Sie zeigt keine Zahlen: wer bis hierhin
  * gewischt hat, kennt sie.
  */
-function FolieAufruf({ format, daten }: FolienAuftrag): React.JSX.Element {
+function FolieAufruf({ format, daten, marke }: Erfuellt): React.JSX.Element {
   const mass = SOCIAL_MASSE[format];
   const klein = format !== 'story';
   const innen = mass.breite - (klein ? 76 : 96) * 2;
@@ -922,13 +1073,14 @@ function FolieAufruf({ format, daten }: FolienAuftrag): React.JSX.Element {
   return (
     <Buehne
       format={format}
+      marke={marke}
       fuss={
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div
             style={{ display: 'flex', height: 1, backgroundColor: LINIE, marginBottom: klein ? 20 : 26 }}
           />
           <div style={{ display: 'flex', fontSize: klein ? 26 : 30, letterSpacing: 3, color: GEDAEMPFT }}>
-            {gross('Jede Woche eine neue Frage')}
+            {gross(marke.zusatztext ?? 'Jede Woche eine neue Frage')}
           </div>
         </div>
       }
@@ -941,7 +1093,7 @@ function FolieAufruf({ format, daten }: FolienAuftrag): React.JSX.Element {
             display: 'flex',
             flexDirection: 'column',
             padding: klein ? 52 : 68,
-            backgroundColor: ROT,
+            backgroundColor: marke.akzent,
           }}
         >
           <div

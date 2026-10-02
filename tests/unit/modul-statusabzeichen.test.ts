@@ -93,16 +93,11 @@ function ohneKommentare(quelle: string): string {
 }
 
 describe('Statusabzeichen: nichts davon steht in der Seitenleiste', () => {
-  const sidebar = ohneKommentare(
-    readFileSync('apps/web/src/components/layout/sidebar-nav.tsx', 'utf8'),
-  );
+  const sidebar = ohneKommentare(readFileSync('apps/web/src/components/layout/sidebar-nav.tsx', 'utf8'));
 
-  it.each(['clips', 'fragt', 'Einreichung', 'Voting', 'Frage offen'])(
-    'kennt %s nicht',
-    (begriff) => {
-      expect(sidebar).not.toContain(begriff);
-    },
-  );
+  it.each(['clips', 'fragt', 'Einreichung', 'Voting', 'Frage offen'])('kennt %s nicht', (begriff) => {
+    expect(sidebar).not.toContain(begriff);
+  });
 
   it('stellt die Lautstaerke aus der Variante dar, nicht aus dem Text', () => {
     expect(sidebar).toContain('badgeVariant');

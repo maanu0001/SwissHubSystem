@@ -17,7 +17,8 @@ export type SettingsFieldType =
   | 'number'
   | 'duration'
   | 'text'
-  | 'textarea';
+  | 'textarea'
+  | 'color';
 
 interface SettingsFieldBase {
   key: string;
@@ -68,6 +69,28 @@ export interface TextField extends SettingsFieldBase {
 }
 
 /**
+ * Eine Farbe.
+ *
+ * Als Freitextfeld waere sie eine Fehlerquelle: `rot`, `#ff`, `ff0000` ohne
+ * Raute - und am Ende eine Grafik, die mit einer Standardfarbe erscheint, ohne
+ * zu sagen warum. Ein eigener Typ bekommt dafuer einen Farbwaehler und daneben
+ * den Wert zum Hineinkopieren, denn wer eine Markenfarbe hat, hat sie als
+ * Zeichenkette und nicht als Gefuehl.
+ *
+ * Leer heisst «Standardfarbe» und nicht Schwarz. Das ist der Grund, warum das
+ * Feld nicht einfach `type="color"` ist: ein Farbwaehler kennt kein «leer», er
+ * steht immer auf irgendeiner Farbe.
+ *
+ * Geprueft wird trotzdem serverseitig - der Wert aus einem Formular ist eine
+ * Behauptung. Siehe `normalisiereFarbe`.
+ */
+export interface ColorField extends SettingsFieldBase {
+  type: 'color';
+  /** Was gilt, solange nichts eingetragen ist - fuer die Vorschau daneben. */
+  fallback?: string;
+}
+
+/**
  * Eine Auswahl aus festen Werten.
  *
  * Für Einstellungen, deren Antwort nicht ja/nein ist und auch keine Zahl -
@@ -89,7 +112,8 @@ export type SettingsField =
   | NumberField
   | DurationField
   | TextField
-  | SelectField;
+  | SelectField
+  | ColorField;
 
 export const isRoleField = (field: SettingsField): field is DiscordRoleField =>
   field.type === 'discord-role' || field.type === 'discord-role-list';

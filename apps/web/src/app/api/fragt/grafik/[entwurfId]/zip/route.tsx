@@ -12,6 +12,7 @@ import {
   type SocialFormat,
 } from '@/modules/fragt/social-folie';
 import { socialDaten } from '@/modules/fragt/daten';
+import { folienMarke } from '@/modules/fragt/marke';
 
 const log = createLogger('web:fragt-zip');
 
@@ -80,6 +81,15 @@ export async function GET(
   }
 
   const mass = SOCIAL_MASSE[format as SocialFormat];
+  /*
+   * Die Marke einmal, nicht je Folie.
+   *
+   * Sie liest Einstellungen und moeglicherweise die Logodatei - viermal
+   * dasselbe fuer ein Carousel aus vier Folien waere dreimal zu viel. Und es
+   * ist ausserdem die Zusage, dass alle Folien eines ZIP dieselbe Farbe tragen,
+   * auch wenn jemand waehrend des Exports etwas umstellt.
+   */
+  const marke = await folienMarke();
   const eintraege: Array<{ name: string; daten: Uint8Array }> = [];
 
   for (const [index, folie] of aktive.entries()) {
@@ -92,7 +102,7 @@ export async function GET(
      * brauchen eine Sekunde - das ist kein Grund fuer Parallelitaet.
      */
     const bild = new ImageResponse(
-      zeichneSocialFolie({ art: folie.art, format: format as SocialFormat, daten }),
+      zeichneSocialFolie({ art: folie.art, format: format as SocialFormat, daten, marke }),
       { width: mass.breite, height: mass.hoehe },
     );
     const inhalt = new Uint8Array(await bild.arrayBuffer());

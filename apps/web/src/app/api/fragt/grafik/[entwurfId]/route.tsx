@@ -11,6 +11,7 @@ import {
   type SocialFormat,
 } from '@/modules/fragt/social-folie';
 import { socialDaten } from '@/modules/fragt/daten';
+import { folienMarke } from '@/modules/fragt/marke';
 
 /**
  * Eine Social-Media-Folie als PNG.
@@ -88,8 +89,10 @@ export async function GET(
       })();
 
   const mass = SOCIAL_MASSE[format as SocialFormat];
+  // Farbe, Zeichen und Zusatztext des Servers - dieselbe Quelle wie beim ZIP.
+  const marke = await folienMarke();
   const bild = new ImageResponse(
-    zeichneSocialFolie({ art: folienArt, format: format as SocialFormat, daten }),
+    zeichneSocialFolie({ art: folienArt, format: format as SocialFormat, daten, marke }),
     { width: mass.breite, height: mass.hoehe },
   );
 
