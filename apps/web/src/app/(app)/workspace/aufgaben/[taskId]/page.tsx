@@ -13,6 +13,7 @@ import { ladeTeam, namenKarte, workspaceEinstellungen } from '@/modules/workspac
 import { Frist, PrioritaetAbzeichen, StatusAbzeichen, Tags } from '@/modules/workspace/components/abzeichen';
 import { AufgabeFormular } from '@/modules/workspace/components/aufgabe-formular';
 import { AufgabeSteuerung } from '@/modules/workspace/components/aufgabe-steuerung';
+import { Anhaenge, Checkliste, Kommentare, Links } from '@/modules/workspace/components/mitarbeit';
 import { ERINNERUNG_LABEL, VERLAUF_LABEL, fristText, zeitpunktText } from '@/modules/workspace/labels';
 
 export const metadata: Metadata = { title: 'Aufgabe · Workspace' };
@@ -44,7 +45,7 @@ export default async function WorkspaceAufgabePage({
     notFound();
   }
 
-  const [verlauf, projekte, team, zahlen] = await Promise.all([
+  const [verlauf, projekte, team, zahlen, kommentare, punkte, links, anhaenge] = await Promise.all([
     workspace.ladeVerlauf({ taskId }, 30),
     workspace.ladeAktiveProjekte(guildId),
     ladeTeam(),
@@ -52,13 +53,29 @@ export default async function WorkspaceAufgabePage({
       jetzt,
       baldTage: einstellungen.baldFaelligTage,
     }),
+    workspace.ladeKommentare(taskId),
+    workspace.ladeCheckliste(taskId),
+    workspace.ladeLinks({ taskId }),
+    workspace.ladeAnhaenge({ taskId }),
   ]);
 
+  /*
+   * Alle Namen der Seite in einer Karte.
+   *
+   * Erwähnungen inbegriffen: ein Kommentar kann jemanden nennen, der nicht
+   * zuständig ist und nichts an dieser Aufgabe getan hat - ohne seine Kennung
+   * hier stünde im Kommentar `<@123>` statt eines Namens.
+   */
   const namen = await namenKarte([
     ...ansicht.zustaendige,
     ...verlauf.map((eintrag) => eintrag.actorDiscordId),
+    ...kommentare.map((kommentar) => kommentar.authorDiscordId),
+    ...kommentare.flatMap((kommentar) => kommentar.mentions),
+    ...anhaenge.map((anhang) => anhang.uploadedByDiscordId),
     ansicht.aufgabe.createdByDiscordId,
   ]);
+  // Eine `Map` übersteht die Grenze zwischen Server und Browser nicht.
+  const namenObjekt = Object.fromEntries(namen);
 
   const darfBearbeiten = can(context, workspace.WORKSPACE_PERMISSIONS.tasksEdit);
   const darfLoeschen = can(context, workspace.WORKSPACE_PERMISSIONS.tasksDelete);
@@ -117,6 +134,31 @@ export default async function WorkspaceAufgabePage({
             )}
           </Panel>
 
+          <Panel
+            title="Checkliste"
+            icon="ListChecks"
+            description="Die Schritte dieser Aufgabe - sie zählen in den Stand, nicht in den Projektfortschritt."
+          >
+            <Checkliste
+              csrfToken={csrfToken}
+              taskId={ansicht.aufgabe.id}
+              punkte={punkte}
+              darfBearbeiten={darfBearbeiten}
+            />
+          </Panel>
+
+          <Panel title="Kommentare" icon="MessageSquare" description="Warum etwas so entschieden wurde.">
+            <Kommentare
+              csrfToken={csrfToken}
+              taskId={ansicht.aufgabe.id}
+              kommentare={kommentare}
+              namen={namenObjekt}
+              team={team}
+              eigeneKennung={context.user.discordId}
+              darfSchreiben={darfBearbeiten}
+            />
+          </Panel>
+
           <Panel title="Ändern" icon="Pencil">
             <AufgabeSteuerung
               csrfToken={csrfToken}
@@ -173,6 +215,26 @@ export default async function WorkspaceAufgabePage({
                 </dd>
               </div>
             </dl>
+          </Panel>
+
+          <Panel title="Links" icon="Link2">
+            <Links
+              csrfToken={csrfToken}
+              bezug={{ taskId: ansicht.aufgabe.id }}
+              links={links}
+              darfBearbeiten={darfBearbeiten}
+            />
+          </Panel>
+
+          <Panel title="Anhänge" icon="Paperclip">
+            <Anhaenge
+              csrfToken={csrfToken}
+              bezug={{ taskId: ansicht.aufgabe.id }}
+              anhaenge={anhaenge}
+              namen={namenObjekt}
+              maxBytes={workspace.ANHANG_MAX_BYTES}
+              darfBearbeiten={darfBearbeiten}
+            />
           </Panel>
 
           <Panel title="Verlauf" icon="Activity">

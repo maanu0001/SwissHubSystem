@@ -4,3 +4,4 @@ export * from './verlauf';
 export * from './projekte';
 export * from './aufgaben';
 export * from './kennzahlen';
+export * from './mitarbeit';

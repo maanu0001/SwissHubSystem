@@ -89,6 +89,41 @@ async function pruefeProjektzugriff(
   }
 }
 
+/**
+ * Aufgabe **oder** Projekt - genau eines.
+ *
+ * Links und Anhänge hängen an einem von beiden. Beides mitzuschicken ist keine
+ * zulässige Angabe; es nach einer Rangfolge aufzulösen hiesse, den Eintrag
+ * irgendwo abzulegen, wo niemand ihn sucht.
+ */
+function bezugAus(input: {
+  taskId?: string | null | undefined;
+  projectId?: string | null | undefined;
+}): { taskId: string } | { projectId: string } {
+  if (input.taskId && input.projectId) {
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage: 'Ein Eintrag gehört an eine Aufgabe oder an ein Projekt.',
+    });
+  }
+  if (input.taskId) {
+    return { taskId: input.taskId };
+  }
+  if (input.projectId) {
+    return { projectId: input.projectId };
+  }
+  throw new AppError('VALIDATION_FAILED', {
+    userMessage: 'Es fehlt die Aufgabe oder das Projekt.',
+  });
+}
+
+function neuLadenBezug(bezug: { taskId: string } | { projectId: string }): void {
+  if ('taskId' in bezug) {
+    revalidatePath(systemRoutes.workspaceAufgabe(bezug.taskId));
+    return;
+  }
+  revalidatePath(systemRoutes.workspaceProjekt(bezug.projectId));
+}
+
 // --- Projekte ---------------------------------------------------------------
 
 export const workspaceProjektErstellenAction = defineAction(
@@ -357,6 +392,179 @@ export const workspaceAufgabeLoeschenAction = defineAction(
   async ({ ctx, input }) => {
     await workspace.loescheAufgabe(input.taskId, ctx.user.discordId);
     neuLaden();
+    return { ok: true };
+  },
+);
+
+// --- Mitarbeit: Kommentare, Checkliste, Links, Anhänge ----------------------
+
+/*
+ * Für alle vier gilt `tasksEdit`.
+ *
+ * Nicht eine eigene Berechtigung je Kleinteil: wer eine Aufgabe pflegen darf,
+ * darf sie kommentieren, abhaken und einen Link dranhängen - das ist dieselbe
+ * Arbeit. Eine Berechtigung «darf kommentieren» wäre eine Zeile mehr in der
+ * Rechtematrix und keine Entscheidung, die jemand je anders treffen würde.
+ *
+ * Der Anhang-Upload läuft **nicht** hier: eine Datei lässt sich nicht über eine
+ * Server Action übertragen. Er hat einen Route Handler mit derselben Kette.
+ */
+
+export const workspaceKommentarSchreibenAction = defineAction(
+  {
+    name: 'workspace.comment.create',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.tasksEdit,
+    schema: z.object({
+      taskId: z.string().min(1).max(40),
+      text: z.string().trim().min(1).max(4000),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx, input }) => {
+    const kommentar = await workspace.schreibeKommentar(input.taskId, ctx.user.discordId, input.text);
+    revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
+    return { kommentarId: kommentar.id };
+  },
+);
+
+export const workspaceKommentarLoeschenAction = defineAction(
+  {
+    name: 'workspace.comment.delete',
+    module: workspace.WORKSPACE_MODULE_ID,
+    // `view` als Boden; welchen Kommentar jemand löschen darf, entscheidet der
+    // Kern: nur den eigenen. Ein fremder Kommentar ist die Begründung einer
+    // anderen Person, und die gehört nicht in fremde Hand.
+    permission: workspace.WORKSPACE_PERMISSIONS.view,
+    schema: z.object({
+      kommentarId: z.string().min(1).max(40),
+      taskId: z.string().min(1).max(40),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx, input }) => {
+    await workspace.loescheKommentar(input.kommentarId, ctx.user.discordId);
+    revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
+    return { ok: true };
+  },
+);
+
+export const workspaceChecklisteErgaenzenAction = defineAction(
+  {
+    name: 'workspace.checklist.add',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.tasksEdit,
+    schema: z.object({
+      taskId: z.string().min(1).max(40),
+      text: z.string().trim().min(1).max(200),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx, input }) => {
+    const punkt = await workspace.ergaenzeChecklistenpunkt(input.taskId, ctx.user.discordId, input.text);
+    revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
+    return { punktId: punkt.id };
+  },
+);
+
+export const workspaceChecklisteAbhakenAction = defineAction(
+  {
+    name: 'workspace.checklist.toggle',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.tasksEdit,
+    schema: z.object({
+      punktId: z.string().min(1).max(40),
+      taskId: z.string().min(1).max(40),
+      erledigt: z.boolean(),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ input }) => {
+    await workspace.hakeAb(input.punktId, input.erledigt);
+    revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
+    // Der Fortschritt der Aufgabe steht auch auf dem Board und in den Listen.
+    neuLaden();
+    return { ok: true };
+  },
+);
+
+export const workspaceChecklisteLoeschenAction = defineAction(
+  {
+    name: 'workspace.checklist.delete',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.tasksEdit,
+    schema: z.object({
+      punktId: z.string().min(1).max(40),
+      taskId: z.string().min(1).max(40),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ input }) => {
+    await workspace.loescheChecklistenpunkt(input.punktId);
+    revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
+    neuLaden();
+    return { ok: true };
+  },
+);
+
+export const workspaceLinkErgaenzenAction = defineAction(
+  {
+    name: 'workspace.link.add',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.tasksEdit,
+    schema: z.object({
+      taskId: z.string().min(1).max(40).nullable().optional(),
+      projectId: z.string().min(1).max(40).nullable().optional(),
+      titel: z.string().trim().max(120),
+      // Die Adresse wird hier **nicht** per Zod geprüft, sondern im Kern:
+      // `pruefeUrl` entscheidet über das Schema, lehnt Zugangsdaten ab und gibt
+      // die normalisierte Adresse zurück. Zwei Prüfungen wären zwei Meinungen.
+      url: z.string().trim().min(1).max(2000),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx, input }) => {
+    const bezug = bezugAus(input);
+    const link = await workspace.ergaenzeLink(bezug, ctx.user.discordId, input.titel, input.url);
+    neuLadenBezug(bezug);
+    return { linkId: link.id };
+  },
+);
+
+export const workspaceLinkLoeschenAction = defineAction(
+  {
+    name: 'workspace.link.delete',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.tasksEdit,
+    schema: z.object({
+      linkId: z.string().min(1).max(40),
+      taskId: z.string().min(1).max(40).nullable().optional(),
+      projectId: z.string().min(1).max(40).nullable().optional(),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ input }) => {
+    await workspace.loescheLink(input.linkId);
+    neuLadenBezug(bezugAus(input));
+    return { ok: true };
+  },
+);
+
+export const workspaceAnhangLoeschenAction = defineAction(
+  {
+    name: 'workspace.attachment.delete',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.tasksEdit,
+    schema: z.object({
+      anhangId: z.string().min(1).max(40),
+      taskId: z.string().min(1).max(40).nullable().optional(),
+      projectId: z.string().min(1).max(40).nullable().optional(),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ input }) => {
+    await workspace.loescheAnhang(input.anhangId);
+    neuLadenBezug(bezugAus(input));
     return { ok: true };
   },
 );

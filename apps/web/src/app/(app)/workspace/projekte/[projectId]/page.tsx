@@ -24,6 +24,7 @@ import {
 import { AufgabeFormular } from '@/modules/workspace/components/aufgabe-formular';
 import { ProjektFormular } from '@/modules/workspace/components/projekt-formular';
 import { ArchivKnopf, Mitgliederverwaltung } from '@/modules/workspace/components/projekt-steuerung';
+import { Anhaenge, Links } from '@/modules/workspace/components/mitarbeit';
 import { ROLLE_LABEL, VERLAUF_LABEL, zeitpunktText } from '@/modules/workspace/labels';
 
 export const metadata: Metadata = { title: 'Projekt · Workspace' };
@@ -57,7 +58,7 @@ export default async function WorkspaceProjektPage({
     notFound();
   }
 
-  const [aufgaben, verlauf, team, zahlen] = await Promise.all([
+  const [aufgaben, verlauf, team, zahlen, links, anhaenge] = await Promise.all([
     workspace.ladeAufgaben(guildId, { projectId, mitArchivierten: true, grenze: 200 }),
     workspace.ladeVerlauf({ projectId }, 20),
     ladeTeam(),
@@ -65,13 +66,18 @@ export default async function WorkspaceProjektPage({
       jetzt,
       baldTage: einstellungen.baldFaelligTage,
     }),
+    workspace.ladeLinks({ projectId }),
+    workspace.ladeAnhaenge({ projectId }),
   ]);
 
   const namen = await namenKarte([
     ...aufgaben.flatMap((zeile) => zeile.zustaendige),
     ...ansicht.mitglieder.map((mitglied) => mitglied.discordId),
     ...verlauf.map((eintrag) => eintrag.actorDiscordId),
+    ...anhaenge.map((anhang) => anhang.uploadedByDiscordId),
   ]);
+  // Eine `Map` übersteht die Grenze zwischen Server und Browser nicht.
+  const namenObjekt = Object.fromEntries(namen);
 
   const darfBearbeiten = await workspace.darfBearbeiten(
     projectId,
@@ -245,6 +251,26 @@ export default async function WorkspaceProjektPage({
                 ))}
               </ul>
             )}
+          </Panel>
+
+          <Panel title="Links" icon="Link2" description="Dokumente, Designs, Beiträge.">
+            <Links
+              csrfToken={csrfToken}
+              bezug={{ projectId: ansicht.projekt.id }}
+              links={links}
+              darfBearbeiten={darfBearbeiten && !ansicht.projekt.archivedAt}
+            />
+          </Panel>
+
+          <Panel title="Anhänge" icon="Paperclip">
+            <Anhaenge
+              csrfToken={csrfToken}
+              bezug={{ projectId: ansicht.projekt.id }}
+              anhaenge={anhaenge}
+              namen={namenObjekt}
+              maxBytes={workspace.ANHANG_MAX_BYTES}
+              darfBearbeiten={darfBearbeiten && !ansicht.projekt.archivedAt}
+            />
           </Panel>
 
           <Panel title="Verlauf" icon="Activity" description="Was an diesem Projekt geschehen ist.">

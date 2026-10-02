@@ -483,6 +483,59 @@ registerEvent({
   ],
 });
 
+// --- Workspace --------------------------------------------------------------
+
+registerEvent({
+  type: 'workspace.task_assigned',
+  label: 'Aufgabe zugewiesen',
+  description:
+    'Jemand ist fuer eine Aufgabe im Workspace zustaendig geworden. Je neue Zustaendigkeit ein Ereignis - nicht eines mit einer Liste darin.',
+  module: 'workspace',
+  payloadSchema: z.object({
+    taskId: z.string(),
+    titel: z.string(),
+    discordId,
+    projectId: z.string().nullable(),
+    prioritaet: z.string(),
+    dueAt: z.string().nullable(),
+  }),
+  variables: [
+    { path: 'payload.titel', label: 'Titel der Aufgabe', type: 'string' },
+    { path: 'payload.prioritaet', label: 'Prioritaet', type: 'string' },
+  ],
+});
+
+registerEvent({
+  type: 'workspace.task_blocked',
+  label: 'Aufgabe blockiert',
+  description:
+    'Eine Aufgabe steht auf «Blockiert». Ob daraus eine Meldung folgt, entscheidet eine Moduleinstellung - Vorgabe aus.',
+  module: 'workspace',
+  payloadSchema: z.object({
+    taskId: z.string(),
+    titel: z.string(),
+    projectId: z.string().nullable(),
+  }),
+  variables: [{ path: 'payload.titel', label: 'Titel der Aufgabe', type: 'string' }],
+});
+
+registerEvent({
+  type: 'workspace.mention',
+  label: 'In einem Kommentar erwaehnt',
+  description: 'Jemand wurde in einem Kommentar an einer Aufgabe erwaehnt.',
+  module: 'workspace',
+  payloadSchema: z.object({
+    taskId: z.string(),
+    titel: z.string(),
+    discordId,
+    auszug: z.string(),
+  }),
+  variables: [
+    { path: 'payload.titel', label: 'Titel der Aufgabe', type: 'string' },
+    { path: 'payload.auszug', label: 'Anfang des Kommentars', type: 'string' },
+  ],
+});
+
 // --- Automation selbst ------------------------------------------------------
 
 registerEvent({

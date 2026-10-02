@@ -168,6 +168,15 @@ export const UPLOAD_KINDS = [
    * Upload-Verzeichnis vorkommen duerfen.
    */
   'clip',
+  /**
+   * Anhaenge im Workspace.
+   *
+   * Dieselbe Pruefung wie jedes andere Bild hier: der erkannte Inhalt
+   * entscheidet ueber die Endung, der Name aus dem Browser wird nie
+   * verwendet. Damit ist eine ausfuehrbare Datei als Anhang strukturell
+   * ausgeschlossen - es gibt keinen Weg, auf dem sie einen Namen bekaeme.
+   */
+  'workspace',
 ] as const;
 export type UploadKind = (typeof UPLOAD_KINDS)[number];
 

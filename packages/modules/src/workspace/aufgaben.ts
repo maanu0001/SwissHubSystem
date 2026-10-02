@@ -184,7 +184,7 @@ async function meldeZuweisungen(
       continue;
     }
     await meldeEreignis(
-      'workspace.task.assigned',
+      'workspace.task_assigned',
       {
         taskId: aufgabe.id,
         titel: aufgabe.title,
@@ -274,7 +274,7 @@ export async function setzeStatus(
    */
   if (status === 'BLOCKED') {
     await meldeEreignis(
-      'workspace.task.blocked',
+      'workspace.task_blocked',
       { taskId, titel: vorher.title, projectId: vorher.projectId },
       { guildId: vorher.guildId, actorId: akteurDiscordId, entityId: taskId },
     );

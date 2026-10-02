@@ -14,11 +14,31 @@ import { cn } from '@/lib/utils';
  * und Verweise im Fliesstext. Alles andere bleibt schlicht Text - lieber ein
  * ungerendertes Sternchen als eine halbe Auszeichnungssprache.
  */
-export function Markdown({ text, className }: { text: string; className?: string }): React.JSX.Element {
+export function Markdown({
+  text,
+  className,
+  erwaehnungen,
+}: {
+  text: string;
+  className?: string;
+  /**
+   * Kennung zu Name - macht `<@123>` im Text zu einem lesbaren Namen.
+   *
+   * Optional, und ohne die Karte bleibt `<@123>` schlicht Text. So ändert
+   * diese Ergänzung an keiner bestehenden Verwendung etwas.
+   *
+   * Der Name geht als React-Kind in die Ausgabe und nie als Markup - ein
+   * Anzeigename mit `]` oder `**` darin kann die Auszeichnung also nicht
+   * verlassen. Genau deshalb steht die Auflösung hier und nicht als
+   * Textersetzung davor: wer `<@123>` vorher zu `[@Name](...)` umschreibt,
+   * baut aus einem fremden Namen Markup.
+   */
+  erwaehnungen?: Readonly<Record<string, string>>;
+}): React.JSX.Element {
   return (
     <div className={cn('space-y-3 text-sm leading-relaxed', className)}>
       {bloecke(text).map((block, index) => (
-        <Block key={index} block={block} />
+        <Block key={index} block={block} erwaehnungen={erwaehnungen} />
       ))}
     </div>
   );
@@ -118,36 +138,42 @@ function bloecke(text: string): Block[] {
   return ergebnis;
 }
 
-function Block({ block }: { block: Block }): React.JSX.Element {
+function Block({
+  block,
+  erwaehnungen,
+}: {
+  block: Block;
+  erwaehnungen?: Readonly<Record<string, string>>;
+}): React.JSX.Element {
   switch (block.art) {
     case 'heading': {
       const gemeinsam = 'font-semibold text-foreground';
       if (block.ebene === 2) {
-        return <h2 className={cn(gemeinsam, 'pt-2 text-lg')}>{inline(block.text)}</h2>;
+        return <h2 className={cn(gemeinsam, 'pt-2 text-lg')}>{inline(block.text, erwaehnungen)}</h2>;
       }
       if (block.ebene === 3) {
-        return <h3 className={cn(gemeinsam, 'pt-1 text-base')}>{inline(block.text)}</h3>;
+        return <h3 className={cn(gemeinsam, 'pt-1 text-base')}>{inline(block.text, erwaehnungen)}</h3>;
       }
-      return <h4 className={cn(gemeinsam, 'text-sm')}>{inline(block.text)}</h4>;
+      return <h4 className={cn(gemeinsam, 'text-sm')}>{inline(block.text, erwaehnungen)}</h4>;
     }
     case 'list':
       return block.nummeriert ? (
         <ol className="list-decimal space-y-1 pl-5">
           {block.punkte.map((punkt, index) => (
-            <li key={index}>{inline(punkt)}</li>
+            <li key={index}>{inline(punkt, erwaehnungen)}</li>
           ))}
         </ol>
       ) : (
         <ul className="list-disc space-y-1 pl-5">
           {block.punkte.map((punkt, index) => (
-            <li key={index}>{inline(punkt)}</li>
+            <li key={index}>{inline(punkt, erwaehnungen)}</li>
           ))}
         </ul>
       );
     case 'quote':
       return (
         <blockquote className="border-l-2 border-border pl-4 text-muted-foreground">
-          {inline(block.text)}
+          {inline(block.text, erwaehnungen)}
         </blockquote>
       );
     case 'code':
@@ -159,7 +185,7 @@ function Block({ block }: { block: Block }): React.JSX.Element {
     case 'rule':
       return <hr className="border-border" />;
     default:
-      return <p>{inline(block.text)}</p>;
+      return <p>{inline(block.text, erwaehnungen)}</p>;
   }
 }
 
@@ -169,8 +195,8 @@ function Block({ block }: { block: Block }): React.JSX.Element {
  * Der reguläre Ausdruck findet die Auszeichnungen, das Ergebnis sind aber
  * React-Elemente - der Text dazwischen wird nie als Markup gelesen.
  */
-function inline(text: string): React.ReactNode[] {
-  const MUSTER = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/gu;
+function inline(text: string, erwaehnungen?: Readonly<Record<string, string>>): React.ReactNode[] {
+  const MUSTER = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|<@!?\d{16,20}>)/gu;
 
   const teile: React.ReactNode[] = [];
   let zuletzt = 0;
@@ -180,7 +206,7 @@ function inline(text: string): React.ReactNode[] {
     if (treffer.index > zuletzt) {
       teile.push(text.slice(zuletzt, treffer.index));
     }
-    teile.push(<Auszeichnung key={treffer.index} roh={treffer[0]} />);
+    teile.push(<Auszeichnung key={treffer.index} roh={treffer[0]} erwaehnungen={erwaehnungen} />);
     zuletzt = treffer.index + treffer[0].length;
   }
 
@@ -190,7 +216,29 @@ function inline(text: string): React.ReactNode[] {
   return teile;
 }
 
-function Auszeichnung({ roh }: { roh: string }): React.JSX.Element {
+function Auszeichnung({
+  roh,
+  erwaehnungen,
+}: {
+  roh: string;
+  erwaehnungen?: Readonly<Record<string, string>>;
+}): React.JSX.Element {
+  /*
+   * Eine Erwähnung.
+   *
+   * Ohne Karte - oder mit einer Kennung, die darin nicht vorkommt - bleibt der
+   * Text stehen, wie er geschrieben wurde. Einen Namen zu erfinden wäre
+   * schlechter: `<@123>` sagt wenigstens, dass hier jemand gemeint ist.
+   */
+  const erwaehnung = /^<@!?(\d{16,20})>$/u.exec(roh);
+  if (erwaehnung) {
+    const name = erwaehnungen?.[erwaehnung[1] ?? ''];
+    if (!name) {
+      return <span>{roh}</span>;
+    }
+    return <span className="rounded bg-primary/15 px-1 py-0.5 font-medium text-primary">@{name}</span>;
+  }
+
   if (roh.startsWith('**') || roh.startsWith('__')) {
     return <strong className="font-semibold">{roh.slice(2, -2)}</strong>;
   }
