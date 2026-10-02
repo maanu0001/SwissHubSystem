@@ -3,17 +3,30 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowUp, Check, Download, Loader2, Lock, Package, RotateCcw, Unlock } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Download,
+  Loader2,
+  Lock,
+  Package,
+  RotateCcw,
+  Trash2,
+  Unlock,
+} from 'lucide-react';
 import type { fragt } from '@swisshub/modules';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { ConfirmationDialog } from '@/components/shared/confirmation-dialog';
 import {
   fragtEntwurfBearbeitenAction,
   fragtEntwurfFinalisierenAction,
   fragtEntwurfFreigebenAction,
   fragtEntwurfGepostetAction,
+  fragtEntwurfLoeschenAction,
 } from '@/modules/fragt/actions';
 import { cn } from '@/lib/utils';
 
@@ -111,10 +124,18 @@ const FOLIEN_LABEL: Record<fragt.FolienArt, string> = {
 export function StudioEditor({
   csrfToken,
   ansicht,
+  darfLoeschen = false,
 }: {
   /** Der CSRF-Token der Sitzung - jede Server Action verlangt ihn. */
   csrfToken: string;
   ansicht: StudioAnsicht;
+  /**
+   * Darf diese Person Entwürfe löschen?
+   *
+   * `fragt.delete`, serverseitig geprüft - hier steht nur, ob der Knopf
+   * erscheint. Ein Knopf, der immer eine Absage bringt, ist kein Knopf.
+   */
+  darfLoeschen?: boolean;
 }): React.JSX.Element {
   const router = useRouter();
   const [vorlage, setVorlage] = useState(ansicht.vorlage);
@@ -135,6 +156,7 @@ export function StudioEditor({
   const [logo, setLogo] = useState<fragt.ExportLogoWahl | null>(ansicht.marke.logo);
   const [zusatztext, setZusatztext] = useState<string | null>(ansicht.marke.zusatztext);
   const [laeuft, setLaeuft] = useState<string | null>(null);
+  const [loeschenOffen, setLoeschenOffen] = useState(false);
   /*
    * Die Vorschau muss sich nach dem Speichern neu laden.
    *
@@ -655,7 +677,65 @@ export function StudioEditor({
             )}
           </div>
         </div>
+
+        {/*
+          Löschen - ganz unten und in eigener Umgebung.
+
+          Nicht neben «Speichern»: der eine Knopf behält Arbeit, der andere
+          wirft sie weg, und zwei Knöpfe mit entgegengesetzter Folge gehören
+          nicht nebeneinander. Er erscheint nur mit `fragt.delete`, und was
+          geschieht, entscheidet die Server Action.
+        */}
+        {darfLoeschen ? (
+          <div className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-5">
+            <h3 className="font-semibold">Entwurf löschen</h3>
+            <p className="text-sm text-muted-foreground">
+              Entfernt diesen Entwurf samt seinen Texten, Folien und Farben. Das Ergebnis der Abstimmung
+              bleibt - aus ihm entsteht auf Wunsch ein neuer Entwurf.
+            </p>
+            <Button
+              variant="outline"
+              className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              disabled={laeuft === 'loeschen'}
+              onClick={() => setLoeschenOffen(true)}
+            >
+              <Trash2 className="size-4" />
+              Entwurf löschen
+            </Button>
+          </div>
+        ) : null}
       </div>
+
+      <ConfirmationDialog
+        open={loeschenOffen}
+        onOpenChange={setLoeschenOffen}
+        title="Entwurf löschen?"
+        description="Texte, Folienreihenfolge, Farbe, Zeichen und Zusatztext dieses Entwurfs sind danach weg. Das Ergebnis der Abstimmung bleibt bestehen. Das lässt sich nicht rückgängig machen."
+        confirmLabel="Löschen"
+        destructive
+        onConfirm={async () => {
+          setLaeuft('loeschen');
+          const antwort = await fragtEntwurfLoeschenAction({
+            csrfToken,
+            entwurfId: ansicht.entwurfId,
+          });
+          setLaeuft(null);
+          if (!antwort.ok) {
+            toast.error(antwort.error.message);
+            return;
+          }
+          setLoeschenOffen(false);
+          toast.success('Entwurf gelöscht.');
+          /*
+           * Weg von dieser Seite, nicht nur neu laden.
+           *
+           * Die Kennung im Pfad zeigt auf einen Entwurf, den es nicht mehr
+           * gibt - ein `router.refresh()` liesse den Nutzer auf einer
+           * «gibt es nicht»-Seite sitzen, zu der er selbst navigiert hat.
+           */
+          router.push('/fragt/ergebnisse');
+        }}
+      />
     </div>
   );
 }

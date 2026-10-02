@@ -630,3 +630,87 @@ export async function laufendeAbstimmung(guildId: string): Promise<FragtAbstimmu
     orderBy: { opensAt: 'desc' },
   });
 }
+
+/**
+ * Eine abgeschlossene Abstimmung loeschen - samt Stimmen und Entwurf.
+ *
+ * ## Die eine Regel, auf die es ankommt: die Frage bleibt
+ *
+ * Geloescht wird der **Durchgang**, nicht die Frage. Die Kaskade im
+ * Datenmodell laeuft von der Frage nach unten -
+ * `FragtFrage → FragtAbstimmung → FragtStimme/FragtEntwurf` - und nie
+ * umgekehrt. Eine Abstimmung zu loeschen kann die Frage deshalb nicht
+ * mitnehmen; das ist eine Eigenschaft des Schemas und keine Pruefung, die
+ * jemand vergessen koennte.
+ *
+ * Diese Funktion verlaesst sich trotzdem nicht darauf: sie liest die
+ * `frageId` vorher und loescht ausdruecklich nur die Abstimmung. Wer hier
+ * eines Tages `prisma.fragtFrage.delete` einbaut, tut es dann sichtbar.
+ *
+ * ## Was mitgeht
+ *
+ *  - **Die Stimmen** (`FragtStimme`, Kaskade). Sie gehoeren zu diesem einen
+ *    Durchgang; ohne ihn sind sie Zeilen ohne Bezug.
+ *  - **Der Entwurf** (`FragtEntwurf`, Kaskade). Er ist die Gestaltung dieses
+ *    Ergebnisses.
+ *  - **Die Zuordnung zur Discord-Nachricht** (`messageId`,
+ *    `ergebnisMessageId`). Die Nachricht selbst bleibt auf Discord stehen -
+ *    sie zu loeschen waere ein Eingriff in einen Kanal, den niemand
+ *    verlangt hat, und bei einer Nachricht von vor einem Jahr ohnehin
+ *    aussichtslos.
+ *
+ * ## Warum nur abgeschlossene
+ *
+ * Eine laufende Abstimmung zu loeschen hiesse, sie mitten im Satz
+ * abzuschneiden: auf Discord stehen Knoepfe, die ins Nichts fuehren, und
+ * abgegebene Stimmen verschwinden, ohne dass jemand ein Ergebnis gesehen
+ * haette. Wer eine laufende beenden will, schliesst sie - danach kann er sie
+ * loeschen.
+ */
+export async function loescheAbstimmung(abstimmungId: string, actor: Handelnder): Promise<void> {
+  const abstimmung = await prisma.fragtAbstimmung.findUnique({
+    where: { id: abstimmungId },
+    select: {
+      id: true,
+      frageId: true,
+      frageText: true,
+      status: true,
+      finalVotes: true,
+      closedAt: true,
+    },
+  });
+  if (!abstimmung) {
+    throw new AppError('NOT_FOUND', { userMessage: 'Diese Abstimmung gibt es nicht (mehr).' });
+  }
+  if (abstimmung.status !== 'CLOSED') {
+    throw new AppError('CONFLICT', {
+      userMessage:
+        'Diese Abstimmung läuft noch. Schliess sie zuerst - dann steht ein Ergebnis fest, und danach lässt sie sich löschen.',
+    });
+  }
+
+  await prisma.fragtAbstimmung.delete({ where: { id: abstimmungId } });
+
+  /*
+   * Die Gegenprobe steht im Protokoll.
+   *
+   * `frageBleibt` ist kein Zierwert: wer spaeter wissen will, ob beim Loeschen
+   * eines Ergebnisses einmal eine Frage mitgegangen ist, findet hier die
+   * Kennung der Frage, die bestehen blieb - und kann sie nachschlagen.
+   */
+  await recordAudit({
+    action: AUDIT_ACTIONS.FRAGT_POLL_DELETED,
+    module: FRAGT_MODULE_ID,
+    actorDiscordId: actor.discordId,
+    actorUsername: actor.username ?? null,
+    targetLabel: abstimmung.frageText,
+    metadata: {
+      abstimmungId,
+      frageBleibt: abstimmung.frageId,
+      stimmen: abstimmung.finalVotes,
+      geschlossenAm: abstimmung.closedAt?.toISOString() ?? null,
+    },
+  });
+
+  log.info('Abstimmung gelöscht', { abstimmungId, frageId: abstimmung.frageId });
+}

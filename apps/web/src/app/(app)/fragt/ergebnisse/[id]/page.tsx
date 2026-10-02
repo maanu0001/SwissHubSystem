@@ -10,8 +10,9 @@ import { Panel } from '@/components/shared/panel';
 import { StatCard } from '@/components/shared/stat-card';
 import { EmptyState } from '@/components/shared/states';
 import { buttonVariants } from '@/components/ui/button';
-import { requirePagePermission } from '@/server/auth';
+import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { ErgebnisBalken } from '@/modules/fragt/components/ergebnis-balken';
+import { ErgebnisLoeschen } from '@/modules/fragt/components/ergebnis-loeschen';
 import { StimmenDetail } from '@/modules/fragt/components/stimmen-detail';
 import { cn } from '@/lib/utils';
 
@@ -136,6 +137,28 @@ export default async function FragtErgebnisPage({
                   abgegebenAm: zeit(zeile.abgegebenAm),
                   geaendert: zeile.geaendert,
                 }))}
+              />
+            </Panel>
+          ) : null}
+
+          {/*
+            Löschen am Ende der Seite.
+
+            Ganz unten und nicht in der Kopfzeile: wer hier ankommt, hat die
+            Zahlen gesehen und weiss, was er wegwirft. Ein Löschknopf neben
+            dem Titel wäre der erste Knopf auf der Seite.
+          */}
+          {can(context, fragt.FRAGT_PERMISSIONS.delete) && !laeuftNoch ? (
+            <Panel
+              title="Ergebnis löschen"
+              icon="ShieldAlert"
+              description="Entfernt diesen Durchgang samt Stimmen und Entwurf. Die Frage bleibt in der Bibliothek."
+            >
+              <ErgebnisLoeschen
+                abstimmungId={abstimmung.id}
+                frageText={abstimmung.frageText}
+                stimmen={abstimmung.finalVotes}
+                csrfToken={csrfTokenFor(context)}
               />
             </Panel>
           ) : null}

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { can } from '@swisshub/auth';
 import { fragt } from '@swisshub/modules';
 import { systemRoutes } from '@swisshub/shared';
 import { PageHeader } from '@/components/shared/page-header';
@@ -96,7 +97,11 @@ export default async function FragtStudioPage({
     <div className="space-y-6">
       {zurueck}
       <PageHeader title="Content Studio" description={quelle.abstimmung.frageText} />
-      <StudioEditor csrfToken={csrfTokenFor(context)} ansicht={ansicht} />
+      <StudioEditor
+        csrfToken={csrfTokenFor(context)}
+        ansicht={ansicht}
+        darfLoeschen={can(context, fragt.FRAGT_PERMISSIONS.delete)}
+      />
     </div>
   );
 }

@@ -342,6 +342,62 @@ export async function finalisiereEntwurf(entwurfId: string, actor: Handelnder): 
   return aktualisiert;
 }
 
+/**
+ * Einen Entwurf loeschen.
+ *
+ * ## Was dabei verschwindet und was nicht
+ *
+ * Verschwindet: die Zeile `FragtEntwurf` - Vorlage, Format, Texte, die
+ * Folienreihenfolge, Farbe, Zeichen, Zusatztext. Das ist redaktionelle Arbeit
+ * an einer Grafik, und sie wegzuwerfen ist eine Entscheidung wie jede andere.
+ *
+ * Bleibt: die **Abstimmung** und damit das Ergebnis. Ein Entwurf ist die
+ * Gestaltung eines Ergebnisses, nicht das Ergebnis selbst; wer die Grafik neu
+ * anfangen will, soll dabei nicht die Zahlen verlieren. Ein neuer Entwurf
+ * entsteht danach ueber `erstelleEntwurf`, aus demselben Schnappschuss.
+ *
+ * Bleibt ebenfalls: die **Mediendatei**. `medienDatei` ist ein Dateiname aus
+ * der zentralen Medienverwaltung, kein Besitz dieses Entwurfs - dasselbe Bild
+ * kann an einer Frage und an einem anderen Entwurf haengen. Was hier
+ * aufgeraeumt wird, ist die Zuordnung; die Datei verwaltet die
+ * Medienverwaltung, und sie dort mitzuloeschen waere ein Datenverlust an einer
+ * Stelle, die niemand angesehen hat.
+ *
+ * ## Warum auch ein veroeffentlichter Entwurf gehen darf
+ *
+ * `bearbeiteEntwurf` weist einen veroeffentlichten Entwurf ab, und das ist
+ * richtig: was auf Instagram steht, soll nicht nachtraeglich anders hier
+ * stehen. Loeschen ist der andere Fall - es behauptet nichts, es raeumt auf.
+ * Dass der Eintrag einmal bestand, haelt das Protokoll fest.
+ */
+export async function loescheEntwurf(entwurfId: string, actor: Handelnder): Promise<void> {
+  const entwurf = await prisma.fragtEntwurf.findUnique({
+    where: { id: entwurfId },
+    include: { abstimmung: { select: { id: true, frageText: true } } },
+  });
+  if (!entwurf) {
+    throw new AppError('NOT_FOUND', { userMessage: 'Diesen Entwurf gibt es nicht (mehr).' });
+  }
+
+  await prisma.fragtEntwurf.delete({ where: { id: entwurfId } });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.FRAGT_DRAFT_DELETED,
+    module: FRAGT_MODULE_ID,
+    actorDiscordId: actor.discordId,
+    actorUsername: actor.username ?? null,
+    targetLabel: entwurf.abstimmung.frageText,
+    metadata: {
+      entwurfId,
+      abstimmungId: entwurf.abstimmungId,
+      status: entwurf.status,
+      vorlage: entwurf.vorlage,
+    },
+  });
+
+  log.info('Entwurf gelöscht', { entwurfId, abstimmungId: entwurf.abstimmungId });
+}
+
 /** Wieder freigeben - solange nicht als veroeffentlicht markiert. */
 export async function gibEntwurfFrei(entwurfId: string): Promise<FragtEntwurf> {
   const entwurf = await prisma.fragtEntwurf.findUnique({ where: { id: entwurfId } });

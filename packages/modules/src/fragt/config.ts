@@ -93,6 +93,23 @@ export const FRAGT_PERMISSIONS = {
   votesDetail: 'fragt.votes.detail',
   studio: 'fragt.studio',
   settings: 'fragt.settings',
+  /**
+   * Entwuerfe und Ergebnisse loeschen.
+   *
+   * ## Warum eine eigene Berechtigung und nicht `settings`
+   *
+   * Weil es eine andere Handlung ist. `settings` stellt Kanaele und Termine
+   * ein - laestig, wenn es jemand verstellt, aber reparierbar. Loeschen
+   * entfernt einen abgeschlossenen Vorgang samt seinen Stimmen, und das ist
+   * nicht reparierbar: die Zahlen von damals lassen sich nicht neu erheben.
+   *
+   * Zwei Handlungen mit verschiedenen Folgen gehoeren nicht in dieselbe
+   * Berechtigung, nur weil beide «Admin» klingen. Wer Termine pflegt, soll
+   * nicht aus Versehen einen Jahresverlauf loeschen koennen.
+   *
+   * `critical` - die Rolle wird frisch von Discord gelesen, bevor sie zaehlt.
+   */
+  delete: 'fragt.delete',
 } as const;
 
 export type FragtPermission = (typeof FRAGT_PERMISSIONS)[keyof typeof FRAGT_PERMISSIONS];
@@ -474,6 +491,14 @@ export const fragtModule: ModuleDefinition = registerModule({
       label: 'Einstellungen verwalten',
       description: 'Kanäle, Termin, Dauer und Auswahlmodus einstellen.',
       module: FRAGT_MODULE_ID,
+    },
+    {
+      key: FRAGT_PERMISSIONS.delete,
+      label: 'Entwürfe und Ergebnisse löschen',
+      description:
+        'Einen Social-Media-Entwurf verwerfen oder eine abgeschlossene Abstimmung samt ihren Stimmen entfernen. Die Frage selbst bleibt in der Bibliothek - gelöscht wird der Durchgang, nicht die Frage. Nicht rückgängig zu machen: die Zahlen von damals lassen sich nicht neu erheben.',
+      module: FRAGT_MODULE_ID,
+      critical: true,
     },
   ],
   navigation: [

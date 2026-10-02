@@ -415,6 +415,8 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   FRAGT_POLL_CLOSED_MANUALLY: 'Abstimmung von Hand geschlossen',
   FRAGT_DRAFT_FINALIZED: 'Social-Media-Entwurf abgeschlossen',
   FRAGT_DRAFT_MARKED_PUBLISHED: 'Social-Media-Entwurf als gepostet markiert',
+  FRAGT_DRAFT_DELETED: 'Social-Media-Entwurf gelöscht',
+  FRAGT_POLL_DELETED: 'Abstimmung samt Ergebnis gelöscht',
 
   // --- SwissHub Wrapped ------------------------------------------------------
   WRAPPED_CAMPAIGN_CREATED: 'Rückblick angelegt',

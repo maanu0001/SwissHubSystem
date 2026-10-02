@@ -294,6 +294,70 @@ export const fragtEntwurfBearbeitenAction = defineAction(
   },
 );
 
+/**
+ * Einen Entwurf loeschen.
+ *
+ * ## Warum `delete` und nicht `studio`
+ *
+ * `studio` bearbeitet. Loeschen ist keine Bearbeitung, sondern ihr Ende, und
+ * die Folgen sind andere: eine Vorlage zurueckzusetzen kostet eine Minute,
+ * einen Entwurf wegzuwerfen kostet die Arbeit darin. Zwei Handlungen mit
+ * verschiedenen Folgen gehoeren nicht in dieselbe Berechtigung.
+ *
+ * `freshness: 'critical'` - die Discord-Rolle wird frisch gelesen, bevor sie
+ * zaehlt. Wem die Rolle vor fuenf Minuten entzogen wurde, soll nicht noch
+ * loeschen koennen.
+ */
+export const fragtEntwurfLoeschenAction = defineAction(
+  {
+    name: 'fragt.draft.delete',
+    module: fragt.FRAGT_MODULE_ID,
+    permission: fragt.FRAGT_PERMISSIONS.delete,
+    schema: z.object({ entwurfId: z.string().cuid() }),
+    rateLimit: 'fragtWrite',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await fragt.loescheEntwurf(input.entwurfId, handelnder(ctx));
+    /*
+     * Die Studioseite neu laden und die Listen dazu.
+     *
+     * Der Entwurf ist weg; die Seite, auf der der Knopf stand, zeigt danach
+     * ihre «gibt es nicht»-Ansicht. Die Oberflaeche leitet selbst auf die
+     * Ergebnisliste - eine Seite, die auf eine geloeschte Kennung zeigt,
+     * waere ein Rueckweg ins Leere.
+     */
+    revalidatePath(systemRoutes.fragtStudio(input.entwurfId));
+    neuLaden();
+    return { geloescht: true };
+  },
+);
+
+/**
+ * Eine abgeschlossene Abstimmung samt Ergebnis loeschen.
+ *
+ * **Die Frage bleibt.** Das entscheidet nicht diese Aktion, sondern die
+ * Richtung der Kaskade im Datenmodell: `FragtFrage → FragtAbstimmung`, nie
+ * umgekehrt. `loescheAbstimmung` liest die `frageId` trotzdem und schreibt sie
+ * ins Protokoll, damit die Zusage nachpruefbar ist und nicht nur behauptet.
+ */
+export const fragtErgebnisLoeschenAction = defineAction(
+  {
+    name: 'fragt.poll.delete',
+    module: fragt.FRAGT_MODULE_ID,
+    permission: fragt.FRAGT_PERMISSIONS.delete,
+    schema: z.object({ abstimmungId: z.string().cuid() }),
+    rateLimit: 'fragtWrite',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await fragt.loescheAbstimmung(input.abstimmungId, handelnder(ctx));
+    revalidatePath(systemRoutes.fragtErgebnis(input.abstimmungId));
+    neuLaden();
+    return { geloescht: true };
+  },
+);
+
 export const fragtEntwurfFinalisierenAction = defineAction(
   {
     name: 'fragt.draft.finalize',

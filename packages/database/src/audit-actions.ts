@@ -454,6 +454,8 @@ export const AUDIT_ACTIONS = {
   FRAGT_POLL_CLOSED_MANUALLY: 'FRAGT_POLL_CLOSED_MANUALLY',
   FRAGT_DRAFT_FINALIZED: 'FRAGT_DRAFT_FINALIZED',
   FRAGT_DRAFT_MARKED_PUBLISHED: 'FRAGT_DRAFT_MARKED_PUBLISHED',
+  FRAGT_DRAFT_DELETED: 'FRAGT_DRAFT_DELETED',
+  FRAGT_POLL_DELETED: 'FRAGT_POLL_DELETED',
 
   // Streamer Hub. Nur administrative Handlungen - eine Live-Abfrage ist keine
   // Benutzeraktivitaet und steht deshalb nicht hier (siehe streamer/live.ts).
