@@ -1,10 +1,9 @@
 import { prisma } from '@swisshub/database';
 import type { Notification } from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
-import { hasPermission, loadRoleConfiguration, resolvePermissions } from '@swisshub/permissions';
-import { bootstrapConfig } from '@swisshub/config';
 import { istInterneRoute } from '@swisshub/shared';
 import { isModuleEnabled } from '../module-state';
+import { traegerDerBerechtigung } from '../traeger';
 import { BENACHRICHTIGUNGSREGELN, GEMELDETE_EREIGNISSE } from './regeln';
 import type { Benachrichtigungsregel, Empfaengerkreis } from './types';
 
@@ -211,12 +210,12 @@ async function legeAn(eingabe: AnlageEingabe): Promise<boolean> {
 /**
  * Wer diese Meldung bekommt.
  *
- * Bei einer Berechtigung: alle angemeldeten Benutzer, deren Discord-Rollen
- * sie nach der Permission Engine einschliessen. Gerechnet wird mit
- * `resolvePermissions` und `hasPermission` - derselben Funktion, die auch die
- * Seite prüft, auf die der Deep Link zeigt. Eine zweite Rechteberechnung gäbe
- * es hier nicht, und damit auch keine zweite Meinung darüber, was `admin.full`
- * und eine ausdrückliche Ausnahme bedeuten.
+ * Bei einer Person: die aus den Nutzdaten. Bei einer Berechtigung: alle, die
+ * sie besitzen - aufgelöst von `traegerDerBerechtigung`, also mit derselben
+ * Permission Engine, die auch die Seite prüft, auf die der Deep Link zeigt.
+ * Eine zweite Rechteberechnung gibt es hier nicht, und damit auch keine
+ * zweite Meinung darüber, was `admin.full` und eine ausdrückliche Ausnahme
+ * bedeuten.
  */
 async function ermittleEmpfaenger(
   kreis: Empfaengerkreis,
@@ -233,31 +232,7 @@ async function ermittleEmpfaenger(
     return [];
   }
 
-  const [konfiguration, benutzer] = await Promise.all([
-    loadRoleConfiguration(),
-    prisma.user.findMany({
-      where: { isBlocked: false, identityCache: { isMember: true } },
-      select: { discordId: true, identityCache: { select: { roleIds: true } } },
-      orderBy: { lastLoginAt: 'desc' },
-      take: HOECHSTENS_EMPFAENGER,
-    }),
-  ]);
-
-  const empfaenger: string[] = [];
-  for (const eintrag of benutzer) {
-    const aufloesung = resolvePermissions(
-      {
-        discordId: eintrag.discordId,
-        roleIds: eintrag.identityCache?.roleIds ?? [],
-        isOwner: bootstrapConfig.ownerDiscordId === eintrag.discordId,
-      },
-      konfiguration.mappings,
-    );
-    if (hasPermission(aufloesung, kreis.permission)) {
-      empfaenger.push(eintrag.discordId);
-    }
-  }
-  return empfaenger;
+  return traegerDerBerechtigung(kreis.permission, { grenze: HOECHSTENS_EMPFAENGER });
 }
 
 // --- Lesen ------------------------------------------------------------------

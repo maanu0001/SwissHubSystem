@@ -80,6 +80,16 @@ const CLIENT_SAFE = [
    * dieselben, nach denen der Server prueft. Eine zweite Liste im Browser
    * waere die Stelle, an der Formular und Ablehnung auseinanderlaufen.
    */
+  /*
+   * Die reinen Teile des Workspace.
+   *
+   * Statuslisten, Prioritätsgewichte, Fälligkeitsstufen und der Fortschritt -
+   * Rechnung ohne Datenbank. Das Board braucht die Spaltenreihenfolge und die
+   * Fälligkeitsstufe im Browser, und zwar dieselben, nach denen der Server
+   * gezählt hat: eine zweite Vorstellung davon, was «bald» heisst, wäre die
+   * Stelle, an der Karte und Kachel auseinanderlaufen.
+   */
+  '@swisshub/modules/workspace/typen',
   '@swisshub/modules/fragt/typen',
   /*
    * Die Aussenseite des Streamer Hubs: Plattformliste, Kanalerkennung, die
@@ -226,6 +236,7 @@ const EXPORTE: Record<string, string> = {
   '@swisshub/modules/wrapped/fixtures': 'packages/modules/src/wrapped/fixtures.ts',
   '@swisshub/modules/wrapped/perioden': 'packages/modules/src/wrapped/perioden.ts',
   '@swisshub/modules/wrapped/vorlagen': 'packages/modules/src/wrapped/vorlagen.ts',
+  '@swisshub/modules/workspace/typen': 'packages/modules/src/workspace/typen.ts',
   '@swisshub/modules/fragt/typen': 'packages/modules/src/fragt/typen.ts',
   '@swisshub/modules/streamer/typen': 'packages/modules/src/streamer/typen.ts',
   '@swisshub/modules/spielwahl/baum': 'packages/modules/src/spielwahl/baum.ts',

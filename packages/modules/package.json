@@ -30,6 +30,7 @@
     "./spielwahl/baum": "./src/spielwahl/baum.ts",
     "./games/schemas": "./src/games/schemas.ts",
     "./voice/naming": "./src/voice/naming.ts",
+    "./workspace/typen": "./src/workspace/typen.ts",
     "./profil/abschnitte": "./src/profile/abschnitte.ts",
     "./profil/angaben": "./src/profile/angaben.ts",
     "./profil/auszeichnungen": "./src/profile/auszeichnungen.ts",

@@ -176,6 +176,10 @@ export const systemRoutes = {
   workspaceAufgabe: (taskId: string): SystemRoute => `/workspace/aufgaben/${id(taskId)}`,
   workspaceMeine: (): SystemRoute => '/workspace/meine',
   workspaceBoard: (): SystemRoute => '/workspace/board',
+  workspaceProjekte: (): SystemRoute => '/workspace/projekte',
+  workspacePlanung: (): SystemRoute => '/workspace/planung',
+  workspaceVorlagen: (): SystemRoute => '/workspace/vorlagen',
+  workspaceArchiv: (): SystemRoute => '/workspace/archiv',
   wrappedKampagne: (campaignId: string): SystemRoute => `/system/wrapped/${id(campaignId)}`,
   wrappedVorschau: (campaignId: string): SystemRoute => `/system/wrapped/${id(campaignId)}/vorschau`,
   /**

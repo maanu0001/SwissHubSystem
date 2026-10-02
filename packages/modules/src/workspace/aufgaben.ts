@@ -4,7 +4,7 @@ import type {
   WorkspaceReminder,
   WorkspaceTask,
   WorkspaceTaskStatus,
-} from '@swisshub/database';
+ Prisma} from '@swisshub/database';
 import { AppError, sanitizeText } from '@swisshub/shared';
 import { meldeEreignis } from '../automation/emit';
 import { WORKSPACE_MODULE_ID } from './config';
@@ -36,6 +36,18 @@ import { vermerke } from './verlauf';
  * Deshalb wird er überall dort geleert, wo `dueAt` sich ändert, und nicht nur
  * im Formular, das daran gerade gedacht hat.
  */
+
+/**
+ * «Nicht in einem archivierten Projekt» - als Bedingung.
+ *
+ * Steht hier und nicht an vier Stellen, weil die Sonderbehandlung leicht
+ * vergessen wird: eine Aufgabe **ohne** Projekt ist nicht archiviert, sie hat
+ * nur kein Projekt. Ohne das erste Glied des `OR` fiele sie aus jeder Liste
+ * und aus jeder Zahl der Übersicht.
+ */
+export function nichtArchiviert(): Prisma.WorkspaceTaskWhereInput {
+  return { OR: [{ projectId: null }, { project: { archivedAt: null } }] };
+}
 
 const TITEL_MAX = 160;
 const BESCHREIBUNG_MAX = 8000;
@@ -534,11 +546,7 @@ export async function ladeAufgaben(guildId: string, filter: AufgabenFilter = {})
       ...(filter.zustaendig ? { assignees: { some: { discordId: filter.zustaendig } } } : {}),
       ...(filter.ohneZustaendige ? { assignees: { none: {} } } : {}),
       ...(filter.bisFrist ? { dueAt: { not: null, lte: filter.bisFrist } } : {}),
-      ...(filter.mitArchivierten
-        ? {}
-        : // Eine Aufgabe ohne Projekt ist nicht archiviert - sie hat nur kein
-          // Projekt. Ohne das `OR` fiele sie aus jeder Standardansicht.
-          { OR: [{ projectId: null }, { project: { archivedAt: null } }] }),
+      ...(filter.mitArchivierten ? {} : nichtArchiviert()),
       ...(suche
         ? {
             AND: [
