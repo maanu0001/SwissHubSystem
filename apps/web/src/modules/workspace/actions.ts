@@ -568,3 +568,196 @@ export const workspaceAnhangLoeschenAction = defineAction(
     return { ok: true };
   },
 );
+
+// --- Meilensteine -----------------------------------------------------------
+
+export const workspaceMeilensteinErstellenAction = defineAction(
+  {
+    name: 'workspace.milestone.create',
+    module: workspace.WORKSPACE_MODULE_ID,
+    // Wie beim Projekt selbst: `view` als Boden, die Projektleitung als zweite
+    // Stufe im Rumpf. Ein Meilenstein ist Projektplanung.
+    permission: workspace.WORKSPACE_PERMISSIONS.view,
+    schema: z.object({
+      projectId: z.string().min(1).max(40),
+      titel: z.string().trim().min(1).max(120),
+      beschreibung: z.string().trim().max(2000).nullable().optional(),
+      dueAt: datumSchema,
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx, input }) => {
+    await pruefeProjektzugriff(ctx, input.projectId, workspace.WORKSPACE_PERMISSIONS.projectsEdit);
+    if (!input.dueAt) {
+      throw new AppError('VALIDATION_FAILED', {
+        userMessage: 'Ein Meilenstein ohne Datum ist kein Meilenstein.',
+      });
+    }
+    const meilenstein = await workspace.ergaenzeMeilenstein(input.projectId, ctx.user.discordId, {
+      titel: input.titel,
+      beschreibung: input.beschreibung ?? null,
+      dueAt: input.dueAt,
+    });
+    neuLadenProjekt(input.projectId);
+    revalidatePath(systemRoutes.workspacePlanung());
+    return { meilensteinId: meilenstein.id };
+  },
+);
+
+export const workspaceMeilensteinAendernAction = defineAction(
+  {
+    name: 'workspace.milestone.update',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.view,
+    schema: z.object({
+      meilensteinId: z.string().min(1).max(40),
+      projectId: z.string().min(1).max(40),
+      titel: z.string().trim().min(1).max(120).optional(),
+      beschreibung: z.string().trim().max(2000).nullable().optional(),
+      dueAt: datumSchema.optional(),
+      erledigt: z.boolean().optional(),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx, input }) => {
+    await pruefeProjektzugriff(ctx, input.projectId, workspace.WORKSPACE_PERMISSIONS.projectsEdit);
+    const { meilensteinId, projectId, dueAt, ...rest } = input;
+    await workspace.aendereMeilenstein(meilensteinId, ctx.user.discordId, {
+      ...rest,
+      // `null` wäre «Datum weg», und das gibt es bei einem Meilenstein nicht -
+      // deshalb nur übernehmen, wenn tatsächlich eines kam.
+      ...(dueAt ? { dueAt } : {}),
+    });
+    neuLadenProjekt(projectId);
+    revalidatePath(systemRoutes.workspacePlanung());
+    return { ok: true };
+  },
+);
+
+export const workspaceMeilensteinLoeschenAction = defineAction(
+  {
+    name: 'workspace.milestone.delete',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.view,
+    schema: z.object({
+      meilensteinId: z.string().min(1).max(40),
+      projectId: z.string().min(1).max(40),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx, input }) => {
+    await pruefeProjektzugriff(ctx, input.projectId, workspace.WORKSPACE_PERMISSIONS.projectsEdit);
+    await workspace.loescheMeilenstein(input.meilensteinId);
+    neuLadenProjekt(input.projectId);
+    revalidatePath(systemRoutes.workspacePlanung());
+    return { ok: true };
+  },
+);
+
+// --- Vorlagen ---------------------------------------------------------------
+
+export const workspaceVorlageErstellenAction = defineAction(
+  {
+    name: 'workspace.template.create',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.templatesManage,
+    schema: z.object({
+      name: z.string().trim().min(1).max(80),
+      beschreibung: z.string().trim().max(1000).nullable().optional(),
+      projektTitel: z.string().trim().min(1).max(160),
+      akzent: z.string().trim().max(40).nullable().optional(),
+      tags: tagsSchema.optional(),
+      aufgaben: z
+        .array(
+          z.object({
+            titel: z.string().trim().min(1).max(160),
+            prioritaet: prioritaetSchema.optional(),
+            // Rund zwei Jahre in beide Richtungen: alles darüber ist ein
+            // Tippfehler und keine Planung.
+            faelligNachTagen: z.coerce.number().int().min(-730).max(730).nullable().optional(),
+          }),
+        )
+        .max(50),
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx, input }) => {
+    const guildId = await resolveGuildId();
+    const vorlage = await workspace.erstelleVorlage(guildId, ctx.user.discordId, input);
+    revalidatePath(systemRoutes.workspaceVorlagen());
+    return { templateId: vorlage.id };
+  },
+);
+
+export const workspaceStandardvorlagenAction = defineAction(
+  {
+    name: 'workspace.template.seed',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.templatesManage,
+    schema: z.object({}),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx }) => {
+    const guildId = await resolveGuildId();
+    const angelegt = await workspace.legeStandardvorlagenAn(guildId, ctx.user.discordId);
+    revalidatePath(systemRoutes.workspaceVorlagen());
+    // Die Zahl zurück, damit die Oberfläche etwas Wahres sagen kann und nicht
+    // «vier Vorlagen angelegt», wenn es keine war.
+    return { angelegt };
+  },
+);
+
+export const workspaceVorlageArchivierenAction = defineAction(
+  {
+    name: 'workspace.template.archive',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.templatesManage,
+    schema: z.object({ templateId: z.string().min(1).max(40) }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx, input }) => {
+    await workspace.archiviereVorlage(input.templateId, ctx.user.discordId);
+    revalidatePath(systemRoutes.workspaceVorlagen());
+    return { ok: true };
+  },
+);
+
+export const workspaceVorlageZurueckholenAction = defineAction(
+  {
+    name: 'workspace.template.restore',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.templatesManage,
+    schema: z.object({ templateId: z.string().min(1).max(40) }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ input }) => {
+    await workspace.holeVorlageZurueck(input.templateId);
+    revalidatePath(systemRoutes.workspaceVorlagen());
+    return { ok: true };
+  },
+);
+
+export const workspaceProjektAusVorlageAction = defineAction(
+  {
+    name: 'workspace.template.apply',
+    module: workspace.WORKSPACE_MODULE_ID,
+    // Ein Projekt anlegen - nicht Vorlagen verwalten. Wer aus einer Vorlage
+    // startet, braucht `projects.create`, nicht `templates.manage`.
+    permission: workspace.WORKSPACE_PERMISSIONS.projectsCreate,
+    schema: z.object({
+      templateId: z.string().min(1).max(40),
+      titel: z.string().trim().max(160).optional(),
+      zielAm: datumSchema,
+    }),
+    rateLimit: 'workspaceSchreiben',
+  },
+  async ({ ctx, input }) => {
+    const projekt = await workspace.erstelleAusVorlage(input.templateId, ctx.user.discordId, {
+      ...(input.titel ? { titel: input.titel } : {}),
+      zielAm: input.zielAm,
+    });
+    neuLadenProjekt(projekt.id);
+    revalidatePath(systemRoutes.workspacePlanung());
+    return { projectId: projekt.id };
+  },
+);

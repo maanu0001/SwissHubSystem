@@ -5,3 +5,5 @@ export * from './projekte';
 export * from './aufgaben';
 export * from './kennzahlen';
 export * from './mitarbeit';
+export * from './planung';
+export * from './vorlagen';

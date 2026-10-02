@@ -25,6 +25,7 @@ import { AufgabeFormular } from '@/modules/workspace/components/aufgabe-formular
 import { ProjektFormular } from '@/modules/workspace/components/projekt-formular';
 import { ArchivKnopf, Mitgliederverwaltung } from '@/modules/workspace/components/projekt-steuerung';
 import { Anhaenge, Links } from '@/modules/workspace/components/mitarbeit';
+import { Meilensteine } from '@/modules/workspace/components/meilensteine';
 import { ROLLE_LABEL, VERLAUF_LABEL, zeitpunktText } from '@/modules/workspace/labels';
 
 export const metadata: Metadata = { title: 'Projekt · Workspace' };
@@ -58,7 +59,7 @@ export default async function WorkspaceProjektPage({
     notFound();
   }
 
-  const [aufgaben, verlauf, team, zahlen, links, anhaenge] = await Promise.all([
+  const [aufgaben, verlauf, team, zahlen, links, anhaenge, meilensteine] = await Promise.all([
     workspace.ladeAufgaben(guildId, { projectId, mitArchivierten: true, grenze: 200 }),
     workspace.ladeVerlauf({ projectId }, 20),
     ladeTeam(),
@@ -68,6 +69,7 @@ export default async function WorkspaceProjektPage({
     }),
     workspace.ladeLinks({ projectId }),
     workspace.ladeAnhaenge({ projectId }),
+    workspace.ladeMeilensteine(projectId),
   ]);
 
   const namen = await namenKarte([
@@ -251,6 +253,19 @@ export default async function WorkspaceProjektPage({
                 ))}
               </ul>
             )}
+          </Panel>
+
+          <Panel
+            title="Meilensteine"
+            icon="Flag"
+            description="Zeitpunkte, an denen ein Zustand erreicht sein muss."
+          >
+            <Meilensteine
+              csrfToken={csrfToken}
+              projectId={ansicht.projekt.id}
+              meilensteine={meilensteine}
+              darfBearbeiten={darfBearbeiten && !ansicht.projekt.archivedAt}
+            />
           </Panel>
 
           <Panel title="Links" icon="Link2" description="Dokumente, Designs, Beiträge.">

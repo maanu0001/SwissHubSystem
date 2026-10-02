@@ -58,7 +58,30 @@ export function workspaceNavigation(
       icon: 'FolderKanban',
       hinweis: 'Laufende Vorhaben',
     },
+    {
+      key: 'planung',
+      label: 'Planung',
+      href: systemRoutes.workspacePlanung(),
+      icon: 'CalendarDays',
+      hinweis: 'Fristen und Meilensteine',
+    },
   ];
+
+  /*
+   * Vorlagen stehen allen offen, die das Modul oeffnen duerfen.
+   *
+   * Lesen ist dasselbe Recht wie das Modul zu sehen - eine Vorlage ist die
+   * gesammelte Erfahrung des Teams, und wer ein Projekt daraus startet,
+   * braucht `projects.create` und nicht `templates.manage`. Verwaltet wird sie
+   * nur mit `templates.manage`, und das entscheidet die Seite.
+   */
+  eintraege.push({
+    key: 'vorlagen',
+    label: 'Vorlagen',
+    href: systemRoutes.workspaceVorlagen(),
+    icon: 'Copy',
+    hinweis: 'Wiederkehrende Abläufe',
+  });
 
   eintraege.push({
     key: 'archiv',
