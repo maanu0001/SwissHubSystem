@@ -309,6 +309,18 @@ export const RATE_LIMITS = {
 
   /** Kampagnen anlegen, aendern, Szenen sortieren. */
   wrappedStudio: { limit: 120, windowMs: 10 * 60 * 1000 },
+
+  /*
+   * Workspace: grosszuegig, weil es Arbeitsgeraet ist.
+   *
+   * Wer eine Vorlage anwendet und danach zwanzig Aufgaben sortiert, soll nicht
+   * gegen eine Grenze laufen. Die Grenze ist hier kein Schutz gegen Missbrauch
+   * - das Modul ist intern und verlangt `workspace.view` -, sondern gegen eine
+   * Schleife im Browser.
+   */
+  workspaceSchreiben: { limit: 240, windowMs: 10 * 60 * 1000 },
+  /** Anhaenge kosten Platz und Rechenzeit, deshalb knapper. */
+  workspaceUpload: { limit: 30, windowMs: 10 * 60 * 1000 },
   /*
    * Clipdateien hochladen - eng.
    *

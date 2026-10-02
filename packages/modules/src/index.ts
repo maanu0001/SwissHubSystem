@@ -32,6 +32,7 @@ import './fragt/config';
 import './emoji/config';
 import './serverrollen/config';
 import './socialmedia/config';
+import './workspace/config';
 import './streamer/config';
 import { registerGuildResolver } from './guild/config';
 
@@ -89,6 +90,7 @@ export * as fragt from './fragt';
 export * as emoji from './emoji';
 export * as serverrollen from './serverrollen';
 export * as socialmedia from './socialmedia';
+export * as workspace from './workspace';
 export * as streamer from './streamer';
 export * as wrapped from './wrapped';
 export * as spielwahl from './spielwahl';

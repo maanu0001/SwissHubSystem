@@ -417,9 +417,9 @@ model DiscordRoleCache {
 /// der oeffentlichen Seite «Team», «Sponsor» oder «Levelrollen» heisst, ist
 /// deshalb eine Gruppierung von SwissHub und keine Spiegelung.
 model ServerRoleCategory {
-  id    String @id @default(cuid())
+  id      String  @id @default(cuid())
   /// Wie die Gruppe auf der Seite heisst.
-  name  String
+  name    String
   /// Ein Satz darunter - optional, meistens braucht es ihn nicht.
   hinweis String?
 
@@ -749,7 +749,7 @@ model ClipCompetition {
   ///
   /// Wer die Runde wirklich los sein will, loescht sie - das ist der andere
   /// Knopf, und er verlangt eine eigene Berechtigung.
-  hallOfFameHiddenAt        DateTime?
+  hallOfFameHiddenAt          DateTime?
   hallOfFameHiddenByDiscordId String?
   hallOfFameHiddenReason      String?
 
@@ -7461,7 +7461,7 @@ model SpielwahlSession {
   /// eine Abstimmung, an der jeder mit dem Link teilnimmt, ist etwas anderes
   /// als eine unter Mitgliedern, und wer den Link teilt, soll das wissen.
   /// Siehe `spielwahl/gast.ts`.
-  gaesteErlaubt         Boolean              @default(false)
+  gaesteErlaubt Boolean @default(false)
 
   /// Einmal neu auslosen - das Zugestaendnis an die enttaeuschte Gruppe.
   nachlosenErlaubt Boolean   @default(true)
@@ -7517,7 +7517,7 @@ model SpielwahlParticipant {
   ///
   /// Bei einem Mitglied kommt der Name aus dem Profil und wird nicht
   /// mitgeschrieben; ein Gast hat kein Profil, aus dem er kommen koennte.
-  gastName  String?
+  gastName String?
 
   joinedAt   DateTime  @default(now())
   /// Gesetzt, wenn jemand die Session verlassen hat oder entfernt wurde.
@@ -9968,34 +9968,44 @@ model HostImageState {
 
 /**
  * Woher die Bytes eines Antrags technisch kommen.
- *
  * Bewusst eine *technische* Herkunft und keine Rechteaussage: SwissHub weiss,
  * ob eine Datei hochgeladen oder von einer freigegebenen Adresse geholt wurde.
  * Wem das Bild gehoert, weiss es nicht - und behauptet es deshalb nirgends.
  */
 enum EmojiHerkunft {
-  /** Direkt in der WebApp hochgeladen. */
+  /**
+   * Direkt in der WebApp hochgeladen.
+   */
   UPLOAD
-  /** Von einer freigegebenen Adresse geholt. */
+  /**
+   * Von einer freigegebenen Adresse geholt.
+   */
   IMPORT
-  /** Anhang einer Discord-Nachricht, vom Bot geholt. */
+  /**
+   * Anhang einer Discord-Nachricht, vom Bot geholt.
+   */
   DISCORD_ANHANG
 }
 
 enum EmojiAntragStatus {
-  /** Wartet auf das Team. */
+  /**
+   * Wartet auf das Team.
+   */
   OFFEN
-  /** Die Community stimmt ab. */
+  /**
+   * Die Community stimmt ab.
+   */
   ABSTIMMUNG
   ANGENOMMEN
   ABGELEHNT
-  /** Die Abstimmung endete ohne genug Stimmen. */
+  /**
+   * Die Abstimmung endete ohne genug Stimmen.
+   */
   ABGELAUFEN
 }
 
 /**
  * Ein Emoji-Vorschlag.
- *
  * Die Bytes liegen im Upload-Verzeichnis und nicht in dieser Zeile: ein
  * 256-KiB-Blob je Antrag waere eine Datenbank, die mit Bildern waechst. Der
  * Dateiname ist ein Zufallsname - der Name beim Hochladen wird nie zum Pfad.
@@ -10003,12 +10013,13 @@ enum EmojiAntragStatus {
 model EmojiAntrag {
   id String @id @default(cuid())
 
-  /** Der vorgeschlagene Name, schon geprueft (2-32, a-z0-9_). */
+  /**
+   * Der vorgeschlagene Name, schon geprueft (2-32, a-z0-9_).
+   */
   name String
 
   /**
    * SHA-256 der Bytes.
-   *
    * Erkennt dasselbe Bild unter anderem Namen - ohne Bildvergleich, der
    * teuer waere und bei verlustfrei umkodierten Bildern trotzdem versagt.
    */
@@ -10016,14 +10027,12 @@ model EmojiAntrag {
 
   /**
    * Zufallsname im Upload-Verzeichnis - nur noch fuer Altbestand.
-   *
    * Die Bytes liegen seit der Umstellung in `EmojiAntragBild`. Der Grund ist
    * kein Geschmack: der Bot schreibt nicht in das Upload-Volume, es ist fuer
    * ihn absichtlich nur lesbar gemountet («schreiben tut ausschliesslich die
    * WebApp»). Ein Vorschlag aus einem Slash Command scheiterte deshalb am
    * Dateisystem. Ein Emoji ist bei Discord hart auf 256 KiB begrenzt - diese
    * Bytes gehoeren in die Datenbank, die beide Prozesse ohnehin teilen.
-   *
    * `null` fuer alles, was danach entstanden ist. Vorhandene Namen bleiben
    * stehen und werden weiterhin gelesen: ein Vorschlag aus der Zeit davor
    * soll nicht verschwinden, nur weil die Ablage gewechselt hat.
@@ -10035,19 +10044,25 @@ model EmojiAntrag {
   breite    Int?
   hoehe     Int?
 
-  herkunft EmojiHerkunft
-  /** Die geprueufte Quelladresse oder der Anzeigename beim Hochladen - nur Technik. */
+  herkunft      EmojiHerkunft
+  /**
+   * Die geprueufte Quelladresse oder der Anzeigename beim Hochladen - nur Technik.
+   */
   herkunftNotiz String?
 
   status          EmojiAntragStatus @default(OFFEN)
   antragstellerId String
   begruendung     String?
 
-  /** Die Moderationsnachricht - damit sie bearbeitet und nicht neu gesendet wird. */
+  /**
+   * Die Moderationsnachricht - damit sie bearbeitet und nicht neu gesendet wird.
+   */
   modChannelId String?
   modMessageId String?
 
-  /** Abstimmung: Fenster, Ziel und die Nachricht mit dem Knopf. */
+  /**
+   * Abstimmung: Fenster, Ziel und die Nachricht mit dem Knopf.
+   */
   abstimmungStartetAm DateTime?
   abstimmungEndetAm   DateTime?
   stimmenZiel         Int?
@@ -10058,7 +10073,9 @@ model EmojiAntrag {
   entschiedenAm   DateTime?
   ablehnungsGrund String?
 
-  /** Das entstandene Emoji - `null`, solange keines existiert. */
+  /**
+   * Das entstandene Emoji - `null`, solange keines existiert.
+   */
   emojiId   String?
   emojiName String?
 
@@ -10071,7 +10088,9 @@ model EmojiAntrag {
   @@index([status])
   @@index([pruefsumme])
   @@index([antragstellerId])
-  /** Fuer den Scheduler: welche Abstimmung laeuft ab? */
+  /**
+   * Fuer den Scheduler: welche Abstimmung laeuft ab?
+   */
   @@index([status, abstimmungEndetAm])
 }
 
@@ -10098,7 +10117,6 @@ model EmojiAntragBild {
 
 /**
  * Eine Stimme fuer einen Vorschlag.
- *
  * Der eindeutige Schluessel ist die ganze Doppelsperre: zwei Klicks desselben
  * Mitglieds sind ein Konflikt in der Datenbank und keine Rechnung im Code.
  */
@@ -10111,4 +10129,393 @@ model EmojiStimme {
 
   @@unique([antragId, discordId])
   @@index([antragId])
+}
+
+// =============================================================================
+// Workspace
+// =============================================================================
+//
+// Das interne Arbeitsmodul des Teams: Projekte, Aufgaben, Planung.
+//
+// ## Was es bewusst nicht ist
+//
+// Kein Jira und kein Notion. Es gibt keine Unteraufgaben, keine
+// Abhaengigkeiten, keinen kritischen Pfad, keine Sprints, keine
+// Arbeitszeiterfassung und keine Workflow-Engine. Was hier steht, ist der
+// kleinste Satz, mit dem ein Team wiederkehrende Arbeit organisiert - und das
+// ist die Bedingung dafuer, dass es benutzt wird. Ein Werkzeug, das zwanzig
+// Statuswerte kennt, bekommt am Ende drei gepflegte Projekte.
+//
+// ## Keine zweite Benutzerverwaltung
+//
+// Ueberall steht eine `discordId`, nie eine eigene Workspace-Benutzerkennung.
+// Verantwortliche, Autoren und Mitglieder sind dieselben Leute wie im
+// uebrigen System, und wer den Server verlaesst, verliert seine Zuweisungen
+// nicht: die Kennung bleibt stehen, die Oberflaeche zeigt sie als
+// ehemaliges Mitglied. Eine Fremdschluesselbeziehung auf eine Mitgliedstabelle
+// haette entweder die Geschichte geloescht oder den Austritt blockiert.
+//
+// ## Warum Tags ein Array sind
+//
+// Weil sie Beschriftungen sind und keine Objekte. Eine eigene Tabelle plus
+// Verbindungstabelle waere zwei Modelle fuer eine Liste von Woertern, die
+// niemand umbenennt, zusammenfasst oder mit Farben versieht. Postgres
+// indiziert ein Textarray, und `has`/`hasSome` reichen fuer das Filtern.
+
+enum WorkspaceProjectStatus {
+  PLANNED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  /// Aus den Standardansichten genommen. Der Datensatz bleibt vollstaendig.
+  ARCHIVED
+}
+
+enum WorkspaceTaskStatus {
+  OPEN
+  IN_PROGRESS
+  /// Wartet auf etwas, das nicht in der Hand der Verantwortlichen liegt.
+  BLOCKED
+  DONE
+  /// Faellt weg - zaehlt deshalb nicht in den Fortschritt.
+  CANCELLED
+}
+
+enum WorkspacePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum WorkspaceMemberRole {
+  /// Projektleitung. Darf Projekt, Mitglieder und Aufgaben verwalten.
+  LEAD
+  MEMBER
+}
+
+/// Wann vor der Faelligkeit erinnert wird.
+enum WorkspaceReminder {
+  NONE
+  ON_DUE_DATE
+  ONE_DAY
+  THREE_DAYS
+  ONE_WEEK
+}
+
+model WorkspaceProject {
+  id      String @id @default(cuid())
+  guildId String
+
+  title       String
+  description String?
+
+  status   WorkspaceProjectStatus @default(PLANNED)
+  priority WorkspacePriority?
+
+  /// Akzentfarbe als `#rrggbb` - serverseitig normalisiert, nie durchgereicht.
+  accent String?
+
+  startAt DateTime?
+  dueAt   DateTime?
+
+  /// Freie Beschriftungen. Siehe die Erklaerung oben.
+  tags String[] @default([])
+
+  /**
+   * Die Kennung eines bestehenden SwissHub-Moduls - nur Metadaten.
+   * Absichtlich keine Beziehung und keine Fremdschluesselpruefung: ein
+   * Projekt, das auf «turniere» zeigt, soll nicht davon abhaengen, dass dieses
+   * Modul eingeschaltet ist oder dass es seine Tabellen noch gibt. Die
+   * Oberflaeche macht daraus einen Verweis, wenn das Modul da ist, und sonst
+   * nichts.
+   */
+  linkedModuleId String?
+
+  /// Gesetzt heisst archiviert. Ein Zeitpunkt statt eines Schalters, weil die
+  /// Frage «seit wann» im Archiv regelmaessig gestellt wird.
+  archivedAt          DateTime?
+  archivedByDiscordId String?
+
+  createdByDiscordId String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  members     WorkspaceProjectMember[]
+  tasks       WorkspaceTask[]
+  milestones  WorkspaceMilestone[]
+  links       WorkspaceLink[]
+  attachments WorkspaceAttachment[]
+  activity    WorkspaceActivity[]
+
+  /// Die Standardansicht: aktive Projekte, neueste zuerst.
+  @@index([guildId, archivedAt, updatedAt])
+  @@index([guildId, status])
+}
+
+model WorkspaceProjectMember {
+  id        String           @id @default(cuid())
+  projectId String
+  project   WorkspaceProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  discordId String
+  rolle     WorkspaceMemberRole @default(MEMBER)
+
+  createdAt DateTime @default(now())
+
+  /// Eine Person einmal je Projekt.
+  @@unique([projectId, discordId])
+  @@index([discordId])
+}
+
+model WorkspaceTask {
+  id      String @id @default(cuid())
+  guildId String
+
+  title       String
+  description String?
+
+  /// Eine Aufgabe darf ohne Projekt bestehen - nicht alles ist ein Projekt.
+  projectId String?
+  project   WorkspaceProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  status   WorkspaceTaskStatus @default(OPEN)
+  priority WorkspacePriority   @default(NORMAL)
+
+  startAt DateTime?
+  dueAt   DateTime?
+
+  tags String[] @default([])
+
+  reminder       WorkspaceReminder @default(NONE)
+  /**
+   * Wann der Reminder zuletzt verschickt wurde.
+   * Der Schluessel gegen Doppel: der Job laeuft jede Minute, und ohne diesen
+   * Vermerk schickte er dieselbe Erinnerung sechzigmal je Stunde. Wird beim
+   * Aendern der Faelligkeit geleert - eine verschobene Deadline verdient eine
+   * neue Erinnerung.
+   */
+  reminderSentAt DateTime?
+
+  /// Nur Metadaten, wie beim Projekt.
+  linkedModuleId String?
+
+  doneAt DateTime?
+
+  createdByDiscordId String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  assignees   WorkspaceTaskAssignee[]
+  checklist   WorkspaceChecklistItem[]
+  comments    WorkspaceComment[]
+  links       WorkspaceLink[]
+  attachments WorkspaceAttachment[]
+  activity    WorkspaceActivity[]
+
+  /// Das Board: Aufgaben eines Projekts nach Status.
+  @@index([guildId, status])
+  @@index([projectId, status])
+  /// Die Planung und die Reminder: was ist wann faellig.
+  @@index([guildId, dueAt])
+  /// Der Reminder-Job sucht genau so.
+  @@index([status, reminder, dueAt])
+  @@index([guildId, updatedAt])
+}
+
+model WorkspaceTaskAssignee {
+  id     String        @id @default(cuid())
+  taskId String
+  task   WorkspaceTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  discordId String
+
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, discordId])
+  /// «Meine Aufgaben» - der haeufigste Zugriff im Modul.
+  @@index([discordId])
+}
+
+model WorkspaceChecklistItem {
+  id     String        @id @default(cuid())
+  taskId String
+  task   WorkspaceTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  text     String
+  erledigt Boolean @default(false)
+  /// Die Reihenfolge in der Liste. Luecken sind erlaubt.
+  position Int
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId, position])
+}
+
+model WorkspaceComment {
+  id     String        @id @default(cuid())
+  taskId String
+  task   WorkspaceTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  authorDiscordId String
+  /// Der Text, wie er eingegeben wurde. Dargestellt wird er ueber den
+  /// zentralen Markdown-Darsteller - der erzeugt React-Elemente und kein HTML.
+  body            String
+
+  /**
+   * Die erwaehnten Kennungen, beim Speichern aus dem Text gelesen.
+   * Als Spalte und nicht bei jeder Anzeige neu geparst: daran haengen die
+   * Benachrichtigungen, und die sollen von dem abhaengen, was beim Schreiben
+   * gemeint war - nicht davon, wie ein spaeterer Parser denselben Text liest.
+   */
+  mentions String[] @default([])
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId, createdAt])
+}
+
+model WorkspaceMilestone {
+  id        String           @id @default(cuid())
+  projectId String
+  project   WorkspaceProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  dueAt       DateTime
+  erledigt    Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, dueAt])
+}
+
+/// Ein Verweis nach draussen - Drive, GitHub, Canva, Dokumentation.
+model WorkspaceLink {
+  id String @id @default(cuid())
+
+  /// Genau eines von beiden ist gesetzt.
+  projectId String?
+  project   WorkspaceProject? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId    String?
+  task      WorkspaceTask?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  title String
+  /// Serverseitig geprueft: nur http und https, kein `javascript:`.
+  url   String
+
+  createdByDiscordId String
+  createdAt          DateTime @default(now())
+
+  @@index([projectId])
+  @@index([taskId])
+}
+
+/// Eine hochgeladene Datei. Die Bytes liegen im zentralen Upload-Verzeichnis.
+model WorkspaceAttachment {
+  id String @id @default(cuid())
+
+  projectId String?
+  project   WorkspaceProject? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId    String?
+  task      WorkspaceTask?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  /// Der serverseitig vergebene Name. Nie der Name aus dem Browser.
+  fileName    String
+  /// Der Name, den die Person sah - nur zur Anzeige, nie als Pfad.
+  anzeigeName String
+  mimeTyp     String
+  bytes       Int
+
+  uploadedByDiscordId String
+  createdAt           DateTime @default(now())
+
+  @@index([projectId])
+  @@index([taskId])
+}
+
+/**
+ * Der Verlauf eines Projekts oder einer Aufgabe.
+ * ## Warum nicht das Audit Log
+ * Weil es andere Leser hat. Das Audit Log beantwortet «wer hat im System was
+ * getan» und wird von Administratoren gelesen, gefiltert und aufbewahrt; es
+ * umfasst alle Module und ist entsprechend gross. Dieser Verlauf beantwortet
+ * «was ist an *dieser* Aufgabe passiert» und steht neben den Kommentaren.
+ * Beides zu fuehren ist keine Doppelung, sondern dieselbe Trennung, die auch
+ * zwischen Audit Log und Glocke besteht: das Log haelt fest, was geschah, die
+ * Glocke sagt jemandem, dass etwas wartet, und dieser Verlauf erzaehlt die
+ * Geschichte eines Vorgangs. Die wenigen Aktionen aus §46 stehen zusaetzlich
+ * im Audit Log.
+ * Nicht jede Bewegung landet hier - kein Tastendruck, kein Filterwechsel, kein
+ * Zwischenstand beim Tippen. Eingetragen wird, was jemand spaeter nachlesen
+ * will.
+ */
+model WorkspaceActivity {
+  id      String @id @default(cuid())
+  guildId String
+
+  projectId String?
+  project   WorkspaceProject? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId    String?
+  task      WorkspaceTask?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  /// Die Art des Eintrags, z.B. `task.status` - die Oberflaeche uebersetzt sie.
+  art    String
+  /// Ein kurzer Zusatz, etwa «OPEN → DONE». Reiner Text.
+  detail String?
+
+  actorDiscordId String
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([guildId, createdAt])
+}
+
+/// Eine Projektvorlage - wiederkehrende Arbeit, einmal beschrieben.
+model WorkspaceTemplate {
+  id      String @id @default(cuid())
+  guildId String
+
+  name         String
+  description  String?
+  /// Der Titel, den ein daraus erzeugtes Projekt bekommt.
+  projectTitle String
+  accent       String?
+  tags         String[] @default([])
+
+  archivedAt DateTime?
+
+  createdByDiscordId String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tasks WorkspaceTemplateTask[]
+
+  @@index([guildId, archivedAt])
+}
+
+model WorkspaceTemplateTask {
+  id         String            @id @default(cuid())
+  templateId String
+  template   WorkspaceTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  priority    WorkspacePriority @default(NORMAL)
+  position    Int
+
+  /**
+   * Die Faelligkeit relativ zum Projektstart, in Tagen.
+   * `null` heisst «keine Faelligkeit». Negative Werte sind erlaubt und
+   * sinnvoll: eine Aufgabe, die drei Tage **vor** dem Zieldatum fertig sein
+   * muss, steht mit -3 relativ zum Ziel.
+   */
+  faelligNachTagen Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([templateId, position])
 }

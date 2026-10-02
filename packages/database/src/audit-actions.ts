@@ -406,6 +406,32 @@ export const AUDIT_ACTIONS = {
   EMOJI_VOTE_PASSED: 'EMOJI_VOTE_PASSED',
   EMOJI_VOTE_EXPIRED: 'EMOJI_VOTE_EXPIRED',
 
+  // --- Workspace -----------------------------------------------------------
+  //
+  // Protokolliert wird, was Bestand veraendert oder Verantwortung verschiebt:
+  // ein Projekt entsteht, wird archiviert oder zurueckgeholt, eine Aufgabe
+  // entsteht oder wird geloescht, eine Zuweisung oder eine Faelligkeit
+  // wechselt, eine Vorlage wird geaendert.
+  //
+  // **Nicht** protokolliert wird der Alltag: jeder Statuswechsel auf dem
+  // Board, jeder Haken in einer Checkliste, jeder Kommentar. Das waeren bei
+  // einem aktiven Team hunderte Eintraege am Tag, und sie beantworten keine
+  // Frage, die jemand im Audit Log stellt - sie stehen im Verlauf der Aufgabe,
+  // wo man sie sucht.
+  //
+  // Die Zuweisung und die Faelligkeit stehen hier trotzdem: beide verschieben,
+  // wer woran gemessen wird, und die Frage «seit wann war das meine Aufgabe»
+  // soll auch dann beantwortbar sein, wenn die Aufgabe inzwischen geloescht
+  // ist.
+  WORKSPACE_PROJECT_CREATED: 'WORKSPACE_PROJECT_CREATED',
+  WORKSPACE_PROJECT_ARCHIVED: 'WORKSPACE_PROJECT_ARCHIVED',
+  WORKSPACE_PROJECT_RESTORED: 'WORKSPACE_PROJECT_RESTORED',
+  WORKSPACE_TASK_CREATED: 'WORKSPACE_TASK_CREATED',
+  WORKSPACE_TASK_DELETED: 'WORKSPACE_TASK_DELETED',
+  WORKSPACE_TASK_ASSIGNED: 'WORKSPACE_TASK_ASSIGNED',
+  WORKSPACE_TASK_DUE_CHANGED: 'WORKSPACE_TASK_DUE_CHANGED',
+  WORKSPACE_TEMPLATE_CHANGED: 'WORKSPACE_TEMPLATE_CHANGED',
+
   // --- SwissHub fragt ------------------------------------------------------
   //
   // Protokolliert wird die Verwaltung: wer eine Frage schreibt, aendert,

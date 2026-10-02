@@ -164,6 +164,18 @@ export const systemRoutes = {
    */
   wrapped: (key: string): SystemRoute => `/wrapped/${id(key)}`,
   wrappedStudio: (): SystemRoute => '/system/wrapped',
+
+  /**
+   * Der Workspace - das interne Arbeitsmodul des Teams.
+   *
+   * Die Reiter liegen unter derselben Adresse; der Eintrag in der Seitenleiste
+   * beansprucht sie ueber `titlePrefix`.
+   */
+  workspace: (): SystemRoute => '/workspace',
+  workspaceProjekt: (projectId: string): SystemRoute => `/workspace/projekte/${id(projectId)}`,
+  workspaceAufgabe: (taskId: string): SystemRoute => `/workspace/aufgaben/${id(taskId)}`,
+  workspaceMeine: (): SystemRoute => '/workspace/meine',
+  workspaceBoard: (): SystemRoute => '/workspace/board',
   wrappedKampagne: (campaignId: string): SystemRoute => `/system/wrapped/${id(campaignId)}`,
   wrappedVorschau: (campaignId: string): SystemRoute => `/system/wrapped/${id(campaignId)}/vorschau`,
   /**
