@@ -155,3 +155,469 @@ describeWithDatabase('SwissHub fragt: die Marke der Grafiken', () => {
     await expect(stelleEin({ exportLogo: 'https://example.invalid/logo.png' })).rejects.toThrow();
   });
 });
+
+/**
+ * Farbe, Zeichen und Zusatztext **je Export** - bis in die PNG-Bytes.
+ *
+ * ## Warum diese Gruppe so gründlich ist
+ *
+ * Weil die Aufgabe zweimal als erledigt gemeldet wurde und zweimal nicht
+ * funktional war. Beide Male war die Umsetzung an der falschen Stelle: die drei
+ * Werte waren **Moduleinstellungen** (die Gruppe darüber prüft sie), aber
+ * verlangt waren sie **im Content Studio, je Export**. Es gab keine Spalte am
+ * Entwurf, kein Feld im Studio und kein Attribut in der Ansicht - aus Sicht des
+ * Nutzers ist die Funktion dort also nie erschienen.
+ *
+ * Ein Test, der nur `folienMarke(entwurf)` prüft, hätte das nicht gefangen:
+ * eine DTO-Prüfung ist grün, solange die Werte irgendwo ankommen. Deshalb geht
+ * diese Gruppe den ganzen Weg und liest am Ende **die Pixel des erzeugten
+ * PNG**:
+ *
+ *     bearbeiteEntwurf → Spalte → folienMarke(entwurf) → Komponente →
+ *     Satori → PNG → Bildpunkt
+ *
+ * Wenn die Farbe im Bild steht, steht sie im Export. Das ist keine Vermutung
+ * mehr.
+ *
+ * ## Und für Frage *und* Ergebnis
+ *
+ * Es ist **eine** Marke je Export, nicht eine je Folie: ein Carousel, dessen
+ * erste Folie anders aussieht als die zweite, ist kein Carousel. Geprüft wird
+ * deshalb dieselbe Farbe auf der Frage-Folie und auf der Gewinner-Folie.
+ */
+const { fragt: fragtModul } = await import('@swisshub/modules');
+const { ImageResponse } = await import('next/og');
+const { inflateSync } = await import('node:zlib');
+const { SOCIAL_MASSE, zeichneSocialFolie } = await import('../../apps/web/src/modules/fragt/social-folie');
+import type { SocialDaten, SocialFormat } from '../../apps/web/src/modules/fragt/social-folie';
+import type { FolienArt } from '../../packages/modules/src/fragt/entwurf';
+
+/**
+ * Die Bildpunkte eines PNG - entpackt und entfiltert.
+ *
+ * Satori/resvg liefert RGBA mit acht Bit je Kanal, nicht verschachtelt. Was
+ * hier passiert, ist genau das Minimum, um an die Farben zu kommen:
+ *
+ *  1. Die `IDAT`-Blöcke aneinanderhängen (ein PNG darf sie aufteilen).
+ *  2. Mit zlib entpacken.
+ *  3. Die Zeilenfilter rückrechnen. Jede Zeile beginnt mit einem Filterbyte;
+ *     ohne diesen Schritt liest man Differenzen statt Farben, und eine
+ *     gesuchte Farbe wäre dann fast nie zu finden - auch wenn sie im Bild ist.
+ *
+ * Keine Bibliothek dafür: eine Abhängigkeit, die nur ein Test braucht, ist
+ * eine Abhängigkeit zu viel, und die drei Schritte sind im PNG-Standard
+ * festgeschrieben und ändern sich nicht.
+ */
+function pngFarben(bytes: Uint8Array): Set<string> {
+  const sicht = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const breite = sicht.getUint32(16);
+  const hoehe = sicht.getUint32(20);
+  const bitTiefe = sicht.getUint8(24);
+  const farbtyp = sicht.getUint8(25);
+  // Nur der Fall, den resvg erzeugt. Alles andere wäre stillschweigend falsch.
+  expect(bitTiefe, 'Bittiefe').toBe(8);
+  expect(farbtyp, 'Farbtyp (6 = RGBA)').toBe(6);
+
+  const teile: Uint8Array[] = [];
+  let stelle = 8;
+  while (stelle + 8 <= bytes.byteLength) {
+    const laenge = sicht.getUint32(stelle);
+    const typ = String.fromCharCode(...bytes.subarray(stelle + 4, stelle + 8));
+    if (typ === 'IDAT') {
+      teile.push(bytes.subarray(stelle + 8, stelle + 8 + laenge));
+    }
+    if (typ === 'IEND') {
+      break;
+    }
+    stelle += 12 + laenge;
+  }
+  expect(teile.length, 'IDAT-Blöcke').toBeGreaterThan(0);
+
+  const roh = new Uint8Array(inflateSync(Buffer.concat(teile.map((teil) => Buffer.from(teil)))));
+  const kanaele = 4;
+  const zeilenBytes = breite * kanaele;
+  const bild = new Uint8Array(hoehe * zeilenBytes);
+
+  for (let zeile = 0; zeile < hoehe; zeile += 1) {
+    const filter = roh[zeile * (zeilenBytes + 1)]!;
+    const quelle = zeile * (zeilenBytes + 1) + 1;
+    const ziel = zeile * zeilenBytes;
+    for (let index = 0; index < zeilenBytes; index += 1) {
+      const wert = roh[quelle + index]!;
+      const links = index >= kanaele ? bild[ziel + index - kanaele]! : 0;
+      const oben = zeile > 0 ? bild[ziel - zeilenBytes + index]! : 0;
+      const obenLinks = zeile > 0 && index >= kanaele ? bild[ziel - zeilenBytes + index - kanaele]! : 0;
+
+      let davor = 0;
+      if (filter === 1) {
+        davor = links;
+      } else if (filter === 2) {
+        davor = oben;
+      } else if (filter === 3) {
+        davor = Math.floor((links + oben) / 2);
+      } else if (filter === 4) {
+        // Paeth - der Vorhersager des Standards, Buchstabe für Buchstabe.
+        const schaetzung = links + oben - obenLinks;
+        const abstandLinks = Math.abs(schaetzung - links);
+        const abstandOben = Math.abs(schaetzung - oben);
+        const abstandEcke = Math.abs(schaetzung - obenLinks);
+        davor =
+          abstandLinks <= abstandOben && abstandLinks <= abstandEcke
+            ? links
+            : abstandOben <= abstandEcke
+              ? oben
+              : obenLinks;
+      }
+      bild[ziel + index] = (wert + davor) & 0xff;
+    }
+  }
+
+  const farben = new Set<string>();
+  for (let index = 0; index < bild.length; index += kanaele) {
+    const rot = bild[index]!;
+    const gruen = bild[index + 1]!;
+    const blau = bild[index + 2]!;
+    farben.add(
+      `#${rot.toString(16).padStart(2, '0')}${gruen.toString(16).padStart(2, '0')}${blau.toString(16).padStart(2, '0')}`,
+    );
+  }
+  return farben;
+}
+
+/** Ein Ergebnis, wie es nach dem Schliessen im Schnappschuss steht. */
+const ERGEBNIS: SocialDaten = {
+  frageText: 'Welches Game spielt ihr am Freitag?',
+  untertitel: 'Drei Antworten, eine davon gewinnt.',
+  ueberschrift: 'Welches Game spielt ihr am Freitag?',
+  cta: 'Sag es uns auf Discord.',
+  zeilen: [
+    { label: 'Deep Rock Galactic', prozent: 55, stimmen: 11, fuehrt: true },
+    { label: 'Counter-Strike 2', prozent: 30, stimmen: 6, fuehrt: false },
+    { label: 'Lethal Company', prozent: 15, stimmen: 3, fuehrt: false },
+  ],
+  gesamt: 20,
+  gewinner: { label: 'Deep Rock Galactic', prozent: 55, stimmen: 11 },
+  gleichstand: [],
+  stimmenZeigen: true,
+};
+
+/** Eine Folie wirklich rendern - dieselbe Komponente wie die Export-Route. */
+async function rendereFolie(
+  art: FolienArt,
+  marke: Awaited<ReturnType<typeof folienMarke>>,
+  format: SocialFormat = 'quadrat',
+): Promise<Uint8Array> {
+  const mass = SOCIAL_MASSE[format];
+  const bild = new ImageResponse(zeichneSocialFolie({ art, format, daten: ERGEBNIS, marke }), {
+    width: mass.breite,
+    height: mass.hoehe,
+  });
+  return new Uint8Array(await bild.arrayBuffer());
+}
+
+/**
+ * Einen Entwurf mit Abstimmung und Frage anlegen - der echte Weg.
+ *
+ * Alle Pflichtfelder, auch die, die für diese Tests nichts bedeuten
+ * (`channelId`, `opensAt`): eine Zeile, die das Schema so nicht erlauben
+ * würde, wäre eine Testgrundlage, die es im Betrieb nicht gibt.
+ */
+async function legeEntwurfAn(): Promise<string> {
+  const frage = await prisma.fragtFrage.create({
+    data: {
+      guildId: '000000000000000001',
+      text: ERGEBNIS.frageText,
+      kategorie: 'Gaming',
+      typ: 'UMFRAGE',
+      status: 'ARCHIVED',
+      tags: [],
+      optionen: {
+        create: [
+          { label: 'Deep Rock Galactic', position: 0 },
+          { label: 'Counter-Strike 2', position: 1 },
+          { label: 'Lethal Company', position: 2 },
+        ],
+      },
+    },
+  });
+
+  /*
+   * Die Optionen danach lesen und nicht aus dem `create` nehmen.
+   *
+   * `include` an einem `create` funktioniert, der Rückgabetyp trägt die
+   * Relation hier aber nicht - und ein `as`-Zusatz an dieser Stelle wäre eine
+   * Behauptung über Prisma statt einer Abfrage.
+   */
+  const optionen = await prisma.fragtOption.findMany({
+    where: { frageId: frage.id },
+    orderBy: { position: 'asc' },
+  });
+
+  const abstimmung = await prisma.fragtAbstimmung.create({
+    data: {
+      guildId: frage.guildId,
+      frageId: frage.id,
+      frageText: frage.text,
+      typ: frage.typ,
+      status: 'CLOSED',
+      channelId: '000000000000000099',
+      opensAt: new Date(Date.now() - 86_400_000),
+      closesAt: new Date(Date.now() - 3_600_000),
+      closedAt: new Date(Date.now() - 3_600_000),
+      finalVotes: 20,
+      /*
+       * Der Schnappschuss in genau der Form, die `ausSnapshot` liest -
+       * `version: 1` und Zeilen mit `optionId`. Ein Ergebnis in einer anderen
+       * Form würde dort als «nicht darstellbar» gelten, und die Tests liefen
+       * an einem Entwurf, den das Studio nicht öffnen könnte.
+       */
+      ergebnis: {
+        version: 1,
+        zeilen: [
+          { optionId: optionen[0]!.id, label: 'Deep Rock Galactic', position: 0, stimmen: 11 },
+          { optionId: optionen[1]!.id, label: 'Counter-Strike 2', position: 1, stimmen: 6 },
+          { optionId: optionen[2]!.id, label: 'Lethal Company', position: 2, stimmen: 3 },
+        ],
+      },
+    },
+  });
+
+  const entwurf = await prisma.fragtEntwurf.create({
+    data: {
+      abstimmungId: abstimmung.id,
+      status: 'OFFEN',
+      vorlage: 'winner',
+      format: 'quadrat',
+      ueberschrift: ERGEBNIS.ueberschrift,
+      untertitel: ERGEBNIS.untertitel,
+      cta: ERGEBNIS.cta,
+      folien: [
+        { art: 'frage', aktiv: true, position: 0 },
+        { art: 'gewinner', aktiv: true, position: 1 },
+      ],
+    },
+  });
+  return entwurf.id;
+}
+
+describeWithDatabase('SwissHub fragt: die Marke je Export', () => {
+  beforeAll(async () => {
+    await pushSchema();
+  });
+
+  beforeEach(async () => {
+    // Von unten nach oben: `onDelete: Cascade` haengt an der Frage, aber
+    // `deleteMany` loest keine Fremdschluessel in dieser Richtung auf.
+    await prisma.fragtStimme.deleteMany({});
+    await prisma.fragtEntwurf.deleteMany({});
+    await prisma.fragtAbstimmung.deleteMany({});
+    await prisma.fragtOption.deleteMany({});
+    await prisma.fragtFrage.deleteMany({});
+    await prisma.moduleState.deleteMany({});
+    clearRevisionCaches();
+  });
+
+  it('speichert alle drei Werte am Entwurf', async () => {
+    const entwurfId = await legeEntwurfAn();
+    await fragtModul.bearbeiteEntwurf(entwurfId, {
+      exportAkzentfarbe: '#1f8f3d',
+      exportLogo: 'keins',
+      exportZusatztext: 'Freitagsrunde',
+    });
+
+    const zeile = await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } });
+    expect(zeile.exportAkzentfarbe).toBe('#1f8f3d');
+    expect(zeile.exportLogo).toBe('keins');
+    expect(zeile.exportZusatztext).toBe('Freitagsrunde');
+  });
+
+  it('lässt den Entwurf über die Moduleinstellung gewinnen', async () => {
+    await stelleEin({ exportAkzentfarbe: '#1f3d8f', exportZusatztext: 'Serverweit' });
+    const entwurfId = await legeEntwurfAn();
+    await fragtModul.bearbeiteEntwurf(entwurfId, {
+      exportAkzentfarbe: '#8f1f3d',
+      exportZusatztext: 'Nur dieser Export',
+    });
+
+    const zeile = await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } });
+    const marke = await folienMarke(zeile);
+    expect(marke.akzent).toBe('#8f1f3d');
+    expect(marke.zusatztext).toBe('Nur dieser Export');
+  });
+
+  it('fällt ohne eigene Angabe auf die Moduleinstellung zurück', async () => {
+    await stelleEin({ exportAkzentfarbe: '#1f3d8f', exportZusatztext: 'Serverweit', exportLogo: 'keins' });
+    const entwurfId = await legeEntwurfAn();
+
+    const zeile = await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } });
+    expect(zeile.exportAkzentfarbe).toBeNull();
+
+    const marke = await folienMarke(zeile);
+    expect(marke.akzent).toBe('#1f3d8f');
+    expect(marke.zusatztext).toBe('Serverweit');
+    expect(marke.logo).toBe('keins');
+  });
+
+  it('unterscheidet «keine eigene Angabe» von «ausdrücklich leer»', async () => {
+    /*
+     * Der Fehler, den `||` statt `??` machen würde.
+     *
+     * Wer den Zusatztext leert, will keine Fusszeile. Mit `||` fiele der leere
+     * Text auf die Moduleinstellung zurück - und der Nutzer sähe seinen
+     * gelöschten Text wieder auftauchen, ohne dass er etwas falsch gemacht
+     * hätte.
+     */
+    await stelleEin({ exportZusatztext: 'Serverweit' });
+    const entwurfId = await legeEntwurfAn();
+    await fragtModul.bearbeiteEntwurf(entwurfId, { exportZusatztext: '' });
+
+    const zeile = await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } });
+    expect(zeile.exportZusatztext).toBe('');
+    expect((await folienMarke(zeile)).zusatztext).toBeNull();
+  });
+
+  it('setzt mit null auf die Moduleinstellung zurück', async () => {
+    await stelleEin({ exportAkzentfarbe: '#1f3d8f' });
+    const entwurfId = await legeEntwurfAn();
+    await fragtModul.bearbeiteEntwurf(entwurfId, { exportAkzentfarbe: '#8f1f3d' });
+    await fragtModul.bearbeiteEntwurf(entwurfId, { exportAkzentfarbe: null });
+
+    const zeile = await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } });
+    expect(zeile.exportAkzentfarbe).toBeNull();
+    expect((await folienMarke(zeile)).akzent).toBe('#1f3d8f');
+  });
+
+  it('prüft Farbe, Zeichen und Text beim Schreiben', async () => {
+    const entwurfId = await legeEntwurfAn();
+    await fragtModul.bearbeiteEntwurf(entwurfId, {
+      // Unsinn wird zu `null` und damit zur Moduleinstellung - nicht zu einem
+      // Wert, der in ein `style`-Attribut gelangt.
+      exportAkzentfarbe: 'red; background-image: url(https://example.invalid/a.png)',
+      exportLogo: '../../etc/passwd' as never,
+      exportZusatztext: '  Mit Rand  ',
+    });
+
+    const zeile = await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } });
+    expect(zeile.exportAkzentfarbe).toBeNull();
+    expect(zeile.exportLogo).toBeNull();
+    expect(zeile.exportZusatztext).toBe('Mit Rand');
+  });
+
+  it('normalisiert Kurzform und rgb() auch am Entwurf', async () => {
+    const entwurfId = await legeEntwurfAn();
+    await fragtModul.bearbeiteEntwurf(entwurfId, { exportAkzentfarbe: '#F0A' });
+    expect(
+      (await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } })).exportAkzentfarbe,
+    ).toBe('#ff00aa');
+
+    await fragtModul.bearbeiteEntwurf(entwurfId, { exportAkzentfarbe: 'rgb(31, 143, 61)' });
+    expect(
+      (await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } })).exportAkzentfarbe,
+    ).toBe('#1f8f3d');
+  });
+
+  it('ändert nichts an einem Entwurf, der abgeschlossen ist', async () => {
+    const entwurfId = await legeEntwurfAn();
+    await prisma.fragtEntwurf.update({ where: { id: entwurfId }, data: { status: 'FINALISIERT' } });
+
+    await expect(fragtModul.bearbeiteEntwurf(entwurfId, { exportAkzentfarbe: '#8f1f3d' })).rejects.toThrow();
+  });
+
+  it('zeichnet die Farbe des Entwurfs in die PNG-Bytes - auf Frage und Ergebnis', async () => {
+    /*
+     * **Der Test, der die Aufgabe entscheidet.**
+     *
+     * Nicht «der Wert kommt in der Marke an», sondern «die Farbe ist im
+     * fertigen Bild». Geprüft auf **beiden** Folienarten, weil es eine Marke je
+     * Export ist und nicht eine je Folie.
+     */
+    const entwurfId = await legeEntwurfAn();
+    await fragtModul.bearbeiteEntwurf(entwurfId, { exportAkzentfarbe: '#1f8f3d' });
+    const zeile = await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } });
+    const marke = await folienMarke(zeile);
+    expect(marke.akzent).toBe('#1f8f3d');
+    // Der helle Ton ist abgeleitet, nicht eingestellt - und beide erscheinen
+    // im Bild, je nach Folie.
+    expect(marke.akzentHell).toMatch(/^#[0-9a-f]{6}$/u);
+    expect(marke.akzentHell).not.toBe(STANDARD_AKZENT_HELL);
+
+    /*
+     * Welcher der beiden Töne auf welcher Folie steht, ist eine Frage der
+     * Komposition: die Frage-Folie trägt den hellen als Markierungsbalken,
+     * die Aufruf-Folie den vollen als Fläche. Beide sind aus der gewählten
+     * Farbe gerechnet, also beweist jeder von ihnen dasselbe.
+     *
+     * Die Gegenprobe ist der eigentliche Nachweis: **keiner** der beiden
+     * Standardtöne darf im Bild sein. Wäre die Wahl im Studio verloren
+     * gegangen - der Zustand, der zweimal ausgeliefert wurde -, stünde dort
+     * das SwissHub-Rot.
+     */
+    for (const art of ['frage', 'gewinner', 'cta'] as const) {
+      const bytes = await rendereFolie(art, marke);
+      expect(bytes.byteLength, art).toBeGreaterThan(1000);
+      const farben = pngFarben(bytes);
+
+      expect(
+        farben.has(marke.akzent) || farben.has(marke.akzentHell),
+        `${art}: weder die gewählte Farbe noch ihr heller Ton steht im Bild`,
+      ).toBe(true);
+      expect(farben.has(STANDARD_AKZENT), `${art}: die Standardfarbe steht noch im Bild`).toBe(false);
+      expect(farben.has(STANDARD_AKZENT_HELL), `${art}: der helle Standardton steht noch im Bild`).toBe(
+        false,
+      );
+    }
+
+    /*
+     * Und einmal ganz genau: die Aufruf-Folie zeichnet `marke.akzent` als
+     * volle Fläche. Dort muss der Wert aus der Spalte Pixel für Pixel
+     * wiederzufinden sein - keine Ableitung, keine Deckkraft, kein Verlauf.
+     */
+    const aufruf = pngFarben(await rendereFolie('cta', marke));
+    expect(aufruf.has('#1f8f3d'), 'die gewählte Farbe fehlt als Fläche').toBe(true);
+  }, 60_000);
+
+  it('zeichnet den Zusatztext des Entwurfs mit - nachweisbar an den Bytes', async () => {
+    /*
+     * Text in einem PNG ist nicht lesbar, ohne ihn zu erkennen. Nachweisbar
+     * ist er trotzdem: zwei Exporte, die sich **nur** im Zusatztext
+     * unterscheiden, dürfen nicht dasselbe Bild ergeben. Wären sie identisch,
+     * wäre der Text nirgends gezeichnet worden - genau der Zustand, der
+     * zweimal ausgeliefert wurde.
+     */
+    const entwurfId = await legeEntwurfAn();
+
+    await fragtModul.bearbeiteEntwurf(entwurfId, { exportZusatztext: 'Freitagsrunde' });
+    const eins = await rendereFolie(
+      'cta',
+      await folienMarke(await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } })),
+    );
+
+    await fragtModul.bearbeiteEntwurf(entwurfId, { exportZusatztext: 'Samstagsrunde im Wohnzimmer' });
+    const zwei = await rendereFolie(
+      'cta',
+      await folienMarke(await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } })),
+    );
+
+    expect(Buffer.from(eins).equals(Buffer.from(zwei))).toBe(false);
+  }, 60_000);
+
+  it('lässt das Zeichen weg, wenn der Entwurf es sagt', async () => {
+    const entwurfId = await legeEntwurfAn();
+
+    await fragtModul.bearbeiteEntwurf(entwurfId, { exportLogo: 'signet' });
+    const mitSignet = await rendereFolie(
+      'frage',
+      await folienMarke(await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } })),
+    );
+
+    await fragtModul.bearbeiteEntwurf(entwurfId, { exportLogo: 'keins' });
+    const zeile = await prisma.fragtEntwurf.findUniqueOrThrow({ where: { id: entwurfId } });
+    const ohne = await folienMarke(zeile);
+    expect(ohne.logo).toBe('keins');
+
+    const ohneZeichen = await rendereFolie('frage', ohne);
+    // Dieselbe Begründung wie beim Zusatztext: wäre das Zeichen ohnehin nie
+    // gezeichnet worden, wären beide Bilder gleich.
+    expect(Buffer.from(mitSignet).equals(Buffer.from(ohneZeichen))).toBe(false);
+  }, 60_000);
+});

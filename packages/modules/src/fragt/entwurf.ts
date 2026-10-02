@@ -1,6 +1,6 @@
 import { AUDIT_ACTIONS, prisma, recordAudit } from '@swisshub/database';
 import type { Prisma } from '@swisshub/database';
-import { AppError, sanitizeText } from '@swisshub/shared';
+import { AppError, normalisiereFarbe, sanitizeText } from '@swisshub/shared';
 import { createLogger } from '@swisshub/logger';
 import type { FragtAbstimmung, FragtEntwurf, FragtFragetyp } from '@swisshub/database';
 import { FRAGT_MODULE_ID } from './config';
@@ -40,6 +40,48 @@ export type Vorlage = (typeof VORLAGEN)[number];
 /** Die drei Ausgabeformate. */
 export const FORMATE = ['story', 'feed', 'quadrat'] as const;
 export type Format = (typeof FORMATE)[number];
+
+/**
+ * Das Zeichen oben links auf einer Folie.
+ *
+ * Dieselben drei Woerter wie in `fragtSettingsSchema.exportLogo` - und
+ * ausdruecklich dieselben: der Entwurf uebersteuert die Moduleinstellung, und
+ * eine Wahl, die es nur an einer der beiden Stellen gibt, waere eine, die beim
+ * Uebersteuern verschwindet.
+ *
+ * **Nie ein Pfad.** Was das Wort bedeutet, entscheidet `folienMarke`; ein
+ * manipulierter Logopfad kann deshalb nicht entstehen, weil es keinen gibt.
+ */
+export const EXPORT_LOGO_WAHLEN = ['signet', 'serverlogo', 'keins'] as const;
+export type ExportLogoWahl = (typeof EXPORT_LOGO_WAHLEN)[number];
+
+/**
+ * Farbe, Zeichen und Zusatztext eines einzelnen Exports.
+ *
+ * ## Warum `null` nicht «leer» heisst, sondern «wie im Modul»
+ *
+ * Diese drei Werte gab es bisher nur als Moduleinstellungen, gueltig fuer
+ * jeden Export. Sie gehoeren jetzt auch an den Entwurf - aber die
+ * Moduleinstellung bleibt die Vorgabe und wird nicht ersetzt: wer im Studio
+ * nichts einstellt, bekommt weiterhin die Serverfarbe, und ein bestehender
+ * Entwurf sieht aus wie vorher.
+ *
+ * `null` ist deshalb ein eigener Zustand und kein Synonym fuer «nichts
+ * anzeigen». Fuer «kein Zeichen» gibt es das Wort `keins`, fuer «kein
+ * Zusatztext» die leere Zeichenkette - beides sind Entscheidungen und werden
+ * als solche gespeichert.
+ *
+ * Aufgeloest wird das in `folienMarke` (WebApp), an einer Stelle fuer die
+ * Vorschau, das Einzelbild und das ZIP.
+ */
+export interface ExportMarke {
+  /** `#rrggbb`, oder `null` fuer die Modulfarbe. */
+  exportAkzentfarbe: string | null;
+  /** Eines von `EXPORT_LOGO_WAHLEN`, oder `null` fuer die Moduleinstellung. */
+  exportLogo: ExportLogoWahl | null;
+  /** Fusszeile; `''` heisst ausdruecklich keine, `null` heisst «wie im Modul». */
+  exportZusatztext: string | null;
+}
 
 export interface FolienEintrag {
   art: FolienArt;
@@ -160,6 +202,18 @@ export interface EntwurfEingabe {
   medienDatei?: string | null;
   /** Soll die absolute Stimmenzahl auf der Grafik stehen? Prozente immer. */
   stimmenZeigen?: boolean;
+  /**
+   * Farbe dieses Exports. `null` setzt auf die Modulfarbe zurueck.
+   *
+   * Nicht uebergeben heisst «unveraendert», `null` heisst «zuruecksetzen».
+   * Das sind zwei Dinge, und `undefined` gegen `null` ist der einzige Weg, sie
+   * in einem Teil-Update auseinanderzuhalten.
+   */
+  exportAkzentfarbe?: string | null;
+  /** Zeichen dieses Exports. `null` setzt auf die Moduleinstellung zurueck. */
+  exportLogo?: ExportLogoWahl | null;
+  /** Zusatztext dieses Exports. `null` setzt auf die Moduleinstellung zurueck. */
+  exportZusatztext?: string | null;
 }
 
 /**
@@ -204,6 +258,35 @@ export async function bearbeiteEntwurf(entwurfId: string, eingabe: EntwurfEingab
         : {}),
       ...(eingabe.medienDatei !== undefined ? { medienDatei: eingabe.medienDatei } : {}),
       ...(eingabe.stimmenZeigen !== undefined ? { stimmenZeigen: eingabe.stimmenZeigen } : {}),
+      /*
+       * Farbe, Zeichen und Zusatztext - geprueft beim Schreiben.
+       *
+       * Nicht erst beim Zeichnen: was in der Spalte steht, soll gueltig sein.
+       * `folienMarke` prueft die Farbe trotzdem noch einmal, weil sie dort
+       * auch aus den Moduleinstellungen kommen kann - zwei Pruefungen fuer
+       * zwei Quellen, nicht zwei Pruefungen aus Misstrauen.
+       *
+       * Eine ungueltige Farbe wird zu `null` und damit zur Modulfarbe, nicht
+       * zu einem Fehler: `#ff00` ist ein Tippfehler in einem Farbfeld, und
+       * eine Fehlermeldung, die das ganze Speichern verwirft, verliert dabei
+       * die Texte daneben.
+       */
+      ...(eingabe.exportAkzentfarbe !== undefined
+        ? { exportAkzentfarbe: normalisiereFarbe(eingabe.exportAkzentfarbe) }
+        : {}),
+      ...(eingabe.exportLogo !== undefined
+        ? {
+            exportLogo: (EXPORT_LOGO_WAHLEN as readonly string[]).includes(eingabe.exportLogo ?? '')
+              ? eingabe.exportLogo
+              : null,
+          }
+        : {}),
+      ...(eingabe.exportZusatztext !== undefined
+        ? {
+            exportZusatztext:
+              eingabe.exportZusatztext === null ? null : sanitizeText(eingabe.exportZusatztext, 80).trim(),
+          }
+        : {}),
     },
   });
 }

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowUp, Check, Download, Loader2, Lock, Package, Unlock } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Download, Loader2, Lock, Package, RotateCcw, Unlock } from 'lucide-react';
 import type { fragt } from '@swisshub/modules';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,7 +23,20 @@ import { cn } from '@/lib/utils';
  * ## Was hier bearbeitet werden kann
  *
  * Ueberschrift, Untertitel, Aufruf, Vorlage, Format, welche Folien mitkommen
- * und in welcher Reihenfolge.
+ * und in welcher Reihenfolge - und **Farbe, Zeichen und Zusatztext dieses
+ * Exports**.
+ *
+ * Die drei gab es bisher nur unter «Einstellungen -> Module -> SwissHub
+ * fragt», gueltig fuer jeden Export. Verlangt waren sie hier, je Export. Sie
+ * wirken auf **alle** Folien dieses Entwurfs - die Frage-Folie wie die
+ * Ergebnis-Folien -, weil es eine Marke je Export ist und nicht eine je
+ * Folie: ein Carousel, dessen erste Folie anders aussieht als die zweite, ist
+ * kein Carousel.
+ *
+ * «Wie im Modul» ist bei allen drei die Voreinstellung und ein eigener
+ * Zustand - nicht dasselbe wie «leer». Daneben steht, was das Modul gerade
+ * vorgibt; eine Auswahl «wie im Modul» ohne diese Angabe waere eine Wahl ins
+ * Ungewisse.
  *
  * ## Was nicht
  *
@@ -51,9 +64,29 @@ export interface StudioAnsicht {
   frageText: string;
   /** Steht die absolute Stimmenzahl auf der Grafik? Prozente immer. */
   stimmenZeigen: boolean;
+  /**
+   * Farbe, Zeichen und Zusatztext dieses Exports.
+   *
+   * `null` heisst bei jedem der drei «wie im Modul» - ein eigener Zustand und
+   * nicht dasselbe wie «leer»: fuer «kein Zeichen» gibt es `keins`, fuer
+   * «keine Fusszeile» die leere Zeichenkette.
+   */
+  marke: {
+    akzentfarbe: string | null;
+    logo: fragt.ExportLogoWahl | null;
+    zusatztext: string | null;
+  };
+  /** Was das Modul vorgibt - zur Beschriftung von «wie im Modul». */
+  vorgabe: { akzent: string; logo: fragt.ExportLogoWahl; zusatztext: string };
   /** Nur zur Anzeige - unveraenderlich. */
   zahlen: { gesamt: number; gewinner: string | null; prozent: number | null };
 }
+
+const LOGO_LABEL: Record<fragt.ExportLogoWahl, string> = {
+  signet: 'Signet',
+  serverlogo: 'Serverlogo',
+  keins: 'Kein Zeichen',
+};
 
 const VORLAGEN: Array<{ wert: fragt.Vorlage; label: string; hinweis: string }> = [
   { wert: 'winner', label: 'The Winner', hinweis: 'Eine Zahl, gross. Fokus auf die Gewinnerantwort.' },
@@ -91,6 +124,16 @@ export function StudioEditor({
   const [cta, setCta] = useState(ansicht.cta);
   const [folien, setFolien] = useState(ansicht.folien);
   const [stimmenZeigen, setStimmenZeigen] = useState(ansicht.stimmenZeigen);
+  /*
+   * Die drei Markenfelder, je mit `null` fuer «wie im Modul».
+   *
+   * Bewusst `string | null` und nicht «leerer String = Modul»: der Nutzer
+   * soll den Zusatztext auch leeren koennen, und das ist eine andere Aussage
+   * als «nimm den aus dem Modul». Siehe `StudioAnsicht.marke`.
+   */
+  const [akzentfarbe, setAkzentfarbe] = useState<string | null>(ansicht.marke.akzentfarbe);
+  const [logo, setLogo] = useState<fragt.ExportLogoWahl | null>(ansicht.marke.logo);
+  const [zusatztext, setZusatztext] = useState<string | null>(ansicht.marke.zusatztext);
   const [laeuft, setLaeuft] = useState<string | null>(null);
   /*
    * Die Vorschau muss sich nach dem Speichern neu laden.
@@ -119,6 +162,17 @@ export function StudioEditor({
       cta: cta.trim(),
       folien,
       stimmenZeigen,
+      /*
+       * `null` geht ausdruecklich mit.
+       *
+       * Die Aktion unterscheidet «nicht uebergeben» (unveraendert) von `null`
+       * (zuruecksetzen auf das Modul). Diese drei Felder sind immer gesetzt -
+       * der Editor kennt ihren Zustand und schickt ihn, statt ihn weglassen
+       * zu muessen.
+       */
+      exportAkzentfarbe: akzentfarbe,
+      exportLogo: logo,
+      exportZusatztext: zusatztext,
     });
     setLaeuft(null);
     if (!antwort.ok) {
@@ -308,6 +362,120 @@ export function StudioEditor({
               disabled={gesperrt}
               onCheckedChange={setStimmenZeigen}
             />
+          </div>
+        </div>
+
+        {/*
+          Marke dieses Exports.
+
+          Steht zwischen den Texten und den Folien, weil es dazwischen
+          gehoert: es ist keine Serverkonfiguration (die liegt in den
+          Moduleinstellungen) und kein Text, sondern das Aussehen dieser einen
+          Veroeffentlichung. Wirkt auf jede Folie des Entwurfs - Frage wie
+          Ergebnis.
+        */}
+        <div className="space-y-4 rounded-xl border border-border bg-card p-5">
+          <div>
+            <h3 className="font-semibold">Farbe, Zeichen und Zusatztext</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Gilt für diesen Export - für die Frage-Folie wie für die Ergebnis-Folien. Ohne eigene Angabe
+              gilt, was unter Einstellungen → Module → SwissHub fragt steht.
+            </p>
+          </div>
+
+          {/* --- Farbe ------------------------------------------------- */}
+          <div className="space-y-1.5">
+            <Label htmlFor="studio-farbe">Akzentfarbe</Label>
+            <div className="flex items-center gap-2">
+              <input
+                id="studio-farbe"
+                type="color"
+                value={akzentfarbe ?? ansicht.vorgabe.akzent}
+                disabled={gesperrt}
+                onChange={(ereignis) => setAkzentfarbe(ereignis.target.value)}
+                className="h-9 w-12 shrink-0 cursor-pointer rounded border border-border bg-transparent p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Akzentfarbe wählen"
+              />
+              <Input
+                value={akzentfarbe ?? ''}
+                placeholder={`wie im Modul (${ansicht.vorgabe.akzent})`}
+                maxLength={32}
+                disabled={gesperrt}
+                onChange={(ereignis) => setAkzentfarbe(ereignis.target.value.trim() || null)}
+                className="font-mono text-xs"
+                aria-label="Akzentfarbe als Hexwert"
+              />
+              {akzentfarbe === null ? null : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={gesperrt}
+                  onClick={() => setAkzentfarbe(null)}
+                  aria-label="Auf die Modulfarbe zurücksetzen"
+                >
+                  <RotateCcw className="size-3.5" />
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {akzentfarbe === null
+                ? `Keine eigene Farbe - es gilt ${ansicht.vorgabe.akzent} aus dem Modul.`
+                : 'Eigene Farbe für diesen Export.'}
+            </p>
+          </div>
+
+          {/* --- Zeichen ----------------------------------------------- */}
+          <div className="space-y-1.5">
+            <Label>Zeichen oben links</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {([null, 'signet', 'serverlogo', 'keins'] as Array<fragt.ExportLogoWahl | null>).map((wahl) => (
+                <button
+                  key={wahl ?? 'modul'}
+                  type="button"
+                  disabled={gesperrt}
+                  aria-pressed={logo === wahl}
+                  onClick={() => setLogo(wahl)}
+                  className={cn(
+                    'rounded-lg border px-3 py-2 text-left text-xs transition disabled:opacity-50',
+                    logo === wahl ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
+                  )}
+                >
+                  {wahl === null ? `Wie im Modul (${LOGO_LABEL[ansicht.vorgabe.logo]})` : LOGO_LABEL[wahl]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* --- Zusatztext -------------------------------------------- */}
+          <div className="space-y-1.5">
+            <Label htmlFor="studio-zusatz">Zusatztext in der Fusszeile</Label>
+            <Input
+              id="studio-zusatz"
+              value={zusatztext ?? ''}
+              placeholder={
+                ansicht.vorgabe.zusatztext === ''
+                  ? 'wie im Modul (keiner)'
+                  : `wie im Modul (${ansicht.vorgabe.zusatztext})`
+              }
+              maxLength={80}
+              disabled={gesperrt}
+              onChange={(ereignis) => setZusatztext(ereignis.target.value)}
+            />
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {zusatztext === null
+                  ? 'Keine eigene Angabe - es gilt der Text aus dem Modul.'
+                  : zusatztext.trim() === ''
+                    ? 'Leer: auf dieser Grafik steht keine Fusszeile.'
+                    : 'Eigener Text für diesen Export.'}
+              </p>
+              {zusatztext === null ? null : (
+                <Button size="sm" variant="ghost" disabled={gesperrt} onClick={() => setZusatztext(null)}>
+                  <RotateCcw className="size-3.5" />
+                  Modul
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 

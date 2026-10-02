@@ -262,6 +262,27 @@ export const fragtEntwurfBearbeitenAction = defineAction(
         )
         .max(5)
         .optional(),
+      /*
+       * Farbe, Zeichen und Zusatztext dieses Exports.
+       *
+       * Alle drei `nullable().optional()`, und das ist nicht Bequemlichkeit:
+       *
+       *   - **nicht uebergeben** heisst «unveraendert».
+       *   - **`null`** heisst «zuruecksetzen auf die Moduleinstellung».
+       *
+       * Die Farbe nimmt hier eine lose Zeichenkette an und wird im Modul
+       * durch `normalisiereFarbe` geschickt. Ein strenges `#rrggbb`-Regex im
+       * Schema klaenge sicherer, waere aber schlechter: `#FFF`, `#fff` und
+       * `rgb(255,255,255)` sind gueltige Eingaben in einem Farbfeld, und eine
+       * abgewiesene Eingabe verwirft das ganze Speichern samt der Texte
+       * daneben. Umgewandelt wird sie in jedem Fall - es gibt keinen Weg, auf
+       * dem eine Eingabe unveraendert in ein `style`-Attribut gelangt.
+       *
+       * Das Zeichen ist eine Auswahl aus drei Woertern, nie ein Pfad.
+       */
+      exportAkzentfarbe: z.string().trim().max(32).nullable().optional(),
+      exportLogo: z.enum(fragt.EXPORT_LOGO_WAHLEN).nullable().optional(),
+      exportZusatztext: z.string().trim().max(80).nullable().optional(),
     }),
     rateLimit: 'fragtWrite',
   },

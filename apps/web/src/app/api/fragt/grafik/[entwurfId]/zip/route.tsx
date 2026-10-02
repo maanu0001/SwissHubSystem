@@ -88,8 +88,13 @@ export async function GET(
    * dasselbe fuer ein Carousel aus vier Folien waere dreimal zu viel. Und es
    * ist ausserdem die Zusage, dass alle Folien eines ZIP dieselbe Farbe tragen,
    * auch wenn jemand waehrend des Exports etwas umstellt.
+   *
+   * Der Entwurf geht mit hinein: seine Farbe, sein Zeichen, sein Zusatztext
+   * gewinnen ueber die Moduleinstellung. Dasselbe Argument wie in der
+   * Einzelbild-Route - sonst traegt das Archiv eine andere Farbe als die
+   * Vorschau, und das faellt erst auf Instagram auf.
    */
-  const marke = await folienMarke();
+  const marke = await folienMarke(quelle.entwurf);
   const eintraege: Array<{ name: string; daten: Uint8Array }> = [];
 
   for (const [index, folie] of aktive.entries()) {

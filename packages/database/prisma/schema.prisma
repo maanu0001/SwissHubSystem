@@ -8482,6 +8482,32 @@ model FragtEntwurf {
   /// Entwuerfe sehen danach aus wie vorher.
   stimmenZeigen Boolean @default(true)
 
+  /// Akzentfarbe dieses Exports - `#rrggbb`, oder `null` fuer die Modulfarbe.
+  ///
+  /// ## Warum je Entwurf und nicht nur im Modul
+  ///
+  /// Weil Farbe, Zeichen und Zusatztext bisher **ausschliesslich**
+  /// Moduleinstellungen waren: unter Einstellungen -> Module -> SwissHub fragt,
+  /// gueltig fuer jeden Export. Verlangt war etwas anderes - im Content Studio,
+  /// je Export. Eine Aktion zur Fastnacht, eine zum Turnier und eine im
+  /// Hausrot sind drei Grafiken und nicht drei Serverkonfigurationen.
+  ///
+  /// `null` heisst «wie im Modul» und ist der Standard. Damit sehen bestehende
+  /// Entwuerfe aus wie vorher, und wer nichts einstellt, bekommt weiterhin die
+  /// Serverfarbe - die Moduleinstellung bleibt die Vorgabe und wird nicht
+  /// ersetzt. Aufgeloest wird in `folienMarke`, an einer Stelle fuer alle
+  /// Export-Wege.
+  ///
+  /// Geprueft wird beim Schreiben (`bearbeiteEntwurf`) **und** beim Zeichnen:
+  /// der Wert kommt aus einem Formular und landet in einer Grafik.
+  exportAkzentfarbe String?
+  /// Zeichen oben links - `signet`, `serverlogo`, `keins`, oder `null` fuer die
+  /// Moduleinstellung. Nie ein Pfad: ein manipulierter Logopfad kann deshalb
+  /// nicht entstehen, es gibt keinen.
+  exportLogo        String?
+  /// Zusatztext in der Fusszeile, oder `null` fuer die Moduleinstellung.
+  exportZusatztext  String?
+
   veroeffentlichtAt DateTime?
 
   createdByDiscordId String?

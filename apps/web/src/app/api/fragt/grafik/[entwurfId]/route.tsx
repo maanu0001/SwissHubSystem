@@ -89,8 +89,16 @@ export async function GET(
       })();
 
   const mass = SOCIAL_MASSE[format as SocialFormat];
-  // Farbe, Zeichen und Zusatztext des Servers - dieselbe Quelle wie beim ZIP.
-  const marke = await folienMarke();
+  /*
+   * Farbe, Zeichen und Zusatztext **dieses** Entwurfs.
+   *
+   * Der Entwurf wird uebergeben, nicht nur die Modulkennung: steht an ihm eine
+   * Farbe, gilt sie; steht dort `null`, gilt die Moduleinstellung. Hier stand
+   * `folienMarke()` ohne Argument, und das war die Stelle, an der die Wahl im
+   * Studio verloren ging - dieselbe Zeile steht in der ZIP-Route, und beide
+   * muessen sie uebergeben, sonst sieht die Vorschau anders aus als das Archiv.
+   */
+  const marke = await folienMarke(quelle.entwurf);
   const bild = new ImageResponse(
     zeichneSocialFolie({ art: folienArt, format: format as SocialFormat, daten, marke }),
     { width: mass.breite, height: mass.hoehe },
