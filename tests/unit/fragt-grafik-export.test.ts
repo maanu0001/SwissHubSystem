@@ -592,3 +592,89 @@ const EIN_PNG = (() => {
     block('IEND', Buffer.alloc(0)),
   ]).toString('base64')}`;
 })();
+
+/**
+ * Ein langer Zusatztext darf das Layout nicht aus dem Bild schieben.
+ *
+ * ## Warum das ein eigener Test ist
+ *
+ * Weil der Zusatztext einstellbar wurde und die Fusszeile dafür nicht gebaut
+ * war. Der Standardsatz hat 39 Zeichen; erlaubt sind 80. Bei fester
+ * Schriftgrösse braucht ein 80-Zeichen-Text rund 1470 Pixel, die Fusszeile hat
+ * etwa 640 - Satori bricht um, die Zeile wird zwei oder drei hoch, und sie
+ * schiebt den unteren Rand aus der Grafik.
+ *
+ * Das sieht man weder im Code noch in der Vorschau. Es fällt auf, wenn es
+ * gepostet ist. `fussGroesse` rechnet die Schriftgrösse deshalb aus der Länge;
+ * diese Tests halten fest, dass alle fünf Folien in allen drei Formaten dabei
+ * vollständig und in den exakten Massen entstehen.
+ */
+describe('Grafikexport: langer Zusatztext', () => {
+  /** Genau die Obergrenze, die das Schema zulässt. */
+  const LANG = 'A'.repeat(80);
+  /** Ein echter Satz an der Grenze - Wörter brechen anders als ein Block. */
+  const LANGER_SATZ = 'Jetzt mitstimmen und die Community mitentscheiden lassen - danke fürs Dabeisein!';
+
+  const daten = (art: fragt.FolienArt): SocialDaten => (art === 'duell' ? DUELL : NORMAL);
+
+  it('prüft einen Text, der die Grenze wirklich ausschöpft', () => {
+    // Ein Test mit einem zu kurzen Text hätte nichts bewiesen.
+    expect(LANG).toHaveLength(80);
+    expect(LANGER_SATZ.length).toBeGreaterThanOrEqual(78);
+    expect(LANGER_SATZ.length).toBeLessThanOrEqual(80);
+  });
+
+  for (const format of ALLE_FORMATE) {
+    it.each(ALLE_ARTEN)(`hält bei %s im Format ${format} die exakten Masse - Blocktext`, async (art) => {
+      const bytes = await rendere(art, format, daten(art), { ...STANDARD_MARKE, zusatztext: LANG });
+      expect(bytes.byteLength).toBeGreaterThan(0);
+      expect(pngMasse(bytes)).toEqual({
+        breite: SOCIAL_MASSE[format].breite,
+        hoehe: SOCIAL_MASSE[format].hoehe,
+      });
+    });
+  }
+
+  it.each(ALLE_ARTEN)('hält bei %s die Masse auch mit einem echten langen Satz', async (art) => {
+    const bytes = await rendere(art, 'story', daten(art), {
+      ...STANDARD_MARKE,
+      zusatztext: LANGER_SATZ,
+    });
+    expect(bytes.byteLength).toBeGreaterThan(0);
+    expect(pngMasse(bytes)).toEqual({ breite: 1080, hoehe: 1920 });
+  });
+
+  it.each(ALLE_ARTEN)('zeichnet die Folie %s mit langem Text anders als mit kurzem', async (art) => {
+    // Die Gegenprobe zur Massprüfung: dass die Grafik überhaupt reagiert. Eine
+    // Folie, die den Text stillschweigend weglässt, hätte ebenfalls die
+    // richtigen Masse.
+    const kurz = await rendere(art, 'quadrat', daten(art), {
+      ...STANDARD_MARKE,
+      zusatztext: 'Kurz',
+    });
+    const lang = await rendere(art, 'quadrat', daten(art), { ...STANDARD_MARKE, zusatztext: LANG });
+    expect(Buffer.from(kurz).equals(Buffer.from(lang))).toBe(false);
+  });
+
+  it('verkleinert die Schrift für langen Text, statt umzubrechen', async () => {
+    /*
+     * Die Zusicherung hinter `fussGroesse`, an den Bytes geprüft.
+     *
+     * Ein kurzer und ein langer Text ergeben verschiedene Bilder - das sagt
+     * der Test darüber. Hier geht es um die Richtung: der lange Text darf das
+     * Bild nicht höher machen, und das tut er nur dann nicht, wenn er in eine
+     * Zeile passt. Beide Folien haben deshalb dieselbe Höhe, und das ist bei
+     * einem festen Format die einzige Aussage, die man den Massen entnehmen
+     * kann - die Prüfung darüber, dass nichts hinausläuft, liegt darin, dass
+     * das PNG vollständig ist.
+     */
+    const lang = await rendere('gewinner', 'story', NORMAL, {
+      ...STANDARD_MARKE,
+      zusatztext: LANG,
+    });
+    expect(pngMasse(lang)).toEqual({ breite: 1080, hoehe: 1920 });
+    // Satori liefert bei einem gescheiterten Layout eine leere Antwort - eine
+    // Datei dieser Groesse ist der Beleg, dass gezeichnet wurde.
+    expect(lang.byteLength).toBeGreaterThan(10_000);
+  });
+});

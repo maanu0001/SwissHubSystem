@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   buildNavigation,
+  groupNavigation,
   listModuleDefinitions,
   moduleViewPermissionOf,
   socialmedia,
@@ -34,10 +35,15 @@ describe('Social Media: die Registrierung', () => {
     expect(definition).toBeDefined();
   });
 
-  it('steht bei den Modulen und nicht bei System', () => {
-    // Es ist woechentliche Arbeit und keine Verwaltung des Servers - genau der
-    // Grund, warum das Wrapped Studio unter System niemand gefunden hat.
-    expect(definition?.navigation.map((eintrag) => eintrag.group)).toEqual(['modules']);
+  it('steht unter System und nicht bei der Community', () => {
+    /*
+     * Unter «Community» steht, was die Gemeinschaft *benutzt* - Kalender,
+     * Turniere, Level, Musik. Diesen Bereich benutzt niemand aus der
+     * Gemeinschaft: hier arbeitet das Team an dem, was nach draussen geht.
+     * Dass die Daten aus Community-Modulen kommen, macht den Arbeitsplatz
+     * nicht zu einem Angebot an die Mitglieder.
+     */
+    expect(definition?.navigation.map((eintrag) => eintrag.group)).toEqual(['system']);
   });
 
   it('hat genau einen Eintrag in der Seitenleiste', () => {
@@ -110,14 +116,22 @@ describe('Wrapped: der Eintrag zieht um, die Adresse bleibt', () => {
     (eintrag) => eintrag.id === wrapped.WRAPPED_MODULE_ID,
   );
 
-  it('steht bei den Modulen und nicht mehr unter System', () => {
-    /*
-     * Dort lag er neben Discord-Sync und den Sicherungen, und dort sucht
-     * niemand etwas, das man postet. Jetzt liegt er direkt hinter «Social
-     * Media».
-     */
-    expect(wrappedDefinition?.navigation.map((eintrag) => eintrag.group)).toEqual(['modules']);
+  it('steht unter System, direkt hinter Social Media', () => {
+    expect(wrappedDefinition?.navigation.map((eintrag) => eintrag.group)).toEqual(['system']);
     expect(wrappedDefinition?.navigation[0]?.order).toBe(28);
+  });
+
+  it('liegt hinter Social Media und vor der Serververwaltung', () => {
+    /*
+     * Die Reihenfolge entsteht aus `order`, nicht aus einer Sonderregel in der
+     * Seitenleiste. Dieser Test haelt fest, dass die beiden Zahlen zueinander
+     * passen - und dass beide vor den Verwaltungseintraegen liegen, die bei 78
+     * beginnen.
+     */
+    const socialOrder = definition?.navigation[0]?.order ?? 0;
+    const wrappedOrder = wrappedDefinition?.navigation[0]?.order ?? 0;
+    expect(socialOrder).toBeLessThan(wrappedOrder);
+    expect(wrappedOrder).toBeLessThan(78);
   });
 
   it('heisst «Wrapped» und nicht mehr «Wrapped Studio»', () => {
@@ -159,5 +173,76 @@ describe('Wrapped: der Eintrag zieht um, die Adresse bleibt', () => {
     // Studio - das ist die Buendelung, ohne eine Kopie der Daten.
     const quelle = readFileSync('apps/web/src/app/(app)/social-media/wrapped/page.tsx', 'utf8');
     expect(quelle).toContain('systemRoutes.wrappedStudio()');
+  });
+});
+
+/**
+ * Die Gruppen, wie die Seitenleiste sie tatsächlich baut.
+ *
+ * ## Warum nicht nur die Moduldefinition
+ *
+ * Weil zwischen `group: 'system'` und dem Abschnitt, den jemand sieht, noch
+ * `buildNavigation` und `groupNavigation` liegen. Ein Test auf das Feld allein
+ * prüft eine Absicht; dieser prüft das Ergebnis - und zwar in derselben Liste,
+ * aus der Desktop, Mobile und Schnellnavigation entstehen. Eine eigene mobile
+ * Gruppierung gibt es nicht, deshalb deckt dieser Test beide Geräte ab.
+ */
+describe('Seitenleiste: Wrapped und Social Media liegen unter System', () => {
+  const alleRechte = (() => {
+    const definitionen = listModuleDefinitions();
+    return [
+      ...definitionen.flatMap((eintrag) => eintrag.navigation.map((item) => item.permission)),
+      ...definitionen.flatMap((eintrag) => eintrag.permissions.map((recht) => recht.key)),
+      ...definitionen.map((eintrag) => `${eintrag.permissionPrefix}.module.view`),
+    ];
+  })();
+  const gruppen = groupNavigation(
+    buildNavigation(alleRechte, new Set(listModuleDefinitions().map((eintrag) => eintrag.id))),
+  );
+
+  const gruppeVon = (href: string): string | null =>
+    gruppen.find((gruppe) => gruppe.items.some((item) => item.href === href))?.id ?? null;
+
+  it('baut überhaupt Gruppen - sonst sagt der Rest nichts aus', () => {
+    expect(gruppen.length).toBeGreaterThan(3);
+    expect(gruppen.map((gruppe) => gruppe.id)).toContain('system');
+  });
+
+  it.each([
+    ['Social Media', '/social-media'],
+    ['Wrapped', '/system/wrapped'],
+  ])('%s liegt in der Gruppe system', (_name, href) => {
+    expect(gruppeVon(href)).toBe('system');
+  });
+
+  it.each([
+    ['Social Media', '/social-media'],
+    ['Wrapped', '/system/wrapped'],
+  ])('%s liegt nicht mehr bei der Community', (_name, href) => {
+    // `modules` ist die Gruppe, die in der Oberfläche «Community» heisst.
+    expect(gruppeVon(href)).not.toBe('modules');
+  });
+
+  it('lässt die Community-Module dort, wo sie sind', () => {
+    // Die Gegenprobe: der Umzug darf nicht die halbe Seitenleiste mitnehmen.
+    for (const href of ['/clips', '/fragt', '/kalender', '/level', '/turniere/uebersicht']) {
+      expect(gruppeVon(href), href).toBe('modules');
+    }
+  });
+
+  it('nennt die Gruppe system weiterhin «System»', () => {
+    expect(gruppen.find((gruppe) => gruppe.id === 'system')?.label).toBe('System');
+  });
+
+  it('steht in der Gruppe system vor der Serververwaltung', () => {
+    const system = gruppen.find((gruppe) => gruppe.id === 'system');
+    const positionen = system?.items.map((item) => item.href) ?? [];
+    const socialIndex = positionen.indexOf('/social-media');
+    const wrappedIndex = positionen.indexOf('/system/wrapped');
+    const botIndex = positionen.indexOf('/system/bot');
+
+    expect(socialIndex).toBeGreaterThanOrEqual(0);
+    expect(socialIndex).toBeLessThan(wrappedIndex);
+    expect(wrappedIndex).toBeLessThan(botIndex);
   });
 });

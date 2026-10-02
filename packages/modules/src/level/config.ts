@@ -191,7 +191,25 @@ export const levelSettingsSchema = z.object({
   gamePayoutFactor: z.number().min(0).max(1).default(DEFAULT_PAYOUT_FACTOR),
   gameMinBet: z.number().int().min(1).max(1_000_000).default(1),
   gameMaxBet: z.number().int().min(1).max(10_000_000).default(5000),
+  /** Wie lange eine Herausforderung offen bleibt, bis sie verfaellt. */
   gameAcceptTimeoutSeconds: z.number().int().min(10).max(3600).default(30),
+
+  /*
+   * --- Zugfristen ------------------------------------------------------------
+   *
+   * Die Frist bis zum **naechsten Zug**, nicht die Spieldauer. Jeder
+   * angenommene Zug setzt sie neu (siehe `withLockedMatch`); eine Partie, an
+   * der beide noch spielen, laeuft deshalb nie ab, egal wie lange sie dauert.
+   *
+   * Sie war einmal eine Gesamtspielzeit, und das war ein Fehler: bei Vier
+   * gewinnt waren 120 Sekunden fuer die ganze Partie angesetzt. Danach schloss
+   * der Aufraeumjob sie als `TIMEOUT`, mitten im Spiel. Die Werte selbst waren
+   * nie falsch - als Frist fuer einen Zug sind sie genau richtig.
+   *
+   * Was sie leisten: wer aufhoert zu spielen, soll den Einsatz des anderen
+   * nicht auf Dauer binden. Nach Ablauf gehen beide Einsaetze zurueck und beide
+   * Seiten sind fuer neue Partien frei.
+   */
   gameBattleTimeoutSeconds: z.number().int().min(10).max(3600).default(30),
   gameSspTimeoutSeconds: z.number().int().min(10).max(3600).default(180),
   gameTttTimeoutSeconds: z.number().int().min(10).max(3600).default(90),
@@ -536,7 +554,9 @@ export const levelSettingsFields: SettingsField[] = [
   {
     key: 'gameBattleTimeoutSeconds',
     type: 'duration',
-    label: 'Zeitfenster XP-Battle',
+    label: 'Zugfrist XP-Battle',
+    description:
+      'Wie lange eine Person für ihren Zug Zeit hat. Jeder Zug setzt die Frist neu - eine Partie läuft also nicht ab, solange gespielt wird. Verstreicht die Frist, gehen beide Einsätze zurück.',
     group: 'Spiele',
     min: 10,
     max: 3600,
@@ -545,7 +565,9 @@ export const levelSettingsFields: SettingsField[] = [
   {
     key: 'gameSspTimeoutSeconds',
     type: 'duration',
-    label: 'Zeitfenster Schere-Stei-Papier',
+    label: 'Zugfrist Schere-Stei-Papier',
+    description:
+      'Wie lange eine Person für ihren Zug Zeit hat. Jeder Zug setzt die Frist neu - eine Partie läuft also nicht ab, solange gespielt wird. Verstreicht die Frist, gehen beide Einsätze zurück.',
     group: 'Spiele',
     min: 10,
     max: 3600,
@@ -554,7 +576,9 @@ export const levelSettingsFields: SettingsField[] = [
   {
     key: 'gameTttTimeoutSeconds',
     type: 'duration',
-    label: 'Zeitfenster TicTacToe',
+    label: 'Zugfrist TicTacToe',
+    description:
+      'Wie lange eine Person für ihren Zug Zeit hat. Jeder Zug setzt die Frist neu - eine Partie läuft also nicht ab, solange gespielt wird. Verstreicht die Frist, gehen beide Einsätze zurück.',
     group: 'Spiele',
     min: 10,
     max: 3600,
@@ -563,7 +587,9 @@ export const levelSettingsFields: SettingsField[] = [
   {
     key: 'gameConnectFourTimeoutSeconds',
     type: 'duration',
-    label: 'Zeitfenster 4 Gewinnt',
+    label: 'Zugfrist 4 Gewinnt',
+    description:
+      'Wie lange eine Person für ihren Zug Zeit hat. Jeder Zug setzt die Frist neu - eine Partie läuft also nicht ab, solange gespielt wird. Verstreicht die Frist, gehen beide Einsätze zurück.',
     group: 'Spiele',
     min: 10,
     max: 3600,

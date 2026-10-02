@@ -403,7 +403,34 @@ async function recordDraw(match: LevelGameMatch): Promise<void> {
  * Gibt hängengebliebene Partien frei.
  *
  * Ein Absturz mitten im Spiel würde sonst beide Beteiligten dauerhaft
- * blockieren - beim Vorgänger half nur ein Neustart.
+ * blockieren - beim Vorgänger half nur ein Neustart. Und die Einsätze beider
+ * Seiten lägen weiter im Topf.
+ *
+ * ## Was hier «hängengeblieben» heisst - und was es einmal hiess
+ *
+ * Es heisst: **seit einer Frist kein Zug mehr**. `expiresAt` ist die Frist bis
+ * zum nächsten Zug und wird bei jedem angenommenen Zug neu gesetzt (siehe
+ * `withLockedMatch`); wer weiterspielt, schiebt sie vor sich her.
+ *
+ * Vorher stand hier zusätzlich `createdAt < jetzt - maxAge`, und `expiresAt`
+ * wurde nie verlängert. Damit war jede laufende Partie **absolut** begrenzt:
+ * bei Vier gewinnt auf 120 Sekunden Gesamtspielzeit. Danach stand sie als
+ * `TIMEOUT` in der Datenbank, die Einsätze waren zurückgezahlt, und der nächste
+ * Klick lief in «Das Spiel lauft nüme» - mitten in einer Partie, die beide
+ * Beteiligten gerade spielten.
+ *
+ * Eine laufende Partie darf nicht daran scheitern, dass sie lange dauert. Vier
+ * gewinnt kann zweiundvierzig Züge haben; wer über jeden nachdenkt, ist nach
+ * zwei Minuten nicht fertig und hat nichts falsch gemacht.
+ *
+ * ## Warum die Altersgrenze für PENDING bleibt
+ *
+ * Eine **offene Herausforderung** ist etwas anderes als eine laufende Partie:
+ * dort ist noch kein Zug gefallen, und wenn `expiresAt` aus irgendeinem Grund
+ * fehlt - ein Datensatz aus einer älteren Fassung, ein Schreibfehler beim
+ * Anlegen -, bliebe sie ohne diese Grenze für immer stehen und sperrte beide
+ * Seiten für neue Partien. Für eine laufende Partie ist dieselbe Grenze kein
+ * Netz, sondern das Messer.
  */
 export async function releaseStaleGames(
   options: { maxAgeSeconds?: number; now?: Date } & XpEngineOptions = {},
@@ -415,8 +442,21 @@ export async function releaseStaleGames(
   const stale = await prisma.levelGameMatch.findMany({
     where: {
       finishedAt: null,
-      status: { in: ['PENDING', 'RUNNING'] },
-      OR: [{ expiresAt: { lt: now } }, { createdAt: { lt: cutoff } }],
+      OR: [
+        // Offene Herausforderung: Frist zum Annehmen abgelaufen - oder, als
+        // Netz, uralt ohne Frist.
+        { status: 'PENDING', expiresAt: { lt: now } },
+        { status: 'PENDING', createdAt: { lt: cutoff } },
+        /*
+         * Laufende Partie: ausschliesslich die Zugfrist.
+         *
+         * Kein `createdAt`, keine Obergrenze fuer die Spieldauer. Fehlt
+         * `expiresAt` an einer laufenden Partie, wird sie **nicht** geschlossen:
+         * ein fehlender Wert ist kein Beleg dafuer, dass niemand mehr spielt,
+         * und die falsche Antwort hier kostet eine laufende Partie.
+         */
+        { status: 'RUNNING', expiresAt: { lt: now } },
+      ],
     },
     take: 100,
   });

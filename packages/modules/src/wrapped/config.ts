@@ -240,20 +240,23 @@ export const wrappedModule: ModuleDefinition = registerModule({
     },
   ],
   /*
-   * Der Eintrag steht bei den Modulen, nicht bei System.
+   * Der Eintrag steht unter «System», direkt hinter «Social Media».
    *
-   * Er hiess «Wrapped Studio» und lag unter «System», direkt neben
-   * Discord-Sync und den Sicherungen. Das war der Grund, warum ihn niemand
-   * fand: System ist der Ort fuer die Verwaltung des Servers, und ein
-   * Jahresrueckblick fuer Instagram ist keine Verwaltung. Wer etwas posten
-   * wollte, suchte unter den Modulen.
+   * Er lag einmal zwischen Discord-Sync und den Sicherungen, hiess «Wrapped
+   * Studio» und war dort schwer zu finden. Dann zog er zur «Community» - und
+   * auch das war nicht richtig: unter Community steht, was die Gemeinschaft
+   * *benutzt* - Kalender, Turniere, Level, Musik. Das Wrapped Studio benutzt
+   * niemand aus der Gemeinschaft; dort arbeitet das Team an einer
+   * Veroeffentlichung. Das gehoert zu System, neben «Social Media», mit dem es
+   * ohnehin zusammenhaengt.
    *
-   * Jetzt liegt er dort - gleich hinter «Social Media», dem Bereich, der
-   * saemtliche Exporte buendelt und von dem aus die Rueckblicke ohnehin
-   * verlinkt sind. Die Adresse bleibt `/system/wrapped`: ein Lesezeichen soll
-   * nicht ins Leere laufen, und ein Umzug der Dateien waere ein Umbau quer
-   * durch Routenhelfer, `revalidatePath` und ein Dutzend Verweise - fuer eine
-   * Adresse, die niemand liest.
+   * `order: 28` haelt es hinter «Social Media» (27) und vor den
+   * Verwaltungseintraegen (78 und mehr). Keine Sondersortierung - dieselbe
+   * Zahl wie vorher, nur in einer anderen Gruppe.
+   *
+   * Die Adresse bleibt `/system/wrapped`, die Berechtigung bleibt
+   * `WRAPPED_PERMISSIONS.studioView`. Es aendert sich eine Zeile, und das ist
+   * genau das, was eine zentrale Navigationsdefinition leisten soll.
    *
    * ## Warum der Eintrag nicht einfach verschwindet
    *
@@ -271,7 +274,7 @@ export const wrappedModule: ModuleDefinition = registerModule({
       description: 'Jahresrückblick vorbereiten, testen und veröffentlichen',
       permission: WRAPPED_PERMISSIONS.studioView,
       icon: 'Gift',
-      group: 'modules',
+      group: 'system',
       order: 28,
     },
   ],

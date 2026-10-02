@@ -115,19 +115,68 @@ describeWithDatabase('Was spielen wir?: Gäste ohne Konto', () => {
 
   // --- Der Zugang -----------------------------------------------------------
 
-  it('öffnet eine Runde nur, wenn Server und Host es wollen', async () => {
-    const zu = await spielwahl.eroeffne({ guildId: GUILD, host: ANNA });
+  /**
+   * Alle drei Faelle, nicht nur einer.
+   *
+   * Hier stand vorher: «der Host hat nichts gesagt» → Runde zu. Das war das
+   * Verhalten, und es war der Fehler. Jede neue Runde startete gastfrei, auch
+   * wenn der Server die Teilnahme ohne Konto ausdruecklich erlaubte - der Host
+   * haette einen Schalter finden muessen, von dem er nichts wusste. Wer den
+   * Einladungslink teilte, bekam von seinen Gaesten zu hoeren, dass es nicht
+   * geht.
+   *
+   * Die Regel «Server **und** Host» bleibt unveraendert. Was sich aendert, ist
+   * allein, was «der Host hat nichts gesagt» bedeutet: nicht mehr «nein»,
+   * sondern «wie der Server es haelt». Dasselbe tut `freieVorschlaege` seit
+   * immer.
+   *
+   * Geprueft werden deshalb jetzt alle drei Faelle - der schweigende Host war
+   * nur einer davon, und ein Test, der bloss ihn kennt, haette den
+   * widersprechenden Host nicht abgedeckt.
+   */
+  it('folgt der Servervorgabe, wenn der Host nichts sagt', async () => {
+    const session = await spielwahl.eroeffne({ guildId: GUILD, host: ANNA });
     const gast = spielwahl.neueGastKennung();
 
-    // Vorgabe ist aus - der Host hat nichts gesagt.
-    await expect(spielwahl.verlangeGastZugang(zu.id, gast)).rejects.toThrow();
+    // Der Server erlaubt es (siehe `beforeEach`) - also ist die Runde offen.
+    await expect(spielwahl.verlangeGastZugang(session.id, gast)).resolves.toMatchObject({
+      id: session.id,
+    });
+  });
 
-    const offen = await spielwahl.eroeffne({
+  it('bleibt zu, wenn der Host sie ausdruecklich zumacht', async () => {
+    // Der Host behaelt seine Entscheidung je Runde - er muss sie nur noch
+    // treffen, wenn er von der Servervorgabe abweichen will.
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: ANNA,
+      optionen: { gaesteErlaubt: false },
+    });
+
+    await expect(spielwahl.verlangeGastZugang(session.id, spielwahl.neueGastKennung())).rejects.toThrow();
+  });
+
+  it('oeffnet sie, wenn der Host sie ausdruecklich aufmacht', async () => {
+    const session = await spielwahl.eroeffne({
       guildId: GUILD,
       host: BEN,
       optionen: { gaesteErlaubt: true },
     });
-    await expect(spielwahl.verlangeGastZugang(offen.id, gast)).resolves.toMatchObject({ id: offen.id });
+
+    await expect(
+      spielwahl.verlangeGastZugang(session.id, spielwahl.neueGastKennung()),
+    ).resolves.toMatchObject({ id: session.id });
+  });
+
+  it('bleibt zu, wenn der Server es verbietet - auch ohne Angabe des Hosts', async () => {
+    // Das Veto des Admins gilt unveraendert, und zwar auch gegen die neue
+    // Vorgabe: steht es beim Server aus, ist jede Runde zu.
+    await serverErlaubtGaeste(false);
+    const session = await spielwahl.eroeffne({ guildId: GUILD, host: ANNA });
+
+    const gespeichert = await prisma.spielwahlSession.findUniqueOrThrow({ where: { id: session.id } });
+    expect(gespeichert.gaesteErlaubt).toBe(false);
+    await expect(spielwahl.verlangeGastZugang(session.id, spielwahl.neueGastKennung())).rejects.toThrow();
   });
 
   it('lässt den Host nicht über die Servervorgabe hinweg', async () => {
@@ -215,7 +264,13 @@ describeWithDatabase('Was spielen wir?: Gäste ohne Konto', () => {
   });
 
   it('nimmt keinen Gast auf, wenn die Runde keine zulässt', async () => {
-    const session = await spielwahl.eroeffne({ guildId: GUILD, host: ANNA });
+    // Ausdruecklich zugemacht - «nichts gesagt» heisst jetzt «wie der Server
+    // es haelt», und der erlaubt es in diesem Block.
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: ANNA,
+      optionen: { gaesteErlaubt: false },
+    });
     await expect(spielwahl.tritteBei(session.id, spielwahl.neueGastKennung(), 'Nina')).rejects.toThrow();
   });
 

@@ -115,14 +115,46 @@ export interface MoveResult<TState extends GameState = GameState> {
   waiting?: boolean;
 }
 
+/** Was ein Zug ausser dem Zug selbst mitbringt. */
+export interface ZugOptionen {
+  /**
+   * Die Frist bis zum **nächsten** Zug, in Sekunden.
+   *
+   * Fehlt sie, bleibt `expiresAt` unverändert. Das ist die vorsichtige
+   * Richtung für Aufrufer, die keine Einstellungen kennen - sie verlängern
+   * dann nichts, statt eine geratene Frist zu setzen.
+   */
+  zugfristSekunden?: number;
+}
+
 /**
  * Führt einen Zug aus.
  *
  * Der Zustandsübergang passiert vollständig innerhalb der Transaktion; die
  * Abrechnung findet danach statt, damit sie nicht an einer Sperre hängt.
+ *
+ * ## Warum die Frist hier verlängert wird und nicht in den vier Zugfunktionen
+ *
+ * Weil sie dann nicht zu vergessen ist. `expiresAt` war eine Frist **ab
+ * Spielbeginn**: `acceptChallenge` setzte sie einmal, und niemand fasste sie
+ * wieder an. Bei Vier gewinnt waren das 120 Sekunden Gesamtspielzeit - danach
+ * schloss der Aufräumjob die Partie als `TIMEOUT`, obwohl beide noch
+ * abwechselnd zogen, und der nächste Klick lief in «Das Spiel lauft nüme».
+ *
+ * Gemeint war nie eine Gesamtspielzeit, sondern eine **Zugfrist**: wer nicht
+ * mehr zieht, soll den Einsatz des anderen nicht auf Dauer binden. Die
+ * Einstellung heisst «Zeitfenster», ihre Vorschläge sind 90, 120 und 240
+ * Sekunden - als Frist für einen Zug sind das sinnvolle Werte, als Spielzeit
+ * für eine ganze Partie nicht.
+ *
+ * Die Verlängerung steht deshalb **nach** dem Handler und in derselben
+ * Transaktion. Beides ist Absicht: ein unerlaubter Zug wirft, die Transaktion
+ * rollt zurück, und die Frist verlängert sich nicht. Nur ein angenommener Zug
+ * verlängert sie - und keine künftige fünfte Spielart kann es vergessen.
  */
 async function withLockedMatch<T>(
   matchId: string,
+  optionen: ZugOptionen,
   handler: (tx: TransaktionsClient, match: LevelGameMatch, state: GameState) => Promise<T> | T,
 ): Promise<T> {
   return prisma.$transaction(async (tx) => {
@@ -134,13 +166,30 @@ async function withLockedMatch<T>(
     }
     const match = await tx.levelGameMatch.findUniqueOrThrow({ where: { id: matchId } });
     if (match.status !== 'RUNNING') {
-      throw conflict('Das Spiel laufe nümme.');
+      throw conflict('Das Spiel lauft nüme.');
     }
     const state = match.state as GameState | null;
     if (!state) {
       throw conflict('Für das Spiel gits kein Spielstand.');
     }
-    return handler(tx, match, state);
+
+    const ergebnis = await handler(tx, match, state);
+
+    if (optionen.zugfristSekunden !== undefined) {
+      /*
+       * `updateMany` mit Statusbedingung statt `update`.
+       *
+       * Kostenlose Versicherung: sollte ein Handler eines Tages selbst den
+       * Status setzen, verlängert diese Zeile keine Frist an einer Partie, die
+       * gerade zu Ende gegangen ist.
+       */
+      await tx.levelGameMatch.updateMany({
+        where: { id: matchId, status: 'RUNNING' },
+        data: { expiresAt: new Date(Date.now() + optionen.zugfristSekunden * 1000) },
+      });
+    }
+
+    return ergebnis;
   });
 }
 
@@ -165,8 +214,9 @@ export async function playSsp(
   matchId: string,
   discordId: string,
   choice: SspChoice,
+  optionen: ZugOptionen = {},
 ): Promise<MoveResult<SspState>> {
-  return withLockedMatch(matchId, async (tx, match, rawState) => {
+  return withLockedMatch(matchId, optionen, async (tx, match, rawState) => {
     if (rawState.kind !== 'SSP') {
       throw conflict('Falschi Spielart.');
     }
@@ -237,8 +287,9 @@ export async function playTtt(
   matchId: string,
   discordId: string,
   cell: number,
+  optionen: ZugOptionen = {},
 ): Promise<MoveResult<TttState>> {
-  return withLockedMatch(matchId, async (tx, match, rawState) => {
+  return withLockedMatch(matchId, optionen, async (tx, match, rawState) => {
     if (rawState.kind !== 'TTT') {
       throw conflict('Falschi Spielart.');
     }
@@ -274,8 +325,9 @@ export async function playC4(
   matchId: string,
   discordId: string,
   column: number,
+  optionen: ZugOptionen = {},
 ): Promise<MoveResult<C4State>> {
-  return withLockedMatch(matchId, async (tx, match, rawState) => {
+  return withLockedMatch(matchId, optionen, async (tx, match, rawState) => {
     if (rawState.kind !== 'C4') {
       throw conflict('Falschi Spielart.');
     }

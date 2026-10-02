@@ -84,13 +84,17 @@ export const socialMediaModule: ModuleDefinition = registerModule({
       description: 'Fragen, Clips und Rückblicke zum Posten - an einem Ort',
       permission: SOCIAL_MEDIA_PERMISSIONS.view,
       icon: 'Megaphone',
-      group: 'modules',
+      group: 'system',
       /*
-       * Direkt nach «SwissHub fragt» (26) und vor den uebrigen Modulen.
+       * Unter «System», vor «Wrapped» (28) und vor den Verwaltungseintraegen
+       * (78 und mehr).
        *
-       * Nicht bei System: es ist keine Verwaltung des Servers, sondern
-       * woechentliche Arbeit - und sie liegt neben den Modulen, aus denen sie
-       * sich speist.
+       * Es lag zuerst bei der «Community», weil es sich aus deren Modulen
+       * speist. Das war der falsche Schluss: unter Community steht, was die
+       * Gemeinschaft *benutzt*. Diesen Bereich benutzt niemand aus der
+       * Gemeinschaft - hier arbeitet das Team an dem, was nach draussen geht.
+       * Dass die Daten aus Community-Modulen kommen, macht den Arbeitsplatz
+       * nicht zu einem Angebot an die Mitglieder.
        */
       order: 27,
       /*

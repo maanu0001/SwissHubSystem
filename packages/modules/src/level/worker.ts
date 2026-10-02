@@ -103,9 +103,47 @@ export async function runDecaySweep(
   return { checked: candidates.length, changed, totalDecayed, demoted };
 }
 
-/** Räumt Partien weg, die nie zu Ende gespielt wurden. */
-export async function runGameCleanup(options: { now?: Date } = {}): Promise<number> {
-  const released = await releaseStaleGames({ now: options.now });
+/**
+ * Wann dieser Prozess gestartet ist.
+ *
+ * Steht hier und nicht in einer Variablen am Aufrufer, weil es genau einmal je
+ * Prozess gelten soll: das Modul wird beim Hochfahren geladen.
+ */
+const PROZESS_START = Date.now();
+
+/**
+ * Wie lange nach einem Neustart nichts weggeräumt wird.
+ *
+ * ## Warum es diese Kulanz gibt
+ *
+ * Weil die Zugfrist weiterläuft, während der Bot nicht da ist. Ein Deployment
+ * dauert ein paar Minuten; in dieser Zeit kann niemand einen Knopf drücken,
+ * und die Frist verstreicht trotzdem. Ohne Kulanz wäre der erste Durchgang nach
+ * dem Neustart ein Massaker: jede Partie, die während des Deployments lief,
+ * stünde als `TIMEOUT` da - und das wäre unsere Ausfallzeit, nicht die
+ * Untätigkeit der Spielenden.
+ *
+ * Fünf Minuten sind länger als jedes Deployment hier und kürzer als jede
+ * Geduld, die eine blockierte Partie verdient. Nach Ablauf greift die normale
+ * Zugfrist wieder; die Kulanz verlängert nichts, sie verschiebt nur den ersten
+ * Blick.
+ */
+const NEUSTART_KULANZ_MS = 5 * 60 * 1000;
+
+/**
+ * Räumt Partien weg, in denen seit der Zugfrist niemand mehr gezogen hat.
+ *
+ * Der erste Lauf nach einem Neustart tut nichts - siehe `NEUSTART_KULANZ_MS`.
+ */
+export async function runGameCleanup(options: { now?: Date; prozessStart?: number } = {}): Promise<number> {
+  const jetzt = options.now ?? new Date();
+  const start = options.prozessStart ?? PROZESS_START;
+
+  if (jetzt.getTime() - start < NEUSTART_KULANZ_MS) {
+    return 0;
+  }
+
+  const released = await releaseStaleGames({ now: jetzt });
   if (released > 0) {
     logger.info('Abgelaufene XP-Spiele freigegeben', { released });
   }

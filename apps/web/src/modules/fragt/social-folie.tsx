@@ -206,6 +206,36 @@ function Marke({ klein, marke }: { klein: boolean; marke: FolienMarke }): React.
 export const STANDARD_ZUSATZTEXT = 'Die SwissHub Community hat entschieden.';
 
 /**
+ * Die Schriftgroesse der Fusszeile - abhaengig davon, wie lang der Text ist.
+ *
+ * ## Warum das gerechnet und nicht festgesetzt ist
+ *
+ * Weil der Text einstellbar wurde. Der Standardsatz hat 39 Zeichen und passte
+ * bei jeder Groesse; erlaubt sind jetzt 80. Bei 28 Punkt und 3 Punkt
+ * Laufweite braucht ein Zeichen rund 18 Pixel - achtzig davon sind 1470, und
+ * die Fusszeile hat etwa 640. Satori bricht dann um, die Zeile wird zwei oder
+ * drei hoch, und sie schiebt den unteren Rand aus dem Bild. Das sieht man
+ * nicht im Code und nicht in der Vorschau, sondern erst auf dem Telefon,
+ * nachdem es gepostet ist.
+ *
+ * `passendeGroesse` rechnet die Groesse aus, bei der der Text in **eine**
+ * Zeile passt - dieselbe Schaetzung, die die Ueberschriften benutzen, mit
+ * derselben Untergrenze. Ein Text, der dafuer zu lang ist, wird klein und
+ * bleibt lesbar; einer, der kurz ist, bekommt die volle Groesse und sieht aus
+ * wie vorher.
+ *
+ * 640 ist die schmalere der beiden Flaechen (Story: 1080 minus zweimal 96
+ * Rand, davon 72 Prozent). Die breitere mit demselben Wert zu rechnen macht
+ * den Text dort eine Nuance kleiner als noetig - das sieht niemand, und eine
+ * Zahl ist besser als zwei, die auseinanderlaufen koennen.
+ */
+const FUSS_BREITE = 640;
+
+function fussGroesse(text: string, klein: boolean): number {
+  return passendeGroesse(text, FUSS_BREITE, klein ? 24 : 28, 1);
+}
+
+/**
  * Die Fusszeile - die Zahl der Stimmen, nie erfunden.
  *
  * `stimmen: null` heisst «nicht zeigen» und nicht «null Stimmen». Deshalb
@@ -227,7 +257,7 @@ function Fuss({
         <div
           style={{
             display: 'flex',
-            fontSize: klein ? 24 : 28,
+            fontSize: fussGroesse(zusatz ?? STANDARD_ZUSATZTEXT, klein),
             letterSpacing: 3,
             color: GEDAEMPFT,
             maxWidth: '72%',
@@ -439,7 +469,14 @@ function FolieFrage({ format, daten, marke }: Erfuellt): React.JSX.Element {
           <div
             style={{ display: 'flex', height: 1, backgroundColor: LINIE, marginBottom: klein ? 20 : 26 }}
           />
-          <div style={{ display: 'flex', fontSize: klein ? 26 : 30, letterSpacing: 3, color: GEDAEMPFT }}>
+          <div
+            style={{
+              display: 'flex',
+              fontSize: fussGroesse(marke.zusatztext ?? 'Abgestimmt auf unserem Discord', klein),
+              letterSpacing: 3,
+              color: GEDAEMPFT,
+            }}
+          >
             {/*
               Der eingestellte Zusatztext gilt auch hier.
               
@@ -882,6 +919,9 @@ function FolieDuell({ format, daten, marke }: Erfuellt): React.JSX.Element {
    * Servers, der nicht SwissHub ist.
    */
   const absender = marke.zusatztext ?? 'SwissHub Community';
+  const fussZeile = daten.stimmenZeigen
+    ? `${daten.gesamt} ${daten.gesamt === 1 ? 'Stimme' : 'Stimmen'} · ${absender}`
+    : absender;
   const haelfteBreite = uebereinander ? mass.breite : mass.breite / 2;
 
   const Haelfte = ({
@@ -1041,7 +1081,9 @@ function FolieDuell({ format, daten, marke }: Erfuellt): React.JSX.Element {
           left: klein ? 64 : 88,
           bottom: klein ? 48 : 64,
           display: 'flex',
-          fontSize: klein ? 24 : 28,
+          // Gemessen wird die **ganze** Zeile, nicht nur der Absender: Zahl und
+          // Absender stehen hier zusammen, und zusammen laufen sie um.
+          fontSize: fussGroesse(fussZeile, klein),
           letterSpacing: 3,
           color: 'rgba(255,255,255,0.7)',
         }}
@@ -1049,11 +1091,7 @@ function FolieDuell({ format, daten, marke }: Erfuellt): React.JSX.Element {
         {/* Ohne die Zahl bleibt der Absender stehen - eine leere Zeile waere
             eine Luecke, und die Zeile traegt hier auch den Absender. Der
             Absender ist der eingestellte Zusatztext, wenn es einen gibt. */}
-        {gross(
-          daten.stimmenZeigen
-            ? `${daten.gesamt} ${daten.gesamt === 1 ? 'Stimme' : 'Stimmen'} · ${absender}`
-            : absender,
-        )}
+        {gross(fussZeile)}
       </div>
     </div>
   );
@@ -1079,7 +1117,14 @@ function FolieAufruf({ format, daten, marke }: Erfuellt): React.JSX.Element {
           <div
             style={{ display: 'flex', height: 1, backgroundColor: LINIE, marginBottom: klein ? 20 : 26 }}
           />
-          <div style={{ display: 'flex', fontSize: klein ? 26 : 30, letterSpacing: 3, color: GEDAEMPFT }}>
+          <div
+            style={{
+              display: 'flex',
+              fontSize: fussGroesse(marke.zusatztext ?? 'Jede Woche eine neue Frage', klein),
+              letterSpacing: 3,
+              color: GEDAEMPFT,
+            }}
+          >
             {gross(marke.zusatztext ?? 'Jede Woche eine neue Frage')}
           </div>
         </div>

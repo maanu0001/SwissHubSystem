@@ -165,9 +165,29 @@ export async function eroeffne(eingabe: EroeffnenEingabe): Promise<{ id: string;
         gleichstand: optionen.gleichstand ?? 'STICHWAHL',
         rouletteGewichtet: optionen.rouletteGewichtet ?? false,
         beitrittWaehrendRunde: optionen.beitrittWaehrendRunde ?? true,
-        // Zwei Schalter, beide muessen an sein - der Server erlaubt es, der
-        // Host will es. Siehe `spielwahlSettingsSchema.gaesteErlaubt`.
-        gaesteErlaubt: (optionen.gaesteErlaubt ?? false) && vorgabe.gaesteErlaubt,
+        /*
+         * Zwei Schalter, beide muessen an sein - der Server erlaubt es, der
+         * Host will es. Siehe `spielwahlSettingsSchema.gaesteErlaubt`.
+         *
+         * ## Warum die Vorgabe und nicht `false`
+         *
+         * Hier stand `optionen.gaesteErlaubt ?? false`, und das war der Grund,
+         * warum Gaeste trotz eingeschalteter Servereinstellung nicht
+         * beitreten konnten: **jede neue Runde startete gastfrei**. Der Host
+         * haette einen Schalter im Regeln-Panel finden muessen, von dem er
+         * nichts wusste - und wer den Einladungslink teilte, bekam von seinen
+         * Gaesten zu hoeren, dass es nicht geht.
+         *
+         * Das war auch nicht die Regel im Haus: die Zeile darueber macht es
+         * fuer `freieVorschlaege` schon richtig. `gaesteErlaubt` war der
+         * Ausreisser.
+         *
+         * Das Veto des Admins bleibt unveraendert: `&& vorgabe.gaesteErlaubt`
+         * steht weiterhin da, und steht die Servereinstellung aus, ist jede
+         * Runde zu - egal was ein Host schickt. Was sich aendert, ist allein
+         * die Vorgabe, wenn er **nichts** schickt.
+         */
+        gaesteErlaubt: (optionen.gaesteErlaubt ?? vorgabe.gaesteErlaubt) && vorgabe.gaesteErlaubt,
         nachlosenErlaubt: optionen.nachlosenErlaubt ?? true,
         expiresAt: new Date(Date.now() + vorgabe.verfallStunden * 3600_000),
       },

@@ -360,3 +360,212 @@ describeWithDatabase('XP-Battle: erst kämpfen, dann das Ergebnis', () => {
     expect(abschnitt.indexOf('level.finishGame')).toBeLessThan(abschnitt.indexOf('zeigeKampf('));
   });
 });
+
+/**
+ * Eine lange Partie darf nicht daran scheitern, dass sie lange dauert.
+ *
+ * ## Der Fehler, um den es hier geht
+ *
+ * `acceptChallenge` setzte `expiresAt` einmal auf «jetzt + Zeitfenster» und
+ * niemand fasste es wieder an. Bei Vier gewinnt waren das 120 Sekunden - für
+ * die **ganze** Partie. Danach schloss `releaseStaleGames` sie als `TIMEOUT`,
+ * zahlte die Einsätze zurück und gab beide Spieler frei; der nächste Klick lief
+ * in «Das Spiel lauft nüme», mitten in einer Partie, an der beide gerade
+ * zogen. Vier gewinnt kann zweiundvierzig Züge haben.
+ *
+ * Gemeint war eine **Zugfrist**. Die Tests unten prüfen beide Richtungen: dass
+ * Ziehen die Frist vorschiebt, und dass eine Partie, in der tatsächlich niemand
+ * mehr zieht, weiterhin freigegeben wird. Ein Fix, der nur das erste könnte,
+ * hätte die Einsätze auf Dauer gebunden.
+ */
+describeWithDatabase('XP-Spiele: Zugfrist statt Gesamtspielzeit', () => {
+  beforeAll(() => pushSchema());
+
+  beforeEach(async () => {
+    await prisma.$executeRawUnsafe('TRUNCATE "XpTransaction","LevelGameMatch" RESTART IDENTITY CASCADE');
+  });
+
+  /** Der Zeitpunkt, der in der Datenbank steht. */
+  async function frist(matchId: string): Promise<Date | null> {
+    const zeile = await prisma.levelGameMatch.findUniqueOrThrow({ where: { id: matchId } });
+    return zeile.expiresAt;
+  }
+
+  it('schiebt die Frist bei jedem Zug vor sich her', async () => {
+    const match = await partie('XP_4GEWINNT');
+    // Eine Frist, die in zehn Sekunden ablaeuft - wie kurz nach dem Start.
+    const knapp = new Date(Date.now() + 10_000);
+    await prisma.levelGameMatch.update({ where: { id: match.id }, data: { expiresAt: knapp } });
+
+    await level.playC4(match.id, A, 0, { zugfristSekunden: 120 });
+
+    const nachher = await frist(match.id);
+    expect(nachher).not.toBeNull();
+    // Deutlich weiter als vorher - der Zug hat die Frist neu gesetzt.
+    expect(nachher!.getTime()).toBeGreaterThan(knapp.getTime() + 60_000);
+  });
+
+  it('verlängert die Frist nicht bei einem abgewiesenen Zug', async () => {
+    /*
+     * Der Grund, warum die Verlängerung in der Transaktion steht.
+     *
+     * Ein unerlaubter Zug wirft, die Transaktion rollt zurück - und damit auch
+     * die Verlängerung. Sonst könnte jemand seine Frist verlängern, indem er
+     * wiederholt auf ein Feld klickt, das ihm nicht gehört.
+     */
+    const match = await partie('XP_4GEWINNT');
+    const knapp = new Date(Date.now() + 10_000);
+    await prisma.levelGameMatch.update({ where: { id: match.id }, data: { expiresAt: knapp } });
+
+    // B ist nicht am Zug - A beginnt.
+    await expect(level.playC4(match.id, B, 0, { zugfristSekunden: 120 })).rejects.toThrow();
+
+    expect((await frist(match.id))!.getTime()).toBe(knapp.getTime());
+  });
+
+  it('lässt eine Partie mit frischer Frist in Ruhe, auch wenn sie alt ist', async () => {
+    const match = await partie('XP_4GEWINNT');
+    await prisma.levelGameMatch.update({
+      where: { id: match.id },
+      data: {
+        // Vor drei Stunden begonnen - mehr als die alte Altersgrenze von einer
+        // Stunde. Genau der Fall, der eine laufende Partie zerstörte.
+        createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+        startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 120_000),
+      },
+    });
+
+    const freigegeben = await level.releaseStaleGames();
+
+    expect(freigegeben).toBe(0);
+    const nachher = await prisma.levelGameMatch.findUniqueOrThrow({ where: { id: match.id } });
+    expect(nachher.status).toBe('RUNNING');
+  });
+
+  it('spielt nach drei Stunden immer noch - der Knopf funktioniert weiter', async () => {
+    const match = await partie('XP_4GEWINNT');
+    await prisma.levelGameMatch.update({
+      where: { id: match.id },
+      data: {
+        createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+        startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 120_000),
+      },
+    });
+    await level.releaseStaleGames();
+
+    // Das ist die Frage des Nutzers: geht der naechste Klick noch durch?
+    const zug = await level.playC4(match.id, A, 0, { zugfristSekunden: 120 });
+    expect(zug.finished).toBe(false);
+  });
+
+  it('gibt eine Partie frei, in der wirklich niemand mehr zieht', async () => {
+    const match = await partie('XP_4GEWINNT');
+    await prisma.levelGameMatch.update({
+      where: { id: match.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    expect(await level.releaseStaleGames()).toBe(1);
+    const nachher = await prisma.levelGameMatch.findUniqueOrThrow({ where: { id: match.id } });
+    expect(nachher.status).toBe('TIMEOUT');
+    // Und beide Seiten sind wieder frei fuer neue Partien.
+    expect(nachher.activeChallengerKey).toBeNull();
+    expect(nachher.activeOpponentKey).toBeNull();
+  });
+
+  it('meldet dann «Das Spiel lauft nüme» - mit genau diesem Wortlaut', async () => {
+    const match = await partie('XP_4GEWINNT');
+    await prisma.levelGameMatch.update({
+      where: { id: match.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    await level.releaseStaleGames();
+
+    await expect(level.playC4(match.id, A, 0, { zugfristSekunden: 120 })).rejects.toThrow(
+      /Das Spiel lauft nüme/u,
+    );
+  });
+
+  it('lässt eine laufende Partie ohne Frist stehen, statt sie zu schliessen', async () => {
+    /*
+     * Ein fehlender Wert ist kein Beleg dafuer, dass niemand mehr spielt.
+     *
+     * Solche Zeilen gibt es: aus einer aelteren Fassung, oder weil jemand von
+     * Hand eingegriffen hat. Die falsche Antwort kostet hier eine laufende
+     * Partie, die richtige nur einen spaeteren Aufraeumlauf.
+     */
+    const match = await partie('XP_4GEWINNT');
+    await prisma.levelGameMatch.update({
+      where: { id: match.id },
+      data: {
+        createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
+        expiresAt: null,
+      },
+    });
+
+    expect(await level.releaseStaleGames()).toBe(0);
+    expect((await prisma.levelGameMatch.findUniqueOrThrow({ where: { id: match.id } })).status).toBe(
+      'RUNNING',
+    );
+  });
+
+  it('räumt eine uralte offene Herausforderung weiterhin weg', async () => {
+    // Die Altersgrenze bleibt - fuer PENDING ist sie ein Netz und kein Messer.
+    const match = await prisma.levelGameMatch.create({
+      data: {
+        kind: 'XP_4GEWINNT',
+        status: 'PENDING',
+        challengerDiscordId: A,
+        opponentDiscordId: B,
+        bet: 100,
+        payout: 190,
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        expiresAt: null,
+      },
+    });
+
+    expect(await level.releaseStaleGames()).toBe(1);
+    expect((await prisma.levelGameMatch.findUniqueOrThrow({ where: { id: match.id } })).status).toBe(
+      'TIMEOUT',
+    );
+  });
+
+  it('überlebt einen Bot-Neustart: der Aufräumlauf hält sich zuerst zurück', async () => {
+    /*
+     * Die Zugfrist laeuft weiter, waehrend der Bot nicht da ist. Ein Deployment
+     * dauert Minuten; in dieser Zeit kann niemand klicken. Ohne Kulanz waere
+     * der erste Lauf nach dem Neustart ein Massaker an genau den Partien, die
+     * waehrend des Deployments liefen - unsere Ausfallzeit, nicht ihre
+     * Untaetigkeit.
+     */
+    const match = await partie('XP_4GEWINNT');
+    await prisma.levelGameMatch.update({
+      where: { id: match.id },
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+
+    // Prozess gerade gestartet.
+    expect(await level.runGameCleanup({ prozessStart: Date.now() })).toBe(0);
+    expect((await prisma.levelGameMatch.findUniqueOrThrow({ where: { id: match.id } })).status).toBe(
+      'RUNNING',
+    );
+    // Und der Zug geht durch.
+    await expect(level.playC4(match.id, A, 0, { zugfristSekunden: 120 })).resolves.toBeDefined();
+  });
+
+  it('räumt nach der Kulanz wieder auf', async () => {
+    const match = await partie('XP_4GEWINNT');
+    await prisma.levelGameMatch.update({
+      where: { id: match.id },
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+
+    // Prozess laeuft seit einer Stunde - die Kulanz ist vorbei.
+    expect(await level.runGameCleanup({ prozessStart: Date.now() - 60 * 60 * 1000 })).toBe(1);
+    expect((await prisma.levelGameMatch.findUniqueOrThrow({ where: { id: match.id } })).status).toBe(
+      'TIMEOUT',
+    );
+  });
+});

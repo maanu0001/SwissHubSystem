@@ -352,7 +352,9 @@ async function handleSsp(
   context: Ctx,
 ): Promise<void> {
   await interaction.deferUpdate();
-  const move = await level.playSsp(matchId, interaction.user.id, choice);
+  const move = await level.playSsp(matchId, interaction.user.id, choice, {
+    zugfristSekunden: playTimeoutFor('XP_SSP', context.settings),
+  });
 
   if (move.waiting) {
     // Die eigene Wahl bekommt nur der Waehlende zu sehen - nicht der Kanal.
@@ -418,7 +420,9 @@ async function handleTtt(
   context: Ctx,
 ): Promise<void> {
   await interaction.deferUpdate();
-  const move = await level.playTtt(matchId, interaction.user.id, cell);
+  const move = await level.playTtt(matchId, interaction.user.id, cell, {
+    zugfristSekunden: playTimeoutFor('XP_TTT', context.settings),
+  });
   await finishOrRender(
     interaction,
     move,
@@ -434,7 +438,11 @@ async function handleC4(
   context: Ctx,
 ): Promise<void> {
   await interaction.deferUpdate();
-  const move = await level.playC4(matchId, interaction.user.id, column);
+  // Die Frist gilt bis zum naechsten Zug, nicht bis zum Spielende: jeder Zug
+  // setzt sie neu. Eine Partie, die lange dauert, ueberlebt das.
+  const move = await level.playC4(matchId, interaction.user.id, column, {
+    zugfristSekunden: playTimeoutFor('XP_4GEWINNT', context.settings),
+  });
   await finishOrRender(
     interaction,
     move,
