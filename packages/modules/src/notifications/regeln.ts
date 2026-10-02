@@ -40,6 +40,10 @@ export const BENACHRICHTIGUNGSARTEN: Benachrichtigungsart[] = [
   { kind: 'clip.offen', label: 'Clip wartet auf Freigabe', icon: 'Clapperboard' },
   { kind: 'clip.entschieden', label: 'Dein Clip wurde geprüft', icon: 'Clapperboard' },
   { kind: 'clip.gewonnen', label: 'Clip of the Week gewonnen', icon: 'Trophy' },
+  { kind: 'workspace.zugewiesen', label: 'Aufgabe zugewiesen', icon: 'CircleCheck' },
+  { kind: 'workspace.erwaehnt', label: 'In einem Kommentar erwähnt', icon: 'MessageSquare' },
+  { kind: 'workspace.frist', label: 'Frist rückt näher', icon: 'AlarmClock' },
+  { kind: 'workspace.blockiert', label: 'Aufgabe blockiert', icon: 'ShieldAlert' },
 ];
 
 export const BENACHRICHTIGUNGSREGELN: Benachrichtigungsregel[] = [
@@ -220,6 +224,110 @@ export const BENACHRICHTIGUNGSREGELN: Benachrichtigungsregel[] = [
             ? text(payload, 'titel')
             : `${text(payload, 'titel') ?? 'Dein Clip'} · ${stimmen} ${stimmen === 1 ? 'Stimme' : 'Stimmen'}`,
         route: key ? systemRoutes.clipRunde(key) : systemRoutes.hallOfFame(),
+      };
+    },
+  },
+  {
+    /*
+     * Eine Aufgabe, die jemandem zugewiesen wurde.
+     *
+     * Die Meldung mit dem besten Verhaeltnis von Aufwand zu Nutzen in diesem
+     * Modul: ohne sie erfaehrt man von einer neuen Aufgabe erst, wenn man von
+     * selbst ins Board schaut - und genau das tut man an dem Tag nicht, an dem
+     * man viel zu tun hat.
+     *
+     * Persoenlich, nicht an eine Berechtigung: zustaendig ist eine Person.
+     */
+    eventType: 'workspace.task_assigned',
+    kind: 'workspace.zugewiesen',
+    empfaenger: { art: 'person', discordId: (payload) => text(payload, 'discordId') },
+    bauen({ payload }) {
+      const taskId = text(payload, 'taskId');
+      if (!taskId) {
+        return null;
+      }
+      const frist = text(payload, 'dueAt');
+      return {
+        titel: 'Neue Aufgabe für dich',
+        text: frist
+          ? `${text(payload, 'titel') ?? 'Eine Aufgabe'} · fällig ${frist.slice(0, 10)}`
+          : text(payload, 'titel'),
+        route: systemRoutes.workspaceAufgabe(taskId),
+      };
+    },
+  },
+  {
+    // Eine Erwaehnung ist eine Frage an eine bestimmte Person. Ohne Meldung
+    // waere sie ein Zettel in einer Schublade, die niemand oeffnet.
+    eventType: 'workspace.mention',
+    kind: 'workspace.erwaehnt',
+    empfaenger: { art: 'person', discordId: (payload) => text(payload, 'discordId') },
+    bauen({ payload }) {
+      const taskId = text(payload, 'taskId');
+      if (!taskId) {
+        return null;
+      }
+      return {
+        titel: `Erwähnt: ${text(payload, 'titel') ?? 'eine Aufgabe'}`,
+        text: text(payload, 'auszug'),
+        route: systemRoutes.workspaceAufgabe(taskId),
+      };
+    },
+  },
+  {
+    /*
+     * Die Frist rueckt naeher.
+     *
+     * Vom Scheduler gemeldet, einmal je Frist - der Merker an der Aufgabe
+     * verhindert Wiederholungen, und `dedupeKey` im Dienst faengt den Rest.
+     * Keine Gruppe: zwei Fristen am selben Tag sind zwei Dinge zu tun, und sie
+     * zu einer Zeile zusammenzufassen hiesse, eine davon zu verstecken.
+     */
+    eventType: 'workspace.reminder',
+    kind: 'workspace.frist',
+    empfaenger: { art: 'person', discordId: (payload) => text(payload, 'discordId') },
+    bauen({ payload }) {
+      const taskId = text(payload, 'taskId');
+      if (!taskId) {
+        return null;
+      }
+      const tage = zahl(payload, 'tageBisFrist');
+      const wann =
+        tage === null
+          ? null
+          : tage <= 0
+            ? 'heute fällig'
+            : tage === 1
+              ? 'morgen fällig'
+              : `fällig in ${tage} Tagen`;
+      const projekt = text(payload, 'projektTitel');
+      return {
+        titel: text(payload, 'titel') ?? 'Eine Aufgabe wird fällig',
+        text: [wann, projekt].filter((teil) => teil !== null).join(' · ') || null,
+        route: systemRoutes.workspaceAufgabe(taskId),
+      };
+    },
+  },
+  {
+    /*
+     * Eine Aufgabe ist blockiert.
+     *
+     * Nur, wenn die Moduleinstellung es verlangt - der Dienst meldet das
+     * Ereignis sonst gar nicht. Vorgabe aus: auf einem Team, das «Blockiert»
+     * als Ablage benutzt, waere es eine Meldung am Tag ohne Anlass.
+     */
+    eventType: 'workspace.task_blocked',
+    kind: 'workspace.blockiert',
+    empfaenger: { art: 'person', discordId: (payload) => text(payload, 'discordId') },
+    bauen({ payload }) {
+      const taskId = text(payload, 'taskId');
+      if (!taskId) {
+        return null;
+      }
+      return {
+        titel: 'Aufgabe blockiert',
+        text: text(payload, 'titel'),
+        route: systemRoutes.workspaceAufgabe(taskId),
       };
     },
   },

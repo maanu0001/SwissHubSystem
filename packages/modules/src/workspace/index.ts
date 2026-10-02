@@ -7,3 +7,4 @@ export * from './kennzahlen';
 export * from './mitarbeit';
 export * from './planung';
 export * from './vorlagen';
+export * from './erinnerungen';

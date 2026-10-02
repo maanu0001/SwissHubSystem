@@ -4,10 +4,12 @@ import type {
   WorkspaceReminder,
   WorkspaceTask,
   WorkspaceTaskStatus,
- Prisma} from '@swisshub/database';
+  Prisma,
+} from '@swisshub/database';
 import { AppError, sanitizeText } from '@swisshub/shared';
 import { meldeEreignis } from '../automation/emit';
-import { WORKSPACE_MODULE_ID } from './config';
+import { getModuleSettings } from '../module-state';
+import { WORKSPACE_MODULE_ID, type WorkspaceSettings } from './config';
 import { PRIORITAET_GEWICHT, normalisiereTags } from './typen';
 import { vermerke } from './verlauf';
 
@@ -203,6 +205,49 @@ async function meldeZuweisungen(
   }
 }
 
+/**
+ * «Blockiert» melden - wenn der Server es will.
+ *
+ * Es ist der eine Statuswechsel, aus dem Arbeit für jemand anderen folgt:
+ * blockiert heisst, dass hier ohne Zutun nichts weitergeht. Trotzdem ist die
+ * Einstellung standardmaessig **aus**: auf einem Team, das «Blockiert» als
+ * Ablage für Angefangenes benutzt, waere es eine Meldung am Tag ohne Anlass -
+ * und eine Glocke, in der solche Meldungen stehen, oeffnet nach zwei Wochen
+ * niemand mehr.
+ *
+ * Gemeldet wird je **anderer** Zustaendiger, so wie bei der Zuweisung: wer
+ * selbst blockiert hat, weiss es.
+ */
+async function meldeBlockiert(aufgabe: WorkspaceTask, akteurDiscordId: string): Promise<void> {
+  const einstellungen = await getModuleSettings<WorkspaceSettings>(WORKSPACE_MODULE_ID);
+  if (!einstellungen.meldeBlockiert) {
+    return;
+  }
+
+  const zustaendige = await prisma.workspaceTaskAssignee.findMany({
+    where: { taskId: aufgabe.id, discordId: { not: akteurDiscordId } },
+    select: { discordId: true },
+  });
+
+  for (const eintrag of zustaendige) {
+    await meldeEreignis(
+      'workspace.task_blocked',
+      {
+        taskId: aufgabe.id,
+        titel: aufgabe.title,
+        discordId: eintrag.discordId,
+        projectId: aufgabe.projectId,
+      },
+      {
+        guildId: aufgabe.guildId,
+        actorId: akteurDiscordId,
+        subjectId: eintrag.discordId,
+        entityId: aufgabe.id,
+      },
+    );
+  }
+}
+
 export interface StatusWechsel {
   /**
    * Der Status, den der Absender vor sich sah.
@@ -265,19 +310,8 @@ export async function setzeStatus(
     detail: `${vorher.status} → ${status}`,
   });
 
-  /*
-   * Blockiert melden - wenn der Server es will.
-   *
-   * Eine blockierte Aufgabe ist der eine Statuswechsel, aus dem Arbeit für
-   * jemand anderen folgt. Trotzdem standardmaessig aus: auf einem Team, das
-   * «Blockiert» als Ablage benutzt, waere es eine Meldung am Tag ohne Anlass.
-   */
   if (status === 'BLOCKED') {
-    await meldeEreignis(
-      'workspace.task_blocked',
-      { taskId, titel: vorher.title, projectId: vorher.projectId },
-      { guildId: vorher.guildId, actorId: akteurDiscordId, entityId: taskId },
-    );
+    await meldeBlockiert(vorher, akteurDiscordId);
   }
 
   return nachher;

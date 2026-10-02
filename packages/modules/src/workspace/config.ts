@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { registerModule, type ModuleDefinition } from '../registry';
+import { registerModule, registerModuleStatusBadge, type ModuleDefinition } from '../registry';
 import type { SettingsField } from '../settings/fields';
 
 /**
@@ -247,4 +247,54 @@ export const workspaceModule: ModuleDefinition = registerModule({
       titlePrefix: '/workspace',
     },
   ],
+});
+
+/**
+ * Das Statusabzeichen in der Seitenleiste.
+ *
+ * ## Was es zeigt, und was nicht
+ *
+ * Nur Überfälliges, und das in Rot. Nicht die Zahl der offenen Aufgaben: die
+ * ist in einem arbeitenden Team immer grösser als Null, und ein Abzeichen, das
+ * immer da ist, liest man zweimal und danach nie wieder. Überfällig ist der
+ * Zustand, der von selbst nicht besser wird.
+ *
+ * Die Zahl ist absichtlich serverweit und nicht persönlich: in der
+ * Seitenleiste steht sie neben dem Modulnamen, nicht neben «Meine Aufgaben» -
+ * dort gehört die persönliche hin, und dort steht sie auch.
+ *
+ * Der Import ist verzögert: diese Datei läuft beim Laden der Module, und ein
+ * Datenbankzugriff gehört nicht in diesen Moment. Gefragt wird erst, wenn
+ * jemand eine Seite aufbaut.
+ */
+registerModuleStatusBadge({
+  moduleId: WORKSPACE_MODULE_ID,
+  async resolve() {
+    const { prisma } = await import('@swisshub/database');
+    const { resolveGuildId } = await import('@swisshub/discord');
+    const guildId = await resolveGuildId();
+
+    // Gerechnet auf den Tagesbeginn: eine Aufgabe, die heute um 09:00 faellig
+    // war, ist um 14:00 nicht ueberfaellig, solange der Tag laeuft.
+    const jetzt = new Date();
+    const heuteBeginn = new Date(Date.UTC(jetzt.getUTCFullYear(), jetzt.getUTCMonth(), jetzt.getUTCDate()));
+
+    const ueberfaellig = await prisma.workspaceTask.count({
+      where: {
+        guildId,
+        status: { in: ['OPEN', 'IN_PROGRESS', 'BLOCKED'] },
+        dueAt: { lt: heuteBeginn },
+        OR: [{ projectId: null }, { project: { archivedAt: null } }],
+      },
+    });
+
+    if (ueberfaellig === 0) {
+      return null;
+    }
+    return {
+      label: `${ueberfaellig} überfällig`,
+      variant: 'dringend' as const,
+      priority: 20,
+    };
+  },
 });

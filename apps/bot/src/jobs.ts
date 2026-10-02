@@ -31,6 +31,7 @@ import {
   wrapped,
   spielwahl,
   streamer,
+  workspace,
   getModuleSettings,
 } from '@swisshub/modules';
 
@@ -444,6 +445,26 @@ export function createJobRunner(
         }
         const settings = await getModuleSettings<voiceHub.VoiceHubSettings>(voiceHub.VOICE_HUB_MODULE_ID);
         await voice.raeumeAlteTalks(settings.historyRetentionDays);
+      },
+    },
+    {
+      /**
+       * Erinnerungen an Fristen im Workspace.
+       *
+       * Viertelstuendlich, nicht minuetlich: eine Erinnerung an eine Frist in
+       * drei Tagen muss nicht auf die Minute kommen, und ein Lauf je Minute
+       * waere vierundzwanzig Stunden lang eine Abfrage, die fast immer nichts
+       * findet.
+       *
+       * Kein `setTimeout`: ein Timer auf eine Frist in drei Wochen setzt einen
+       * Prozess voraus, der drei Wochen lebt. Jeder Deploy wuerde ihn
+       * vergessen, und zwar lautlos. Dieser Job fragt jedes Mal den Zustand aus
+       * der Datenbank; der Merker an der Aufgabe verhindert Doppel.
+       */
+      name: 'workspace-erinnerungen',
+      intervalMs: 15 * 60 * 1000,
+      async run() {
+        await workspace.verschickeErinnerungen();
       },
     },
     {

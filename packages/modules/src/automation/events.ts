@@ -514,9 +514,30 @@ registerEvent({
   payloadSchema: z.object({
     taskId: z.string(),
     titel: z.string(),
+    discordId,
     projectId: z.string().nullable(),
   }),
   variables: [{ path: 'payload.titel', label: 'Titel der Aufgabe', type: 'string' }],
+});
+
+registerEvent({
+  type: 'workspace.reminder',
+  label: 'Frist rueckt naeher',
+  description:
+    'Die Vorwarnzeit einer Aufgabe ist erreicht. Gemeldet vom Scheduler, einmal je Frist - der Merker an der Aufgabe verhindert Wiederholungen.',
+  module: 'workspace',
+  payloadSchema: z.object({
+    taskId: z.string(),
+    titel: z.string(),
+    discordId,
+    projektTitel: z.string().nullable(),
+    dueAt: z.string(),
+    tageBisFrist: z.number(),
+  }),
+  variables: [
+    { path: 'payload.titel', label: 'Titel der Aufgabe', type: 'string' },
+    { path: 'payload.tageBisFrist', label: 'Tage bis zur Frist', type: 'number' },
+  ],
 });
 
 registerEvent({
