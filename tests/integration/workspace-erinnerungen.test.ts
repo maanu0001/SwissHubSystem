@@ -1,5 +1,14 @@
 import { beforeAll, beforeEach, expect, it } from 'vitest';
 import { describeWithDatabase, pushSchema, useTestSchema } from '../helpers/database';
+/*
+ * Nur der Typ, statisch importiert.
+ *
+ * Die Laufzeitwerte kommen unten über `await import` - so verlangt es der
+ * Testaufbau, weil die Datenbankumgebung vorher stehen muss. Ein Typ aus einer
+ * so geholten Konstante ist aber kein Namensraum: `Partial<workspace.X>` würde
+ * `tsc` zu Recht ablehnen, auch wenn der Test läuft.
+ */
+import type { workspace as WorkspaceTypen } from '@swisshub/modules';
 
 useTestSchema('test_workspace_erinnerungen');
 
@@ -58,7 +67,7 @@ async function leeren(): Promise<void> {
  * Tage auseinanderliegen, fielen im Test in dieselbe Minute und damit
  * zusammen. Das wäre eine Eigenschaft des Tests, nicht des Reminders.
  */
-async function modulAn(werte: Partial<workspace.WorkspaceSettings> = {}): Promise<void> {
+async function modulAn(werte: Partial<WorkspaceTypen.WorkspaceSettings> = {}): Promise<void> {
   await setModuleEnabled(AUTOMATION_MODULE_ID, true, ANNA);
   await setModuleEnabled(workspace.WORKSPACE_MODULE_ID, true, ANNA);
   await setModuleSettings(

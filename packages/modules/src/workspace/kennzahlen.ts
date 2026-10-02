@@ -1,5 +1,5 @@
 import { prisma } from '@swisshub/database';
-import type { WorkspaceTaskStatus , Prisma} from '@swisshub/database';
+import type { WorkspaceTaskStatus, Prisma } from '@swisshub/database';
 import { nichtArchiviert } from './aufgaben';
 import { BOARD_SPALTEN, OFFENE_STATUS, type BoardSpalte } from './typen';
 
