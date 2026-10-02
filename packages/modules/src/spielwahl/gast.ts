@@ -14,17 +14,49 @@ import { z } from 'zod';
  *
  * ## Was ein Gast darf
  *
- * **Zusehen und abstimmen. Nichts weiter.** Kein Spiel vorschlagen, keine
- * Phase oeffnen oder schliessen, keine Runde starten, kein Ergebnis annehmen,
- * niemanden entfernen. Der Grund ist nicht Misstrauen, sondern Zurechenbarkeit:
- * ein Vorschlag traegt einen Namen, bleibt im Katalog und wird spaeter
- * gezaehlt; eine Stimme gilt fuer diese eine Abstimmung und ist danach
- * Geschichte.
+ * **Den ganzen gewoehnlichen Ablauf einer Runde.** Eine Runde eroeffnen, ihr
+ * beitreten, Spiele vorschlagen, einen Vorschlag zuruecknehmen, abstimmen,
+ * die Vorschlagsphase schliessen und wieder oeffnen, die Runde starten,
+ * einmal neu auslosen, das Ergebnis annehmen, noch eine Runde anhaengen, die
+ * eigene Runde beenden.
  *
- * Erzwungen wird das **serverseitig**, in `schlageVor` und in den
- * oeffentlichen Aktionen - nicht dadurch, dass die Oberflaeche einen Knopf
- * weglaesst. Eine Server Action ist ein Endpunkt; wer die Adresse kennt, ruft
- * sie auf.
+ * Hier stand einmal **«Zusehen und abstimmen. Nichts weiter.»** Das war der
+ * Entwurf einer Gastrolle als Zuschauerrolle, und er hat die Frage, um die es
+ * dem Modul geht, nicht beantwortet: sechs Leute sitzen im Sprachkanal, einer
+ * oeffnet die Runde - und wenn genau der keinen Account hat, war der Abend
+ * gelaufen. «Was spielen wir» ist kein Verwaltungsvorgang, sondern eine Frage
+ * unter Freunden, und eine Frage unter Freunden verlangt keinen Ausweis.
+ *
+ * ## Was ein Gast nicht darf
+ *
+ * Zwei Dinge, und zwar beide, weil sie **ueber die eigene Runde hinausgehen**:
+ *
+ *  1. **Den Spielkatalog pflegen.** Der Katalog gehoert allen Modulen -
+ *     Turnieren, Clips, Spielwahl - und ueberlebt jede Runde. Wer ihn
+ *     aendert, aendert etwas fuer Leute, die nicht dabei sind. Das steht
+ *     unter `spielwahl.manage` und bleibt dort.
+ *  2. **Fremde Runden moderieren.** Eine entgleiste Runde schliesst die
+ *     Moderation ueber `spielwahl.manage`, und auch das bleibt dort.
+ *
+ * Und eines bleibt eine Regel der Zurechenbarkeit statt der Zustaendigkeit:
+ * **in der Runde eines Mitglieds wird ein Gast nicht zum Host.** Wer eine
+ * Runde eroeffnet, fuehrt sie; wer als Gast einer Mitgliedsrunde beitritt,
+ * bleibt Teilnehmer, auch wenn der Host geht. Sonst waere ein geteilter Link
+ * ein Weg, die Fuehrung einer fremden Runde zu uebernehmen. Durchgesetzt wird
+ * das in `darfFuehrungTragen` in `session.ts`.
+ *
+ * Erzwungen wird all das **serverseitig**, im Modul und in den oeffentlichen
+ * Aktionen - nicht dadurch, dass die Oberflaeche einen Knopf weglaesst. Eine
+ * Server Action ist ein Endpunkt; wer die Adresse kennt, ruft sie auf.
+ *
+ * ## Die Grenze, die nicht am Cookie haengt
+ *
+ * Eine Kennung im Cookie ist loeschbar, und damit ist jede Grenze, die auf
+ * ihr sitzt - `offeneProPerson`, die Ratengrenze -, fuer einen entschlossenen
+ * Besucher keine. Weil ein Gast nun Runden **anlegen** kann, braucht es eine
+ * Grenze, die er nicht umgehen kann: `gastRundenGrenze` begrenzt die Zahl
+ * gleichzeitig offener Runden mit einem Gast als Host, serverweit und
+ * absolut. Siehe `config.ts`.
  *
  * ## Die Kennung
  *

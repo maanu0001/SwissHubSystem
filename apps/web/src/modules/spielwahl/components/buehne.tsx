@@ -33,25 +33,7 @@ import {
   useSpielwahl,
   type Stand,
 } from '@/modules/spielwahl/verbindung';
-import {
-  spielwahlAnnehmenAction,
-  spielwahlBeitretenAction,
-  spielwahlHierAction,
-  spielwahlNeuLosenAction,
-  spielwahlNochEineAction,
-  spielwahlPhaseOeffnenAction,
-  spielwahlPhaseSchliessenAction,
-  spielwahlSchliessenAction,
-  spielwahlStartenAction,
-  spielwahlStimmeAction,
-  spielwahlVerlassenAction,
-} from '@/modules/spielwahl/aktionen';
-import {
-  gastBeitretenAction,
-  gastHierAction,
-  gastStimmeAction,
-  gastVerlassenAction,
-} from '@/modules/spielwahl/gast-aktionen';
+import { GASTBEFEHLE, MITGLIEDSBEFEHLE, type Befehlssatz } from '@/modules/spielwahl/befehle';
 import '@/modules/spielwahl/spielwahl.css';
 
 /**
@@ -78,40 +60,13 @@ const DREHDAUER_MS = 10_000;
 const LEBENSZEICHEN_MS = 45_000;
 
 /**
- * Die vier Befehle, die für Mitglied und Gast verschieden heissen.
+ * Welcher Befehlssatz gilt - und warum die Bühne die Frage nur einmal stellt.
  *
- * ## Warum eine Tabelle und keine Fragezeichen im Code
- *
- * Ein Gast läuft durch `defineOeffentlicheAktion` - ohne Anmeldung, ohne
- * Mitgliedschaft, mit einer Gastkennung aus dem Cookie. Ein Mitglied läuft
- * durch `defineAction`. Es sind zwei Ketten, weil es zwei Arten von Identität
- * sind, und genau vier Handlungen stehen einem Gast offen: beitreten,
- * abstimmen, ein Lebenszeichen, gehen.
- *
- * Als Tabelle, damit es an vier Stellen im Code keinen Unterschied macht -
- * und damit die Liste **hier** vollständig steht. Wer eine fünfte Handlung
- * für Gäste öffnen will, muss sie in diese Tabelle eintragen, und das fällt
- * auf.
- *
- * Alles Übrige - Phase öffnen, Runde starten, Ergebnis annehmen, Spiel
- * vorschlagen - erscheint einem Gast nicht, und der Server weist es
- * ausserdem ab. Beides, weil das eine Höflichkeit und das andere die
- * Entscheidung ist.
+ * Die Tabelle steht in `befehle.ts`, nicht hier: sie wird von der Lobby, den
+ * Regeln und der Steuerung ebenso gebraucht, und zwei Tabellen wären zwei
+ * Gelegenheiten, einen Knopf für Gäste zu vergessen. Diese Datei entscheidet
+ * einmal, welche der beiden es ist, und reicht sie weiter.
  */
-const MITGLIEDSBEFEHLE = {
-  stimme: spielwahlStimmeAction,
-  hier: spielwahlHierAction,
-  beitreten: spielwahlBeitretenAction,
-  verlassen: spielwahlVerlassenAction,
-} as const;
-
-const GASTBEFEHLE = {
-  stimme: gastStimmeAction,
-  hier: gastHierAction,
-  beitreten: gastBeitretenAction,
-  verlassen: gastVerlassenAction,
-} as const;
-
 export function Buehne({
   anfang,
   csrfToken,
@@ -127,9 +82,28 @@ export function Buehne({
   const [abbruchOffen, setAbbruchOffen] = useState(false);
 
   const gast = stand.betrachterIstGast;
-  const darfFuehren = !gast && (stand.eigeneRolle === 'HOST' || stand.eigeneRolle === 'COHOST');
+  /*
+   * Die Führung hängt an der Rolle in dieser Runde, nicht an einem Konto.
+   *
+   * Hier stand `!gast &&` davor, und das war die Oberflächenseite derselben
+   * Entscheidung, die den Server die Runde eines Gastes gar nicht erst
+   * eröffnen liess: wer ohne Konto eine Runde aufmacht, ist ihr Host und muss
+   * sie starten und beenden können. Ob er darf, entscheidet weiterhin der
+   * Server - `verlangeFuehrung` im Modul, und in einer Mitgliedsrunde wird
+   * ein Gast nie Host (`darfFuehrungTragen`).
+   */
+  const darfFuehren = stand.eigeneRolle === 'HOST' || stand.eigeneRolle === 'COHOST';
   const dabei = stand.eigeneRolle !== null;
   const rest = useFrist(stand.runde?.endsAt ?? null, stand.jetzt);
+
+  /*
+   * Die Entscheidung «Mitglied oder Gast» fällt hier und nur hier.
+   *
+   * Danach ist `befehle` eine Tabelle und kein Fragezeichen mehr: Lobby,
+   * Regeln und Steuerung bekommen sie weitergereicht und wissen nichts von
+   * zwei Ketten. Siehe `befehle.ts`.
+   */
+  const befehle: Befehlssatz = gast ? GASTBEFEHLE : MITGLIEDSBEFEHLE;
 
   /*
    * Lebenszeichen.
@@ -143,15 +117,14 @@ export function Buehne({
       return;
     }
     const melden = (): void => {
-      // Das Lebenszeichen des Mitglieds braucht keinen Token (siehe dort), das
-      // des Gastes schon - `defineOeffentlicheAktion` kennt keine Ausnahme.
-      void (gast
-        ? gastHierAction({ sessionId: stand.id, csrfToken })
-        : spielwahlHierAction({ sessionId: stand.id }));
+      // Beide Ketten bekommen das Token: `defineOeffentlicheAktion` verlangt
+      // es, `defineAction` prüft es gegen die Sitzung. Eine Ausnahme für den
+      // einen Fall wäre eine Stelle, an der die Prüfung fehlt.
+      void befehle.hier({ sessionId: stand.id, csrfToken });
     };
     const uhr = window.setInterval(melden, LEBENSZEICHEN_MS);
     return () => window.clearInterval(uhr);
-  }, [dabei, gast, stand.id, csrfToken]);
+  }, [dabei, befehle, stand.id, csrfToken]);
 
   const befehl = useCallback((arbeit: () => Promise<{ ok: boolean; error?: { message: string } }>) => {
     starteUebergang(async () => {
@@ -161,8 +134,6 @@ export function Buehne({
       }
     });
   }, []);
-
-  const befehle = gast ? GASTBEFEHLE : MITGLIEDSBEFEHLE;
 
   const stimmen = useCallback(
     (candidateId: string, duell = 0) => {
@@ -283,13 +254,14 @@ export function Buehne({
               sessionId={stand.id}
               csrfToken={csrfToken}
               befehl={befehl}
+              befehle={befehle}
               laeuft={laeuft}
               gast={gast}
             />
           ) : null}
 
           {stand.status === 'LOBBY' || stand.status === 'BEREIT' ? (
-            <Lobby stand={stand} csrfToken={csrfToken} darfFuehren={darfFuehren} />
+            <Lobby stand={stand} csrfToken={csrfToken} darfFuehren={darfFuehren} befehle={befehle} />
           ) : null}
 
           {stand.status === 'ENTSCHEIDUNG' && stand.modus === 'ROULETTE' && stand.runde ? (
@@ -351,14 +323,14 @@ export function Buehne({
           dabei={dabei}
           laeuft={laeuft}
           befehl={befehl}
-          verlassen={befehle.verlassen}
+          befehle={befehle}
           darfSchliessen={darfFuehren || darfModerieren}
           aufAbbruch={() => setAbbruchOffen(true)}
         />
       ) : null}
 
       {stand.status === 'LOBBY' || stand.status === 'BEREIT' ? (
-        <Regeln stand={stand} csrfToken={csrfToken} darfFuehren={darfFuehren} />
+        <Regeln stand={stand} csrfToken={csrfToken} darfFuehren={darfFuehren} befehle={befehle} gast={gast} />
       ) : null}
 
       <ConfirmationDialog
@@ -373,7 +345,7 @@ export function Buehne({
         confirmLabel="Beenden"
         destructive
         onConfirm={() => {
-          befehl(() => spielwahlSchliessenAction({ sessionId: stand.id, csrfToken }));
+          befehl(() => befehle.schliessen({ sessionId: stand.id, csrfToken }));
           setAbbruchOffen(false);
         }}
       />
@@ -384,25 +356,27 @@ export function Buehne({
 /**
  * Der Einstieg für jemanden, der nur zusieht.
  *
- * Zwei Wege, weil es zwei Arten von Besucher gibt. Ein Mitglied klickt; sein
- * Name steht in seinem Profil. Ein Gast tippt erst einen Namen ein - es gibt
- * kein Profil, aus dem er kommen könnte, und «Gast» in der Teilnehmerliste
- * wäre bei drei Gästen dreimal dasselbe Wort.
+ * Zwei Wege, weil es zwei Arten von Besucher gibt - aber nur noch beim
+ * **Namen**. Ein Mitglied klickt; sein Name steht in seinem Profil. Ein Gast
+ * tippt erst einen ein: es gibt kein Profil, aus dem er kommen könnte, und
+ * «Gast» in der Teilnehmerliste wäre bei drei Gästen dreimal dasselbe Wort.
  *
- * Der Satz darüber unterscheidet sich ebenfalls, und zwar nicht aus Höflichkeit:
- * einem Gast zu versprechen, er könne Spiele vorschlagen, wäre ein Versprechen,
- * das der Server bricht.
+ * Was beide erwarten dürfen, ist dasselbe. Der Satz darüber versprach einem
+ * Gast früher weniger, als er heute bekommt - er stimmt nicht mehr mit, er
+ * macht mit.
  */
 function Beitreten({
   sessionId,
   csrfToken,
   befehl,
+  befehle,
   laeuft,
   gast,
 }: {
   sessionId: string;
   csrfToken: string;
   befehl: (arbeit: () => Promise<{ ok: boolean; error?: { message: string } }>) => void;
+  befehle: Befehlssatz;
   laeuft: boolean;
   gast: boolean;
 }): React.JSX.Element {
@@ -413,7 +387,7 @@ function Beitreten({
       <p className="text-base font-semibold text-white">Du schaust nur zu.</p>
       <p className="mt-1 text-sm text-white/45">
         {gast
-          ? 'Trag einen Namen ein und stimm mit. Spiele vorschlagen können angemeldete Mitglieder.'
+          ? 'Trag einen Namen ein - danach schlägst du Spiele vor und stimmst mit.'
           : 'Tritt bei, um Spiele vorzuschlagen und mitzuentscheiden.'}
       </p>
 
@@ -422,7 +396,7 @@ function Beitreten({
           className="mx-auto mt-4 flex max-w-sm flex-wrap items-center justify-center gap-2"
           onSubmit={(ereignis) => {
             ereignis.preventDefault();
-            befehl(() => gastBeitretenAction({ sessionId, name: name.trim(), csrfToken }));
+            befehl(() => befehle.beitreten({ sessionId, name: name.trim(), csrfToken }));
           }}
         >
           <label className="min-w-0 flex-1">
@@ -447,7 +421,7 @@ function Beitreten({
           disabled={laeuft}
           className="mt-4"
           onClick={() =>
-            befehl(() => spielwahlBeitretenAction({ sessionId, schluessel: neuerSchluessel(), csrfToken }))
+            befehl(() => befehle.beitreten({ sessionId, schluessel: neuerSchluessel(), csrfToken }))
           }
         >
           <DoorOpen className="size-4" aria-hidden="true" />
@@ -475,7 +449,7 @@ function Steuerung({
   dabei,
   laeuft,
   befehl,
-  verlassen,
+  befehle,
   darfSchliessen,
   aufAbbruch,
 }: {
@@ -485,11 +459,8 @@ function Steuerung({
   dabei: boolean;
   laeuft: boolean;
   befehl: (arbeit: () => Promise<{ ok: boolean; error?: { message: string } }>) => void;
-  /** Der Verlassen-Befehl - je nach Identität der des Mitglieds oder des Gastes. */
-  verlassen: (eingabe: {
-    sessionId: string;
-    csrfToken: string;
-  }) => Promise<{ ok: boolean; error?: { message: string } }>;
+  /** Die Befehle dieser Identität - Mitglied oder Gast, siehe `befehle.ts`. */
+  befehle: Befehlssatz;
   /**
    * «Runde beenden» anbieten.
    *
@@ -514,7 +485,7 @@ function Steuerung({
         disabled={laeuft || !genug}
         onClick={() =>
           befehl(() =>
-            spielwahlPhaseSchliessenAction({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }),
+            befehle.phaseSchliessen({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }),
           )
         }
       >
@@ -532,9 +503,7 @@ function Steuerung({
         size="lg"
         disabled={laeuft}
         onClick={() =>
-          befehl(() =>
-            spielwahlStartenAction({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }),
-          )
+          befehl(() => befehle.starten({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }))
         }
       >
         <Symbol className="size-4" aria-hidden="true" />
@@ -547,7 +516,7 @@ function Steuerung({
         disabled={laeuft}
         onClick={() =>
           befehl(() =>
-            spielwahlPhaseOeffnenAction({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }),
+            befehle.phaseOeffnen({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }),
           )
         }
       >
@@ -565,9 +534,7 @@ function Steuerung({
         size="lg"
         disabled={laeuft}
         onClick={() =>
-          befehl(() =>
-            spielwahlAnnehmenAction({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }),
-          )
+          befehl(() => befehle.annehmen({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }))
         }
       >
         <CheckCircle2 className="size-4" aria-hidden="true" />
@@ -586,9 +553,7 @@ function Steuerung({
           variant="outline"
           disabled={laeuft}
           onClick={() =>
-            befehl(() =>
-              spielwahlNeuLosenAction({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }),
-            )
+            befehl(() => befehle.neuLosen({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }))
           }
         >
           <RotateCcw className="size-4" aria-hidden="true" />
@@ -603,9 +568,7 @@ function Steuerung({
         variant="outline"
         disabled={laeuft}
         onClick={() =>
-          befehl(() =>
-            spielwahlNochEineAction({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }),
-          )
+          befehl(() => befehle.nochEine({ sessionId: stand.id, schluessel: neuerSchluessel(), csrfToken }))
         }
       >
         <RefreshCw className="size-4" aria-hidden="true" />
@@ -637,7 +600,7 @@ function Steuerung({
             size="sm"
             disabled={laeuft}
             className="text-white/35 hover:text-white/70"
-            onClick={() => befehl(() => verlassen({ sessionId: stand.id, csrfToken }))}
+            onClick={() => befehl(() => befehle.verlassen({ sessionId: stand.id, csrfToken }))}
           >
             <LogOut className="size-4" aria-hidden="true" />
             Verlassen

@@ -10,7 +10,7 @@ import { createLogger } from '@swisshub/logger';
 import { conflict, forbidden, notFound, policyViolation } from '@swisshub/shared';
 import { getModuleSettings } from '../module-state';
 import { SPIELWAHL_MODULE_ID, type SpielwahlSettings } from './config';
-import { gastNameSchema, istGastKennung } from './gast';
+import { GAST_PRAEFIX, gastNameSchema, istGastKennung } from './gast';
 import { BEITRITT_MOEGLICH, OFFENE_ZUSTAENDE, darfWechseln, grenzenFuer } from './zustand';
 import type { SessionEinstellungen } from './schemas';
 
@@ -120,14 +120,94 @@ export interface EroeffnenEingabe {
 }
 
 /**
- * Eine Runde eroeffnen.
+ * Darf hier und jetzt ohne Konto eine Runde eroeffnet werden?
  *
- * Der Schnellstart ruft dieselbe Funktion ohne Optionen auf. Es gibt keinen
- * zweiten, einfacheren Weg - sonst haette der Schnellstart eigene Vorgaben,
- * und die waeren irgendwann andere als die im Formular.
+ * **Das Gegenstueck zu `verlangeGastZugang`** - und aus demselben Grund eine
+ * eigene Funktion: eine oeffentliche Aktion hat keine Anmeldung, keine
+ * Mitgliedschaft und keine Berechtigung, also braucht sie genau eine
+ * Pruefung, die an deren Stelle tritt. `verlangeGastZugang` prueft den Zugang
+ * zu **einer Runde**; beim Eroeffnen gibt es noch keine, und geprueft wird
+ * stattdessen das Recht, eine anzulegen.
+ *
+ * Zwei Dinge, und keines davon haengt am Besucher:
+ *
+ *  1. **Die Servereinstellung `gaesteErlaubt`.** Derselbe Schalter, der ueber
+ *     das Mitstimmen entscheidet. Steht er aus, gibt es ohne Konto nichts.
+ *  2. **`gastRundenGrenze`.** Die absolute Obergrenze gleichzeitig offener
+ *     Gastrunden. Gezaehlt wird ueber das Praefix und nicht ueber eine Liste
+ *     von Kennungen: `startsWith('gast:')` trifft genau die Gastkennungen,
+ *     weil eine Discord-Kennung eine Ziffernfolge ist. Guildweit, wie alles
+ *     in diesem Modul - eine zweite Guild soll die Grenze der ersten nicht
+ *     verbrauchen.
+ *
+ * Warum nicht die Kennung des Besuchers? Weil sie in seinem Cookie steht und
+ * er sie loeschen kann. Eine Grenze, die er zuruecksetzen kann, ist keine -
+ * siehe `config.ts` zu `gastRundenGrenze`.
+ */
+export async function verlangeGastEroeffnung(guildId: string): Promise<void> {
+  const vorgabe = await einstellungen();
+
+  if (!vorgabe.gaesteErlaubt) {
+    throw forbidden(
+      'spielwahl: Gastteilnahme serverseitig aus',
+      'Ohne Konto geht hier gerade nichts. Melde dich an, um eine Runde zu eröffnen.',
+    );
+  }
+
+  const gastrunden = await prisma.spielwahlSession.count({
+    where: {
+      guildId,
+      hostDiscordId: { startsWith: GAST_PRAEFIX },
+      status: { in: OFFENE_ZUSTAENDE },
+      expiresAt: { gt: new Date() },
+    },
+  });
+  if (gastrunden >= vorgabe.gastRundenGrenze) {
+    throw policyViolation(
+      vorgabe.gastRundenGrenze === 0
+        ? 'Eine Runde eröffnen geht hier nur mit Konto. Tritt einer laufenden Runde bei oder melde dich an.'
+        : 'Gerade laufen schon viele Runden ohne angemeldeten Host. Tritt einer davon bei - oder melde dich an, dann gilt diese Grenze nicht.',
+    );
+  }
+}
+
+/**
+ * Eine Runde eroeffnen - mit Konto oder ohne.
+ *
+ * Der Schnellstart ruft dieselbe Funktion ohne Optionen auf, und ein Gast
+ * ruft **dieselbe** Funktion auf wie ein Mitglied. Es gibt keinen zweiten,
+ * einfacheren Weg - sonst haette der Schnellstart eigene Vorgaben, und die
+ * waeren irgendwann andere als die im Formular; und ein eigener Gastpfad
+ * haette eigene Grenzen, und die waeren irgendwann die laxeren.
+ *
+ * ## Die zwei zusaetzlichen Pruefungen fuer einen Gast
+ *
+ *  1. **Die Servereinstellung.** Steht `gaesteErlaubt` aus, gibt es ohne
+ *     Konto gar nichts - auch keine eigene Runde. Derselbe Schalter, der
+ *     ueber das Mitstimmen entscheidet.
+ *  2. **`gastRundenGrenze`.** Die einzige Grenze, die nicht am Cookie haengt
+ *     und die ein Besucher deshalb nicht durch Loeschen umgehen kann. Siehe
+ *     `config.ts`.
+ *
+ * `offeneProPerson` gilt fuer beide unveraendert. Fuer ein Mitglied ist es
+ * die wirksame Grenze; fuer einen Gast ist es die hoefliche, und die harte
+ * steht in Punkt 2.
  */
 export async function eroeffne(eingabe: EroeffnenEingabe): Promise<{ id: string; inviteToken: string }> {
   const vorgabe = await einstellungen();
+  const alsGast = istGastKennung(eingabe.host.discordId);
+
+  /*
+   * Die Gastpruefung steht hier **und** in der Aktion.
+   *
+   * In der Aktion, weil ein Besucher eine Absage lesen soll, bevor etwas
+   * passiert. Hier, weil diese Funktion auch aus dem Bot und aus Tests
+   * gerufen wird und nicht darauf vertrauen darf, dass ihr Aufrufer gefragt
+   * hat. Es ist dieselbe Funktion, also keine zwei Regeln.
+   */
+  if (alsGast) {
+    await verlangeGastEroeffnung(eingabe.guildId);
+  }
 
   const offene = await prisma.spielwahlSession.count({
     where: {
@@ -195,7 +275,21 @@ export async function eroeffne(eingabe: EroeffnenEingabe): Promise<{ id: string;
     });
 
     await tx.spielwahlParticipant.create({
-      data: { sessionId: angelegt.id, discordId: eingabe.host.discordId, rolle: 'HOST' },
+      data: {
+        sessionId: angelegt.id,
+        discordId: eingabe.host.discordId,
+        rolle: 'HOST',
+        /*
+         * Der Name eines Gastes gehoert in die Zeile, weil es kein Profil
+         * gibt, aus dem die Ansicht ihn spaeter holen koennte. Bei einem
+         * Mitglied bleibt die Spalte leer - sonst waere sie ein zweiter Ort
+         * fuer den Anzeigenamen, und der zweite Ort ist immer der veraltete.
+         *
+         * `gastNameSchema` prueft hier und nicht im Formular: die Zeile
+         * entsteht hier.
+         */
+        gastName: alsGast ? gastNameSchema.parse(eingabe.host.username) : null,
+      },
     });
 
     return angelegt;
@@ -261,6 +355,27 @@ export async function verlangeFuehrung(sessionId: string, discordId: string): Pr
   if (!(await fuehrt(sessionId, discordId))) {
     throw forbidden('spielwahl: keine Führungsrolle', 'Das darf nur der Host dieser Runde.');
   }
+}
+
+/**
+ * Der `Handelnder` eines Gastes.
+ *
+ * Ein Gast hat kein Profil, aus dem ein `username` kommen koennte - der Name
+ * steht in seiner Teilnehmerzeile, weil er ihn dort selbst eingetragen hat.
+ * Gebraucht wird er fuer das Protokoll: ein Auditeintrag mit leerem Namen
+ * sagt nachher niemandem, wer die Runde beendet hat.
+ *
+ * Die Kennung kommt **nicht** aus der Eingabe, sondern aus dem Cookie - der
+ * Aufrufer gibt `besucher.kennung` weiter. Diese Funktion liest nur nach, wie
+ * die Person sich genannt hat, und erfindet nichts: ist keine Zeile da, bleibt
+ * es bei «Gast».
+ */
+export async function handelnderGast(sessionId: string, kennung: string): Promise<Handelnder> {
+  const teilnehmer = await prisma.spielwahlParticipant.findUnique({
+    where: { sessionId_discordId: { sessionId, discordId: kennung } },
+    select: { gastName: true },
+  });
+  return { discordId: kennung, username: teilnehmer?.gastName ?? 'Gast' };
 }
 
 export async function verlangeTeilnahme(sessionId: string, discordId: string): Promise<void> {
@@ -461,28 +576,49 @@ export async function verlasse(sessionId: string, discordId: string): Promise<vo
  * Ist niemand mehr da, wird die Runde abgebrochen - eine verwaiste Session
  * waere ein Einladungslink ins Nichts.
  *
- * ## Niemals an einen Gast
+ * ## An einen Gast nur in einer Gastrunde
  *
- * Die Fuehrung darf Runden starten, neu auslosen, das Ergebnis annehmen, die
- * Regeln aendern und Leute entfernen - also genau das, was einem Gast
- * verwehrt ist. Wanderte sie an ihn, waere der Weg dorthin nicht ein Loch in
- * einer Pruefung, sondern eine Beloerderung: der Host geht, und der Besucher
- * mit dem Einladungslink fuehrt die Runde.
+ * Hier stand einmal «niemals an einen Gast», und das war richtig, solange ein
+ * Gast nichts durfte. Jetzt kann er eine eigene Runde eroeffnen und fuehren -
+ * also kann die Fuehrung einer solchen Runde auch an ihn weiterwandern, sonst
+ * waere eine Runde unter drei Leuten ohne Konto nach dem Weggang des ersten
+ * abgebrochen.
  *
- * Gefunden hat das der Test dazu, nicht der Entwurf. Die Zeile stand vorher
- * ohne Filter da, und sie war richtig, solange es nur Mitglieder gab.
+ * Was bleibt, ist die eine Richtung, die eine Beloerderung waere: in der Runde
+ * **eines Mitglieds** wird ein Gast nicht zum Host. Der Weg dorthin waere ein
+ * geteilter Einladungslink, und damit waere das Teilen eines Links ein Weg,
+ * eine fremde Runde zu uebernehmen.
  *
- * Bleiben nur Gaeste uebrig, wird abgebrochen - dieselbe Antwort wie bei einer
+ * Entschieden wird es nicht hier, sondern in `darfFuehrungTragen` - dieselbe
+ * Funktion, die auch `setzeCoHost` und `uebergib` fragen. Drei Aufrufer, eine
+ * Regel.
+ *
+ * Findet sich niemand, wird abgebrochen - dieselbe Antwort wie bei einer
  * leeren Runde, und aus demselben Grund: es ist niemand da, der sie fuehren
  * darf. Eine laufende Abstimmung geht dabei nicht verloren, denn `schliesse`
  * haelt fest, was bis dahin entschieden war.
  */
 async function uebergibFuehrung(tx: Prisma.TransactionClient, sessionId: string): Promise<void> {
+  const session = await tx.spielwahlSession.findUnique({
+    where: { id: sessionId },
+    select: { hostDiscordId: true },
+  });
   const anwesende = await tx.spielwahlParticipant.findMany({
     where: { sessionId, leftAt: null },
     orderBy: [{ rolle: 'asc' }, { joinedAt: 'asc' }],
   });
-  const naechster = anwesende.find((teilnehmer) => !istGastKennung(teilnehmer.discordId));
+  /*
+   * Ein Mitglied zuerst, auch in einer Gastrunde.
+   *
+   * Nicht aus Rang, sondern aus Haltbarkeit: ein Mitglied hat ein Profil, ein
+   * Gast ein Cookie. Ist beides da, ist das Mitglied die stabilere Wahl - und
+   * eine Gastrunde, die in Mitgliedshand uebergeht, ist der Weg, den die Regel
+   * ohnehin erlaubt.
+   */
+  const gastHost = session !== null && istGastKennung(session.hostDiscordId);
+  const naechster =
+    anwesende.find((teilnehmer) => !istGastKennung(teilnehmer.discordId)) ??
+    (gastHost ? anwesende[0] : undefined);
 
   if (!naechster) {
     await tx.spielwahlSession.update({
@@ -500,22 +636,62 @@ async function uebergibFuehrung(tx: Prisma.TransactionClient, sessionId: string)
 }
 
 /**
- * Eine Rolle, die es fuer einen Gast nicht gibt.
+ * Darf diese Kennung in dieser Runde eine Fuehrungsrolle tragen?
  *
- * Host und Co-Host duerfen Runden starten, neu auslosen, das Ergebnis
- * annehmen, die Regeln aendern und Leute entfernen - genau das, was einem Gast
- * verwehrt ist. Die Regel «ein Gast stimmt mit und sonst nichts» hat deshalb
- * auch keine Ausnahme von Hand: es soll nicht moeglich sein, sie durch eine
- * Ernennung zu umgehen, auch nicht in guter Absicht.
+ * **Die eine Regel, die den Unterschied zwischen Gast und Mitglied noch
+ * macht** - und die einzige Stelle, an der sie steht. Gefragt wird sie von
+ * `uebergibFuehrung` (die Fuehrung wandert), `setzeCoHost` (jemand wird
+ * ernannt) und `uebergib` (die Fuehrung wird uebergeben).
  *
- * Wer einem Gast die Fuehrung geben will, hat einen Gast vor sich, der sich
- * anmelden soll.
+ * Die Regel lautet: **ein Gast fuehrt nur eine Runde, die ein Gast eroeffnet
+ * hat.** Ein Mitglied darf immer fuehren.
+ *
+ * ## Warum sie so und nicht strenger oder laxer ist
+ *
+ * Laxer - «ein Gast darf immer fuehren» - machte das Teilen eines
+ * Einladungslinks zu einem Weg, eine fremde Runde zu uebernehmen: der Host
+ * geht kurz weg, und der Besucher, dem er den Link geschickt hat, aendert die
+ * Regeln und entfernt Leute.
+ *
+ * Strenger - «ein Gast fuehrt nie» - hiesse, dass eine Runde unter Leuten
+ * ohne Konto beim Weggang des Eroeffners abbricht. Genau diese Runden sind
+ * der Zweck der Oeffnung.
+ *
+ * ## Warum `hostDiscordId` und keine eigene Spalte
+ *
+ * Weil der Wert sich nur in die sichere Richtung aendert. Er steht beim
+ * Eroeffnen fest und wandert danach ueber dieselben drei Funktionen, die
+ * diese Regel befragen: eine Gastrunde kann in Mitgliedshand uebergehen und
+ * ist danach eine Mitgliedsrunde, eine Mitgliedsrunde kann nie in Gasthand
+ * uebergehen. Eine zusaetzliche Spalte waere ein zweiter Ort fuer dieselbe
+ * Auskunft - und eine Migration fuer nichts.
  */
-function verlangeKeinGast(kennung: string, rolle: string): void {
-  if (istGastKennung(kennung)) {
+async function darfFuehrungTragen(
+  tx: Prisma.TransactionClient,
+  sessionId: string,
+  kennung: string,
+): Promise<boolean> {
+  if (!istGastKennung(kennung)) {
+    return true;
+  }
+  const session = await tx.spielwahlSession.findUnique({
+    where: { id: sessionId },
+    select: { hostDiscordId: true },
+  });
+  return session !== null && istGastKennung(session.hostDiscordId);
+}
+
+/** Dieselbe Frage, aber mit einer Absage statt einer Antwort. */
+async function verlangeFuehrungsfaehig(
+  tx: Prisma.TransactionClient,
+  sessionId: string,
+  kennung: string,
+  rolle: string,
+): Promise<void> {
+  if (!(await darfFuehrungTragen(tx, sessionId, kennung))) {
     throw forbidden(
-      `spielwahl: Gast ${kennung.slice(0, 12)} soll ${rolle} werden`,
-      `Ein Gast ohne Konto kann nicht ${rolle} sein. Wer die Runde führen soll, meldet sich an.`,
+      `spielwahl: Gast ${kennung.slice(0, 12)} soll ${rolle} einer Mitgliedsrunde werden`,
+      `In dieser Runde kann nur ein angemeldetes Mitglied ${rolle} sein - sie wurde mit einem Konto eröffnet.`,
     );
   }
 }
@@ -571,9 +747,9 @@ export async function setzeCoHost(
   if (rolle !== 'HOST') {
     throw forbidden('spielwahl: nur der Host', 'Co-Hosts ernennt der Host.');
   }
-  verlangeKeinGast(ziel, 'Co-Host');
 
   await prisma.$transaction(async (tx) => {
+    await verlangeFuehrungsfaehig(tx, sessionId, ziel, 'Co-Host');
     const teilnehmer = await tx.spielwahlParticipant.findUnique({
       where: { sessionId_discordId: { sessionId, discordId: ziel } },
       select: { id: true, rolle: true, leftAt: true },
@@ -601,9 +777,9 @@ export async function uebergib(sessionId: string, ziel: string, handelnder: Hand
   if (rolle !== 'HOST') {
     throw forbidden('spielwahl: nur der Host', 'Die Führung übergibt der Host.');
   }
-  verlangeKeinGast(ziel, 'Host');
 
   await prisma.$transaction(async (tx) => {
+    await verlangeFuehrungsfaehig(tx, sessionId, ziel, 'Host');
     const neu = await tx.spielwahlParticipant.findUnique({
       where: { sessionId_discordId: { sessionId, discordId: ziel } },
       select: { id: true, leftAt: true },
@@ -700,6 +876,32 @@ export async function aendereEinstellungen(sessionId: string, optionen: SessionE
     // Wie bei `freieVorschlaege`: die Servervorgabe ist die Obergrenze, nicht
     // die Voreinstellung. Ein Host kann sie nicht uebersteuern.
     daten.gaesteErlaubt = optionen.gaesteErlaubt && vorgabe.gaesteErlaubt;
+
+    /*
+     * In einer Gastrunde ist dieser Schalter die Tuer, durch die der Host
+     * selbst hereingekommen ist.
+     *
+     * Ausgeschaltet verliert er den Zugang zu seiner eigenen Runde -
+     * `verlangeGastZugang` prueft `gaesteErlaubt`, und ein Host ohne Zugang
+     * kann die Runde nicht einmal beenden. Das waere keine Einstellung,
+     * sondern eine Falle, und sie waere mit einem Klick zuzuschlagen.
+     *
+     * Geprueft wird die Runde und nicht der Aufrufer: auch ein Mitglied als
+     * Co-Host soll den Host nicht aussperren koennen. Geht die Fuehrung
+     * spaeter an ein Mitglied, ist `hostDiscordId` dessen Kennung und der
+     * Schalter wieder frei - dieselbe Richtung wie bei `darfFuehrungTragen`.
+     */
+    if (!daten.gaesteErlaubt) {
+      const session = await prisma.spielwahlSession.findUnique({
+        where: { id: sessionId },
+        select: { hostDiscordId: true },
+      });
+      if (session && istGastKennung(session.hostDiscordId)) {
+        throw policyViolation(
+          'Diese Runde wurde ohne Konto eröffnet - die Teilnahme ohne Konto lässt sich hier nicht abschalten.',
+        );
+      }
+    }
   }
   if (optionen.nachlosenErlaubt !== undefined) daten.nachlosenErlaubt = optionen.nachlosenErlaubt;
 

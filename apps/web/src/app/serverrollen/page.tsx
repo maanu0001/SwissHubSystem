@@ -81,9 +81,21 @@ export default async function OeffentlicheRollenSeite(): Promise<React.JSX.Eleme
           description="Das Team hat die Rollen noch nicht erklärt. Schau später wieder vorbei."
         />
       ) : (
-        <div className="grid gap-5 lg:grid-cols-2">
+        /*
+          Eine Spalte, auf jeder Breite.
+
+          Vorher standen die Kategorien ab `lg` in zwei Spalten. Weil die
+          Karten unterschiedlich viele Rollen enthalten, sind sie
+          unterschiedlich hoch - zwei Spalten verrutschen damit zwangslaeufig
+          gegeneinander, und die Leserichtung springt von unten links nach
+          oben rechts. Genau das war als «versetzte Cards» gemeldet.
+
+          Eine Spalte liest sich von oben nach unten, auf dem Telefon wie am
+          Schreibtisch, und braucht dafuer keine Breakpoint-Sonderfaelle.
+        */
+        <div className="space-y-5">
           {seite.kategorien.map((gruppe) => (
-            <Card key={gruppe.id} className="h-fit">
+            <Card key={gruppe.id}>
               <CardHeader>
                 <CardTitle className="text-lg">{gruppe.name}</CardTitle>
                 {gruppe.hinweis ? <CardDescription>{gruppe.hinweis}</CardDescription> : null}

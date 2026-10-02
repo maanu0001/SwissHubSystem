@@ -42,20 +42,29 @@ export const dynamic = 'force-dynamic';
  *
  *  1. **Mitglied mit Leserecht.** Alles wie vorher: volle Bühne, Vorschläge,
  *     Führung, wenn die Rolle es erlaubt.
- *  2. **Gast über den Einladungslink**, und die Runde lässt Gäste zu. Er sieht
- *     zu, trägt einen Namen ein und stimmt mit. Nichts weiter - das setzt der
- *     Server durch, nicht diese Seite.
- *  3. **Alles andere.** Eine Einladung, sich anzumelden. Kein 404, weil das
+ *  2. **Besucher ohne Konto**, und die Runde lässt Gäste zu. Er trägt einen
+ *     Namen ein und macht mit - beitreten, vorschlagen, abstimmen, und wenn
+ *     es seine Runde ist, sie auch führen. Was er darf, setzt der Server
+ *     durch (`spielwahl/gast.ts`), nicht diese Seite.
+ *  3. **Alles andere**, und das ist genau ein Fall: die Runde lässt keine
+ *     Gäste zu. Dann eine Einladung, sich anzumelden - kein 404, weil das
  *     falsch informiert: die Runde gibt es, sie steht diesem Besucher nur
  *     nicht offen.
  *
- * ## Warum ein Gast nur über den Einladungswert hereinkommt
+ * ## Warum ein Gast auch über die Sessionkennung hereinkommt
  *
- * Die Adresse akzeptiert auch die interne Kennung der Session - sie steht in
- * der Übersicht, und wer dort eine Runde sieht, soll sie öffnen können. Für
- * einen Gast gilt das **nicht**: eine cuid ist nicht geheim genug, um eine Tür
- * zu sein. Der Einladungswert sind 128 zufällige Bit und für genau diesen
- * Zweck gemacht.
+ * Hier stand einmal: nur über den Einladungswert, denn «eine cuid ist nicht
+ * geheim genug, um eine Tür zu sein». Das war richtig, solange die Übersicht
+ * hinter der Anmeldung lag - die Kennung war damals nur Mitgliedern bekannt.
+ *
+ * Sie liegt jetzt offen: `/was-spielen-wir` ist öffentlich und listet die
+ * laufenden Runden **mit ihrer Kennung** als Ziel. Der Einladungswert zu
+ * verlangen schützte damit nichts mehr; er machte bloss den gewöhnlichen Weg
+ * unmöglich - Besucher sieht eine offene Runde, klickt darauf, landet auf
+ * einer Anmeldemaske. Genau das war als «verlangt weiterhin Login» gemeldet.
+ *
+ * Die Tür ist weiterhin `gaesteErlaubt`, und die entscheidet der Host. Der
+ * Einladungswert bleibt, was er immer war: die Adresse, die man teilt.
  */
 export default async function SpielwahlSessionPage({
   params,
@@ -108,12 +117,12 @@ export default async function SpielwahlSessionPage({
   /*
    * Dann den Gast.
    *
-   * `gaesteErlaubt` entscheidet, und der Einladungswert ist die Bedingung für
-   * den Weg hierher. Die Kennung wird hier nur **gelesen**: eine Seite darf
-   * keine Cookies setzen, und wer nur zusieht, braucht keines. Sie entsteht
-   * beim ersten Klick, in `defineOeffentlicheAktion`.
+   * `gaesteErlaubt` entscheidet - und nichts sonst. Die Kennung wird hier nur
+   * **gelesen**: eine Seite darf keine Cookies setzen, und wer nur zusieht,
+   * braucht keines. Sie entsteht beim ersten Klick, in
+   * `defineOeffentlicheAktion`.
    */
-  if (istEinladung && session.gaesteErlaubt) {
+  if (session.gaesteErlaubt) {
     const kennung = await gastKennung();
     const stand = await spielwahl.baueAnsicht(session.id, kennung ?? spielwahl.GAST_PRAEFIX);
     if (!stand) {
@@ -134,15 +143,17 @@ export default async function SpielwahlSessionPage({
 }
 
 /**
- * Der Fall, in dem es ohne Anmeldung nicht weitergeht.
+ * Der eine Fall, in dem es ohne Anmeldung nicht weitergeht.
+ *
+ * **Die Runde lässt keine Gäste zu.** Das hat der Host entschieden (oder der
+ * Server ganz abgeschaltet) - es ist keine Hürde dieser Anwendung, sondern
+ * eine Einstellung dieser Runde. Für jede andere Runde führt der Weg ohne
+ * Konto weiter, und auf der Übersicht steht der Knopf, eine eigene zu
+ * eröffnen.
  *
  * Bewusst kein 404. Die Runde gibt es - sie steht diesem Besucher nur nicht
  * offen, und das sind zwei verschiedene Auskünfte. «Gibt es nicht» würde
  * jemanden, der einen gültigen Link bekommen hat, ratlos zurücklassen.
- *
- * Genannt wird auch **warum**: entweder ist die Teilnahme ohne Konto für diese
- * Runde nicht eingeschaltet, oder der Besucher ist angemeldet, aber nicht auf
- * dem Server. Beides lässt sich beheben, und beides anders.
  */
 function Einladung({ angemeldet, token }: { angemeldet: boolean; token: string }): React.JSX.Element {
   return (
@@ -155,7 +166,7 @@ function Einladung({ angemeldet, token }: { angemeldet: boolean; token: string }
         <p className="text-sm text-muted-foreground">
           {angemeldet
             ? 'Für diese Runde ist die Teilnahme ohne Konto nicht eingeschaltet, und dein Konto gehört (noch) nicht zum Server. Tritt dem Server bei, dann bist du dabei.'
-            : 'Um mitzumachen, melde dich an. Wer die Runde für Gäste öffnet, entscheidet der Host - für diese ist das nicht eingeschaltet.'}
+            : 'Für diese Runde hat der Host die Teilnahme ohne Konto ausgeschaltet. Melde dich an - oder mach auf der Übersicht eine eigene Runde auf, dafür brauchst du kein Konto.'}
         </p>
       </div>
       <Link

@@ -1,7 +1,6 @@
 import { prisma } from '@swisshub/database';
-import { conflict, forbidden, notFound, policyViolation } from '@swisshub/shared';
+import { conflict, notFound, policyViolation } from '@swisshub/shared';
 import { coverSrc, listGames } from '../games';
-import { istGastKennung } from './gast';
 import { beruehre, namensKey, sperre } from './session';
 import type { KandidatEingabe } from './schemas';
 
@@ -77,24 +76,30 @@ export async function schlageVor(
   eingabe: KandidatEingabe,
 ): Promise<{ candidateId: string; neu: boolean }> {
   /*
-   * Ein Gast schlaegt nichts vor - und zwar hier, nicht in der Oberflaeche.
+   * Ein Gast schlaegt vor wie jeder andere.
    *
-   * Die oeffentliche Seite zeigt ihm das Formular nicht. Das ist eine
-   * Gestaltungsfrage; die Entscheidung faellt an dieser Zeile. Eine Server
-   * Action ist ein Endpunkt, den man auch ohne die Seite aufruft, und ein
-   * Vorschlag ist das eine, was ein Gast nicht tun darf: er traegt einen
-   * Namen, bleibt im Katalog und wird spaeter gezaehlt.
+   * Hier stand eine Sperre, und mit ihr war die Oeffnung der Spielwahl
+   * halbfertig: wer ohne Konto eine Runde eroeffnet, braucht Spiele darin,
+   * sonst ist die Runde eine leere Liste mit einem Rad, das nichts zu drehen
+   * hat. «Zusehen und abstimmen» war die alte Gastrolle; die neue ist der
+   * gewoehnliche Ablauf (siehe `gast.ts`).
    *
-   * Die Sperre steht *vor* der Transaktion: es gibt nichts zu sperren und
-   * nichts zu zaehlen, wenn die Antwort ohnehin nein ist.
+   * ## Was die Grenzen dieses Vorschlags sind - fuer alle gleich
+   *
+   *  - **Das Kontingent je Person** (`vorschlaegeProPerson`), unten gezaehlt.
+   *  - **Der Katalog**, wenn `freieVorschlaege` aus ist: dann geht nur, was
+   *    das Team eingetragen hat. Der Schalter steht am Server **und** an der
+   *    Runde.
+   *  - **Der Titel selbst**, wenn freie Titel an sind: er wird nicht in den
+   *    Katalog geschrieben, sondern bleibt als `freierName` in dieser Runde,
+   *    bekommt kein Cover und verschwindet mit ihr. Ein freier Titel ist
+   *    damit nicht mehr Oberflaeche als der Name, unter dem ein Gast in der
+   *    Teilnehmerliste steht - und die Fuehrung der Runde kann einen Kandidaten
+   *    entfernen.
+   *
+   * Was ein Gast dadurch **nicht** bekommt, ist Zugriff auf den Spielkatalog.
+   * Der wird hier nur gelesen.
    */
-  if (istGastKennung(discordId)) {
-    throw forbidden(
-      'spielwahl: Gast darf nicht vorschlagen',
-      'Ohne Konto kannst du mitabstimmen, aber keine Spiele vorschlagen. Melde dich an, wenn du eines hinzufügen willst.',
-    );
-  }
-
   return prisma.$transaction(async (tx) => {
     /*
      * Die Sperre sitzt vor dem Zaehlen der eigenen Vorschlaege. Ohne sie

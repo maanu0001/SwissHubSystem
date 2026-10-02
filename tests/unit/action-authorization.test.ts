@@ -220,9 +220,22 @@ describe('Öffentliche Aktionen (Gäste)', () => {
   it.each(gastAktionen.map((a) => [`${a.file.split('/').at(-2)}/${a.name}`, a] as const))(
     '%s prüft den Gastzugang',
     (_label, action) => {
+      /*
+       * Zwei zulaessige Pruefungen, und die zweite ist eine echte Ausnahme.
+       *
+       * `verlangeGastZugang` prueft den Zugang zu **einer** Runde: Form der
+       * Kennung, Gaeste zugelassen, Runde laeuft noch. Das ist der Normalfall.
+       *
+       * Beim **Eroeffnen** gibt es noch keine Runde, zu der es Zugang zu
+       * pruefen gaebe. An ihre Stelle tritt `verlangeGastEroeffnung`: die
+       * Servereinstellung `gaesteErlaubt` und die absolute Obergrenze
+       * gleichzeitig offener Gastrunden. Ohne diese Ausnahme waere die
+       * Alternative, die Pruefung weniger genau zu formulieren - und eine
+       * ungenaue Pruefung ist hier das Gegenteil des Zwecks.
+       */
       expect(
-        action.body.includes('verlangeGastZugang'),
-        `${action.name}: keine "verlangeGastZugang"-Prüfung im Rumpf`,
+        action.body.includes('verlangeGastZugang') || action.body.includes('verlangeGastEroeffnung'),
+        `${action.name}: weder "verlangeGastZugang" noch "verlangeGastEroeffnung" im Rumpf`,
       ).toBe(true);
     },
   );
@@ -234,31 +247,35 @@ describe('Öffentliche Aktionen (Gäste)', () => {
     },
   );
 
-  it('schlägt kein Spiel vor und fasst keine Phase an', () => {
+  it('ernennt niemanden und entfernt niemanden', () => {
     /*
      * Die Liste der Dinge, die ein Gast nicht darf - als Wortliste gegen den
      * Quelltext.
+     *
+     * ## Warum sie kurz ist
+     *
+     * Hier standen einmal fuenfzehn Namen, weil ein Gast nur zusehen und
+     * abstimmen durfte. Er darf jetzt den gewoehnlichen Ablauf einer Runde -
+     * eroeffnen, vorschlagen, starten, annehmen, beenden -, und die Liste ist
+     * genau auf das zusammengeschrumpft, was **ueber die eigene Runde
+     * hinausgeht** oder keine Oberflaeche hat. Die Begruendung je Eintrag
+     * steht in `spielwahl/gast.ts` und in `gast-aktionen.ts`.
      *
      * Grob, und mit Absicht: sie faellt auch dann, wenn jemand die Funktion
      * bloss importiert. Genau das ist der Fall, den sie fangen soll - der
      * naechste Umbau, in dem «nur mal schnell» ein Aufruf mehr dazukommt.
      */
     const verboten = [
-      'schlageVor',
-      'nimmZurueck',
-      'entferneKandidat',
-      'schliesseVorschlaege',
-      'oeffneVorschlaege',
-      'starte',
-      'loseNeu',
-      'nochEine',
-      'nimmAn',
-      'schliesse',
-      'entferne',
+      // Jemanden zum Co-Host machen oder die Fuehrung uebergeben: es gibt
+      // keine Oberflaeche dafuer, und ohne Oberflaeche braucht es keinen
+      // oeffentlichen Endpunkt. Das Modul laesst es in einer Gastrunde zu -
+      // diese Datei nutzt das nicht.
       'setzeCoHost',
       'uebergib',
-      'aendereEinstellungen',
-      'wechsle',
+      // Jemanden aus der Runde entfernen. Dasselbe: keine Oberflaeche.
+      // `entferneKandidat` ist etwas anderes und ausdruecklich erlaubt - ein
+      // Titel, nicht eine Person.
+      'entferne',
     ];
     for (const file of GAST_FILES) {
       const source = readFileSync(join(process.cwd(), file), 'utf8')
@@ -267,6 +284,63 @@ describe('Öffentliche Aktionen (Gäste)', () => {
       for (const name of verboten) {
         expect(source, `${file}: ruft "${name}" auf`).not.toContain(`spielwahl.${name}(`);
       }
+    }
+  });
+
+  it('moderiert keine fremde Runde', () => {
+    /*
+     * `schliesse` darf ein Gast rufen - fuer seine eigene Runde, nach
+     * `verlangeFuehrung`. Was er nicht darf, ist der zweite Weg derselben
+     * Funktion: `alsModeration` ueberspringt die Fuehrungspruefung und haengt
+     * an `spielwahl.manage`.
+     *
+     * Geprueft wird das Wort und nicht der Aufruf: `{ alsModeration: ... }`
+     * hat keine feste Schreibweise, aber es hat diesen Namen. In dieser Datei
+     * soll er nicht vorkommen - auch nicht als `false`, denn dann stuende die
+     * Frage im Code, und die naechste Antwort darauf koennte `true` sein.
+     */
+    for (const file of GAST_FILES) {
+      const source = readFileSync(join(process.cwd(), file), 'utf8')
+        .replaceAll(/\/\*[\s\S]*?\*\//gu, '')
+        .replaceAll(/\/\/.*$/gmu, '');
+      expect(source, `${file}: nennt "alsModeration"`).not.toContain('alsModeration');
+    }
+  });
+
+  it('prüft vor jeder Führungshandlung die Führung dieser Runde', () => {
+    /*
+     * Die Gegenprobe zur Oeffnung.
+     *
+     * Ein Gast darf eine Runde fuehren - seine eigene. Jede Aktion, die eine
+     * Fuehrungshandlung ausloest, muss das vorher pruefen; ohne die Pruefung
+     * koennte jeder Besucher mit dem Einladungslink eine fremde Runde
+     * starten, neu auslosen oder beenden.
+     *
+     * Die Pruefung heisst hier `alsFuehrung` - sie ruft `verlangeFuehrung`
+     * und liefert gleich den `Handelnder` fuers Protokoll. Erlaubt ist auch
+     * der direkte Aufruf von `verlangeFuehrung`.
+     */
+    const fuehrungshandlungen = [
+      'schliesseVorschlaege',
+      'oeffneVorschlaege',
+      'aendereEinstellungen',
+      'starte',
+      'loseNeu',
+      'nochEine',
+      'nimmAn',
+      'schliesse',
+      'entferneKandidat',
+    ];
+    for (const action of gastAktionen) {
+      const rumpf = action.body.replaceAll(/\/\*[\s\S]*?\*\//gu, '').replaceAll(/\/\/.*$/gmu, '');
+      const handelt = fuehrungshandlungen.some((name) => rumpf.includes(`spielwahl.${name}(`));
+      if (!handelt) {
+        continue;
+      }
+      expect(
+        rumpf.includes('alsFuehrung(') || rumpf.includes('verlangeFuehrung('),
+        `${action.name}: Führungshandlung ohne Führungsprüfung`,
+      ).toBe(true);
     }
   });
 });

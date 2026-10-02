@@ -53,12 +53,21 @@ describe('Zugang zur Spielauswahl', () => {
      * Die Gast-Aktionen laden die Session nicht selbst.
      *
      * Sie gehen ueber `verlangeGastZugang`, und **dort** steht die Abfrage -
-     * an einer Stelle statt an vier. Eine zweite Ladestelle in dieser Datei
-     * waere die, die den Guild-Filter irgendwann vergisst.
+     * an einer Stelle statt an siebzehn. Eine zweite Ladestelle in dieser
+     * Datei waere die, die den Guild-Filter irgendwann vergisst; `prisma.`
+     * darf darin deshalb nicht vorkommen.
+     *
+     * Die Guild **vergleichen** muessen sie trotzdem:
+     * `verlangeGastZugang` gibt sie zurueck, und `verlangeEigeneGuild` haelt
+     * sie gegen `resolveGuildId()`. Vorher stand hier, `resolveGuildId` duerfe
+     * nicht vorkommen - das war richtig, solange ein Gast nur abstimmen
+     * konnte und die Runde ihm ohnehin geschickt worden war. Wer Runden
+     * eroeffnet und fuehrt, soll das nicht in einer fremden Guild tun.
      */
     const gast = quelle(GAST_AKTIONEN);
-    expect(gast).not.toContain('resolveGuildId');
     expect(gast).not.toContain('prisma.');
+    expect(gast).toContain('resolveGuildId()');
+    expect(gast).toContain('verlangeEigeneGuild');
     const kern = quelle(SESSION);
     expect(kern).toContain('findFirst({ where: { guildId, inviteToken } })');
     expect(kern).toContain('findFirst({ where: { guildId, id: sessionId } })');
@@ -225,26 +234,63 @@ describe('Die Übersicht ist ohne Konto erreichbar', () => {
     );
   });
 
-  it('gibt einem Gast keinen Einladungswert in die Hand', () => {
+  it('gibt den Einladungswert nur an Teilnehmer heraus', () => {
     /*
-     * Die Übersicht lädt mit leerem Betrachter. `baueListe` vergleicht ihn mit
-     * den Teilnehmerkennungen - eine Discord-Kennung ist nie leer, also ist
-     * niemand «dabei», und der Einladungswert bleibt leer. Die Sperre sitzt
-     * damit in der Ladefunktion und nicht in der Seite.
+     * Die Regel ist nicht «nur an Mitglieder», sondern «nur an Leute, die in
+     * der Runde dabei sind» - und sie sitzt in der Ladefunktion, nicht in der
+     * Seite.
+     *
+     * Die Übersicht lädt deshalb mit der **eigenen** Kennung, und bei einem
+     * Besucher ohne Konto ist das seine Gastkennung. Hier stand vorher ein
+     * fester leerer Wert für Gäste, und das war die Ursache eines
+     * Anmeldefensters: der Gast, der eine Runde eröffnet hatte, bekam seine
+     * eigene Runde ohne Einladungswert angeboten und kam dahinter nicht
+     * herein.
+     *
+     * Wer noch kein Gastcookie hat, liest weiterhin mit leerem Wert - und ist
+     * damit in keiner Runde dabei.
      */
     const lader = ohneKommentare(
       readFileSync(join(process.cwd(), 'apps/web/src/server/spielwahl.ts'), 'utf8'),
     );
     expect(lader).toContain("inviteToken: dabei ? session.inviteToken : ''");
+    expect(lader).toContain("betrachter !== ''");
 
     const quelle = ohneKommentare(readFileSync(join(process.cwd(), UEBERSICHT), 'utf8'));
-    expect(quelle).toContain("ladeOffeneRunden(guildId, mitglied?.user.discordId ?? '')");
+    expect(quelle).toContain("ladeOffeneRunden(guildId, mitglied?.user.discordId ?? gastkennung ?? '')");
   });
 
-  it('zeigt einem Gast den Schnellstart nicht', () => {
-    // Die Server Action dahinter prüft ohnehin selbst - aber ein Knopf, der
-    // nur mit einem Fehler antwortet, ist eine Einladung zum Ärger.
+  it('zeigt den Schnellstart auch ohne Konto', () => {
+    /*
+     * Die Gegenprobe zur früheren Prüfung an dieser Stelle.
+     *
+     * Hier stand `expect(quelle).toContain('{mitglied ? <Schnellstart')` mit
+     * der Begründung, ein Knopf, der nur mit einem Fehler antwortet, sei eine
+     * Einladung zum Ärger. Der Knopf antwortet nicht mehr mit einem Fehler -
+     * eine Runde eröffnen geht ohne Konto. Die alte Prüfung hätte die
+     * Reparatur verhindert, deshalb steht sie jetzt umgekehrt da.
+     */
     const quelle = ohneKommentare(readFileSync(join(process.cwd(), UEBERSICHT), 'utf8'));
-    expect(quelle).toContain('{mitglied ? <Schnellstart');
+    expect(quelle).toContain('<Schnellstart csrfToken={csrfTokenFor(mitglied)} />');
+    expect(quelle).toMatch(/<Schnellstart\s+csrfToken=\{gastkennung[\s\S]*?gast\s*\/>/u);
+    // Und keine Anmeldeeinladung an der Stelle, an der der Knopf steht.
+    expect(quelle).not.toContain('GastEinladung');
+  });
+
+  it('verlangt auf der Bühne keinen Einladungswert mehr von einem Gast', () => {
+    /*
+     * Der zweite Weg in dasselbe Anmeldefenster.
+     *
+     * Die Bühne liess einen Gast nur über den Einladungswert herein, nicht
+     * über die Sessionkennung. Das schützte nichts, seit die Übersicht
+     * öffentlich ist und die Kennungen dort als Ziel stehen - es machte bloss
+     * den gewöhnlichen Weg unmöglich: offene Runde sehen, draufklicken, auf
+     * einer Anmeldemaske landen.
+     *
+     * Die Tür ist `gaesteErlaubt` und nichts sonst.
+     */
+    const seite = ohneKommentare(readFileSync(join(process.cwd(), SEITE), 'utf8'));
+    expect(seite).toContain('if (session.gaesteErlaubt) {');
+    expect(seite).not.toContain('istEinladung && session.gaesteErlaubt');
   });
 });

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronDown, Dices, Loader2, Swords, Vote, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { spielwahlEroeffnenAction } from '@/modules/spielwahl/aktionen';
+import { EROEFFNEN } from '@/modules/spielwahl/befehle';
 import { cn } from '@/lib/utils';
 
 /**
@@ -21,6 +21,17 @@ import { cn } from '@/lib/utils';
  * Leute damit durchkommen: Roulette, ein Los je Spiel, drei Vorschläge pro
  * Person. Alles andere lässt sich **in** der Runde noch ändern - die Regeln
  * stehen dort, wo man sie braucht, und nicht davor.
+ *
+ * ## Mit Konto und ohne
+ *
+ * Dasselbe Feld, derselbe Knopf, dasselbe Ziel. Der einzige Unterschied ist
+ * ein Namensfeld: wer kein Konto hat, hat kein Profil, aus dem sein Name in
+ * der Teilnehmerliste kommen könnte.
+ *
+ * Hier stand früher nichts für Gäste - die Seite zeigte ihnen stattdessen
+ * eine Einladung, sich anzumelden. Das war der halbe Weg: zusehen ging ohne
+ * Konto, anfangen nicht, und angefangen wird am Freitagabend von dem, der
+ * gerade fragt.
  */
 const MODI = [
   { key: 'ROULETTE' as const, label: 'Roulette', Symbol: Dices, text: 'Das Rad entscheidet.' },
@@ -28,15 +39,37 @@ const MODI = [
   { key: 'ELIMINATION' as const, label: 'Ausscheidung', Symbol: Swords, text: 'Duell für Duell.' },
 ];
 
-export function Schnellstart({ csrfToken }: { csrfToken: string }): React.JSX.Element {
+export function Schnellstart({
+  csrfToken,
+  gast = false,
+}: {
+  csrfToken: string;
+  /**
+   * Betrachtet das jemand ohne Konto?
+   *
+   * Entscheidet zwei Dinge: ob ein Namensfeld erscheint, und welcher der
+   * beiden Eröffnungsbefehle läuft. Beide Wege enden in derselben
+   * `eroeffne`-Funktion mit denselben Vorgaben und Grenzen; der Server prüft
+   * zusätzlich die Servereinstellung und die Obergrenze offener Gastrunden.
+   */
+  gast?: boolean;
+}): React.JSX.Element {
   const router = useRouter();
   const [laeuft, starte] = useTransition();
   const [offen, setOffen] = useState(false);
   const [modus, setModus] = useState<'ROULETTE' | 'VOTING' | 'ELIMINATION'>('ROULETTE');
+  const [name, setName] = useState('');
+
+  const bereit = !gast || name.trim().length >= 2;
 
   const eroeffnen = (): void => {
+    if (!bereit) {
+      return;
+    }
     starte(async () => {
-      const antwort = await spielwahlEroeffnenAction({ modus, csrfToken });
+      const antwort = gast
+        ? await EROEFFNEN.gast({ modus, csrfToken, name: name.trim() })
+        : await EROEFFNEN.mitglied({ modus, csrfToken });
       if (!antwort.ok) {
         toast.error(antwort.error.message);
         return;
@@ -59,17 +92,31 @@ export function Schnellstart({ csrfToken }: { csrfToken: string }): React.JSX.El
             <p className="mt-3 max-w-lg text-sm text-white/45">
               Eine Runde eröffnen, den Link teilen, alle schlagen vor - und dann entscheidet das Rad, die
               Abstimmung oder das Duell. Gleichzeitig für alle.
+              {gast ? ' Ein Konto braucht dafür niemand.' : ''}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              type="button"
-              size="lg"
-              disabled={laeuft}
-              onClick={eroeffnen}
-              className="h-12 px-6 text-base"
-            >
+          <form
+            className="flex w-full flex-wrap items-center gap-3"
+            onSubmit={(ereignis) => {
+              ereignis.preventDefault();
+              eroeffnen();
+            }}
+          >
+            {gast ? (
+              <label className="min-w-0 flex-1 sm:max-w-xs">
+                <span className="sr-only">Dein Name</span>
+                <input
+                  value={name}
+                  onChange={(ereignis) => setName(ereignis.target.value)}
+                  placeholder="Dein Name"
+                  maxLength={24}
+                  autoComplete="nickname"
+                  className="h-12 w-full rounded-lg border border-white/15 bg-black/30 px-3 text-base text-white outline-none placeholder:text-white/30 focus-visible:border-[hsl(var(--sp-rot-hell))]"
+                />
+              </label>
+            ) : null}
+            <Button type="submit" size="lg" disabled={laeuft || !bereit} className="h-12 px-6 text-base">
               {laeuft ? (
                 <Loader2 className="size-5 animate-spin" aria-hidden="true" />
               ) : (
@@ -90,7 +137,7 @@ export function Schnellstart({ csrfToken }: { csrfToken: string }): React.JSX.El
                 aria-hidden="true"
               />
             </Button>
-          </div>
+          </form>
 
           {offen ? (
             <div className="grid w-full gap-2 sm:grid-cols-3">

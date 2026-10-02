@@ -92,6 +92,35 @@ export const spielwahlSettingsSchema = z.object({
   gaesteErlaubt: z.boolean().default(true),
 
   /**
+   * Wie viele Runden gleichzeitig offen sein duerfen, die ein Gast eroeffnet
+   * hat.
+   *
+   * ## Warum es diese Grenze braucht und `offeneProPerson` nicht genuegt
+   *
+   * `offeneProPerson` zaehlt je Kennung. Die Kennung eines Gastes steht in
+   * seinem Cookie, und wer es loescht, ist ein neuer Gast - die Grenze je
+   * Person ist fuer ihn also keine. Dasselbe gilt fuer die Ratengrenze, die
+   * ebenfalls auf der Kennung sitzt.
+   *
+   * Das war hinnehmbar, solange ein Gast nur abstimmen konnte: eine Stimme
+   * mehr oder weniger ist in der Teilnehmerliste sichtbar. Eine Runde
+   * **eroeffnen** legt dagegen Zeilen an und haelt einen Einladungslink am
+   * Leben. Ohne eine Grenze, die nicht am Cookie haengt, waere das ein
+   * unbegrenzter Weg, die Tabelle zu fuellen.
+   *
+   * Diese Grenze haengt an nichts, was der Besucher kontrolliert: sie zaehlt
+   * **alle** offenen Runden mit einem Gast als Host, serverweit. Ist sie
+   * erreicht, bekommt der naechste Gast eine Absage mit dem Hinweis, einer
+   * laufenden Runde beizutreten - und Mitglieder sind davon nicht betroffen,
+   * weil ihre Runden hier nicht mitzaehlen.
+   *
+   * Kein Fingerprinting, keine IP-Auswertung: eine absolute Obergrenze
+   * beantwortet die Frage «wie viel Schaden ist moeglich» vollstaendig, ohne
+   * etwas ueber die Besucher zu wissen.
+   */
+  gastRundenGrenze: z.coerce.number().int().min(0).max(500).default(25),
+
+  /**
    * Wie viele Sessions eine Person gleichzeitig offen haben darf.
    *
    * Eine halboffene Session ist kein Schaden, zwanzig davon sind Unordnung -
@@ -160,8 +189,18 @@ const spielwahlSettingsFields: SettingsField[] = [
     type: 'boolean',
     label: 'Teilnahme ohne Konto zulassen',
     description:
-      'Standardmässig an. Erlaubt Hosts, ihre Runde über den Einladungslink für Gäste zu öffnen. Ein Gast gibt einen Namen an, sieht zu und stimmt mit - Spiele vorschlagen kann er nicht. Ist das hier aus, bleibt die Möglichkeit für jede Runde gesperrt.',
+      'Standardmässig an. Ohne Konto kann man eine Runde eröffnen, beitreten, Spiele vorschlagen und abstimmen - den Spielkatalog pflegen und fremde Runden beenden nicht. Ist das hier aus, bleibt die Teilnahme ohne Konto für jede Runde gesperrt.',
     group: 'Ablauf',
+  },
+  {
+    key: 'gastRundenGrenze',
+    type: 'number',
+    label: 'Offene Gastrunden (gesamt)',
+    description:
+      'Die absolute Obergrenze für gleichzeitig offene Runden ohne angemeldeten Host. Sie hängt an keinem Cookie und ist deshalb die einzige Grenze, die ein Besucher nicht umgehen kann. 0 heisst: Runden eröffnen nur mit Konto.',
+    min: 0,
+    max: 500,
+    group: 'Grenzen',
   },
   {
     key: 'offeneProPerson',

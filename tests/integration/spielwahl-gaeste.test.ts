@@ -15,10 +15,12 @@ useTestSchema('test_spielwahl_gaeste');
  *
  * Geprüft wird deshalb in beide Richtungen:
  *
- *   - Ein Gast tritt bei, steht mit Namen in der Liste, stimmt mit, und seine
+ *   - Ein Gast eröffnet eine Runde, tritt bei, steht mit Namen in der Liste,
+ *     schlägt Spiele vor, stimmt mit, führt seine eigene Runde - und seine
  *     Stimme zählt wie jede andere.
- *   - Ein Gast schlägt nichts vor, kommt nicht in eine Runde ohne
- *     `gaesteErlaubt`, und eine erfundene Kennung kommt gar nicht erst durch.
+ *   - Ein Gast wird **nicht** Host der Runde eines Mitglieds, kommt nicht in
+ *     eine Runde ohne `gaesteErlaubt`, bleibt an Kontingent und Katalogzwang
+ *     gebunden, und eine erfundene Kennung kommt gar nicht erst durch.
  *
  * ## Warum gegen eine echte Datenbank
  *
@@ -47,7 +49,15 @@ async function leeren(): Promise<void> {
 }
 
 /** Gaeste auf Serverebene erlauben - sonst bleibt jede Session zu. */
-async function serverErlaubtGaeste(erlaubt: boolean): Promise<void> {
+async function serverErlaubtGaeste(erlaubt: boolean, gastRundenGrenze = 25): Promise<void> {
+  /*
+   * Jeder Wert ausdruecklich.
+   *
+   * `useTestSchema` benutzt das Schema zwischen Laeufen weiter, und `leeren()`
+   * raeumt `ModuleState` nicht auf. Ein Spread ueber die vorhandenen
+   * Einstellungen liesse den Wert eines frueheren Laufs stehen - genau die
+   * Art Testabhaengigkeit, die man einmal sucht und nie wieder.
+   */
   await setModuleSettings(
     spielwahl.SPIELWAHL_MODULE_ID,
     {
@@ -56,6 +66,7 @@ async function serverErlaubtGaeste(erlaubt: boolean): Promise<void> {
       abstimmdauerSek: 45,
       freieVorschlaege: true,
       gaesteErlaubt: erlaubt,
+      gastRundenGrenze,
       offeneProPerson: 3,
       verfallStunden: 12,
       announcementChannelId: null,
@@ -322,7 +333,15 @@ describeWithDatabase('Was spielen wir?: Gäste ohne Konto', () => {
 
   // --- Was ein Gast darf, und was nicht -------------------------------------
 
-  it('lässt einen Gast kein Spiel vorschlagen - auch nicht direkt', async () => {
+  it('lässt einen Gast Spiele vorschlagen - aus dem Katalog und frei', async () => {
+    /*
+     * Hier stand das Gegenteil, und zwar mit Begruendung: ein Vorschlag
+     * «traegt einen Namen, bleibt im Katalog und wird spaeter gezaehlt».
+     * Zwei der drei Behauptungen waren falsch - ein freier Titel landet als
+     * `freierName` in dieser Runde und nirgends sonst -, und die dritte war
+     * kein Grund: dann waere eine Runde ohne angemeldete Teilnehmer eine
+     * leere Liste mit einem Rad, das nichts zu drehen hat.
+     */
     const gameIds = await spiele(2);
     const session = await spielwahl.eroeffne({
       guildId: GUILD,
@@ -332,14 +351,42 @@ describeWithDatabase('Was spielen wir?: Gäste ohne Konto', () => {
     const gast = spielwahl.neueGastKennung();
     await spielwahl.tritteBei(session.id, gast, 'Nina');
 
-    /*
-     * Die Sperre steht in `schlageVor` selbst - nicht in der Aktion und nicht
-     * in der Oberflaeche. Dieser Aufruf umgeht beide.
-     */
-    await expect(spielwahl.schlageVor(session.id, gast, { gameId: gameIds[0] })).rejects.toThrow();
-    await expect(spielwahl.schlageVor(session.id, gast, { freierName: 'Irgendwas' })).rejects.toThrow();
+    await spielwahl.schlageVor(session.id, gast, { gameId: gameIds[0] });
+    await spielwahl.schlageVor(session.id, gast, { freierName: 'Irgendwas' });
 
-    expect(await prisma.spielwahlCandidate.count({ where: { sessionId: session.id } })).toBe(0);
+    const kandidaten = await spielwahl.listeKandidaten(session.id);
+    expect(kandidaten.map((eintrag) => eintrag.name).sort()).toEqual(['Irgendwas', 'Spiel 0']);
+    // Der freie Titel bleibt in der Runde und geht nicht in den Katalog.
+    expect(await prisma.game.count()).toBe(2);
+  });
+
+  it('hält den Gast an dasselbe Kontingent wie ein Mitglied', async () => {
+    const gameIds = await spiele(5);
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: ANNA,
+      optionen: { gaesteErlaubt: true, vorschlaegeProPerson: 2 },
+    });
+    const gast = spielwahl.neueGastKennung();
+    await spielwahl.tritteBei(session.id, gast, 'Nina');
+
+    await spielwahl.schlageVor(session.id, gast, { gameId: gameIds[0] });
+    await spielwahl.schlageVor(session.id, gast, { gameId: gameIds[1] });
+    await expect(spielwahl.schlageVor(session.id, gast, { gameId: gameIds[2] })).rejects.toThrow();
+  });
+
+  it('hält den Gast an den Katalogzwang, wenn freie Titel aus sind', async () => {
+    const gameIds = await spiele(2);
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: ANNA,
+      optionen: { gaesteErlaubt: true, freieVorschlaege: false },
+    });
+    const gast = spielwahl.neueGastKennung();
+    await spielwahl.tritteBei(session.id, gast, 'Nina');
+
+    await spielwahl.schlageVor(session.id, gast, { gameId: gameIds[0] });
+    await expect(spielwahl.schlageVor(session.id, gast, { freierName: 'Irgendwas' })).rejects.toThrow();
   });
 
   it('lässt einen Gast mitstimmen, und seine Stimme zählt wie jede andere', async () => {
@@ -534,5 +581,300 @@ describeWithDatabase('Was spielen wir: der Standard fuer Teilnahme ohne Konto', 
 
     const einstellungen = await getModuleSettings<Record<string, unknown>>(spielwahl.SPIELWAHL_MODULE_ID);
     expect(einstellungen.gaesteErlaubt as boolean).toBe(true);
+  });
+});
+
+/**
+ * Eine Runde, die jemand ohne Konto eröffnet hat.
+ *
+ * ## Warum das eine eigene Gruppe bekommt
+ *
+ * Weil es der Fall ist, der dreimal als «verlangt weiterhin Login» gemeldet
+ * wurde, und weil er genau eine Grenze **nicht** aufweichen darf: in der Runde
+ * eines Mitglieds wird ein Gast nicht zum Host. Beide Richtungen stehen hier
+ * nebeneinander, damit die eine nicht ohne die andere geändert wird.
+ *
+ * Geprüft wird der ganze Ablauf gegen eine echte Datenbank - eröffnen,
+ * vorschlagen, Phase schliessen, starten, annehmen. Eine Attrappe würde nicht
+ * zeigen, dass die Hostzeile, die Kandidatenzeilen und die Statusmaschine
+ * dabei zusammenpassen.
+ */
+describeWithDatabase('Was spielen wir?: eine Runde ohne Konto', () => {
+  beforeAll(() => {
+    pushSchema();
+  });
+
+  beforeEach(async () => {
+    await leeren();
+    await serverErlaubtGaeste(true);
+    clearRevisionCaches();
+  });
+
+  it('lässt einen Gast eine Runde eröffnen und führt ihn als Host', async () => {
+    const gast = spielwahl.neueGastKennung();
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: gast, username: 'Nina' },
+    });
+
+    const zeile = await prisma.spielwahlSession.findUniqueOrThrow({ where: { id: session.id } });
+    expect(zeile.hostDiscordId).toBe(gast);
+    // Die Runde lässt Gäste zu - sonst käme ihr eigener Host nicht hinein.
+    expect(zeile.gaesteErlaubt).toBe(true);
+
+    const teilnehmer = await prisma.spielwahlParticipant.findUniqueOrThrow({
+      where: { sessionId_discordId: { sessionId: session.id, discordId: gast } },
+    });
+    expect(teilnehmer.rolle).toBe('HOST');
+    // Der Name steht in der Zeile - es gibt kein Profil, aus dem er käme.
+    expect(teilnehmer.gastName).toBe('Nina');
+  });
+
+  it('prüft den Namen des eröffnenden Gastes serverseitig', async () => {
+    const gast = spielwahl.neueGastKennung();
+    for (const name of ['', 'a', '<script>', 'x'.repeat(25)]) {
+      await expect(
+        spielwahl.eroeffne({ guildId: GUILD, host: { discordId: gast, username: name } }),
+        name,
+      ).rejects.toThrow();
+    }
+    expect(await prisma.spielwahlSession.count()).toBe(0);
+  });
+
+  it('lässt keinen Gast eröffnen, wenn der Server es abgeschaltet hat', async () => {
+    await serverErlaubtGaeste(false);
+    clearRevisionCaches();
+
+    await expect(
+      spielwahl.eroeffne({
+        guildId: GUILD,
+        host: { discordId: spielwahl.neueGastKennung(), username: 'Nina' },
+      }),
+    ).rejects.toThrow();
+
+    // Ein Mitglied darf weiterhin - der Schalter betrifft nur Gäste.
+    await spielwahl.eroeffne({ guildId: GUILD, host: ANNA });
+    expect(await prisma.spielwahlSession.count()).toBe(1);
+  });
+
+  it('begrenzt die Zahl gleichzeitig offener Gastrunden - und zählt Mitgliedsrunden nicht mit', async () => {
+    /*
+     * Die Grenze, die nicht am Cookie haengt.
+     *
+     * `offeneProPerson` zaehlt je Kennung, und die eines Gastes steht in
+     * seinem Cookie - loeschen, neuer Gast, neue Runde. Deshalb hier eine
+     * absolute Obergrenze. Der Test verwendet **verschiedene** Kennungen,
+     * genau wie der Besucher, der sein Cookie loescht.
+     */
+    await serverErlaubtGaeste(true, 2);
+    clearRevisionCaches();
+
+    await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: spielwahl.neueGastKennung(), username: 'Eins' },
+    });
+    await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: spielwahl.neueGastKennung(), username: 'Zwei' },
+    });
+    await expect(
+      spielwahl.eroeffne({
+        guildId: GUILD,
+        host: { discordId: spielwahl.neueGastKennung(), username: 'Drei' },
+      }),
+    ).rejects.toThrow();
+
+    // Ein Mitglied kommt weiterhin durch - seine Runde zählt nicht mit.
+    await spielwahl.eroeffne({ guildId: GUILD, host: ANNA });
+    expect(await prisma.spielwahlSession.count()).toBe(3);
+  });
+
+  it('gibt eine Gastrunde wieder frei, wenn eine geschlossen wird', async () => {
+    await serverErlaubtGaeste(true, 1);
+    clearRevisionCaches();
+
+    const erste = spielwahl.neueGastKennung();
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: erste, username: 'Eins' },
+    });
+    await expect(
+      spielwahl.eroeffne({
+        guildId: GUILD,
+        host: { discordId: spielwahl.neueGastKennung(), username: 'Zwei' },
+      }),
+    ).rejects.toThrow();
+
+    await spielwahl.schliesse(session.id, { discordId: erste, username: 'Eins' });
+
+    // Geschlossen heisst: zählt nicht mehr. Die Grenze ist eine über offene
+    // Runden, nicht eine über je gemachte.
+    const zweite = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: spielwahl.neueGastKennung(), username: 'Zwei' },
+    });
+    expect(zweite.id).toBeTruthy();
+  });
+
+  it('führt eine Gastrunde von der Lobby bis zum Ergebnis', async () => {
+    const gameIds = await spiele(2);
+    const gast = spielwahl.neueGastKennung();
+    const wer = { discordId: gast, username: 'Nina' };
+    const session = await spielwahl.eroeffne({ guildId: GUILD, host: wer });
+
+    // Vorschlagen, Phase schliessen, starten - alles durch denselben Gast.
+    await spielwahl.schlageVor(session.id, gast, { gameId: gameIds[0] });
+    await spielwahl.schlageVor(session.id, gast, { gameId: gameIds[1] });
+    await spielwahl.aendereEinstellungen(session.id, { modus: 'VOTING' });
+    await spielwahl.schliesseVorschlaege(session.id, wer);
+    await spielwahl.starte(session.id, wer);
+
+    const kandidaten = await spielwahl.listeKandidaten(session.id);
+    await spielwahl.stimme(session.id, gast, kandidaten[0]!.id, 0);
+
+    /*
+     * Das Ergebnis steht, sobald alle gewaehlt haben - hier ist «alle» eine
+     * Person. Auf den Timer zu warten waere ein Test, der zehn Sekunden
+     * schlaeft, um dasselbe zu sehen.
+     */
+    await spielwahl.nimmAn(session.id, wer);
+
+    const zeile = await prisma.spielwahlSession.findUniqueOrThrow({ where: { id: session.id } });
+    expect(zeile.status).toBe('ABGESCHLOSSEN');
+    expect(zeile.ergebnisCandidateId).toBe(kandidaten[0]!.id);
+  });
+
+  it('lässt einen fremden Gast die Runde eines Gastes nicht führen', async () => {
+    const wirt = spielwahl.neueGastKennung();
+    const fremd = spielwahl.neueGastKennung();
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: wirt, username: 'Nina' },
+    });
+    await spielwahl.tritteBei(session.id, fremd, 'Tim');
+
+    /*
+     * «Ein Gast darf fuehren» heisst nicht «jeder Gast darf jede Runde
+     * fuehren». Die Fuehrung haengt an der Rolle in dieser Session, und die
+     * bekommt nur, wer sie eroeffnet hat oder sie uebertragen bekam.
+     */
+    const anderer = { discordId: fremd, username: 'Tim' };
+    await expect(spielwahl.schliesseVorschlaege(session.id, anderer)).rejects.toThrow();
+    await expect(spielwahl.nimmAn(session.id, anderer)).rejects.toThrow();
+    await expect(spielwahl.schliesse(session.id, anderer)).rejects.toThrow();
+  });
+
+  it('gibt die Führung einer Gastrunde an den nächsten Gast weiter', async () => {
+    const wirt = spielwahl.neueGastKennung();
+    const naechster = spielwahl.neueGastKennung();
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: wirt, username: 'Nina' },
+    });
+    await spielwahl.tritteBei(session.id, naechster, 'Tim');
+
+    await spielwahl.verlasse(session.id, wirt);
+
+    /*
+     * Hier bricht die Runde **nicht** ab - anders als in der Mitgliedsrunde
+     * weiter oben. Der Unterschied ist nicht die Nachsicht, sondern die
+     * Richtung: eine Gastrunde in Gasthand zu lassen eröffnet niemandem
+     * etwas, was er nicht schon hatte.
+     */
+    const zeile = await prisma.spielwahlSession.findUniqueOrThrow({ where: { id: session.id } });
+    expect(zeile.status).not.toBe('ABGEBROCHEN');
+    expect(zeile.hostDiscordId).toBe(naechster);
+  });
+
+  it('lässt den Gast-Host einen anderen Gast zum Co-Host machen - in seiner Runde', async () => {
+    const wirt = spielwahl.neueGastKennung();
+    const zweiter = spielwahl.neueGastKennung();
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: wirt, username: 'Nina' },
+    });
+    await spielwahl.tritteBei(session.id, zweiter, 'Tim');
+
+    await spielwahl.setzeCoHost(session.id, zweiter, true, { discordId: wirt, username: 'Nina' });
+
+    const zeile = await prisma.spielwahlParticipant.findUniqueOrThrow({
+      where: { sessionId_discordId: { sessionId: session.id, discordId: zweiter } },
+    });
+    expect(zeile.rolle).toBe('COHOST');
+  });
+
+  it('macht eine Gastrunde, die an ein Mitglied übergeben wurde, zur Mitgliedsrunde', async () => {
+    /*
+     * Die Monotonie der Regel, als Test.
+     *
+     * Eine Gastrunde darf in Mitgliedshand uebergehen - das ist der sichere
+     * Weg. Danach ist sie eine Mitgliedsrunde, und ab dann wird kein Gast
+     * mehr zum Host. Haengt die Regel an `hostDiscordId`, gilt das von
+     * selbst; dieser Test nagelt fest, dass es so bleibt.
+     */
+    const wirt = spielwahl.neueGastKennung();
+    const dritter = spielwahl.neueGastKennung();
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: wirt, username: 'Nina' },
+    });
+    await spielwahl.tritteBei(session.id, ANNA.discordId);
+    await spielwahl.tritteBei(session.id, dritter, 'Tim');
+
+    await spielwahl.uebergib(session.id, ANNA.discordId, { discordId: wirt, username: 'Nina' });
+
+    const zeile = await prisma.spielwahlSession.findUniqueOrThrow({ where: { id: session.id } });
+    expect(zeile.hostDiscordId).toBe(ANNA.discordId);
+
+    // Ab jetzt ist es eine Mitgliedsrunde - kein Gast wird mehr Host.
+    await expect(spielwahl.setzeCoHost(session.id, dritter, true, ANNA)).rejects.toThrow();
+    await expect(spielwahl.uebergib(session.id, dritter, ANNA)).rejects.toThrow();
+  });
+
+  it('lässt den Gast-Host sich nicht selbst aussperren', async () => {
+    const wirt = spielwahl.neueGastKennung();
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: wirt, username: 'Nina' },
+    });
+
+    /*
+     * `gaesteErlaubt` ist in dieser Runde die Tuer, durch die der Host selbst
+     * hereingekommen ist. Ausgeschaltet koennte er sie nicht mehr bedienen und
+     * nicht einmal beenden - eine Einstellung, die mit einem Klick zuschlaegt.
+     */
+    await expect(spielwahl.aendereEinstellungen(session.id, { gaesteErlaubt: false })).rejects.toThrow();
+
+    const zeile = await prisma.spielwahlSession.findUniqueOrThrow({ where: { id: session.id } });
+    expect(zeile.gaesteErlaubt).toBe(true);
+  });
+
+  it('lässt ein Mitglied in seiner eigenen Runde weiterhin abschalten', async () => {
+    // Die Gegenprobe: der Riegel gilt der Gastrunde, nicht dem Schalter.
+    const session = await spielwahl.eroeffne({ guildId: GUILD, host: ANNA });
+    await spielwahl.aendereEinstellungen(session.id, { gaesteErlaubt: false });
+
+    const zeile = await prisma.spielwahlSession.findUniqueOrThrow({ where: { id: session.id } });
+    expect(zeile.gaesteErlaubt).toBe(false);
+  });
+
+  it('schreibt die eröffnete Gastrunde ins Protokoll', async () => {
+    const gast = spielwahl.neueGastKennung();
+    const session = await spielwahl.eroeffne({
+      guildId: GUILD,
+      host: { discordId: gast, username: 'Nina' },
+    });
+
+    /*
+     * Eine Handlung ohne Konto ist kein Grund, sie nicht aufzuschreiben - im
+     * Gegenteil. Die Gastkennung steht als Handelnder im Protokoll, genau wie
+     * sie in der Teilnehmerzeile steht.
+     */
+    const eintrag = await prisma.auditLog.findFirst({
+      where: { action: 'SPIELWAHL_SESSION_CREATED', actorDiscordId: gast },
+    });
+    expect(eintrag).not.toBeNull();
+    expect(eintrag?.actorUsername).toBe('Nina');
+    expect((eintrag?.metadata as { sessionId?: string } | null)?.sessionId).toBe(session.id);
   });
 });

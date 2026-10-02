@@ -165,6 +165,21 @@ describe('Was auf der Karte steht', () => {
     expect(svg).toContain('100 %');
   });
 
+  it('nennt den Zustand über dem Namen Prestige', () => {
+    /*
+     * Die Augenbraue erscheint nur im Hoechstlevel. Dass dort «PRESTIGE»
+     * steht und nicht mehr «HOECHSTLEVEL», ist der Punkt - deshalb beides
+     * geprueft. Die Fusszeile darf «Höchstlevel erreicht» behalten: sie
+     * erklaert den Zustand, sie benennt ihn nicht.
+     */
+    const prestige = karte({ xp: 500_000, maxLevelTotalXp: 500_000 });
+    expect(prestige).toContain('PRESTIGE');
+    expect(prestige).not.toContain('HÖCHSTLEVEL');
+
+    // Und auf der normalen Karte gibt es die Zeile gar nicht.
+    expect(karte()).not.toContain('PRESTIGE');
+  });
+
   it('beschreibt sich für Screenreader mit allen Werten', () => {
     const svg = karte({ displayName: 'maanu', xp: 12_600, rank: 7 });
     const label = /aria-label="([^"]+)"/u.exec(svg)?.[1] ?? '';

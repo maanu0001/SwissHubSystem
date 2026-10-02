@@ -318,9 +318,15 @@ export function renderLevelCardSvg(input: LevelCardInput): string {
     : `<circle cx="${avatarCx}" cy="${avatarCy}" r="${avatarR}" fill="#1F2023" />
     ${text('?', textfarbe, saum, { x: avatarCx, y: avatarCy + Math.round(avatarR * 0.33), grad: Math.round(avatarR * 0.9), fett: true, deckkraft: 0.35, anker: 'middle' })}`;
 
+  /*
+   * Die Augenbraue ueber dem Namen benennt den Zustand, nicht die Zahl: wer
+   * oben angekommen ist, hat Prestige. «HOECHSTLEVEL» stand hier vorher und
+   * sagte dasselbe wie das Level daneben. Grossbuchstaben und Laufweite sind
+   * die Typografie dieser Zeile, nicht Teil des Wortes.
+   */
   const augenbraue =
     prestige && g.augenbraueY !== null
-      ? text('HÖCHSTLEVEL', textfarbe, saum, {
+      ? text('PRESTIGE', textfarbe, saum, {
           x: g.textX,
           y: g.augenbraueY,
           grad: g.augenbraueGrad,

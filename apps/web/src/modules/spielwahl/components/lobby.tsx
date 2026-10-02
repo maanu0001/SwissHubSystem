@@ -7,12 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Cover, Vorzeile } from './bausteine';
 import { neuerSchluessel } from '@/modules/spielwahl/verbindung';
-import {
-  spielwahlKandidatEntfernenAction,
-  spielwahlSpieleSuchenAction,
-  spielwahlVorschlagenAction,
-  spielwahlZurueckziehenAction,
-} from '@/modules/spielwahl/aktionen';
+import type { Befehlssatz, SpielTreffer } from '@/modules/spielwahl/befehle';
 import { cn } from '@/lib/utils';
 import type { Stand } from '@/modules/spielwahl/verbindung';
 
@@ -37,22 +32,30 @@ export function Lobby({
   stand,
   csrfToken,
   darfFuehren,
+  befehle,
 }: {
   stand: Stand;
   csrfToken: string;
   darfFuehren: boolean;
+  befehle: Befehlssatz;
 }): React.JSX.Element {
   const [laeuft, starteUebergang] = useTransition();
   const offen = stand.status === 'LOBBY';
   const eigeneRolle = stand.eigeneRolle;
   /*
-   * Ein Gast schlaegt nichts vor - und sieht das Feld deshalb nicht.
+   * Wer dabei ist, schlaegt vor - mit Konto oder ohne.
    *
-   * Es ist eine Gestaltungsfrage, nicht die Entscheidung: `schlageVor` weist
-   * eine Gastkennung selbst ab. Ein Suchfeld, dessen Ergebnis immer eine
-   * Absage ist, waere aber schlimmer als kein Suchfeld.
+   * Hier stand `!stand.betrachterIstGast`, und das war die Oberflaechenseite
+   * einer Sperre in `schlageVor`. Beide sind weg: eine Runde, in der nur
+   * Angemeldete Spiele nennen koennen, ist fuer eine Gruppe ohne Konten eine
+   * leere Liste mit einem Rad, das nichts zu drehen hat.
+   *
+   * Die Grenzen sind weiterhin die des Moduls und fuer alle dieselben: das
+   * Kontingent je Person, der Katalogzwang ohne freie Titel, der Zustand der
+   * Runde. Das Suchfeld erscheint deshalb genau dann, wenn noch ein Vorschlag
+   * frei ist - `stand.eigeneVorschlaegeOffen`.
    */
-  const darfVorschlagen = !stand.betrachterIstGast;
+  const darfVorschlagen = true;
 
   return (
     <div className="flex w-full flex-col gap-8">
@@ -63,24 +66,29 @@ export function Lobby({
         </h2>
         {offen ? (
           <p className="mt-1.5 text-sm text-white/45">
-            {!darfVorschlagen
-              ? 'Die Mitglieder sammeln Vorschläge. Sobald abgestimmt wird, bist du dabei.'
-              : eigeneRolle
-                ? stand.eigeneVorschlaegeOffen > 0
-                  ? `Du hast noch ${stand.eigeneVorschlaegeOffen} ${stand.eigeneVorschlaegeOffen === 1 ? 'Vorschlag' : 'Vorschläge'}.`
-                  : 'Deine Vorschläge sind vergeben. Nimm einen zurück, wenn du einen anderen willst.'
-                : 'Tritt bei, um mitzumachen.'}
+            {eigeneRolle
+              ? stand.eigeneVorschlaegeOffen > 0
+                ? `Du hast noch ${stand.eigeneVorschlaegeOffen} ${stand.eigeneVorschlaegeOffen === 1 ? 'Vorschlag' : 'Vorschläge'}.`
+                : 'Deine Vorschläge sind vergeben. Nimm einen zurück, wenn du einen anderen willst.'
+              : 'Tritt bei, um mitzumachen.'}
           </p>
         ) : null}
       </div>
 
       {offen && darfVorschlagen && eigeneRolle && stand.eigeneVorschlaegeOffen > 0 ? (
-        <Spielsuche stand={stand} csrfToken={csrfToken} laeuft={laeuft} starte={starteUebergang} />
+        <Spielsuche
+          stand={stand}
+          csrfToken={csrfToken}
+          befehle={befehle}
+          laeuft={laeuft}
+          starte={starteUebergang}
+        />
       ) : null}
 
       <Kandidatenliste
         stand={stand}
         csrfToken={csrfToken}
+        befehle={befehle}
         darfFuehren={darfFuehren}
         offen={offen}
         laeuft={laeuft}
@@ -93,16 +101,18 @@ export function Lobby({
 function Spielsuche({
   stand,
   csrfToken,
+  befehle,
   laeuft,
   starte,
 }: {
   stand: Stand;
   csrfToken: string;
+  befehle: Befehlssatz;
   laeuft: boolean;
   starte: (arbeit: () => void) => void;
 }): React.JSX.Element {
   const [suche, setSuche] = useState('');
-  const [treffer, setTreffer] = useState<Array<{ id: string; name: string; bannerUrl: string | null }>>([]);
+  const [treffer, setTreffer] = useState<SpielTreffer[]>([]);
   const [sucht, setSucht] = useState(false);
   const letzte = useRef(0);
 
@@ -110,7 +120,13 @@ function Spielsuche({
     const lauf = ++letzte.current;
     setSucht(true);
     const uhr = window.setTimeout(() => {
-      void spielwahlSpieleSuchenAction({ query: suche, csrfToken })
+      /*
+       * Die Suche des Gastes nimmt die `sessionId` mit, die des Mitglieds
+       * ignoriert sie: fuer einen Gast ist die Runde der Anlass, aus dem
+       * gesucht wird, und damit die Stelle, an der sein Zugang geprueft wird.
+       */
+      void befehle
+        .spieleSuchen({ sessionId: stand.id, query: suche, csrfToken })
         .then((antwort) => {
           // Eine ältere Antwort darf eine neuere nicht überschreiben.
           if (lauf !== letzte.current) {
@@ -125,7 +141,7 @@ function Spielsuche({
         });
     }, 180);
     return () => window.clearTimeout(uhr);
-  }, [suche, csrfToken]);
+  }, [suche, csrfToken, befehle, stand.id]);
 
   const schonDabei = useMemo(
     () => new Set(stand.kandidaten.map((eintrag) => eintrag.gameId).filter(Boolean) as string[]),
@@ -134,7 +150,7 @@ function Spielsuche({
 
   const vorschlagen = (eingabe: { gameId?: string; freierName?: string }): void => {
     starte(async () => {
-      const antwort = await spielwahlVorschlagenAction({
+      const antwort = await befehle.vorschlagen({
         sessionId: stand.id,
         schluessel: neuerSchluessel(),
         csrfToken,
@@ -245,6 +261,7 @@ function Spielsuche({
 function Kandidatenliste({
   stand,
   csrfToken,
+  befehle,
   darfFuehren,
   offen,
   laeuft,
@@ -252,6 +269,7 @@ function Kandidatenliste({
 }: {
   stand: Stand;
   csrfToken: string;
+  befehle: Befehlssatz;
   darfFuehren: boolean;
   offen: boolean;
   laeuft: boolean;
@@ -301,12 +319,12 @@ function Kandidatenliste({
                   onClick={() =>
                     starte(async () => {
                       const antwort = eigener
-                        ? await spielwahlZurueckziehenAction({
+                        ? await befehle.zurueckziehen({
                             sessionId: stand.id,
                             candidateId: kandidat.id,
                             csrfToken,
                           })
-                        : await spielwahlKandidatEntfernenAction({
+                        : await befehle.kandidatEntfernen({
                             sessionId: stand.id,
                             candidateId: kandidat.id,
                             csrfToken,

@@ -5,7 +5,7 @@ import { ChevronDown, Dices, Settings2, Swords, Vote } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { spielwahlModusSetzenAction } from '@/modules/spielwahl/aktionen';
+import type { Befehlssatz } from '@/modules/spielwahl/befehle';
 import { cn } from '@/lib/utils';
 import type { Stand } from '@/modules/spielwahl/verbindung';
 
@@ -41,17 +41,31 @@ export function Regeln({
   stand,
   csrfToken,
   darfFuehren,
+  befehle,
+  gast,
 }: {
   stand: Stand;
   csrfToken: string;
   darfFuehren: boolean;
+  befehle: Befehlssatz;
+  /**
+   * Betrachtet das jemand ohne Konto?
+   *
+   * Gebraucht für genau einen Schalter: «Teilnahme ohne Konto». In einer
+   * Runde, die ohne Konto eröffnet wurde, ist er die Tür, durch die der Host
+   * selbst hereingekommen ist - ausgeschaltet verlöre er den Zugang zu seiner
+   * eigenen Runde und könnte sie nicht einmal beenden. Der Server weist das
+   * ab (`aendereEinstellungen`); hier wird der Schalter deshalb nicht erst
+   * angeboten.
+   */
+  gast: boolean;
 }): React.JSX.Element {
   const [offen, setOffen] = useState(false);
   const [laeuft, starte] = useTransition();
 
   const setzen = (aenderung: Record<string, unknown>): void => {
     starte(async () => {
-      const antwort = await spielwahlModusSetzenAction({ sessionId: stand.id, csrfToken, ...aenderung });
+      const antwort = await befehle.regelnSetzen({ sessionId: stand.id, csrfToken, ...aenderung });
       if (!antwort.ok) {
         toast.error(antwort.error.message);
       }
@@ -145,13 +159,15 @@ export function Regeln({
             aus={laeuft}
             aufAenderung={(wert) => setzen({ nachlosenErlaubt: wert })}
           />
-          <Schalter
-            label="Teilnahme ohne Konto"
-            text="Wer den Einladungslink hat, kann mit Namen mitstimmen - Spiele vorschlagen nur angemeldete Mitglieder. Ist es beim Server aus, bleibt der Schalter ohne Wirkung."
-            an={aktiv.gaesteErlaubt}
-            aus={laeuft}
-            aufAenderung={(wert) => setzen({ gaesteErlaubt: wert })}
-          />
+          {gast ? null : (
+            <Schalter
+              label="Teilnahme ohne Konto"
+              text="Wer den Einladungslink hat, macht mit Namen mit - vorschlagen und abstimmen inbegriffen. Ist es beim Server aus, bleibt der Schalter ohne Wirkung."
+              an={aktiv.gaesteErlaubt}
+              aus={laeuft}
+              aufAenderung={(wert) => setzen({ gaesteErlaubt: wert })}
+            />
+          )}
           <Schalter
             label="Titel ausserhalb des Katalogs"
             text="Erscheinen ohne Cover - ein Bild aus einer Eingabe wird nirgends geladen."

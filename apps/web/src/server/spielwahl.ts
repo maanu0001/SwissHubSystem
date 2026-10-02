@@ -18,6 +18,14 @@ export interface RundeInListe {
   hostDiscordId: string;
   hostName: string;
   hostAvatar: string | null;
+  /**
+   * Hat die Runde ein Mitglied eröffnet oder jemand ohne Konto?
+   *
+   * Gebraucht für die Darstellung: `DiscordAvatar` würde für eine
+   * Gastkennung eine Avataradresse bauen, die es nicht gibt. Steht hier
+   * `true`, zeichnet die Karte stattdessen ein Monogramm.
+   */
+  hostIstGast: boolean;
   teilnehmer: number;
   kandidaten: number;
   binDabei: boolean;
@@ -35,10 +43,19 @@ export interface RundeInListe {
  * Freitagabend schaut, ob schon etwas läuft, soll es sehen - das ist der
  * halbe Zweck des Moduls.
  *
- * Öffentlich ist das trotzdem nicht: gelesen wird nur innerhalb der eigenen
- * Guild, und die Seite selbst verlangt Anmeldung und Mitgliedschaft. Eine
- * Suche über Sessions gibt es nicht, und der Einladungswert steht in dieser
- * Liste nur bei Runden, in denen man ohnehin schon dabei ist.
+ * Gelesen wird nur innerhalb der eigenen Guild, eine Suche über Sessions gibt
+ * es nicht, und der Einladungswert steht in dieser Liste nur bei Runden, in
+ * denen man ohnehin schon dabei ist.
+ *
+ * ## Der Betrachter darf eine Gastkennung sein
+ *
+ * Dann greifen `binDabei` und `binHost` für ihn genauso wie für ein Mitglied -
+ * die Teilnehmerzeilen tragen beide Arten von Kennung in derselben Spalte
+ * (siehe `spielwahl/gast.ts`). Das ist nicht Bequemlichkeit, sondern notwendig:
+ * ohne sie bekäme der Gast, der eine Runde eröffnet hat, in dieser Liste
+ * **seine eigene** Runde ohne Einladungswert angeboten, die Seite dahinter
+ * liesse ihn mit der blossen Kennung nicht herein, und er landete auf einer
+ * Anmeldeaufforderung für die Runde, die er selbst aufgemacht hat.
  */
 export async function ladeOffeneRunden(guildId: string, betrachter: string): Promise<RundeInListe[]> {
   const sessions = await prisma.spielwahlSession.findMany({
@@ -50,7 +67,7 @@ export async function ladeOffeneRunden(guildId: string, betrachter: string): Pro
     orderBy: { createdAt: 'desc' },
     take: 20,
     include: {
-      participants: { where: { leftAt: null }, select: { discordId: true, rolle: true } },
+      participants: { where: { leftAt: null }, select: { discordId: true, rolle: true, gastName: true } },
       _count: { select: { candidates: true } },
     },
   });
@@ -69,7 +86,7 @@ export async function ladeVergangeneRunden(guildId: string, betrachter: string):
     orderBy: { closedAt: 'desc' },
     take: 8,
     include: {
-      participants: { where: { leftAt: null }, select: { discordId: true, rolle: true } },
+      participants: { where: { leftAt: null }, select: { discordId: true, rolle: true, gastName: true } },
       _count: { select: { candidates: true } },
     },
   });
@@ -86,7 +103,7 @@ async function baueListe(
     hostDiscordId: string;
     createdAt: Date;
     ergebnisCandidateId: string | null;
-    participants: Array<{ discordId: string; rolle: string }>;
+    participants: Array<{ discordId: string; rolle: string; gastName: string | null }>;
     _count: { candidates: number };
   }>,
   betrachter: string,
@@ -95,8 +112,18 @@ async function baueListe(
     return [];
   }
 
-  const { loadPersonen } = await import('@swisshub/modules');
-  const personen = await loadPersonen(sessions.map((session) => session.hostDiscordId));
+  const { loadPersonen, spielwahl: modul } = await import('@swisshub/modules');
+  /*
+   * Nur Discord-Kennungen nachschlagen.
+   *
+   * `loadPersonen` fragt den Mitgliederbestand; eine Gastkennung findet es
+   * dort nie, und sie dort zu suchen hiesse, eine Abfrage mit einem Wert zu
+   * fuettern, der dafuer nicht gedacht ist. Der Name eines Gast-Hosts steht
+   * in seiner Teilnehmerzeile - dort, wo er ihn selbst eingetragen hat.
+   */
+  const personen = await loadPersonen(
+    sessions.map((session) => session.hostDiscordId).filter((id) => !modul.istGastKennung(id)),
+  );
 
   const ergebnisIds = sessions
     .map((session) => session.ergebnisCandidateId)
@@ -112,7 +139,20 @@ async function baueListe(
 
   return sessions.map((session) => {
     const person = personen.get(session.hostDiscordId);
-    const dabei = session.participants.some((teilnehmer) => teilnehmer.discordId === betrachter);
+    const gastHost = modul.istGastKennung(session.hostDiscordId)
+      ? (session.participants.find((teilnehmer) => teilnehmer.discordId === session.hostDiscordId)
+          ?.gastName ?? 'Gast')
+      : null;
+    /*
+     * Ein leerer Betrachter ist niemand - und das ist Absicht.
+     *
+     * Eine Discord-Kennung ist nie leer, eine Gastkennung nie. Wer ohne
+     * Kennung liest (die Seite ruft so, solange noch kein Gastcookie
+     * vergeben ist), ist in keiner Runde dabei und bekommt keinen
+     * Einladungswert.
+     */
+    const dabei =
+      betrachter !== '' && session.participants.some((teilnehmer) => teilnehmer.discordId === betrachter);
     return {
       id: session.id,
       /*
@@ -128,8 +168,9 @@ async function baueListe(
       status: session.status,
       modus: session.modus,
       hostDiscordId: session.hostDiscordId,
-      hostName: person?.displayName ?? 'Unbekannt',
+      hostName: gastHost ?? person?.displayName ?? 'Unbekannt',
       hostAvatar: person?.avatarHash ?? null,
+      hostIstGast: gastHost !== null,
       teilnehmer: session.participants.length,
       kandidaten: session._count.candidates,
       binDabei: dabei,

@@ -1,15 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Dices, LogIn, Swords, Users, Vote } from 'lucide-react';
+import { Dices, Swords, Users, Vote } from 'lucide-react';
 import { can } from '@swisshub/auth';
 import { resolveGuildId } from '@swisshub/discord';
 import { isModuleEnabled, spielwahl } from '@swisshub/modules';
-import { branding } from '@swisshub/config/client';
 import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { ErrorState } from '@/components/shared/states';
-import { buttonVariants } from '@/components/ui/button';
 import { Schnellstart } from '@/modules/spielwahl/components/schnellstart';
 import { csrfTokenFor, getOptionalAuthContext } from '@/server/auth';
+import { gastCsrfToken, gastKennung } from '@/server/gast';
 import { ladeOffeneRunden, ladeVergangeneRunden, type RundeInListe } from '@/server/spielwahl';
 import { cn } from '@/lib/utils';
 import '@/modules/spielwahl/spielwahl.css';
@@ -48,16 +47,23 @@ export const dynamic = 'force-dynamic';
  *
  * ## Was ein Gast sieht - und was nicht
  *
- * Er sieht, **dass** etwas läuft, und kommt auf die Bühne. Er sieht nicht:
+ * Er sieht denselben **Schnellstart** wie ein Mitglied, nur mit einem
+ * Namensfeld davor: eine Runde eröffnen ist keine Mitgliedssache mehr. Hier
+ * stand früher stattdessen eine Einladung, sich anzumelden - und das war der
+ * Grund, warum «Was spielen wir» ohne Konto nicht funktionierte. Wer zählt,
+ * ist der, der am Freitagabend fragt, nicht der, der ein Konto hat.
  *
- *  - den **Schnellstart**. Eine Runde eröffnen ist eine Mitgliedssache, und
- *    die Server Action dahinter prüft das ohnehin selbst.
- *  - den **Einladungswert**. `ladeOffeneRunden` gibt ihn nur an Leute heraus,
- *    die in der Runde schon dabei sind - mit einem leeren Betrachter also an
- *    niemanden. Der Weg führt über die Kennung, und die Bühne lässt einen
- *    Gast nur über den Einladungswert mitmachen.
+ * Zwei Dinge sieht er weiterhin nicht, und keines davon ist eine Hürde:
+ *
+ *  - den **Einladungswert** fremder Runden. `ladeOffeneRunden` gibt ihn nur
+ *    an Leute heraus, die in der Runde schon dabei sind - mit einem leeren
+ *    Betrachter also an niemanden. Der Weg in eine fremde Runde führt über
+ *    ihre Kennung, und die Bühne lässt einen Gast nur über den
+ *    Einladungswert mitmachen. Seine **eigene** Runde bekommt er beim
+ *    Eröffnen, mit Einladungswert.
  *  - **«Was ihr zuletzt gespielt habt».** Diese Liste ist die eigene
- *    Vorgeschichte; ohne Identität gibt es keine.
+ *    Vorgeschichte; sie hängt an der Kennung, und die eines Gastes lebt im
+ *    Cookie. Sie wäre also wahlweise leer oder irreführend.
  */
 export default async function SpielwahlPage(): Promise<React.JSX.Element> {
   if (!(await isModuleEnabled(spielwahl.SPIELWAHL_MODULE_ID))) {
@@ -74,23 +80,49 @@ export default async function SpielwahlPage(): Promise<React.JSX.Element> {
    */
   const mitglied = context?.isMember && can(context, spielwahl.SPIELWAHL_PERMISSIONS.view) ? context : null;
 
+  /*
+   * Die Gastkennung - nur gelesen, nie vergeben.
+   *
+   * Eine Seite darf keine Cookies setzen; die Kennung entsteht bei der ersten
+   * Aktion (`defineOeffentlicheAktion`). Wer die Seite zum ersten Mal öffnet,
+   * hat deshalb noch keine: er sieht die Runden, bekommt keinen
+   * Einladungswert und ein leeres CSRF-Token. Sein erster Klick vergibt
+   * beides, die Seite lädt neu, und ab dann stimmt es.
+   */
+  const gastkennung = mitglied ? null : await gastKennung();
+
   const guildId = await resolveGuildId();
   const [offene, vergangene] = await Promise.all([
     /*
-     * Ein leerer Betrachter ist kein Platzhalter, sondern die Aussage.
+     * Der Betrachter ist die eigene Kennung - auch die eines Gastes.
      *
-     * `baueListe` vergleicht ihn mit den Teilnehmerkennungen; eine
-     * Discord-Kennung ist nie leer, also ist niemand «dabei» - und genau
-     * deshalb bleibt der Einladungswert in jeder Zeile leer. Die Sperre sitzt
-     * damit in der Ladefunktion und nicht in dieser Seite.
+     * Davon hängt `binDabei` ab und damit, ob eine Zeile den
+     * Einladungswert trägt. Hier stand nur die Mitgliedskennung, und für
+     * einen Gast ein leerer Wert: der Gast, der eine Runde eröffnet hatte,
+     * bekam **seine eigene** Runde ohne Einladungswert angeboten und landete
+     * dahinter auf einer Anmeldeaufforderung.
+     *
+     * Ein leerer Wert bleibt die Aussage «niemand» - für den Besucher, der
+     * noch kein Cookie hat. `baueListe` behandelt ihn ausdrücklich so.
      */
-    ladeOffeneRunden(guildId, mitglied?.user.discordId ?? ''),
+    ladeOffeneRunden(guildId, mitglied?.user.discordId ?? gastkennung ?? ''),
+    /*
+     * «Was ihr zuletzt gespielt habt» nur für Mitglieder.
+     *
+     * Die Liste hängt an der eigenen Kennung. Die eines Gastes lebt im
+     * Cookie und ist nach dem Löschen eine andere - die Liste wäre also
+     * wahlweise leer oder, nach einem geteilten Gerät, die eines anderen.
+     */
     mitglied ? ladeVergangeneRunden(guildId, mitglied.user.discordId) : Promise.resolve([]),
   ]);
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-10">
-      {mitglied ? <Schnellstart csrfToken={csrfTokenFor(mitglied)} /> : <GastEinladung />}
+      {mitglied ? (
+        <Schnellstart csrfToken={csrfTokenFor(mitglied)} />
+      ) : (
+        <Schnellstart csrfToken={gastkennung ? gastCsrfToken(gastkennung) : ''} gast />
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">
@@ -98,11 +130,9 @@ export default async function SpielwahlPage(): Promise<React.JSX.Element> {
         </h2>
         {offene.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-            {/* Einem Gast «mach die erste auf» zu sagen, waere ein Knopf, den
-                er nicht hat. */}
-            {mitglied
-              ? 'Keine offene Runde. Mach die erste auf - das dauert zwei Sekunden.'
-              : 'Gerade läuft keine Runde.'}
+            {/* Derselbe Satz für alle: den Knopf dazu hat jetzt auch ein
+                Besucher ohne Konto. */}
+            Keine offene Runde. Mach die erste auf - das dauert zwei Sekunden.
           </p>
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2">
@@ -146,29 +176,6 @@ export default async function SpielwahlPage(): Promise<React.JSX.Element> {
   );
 }
 
-/**
- * Was ein Gast oben sieht, wo ein Mitglied den Schnellstart hat.
- *
- * Keine Anmeldewand, sondern eine Einladung: die Runden darunter sind
- * sichtbar, und wer nur zuschauen will, braucht hier nichts zu tun. Der Satz
- * sagt deshalb, was die Anmeldung **bringt**, und nicht, was ohne sie fehlt.
- */
-function GastEinladung(): React.JSX.Element {
-  return (
-    <div className="rounded-2xl border border-border bg-card/60 p-6 sm:p-8">
-      <h1 className="text-xl font-semibold sm:text-2xl">Was spielen wir heute Abend?</h1>
-      <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-        Unten steht, was gerade läuft - mitschauen kannst du ohne Konto. Eine eigene Runde eröffnen, Spiele
-        vorschlagen und den Spielkatalog pflegen können Mitglieder von {branding.name}.
-      </p>
-      <Link href="/login" className={cn(buttonVariants({ size: 'sm' }), 'mt-5')}>
-        <LogIn aria-hidden="true" />
-        Anmelden
-      </Link>
-    </div>
-  );
-}
-
 const STATUS_FARBE: Record<string, string> = {
   LOBBY: 'bg-emerald-500/15 text-emerald-300',
   BEREIT: 'bg-amber-500/15 text-amber-300',
@@ -195,12 +202,26 @@ function Rundenkarte({ runde }: { runde: RundeInListe }): React.JSX.Element {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
-          <DiscordAvatar
-            discordId={runde.hostDiscordId}
-            avatarHash={runde.hostAvatar}
-            name={runde.hostName}
-            size={32}
-          />
+          {/*
+            Ein Gast-Host hat keinen Discord-Avatar - und `DiscordAvatar`
+            baute daraus eine Adresse, die nie etwas liefert. Das Monogramm
+            ist hier die richtige Antwort und kein Notbehelf.
+          */}
+          {runde.hostIstGast ? (
+            <span
+              aria-hidden="true"
+              className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-bold uppercase text-muted-foreground"
+            >
+              {runde.hostName.slice(0, 1)}
+            </span>
+          ) : (
+            <DiscordAvatar
+              discordId={runde.hostDiscordId}
+              avatarHash={runde.hostAvatar}
+              name={runde.hostName}
+              size={32}
+            />
+          )}
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{runde.hostName}</p>
             <p className="text-xs text-muted-foreground">{runde.binHost ? 'deine Runde' : 'lädt ein'}</p>
