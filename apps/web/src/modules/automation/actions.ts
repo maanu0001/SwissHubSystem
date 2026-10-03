@@ -256,6 +256,24 @@ export const schalteAutomationAction = defineAction(
 );
 
 /**
+ * Die eingereichten Felder einer Systemautomation.
+ *
+ * Nach Pfad geschluesselt, und bewusst `unknown`: was ein Feld aufnimmt, sagt
+ * das Schema seines Triggers - geprueft wird dort und nicht hier zum zweiten
+ * Mal. Die Zahl der Felder ist begrenzt, damit eine Anfrage nicht beliebig
+ * gross wird.
+ *
+ * Als eigene Konstante und nicht inline im Schema der Aktion: in einer
+ * `'use server'`-Datei muss **jeder Export** eine async-Funktion sein, und der
+ * Pfeil in `.refine` liess den Next-Build daran scheitern - mit einer Meldung
+ * ueber Server Actions, die auf ein Zod-Schema zeigte. Typecheck und Tests
+ * sehen das nicht; nur der Build.
+ */
+const systemfelderSchema = z
+  .record(z.unknown())
+  .refine((eintrag) => Object.keys(eintrag).length <= 20, { message: 'Zu viele Felder.' });
+
+/**
  * Die freigegebenen Felder einer Systemautomation speichern.
  *
  * Die Systemeinladung kommt mit leerer Rollenliste auf den Server - welche
@@ -276,15 +294,7 @@ export const aendereSystemautomationAction = defineAction(
     permission: P.edit,
     schema: z.object({
       id: z.string().min(1),
-      /*
-       * Nach Pfad geschluesselt, und bewusst `unknown`: was ein Feld
-       * aufnimmt, sagt das Schema seines Triggers - geprueft wird dort und
-       * nicht hier zum zweiten Mal. Die Zahl der Felder ist begrenzt, damit
-       * eine Anfrage nicht beliebig gross wird.
-       */
-      werte: z.record(z.unknown()).refine((eintrag) => Object.keys(eintrag).length <= 20, {
-        message: 'Zu viele Felder.',
-      }),
+      werte: systemfelderSchema,
     }),
     rateLimit: 'automationWrite',
     freshness: 'critical',
