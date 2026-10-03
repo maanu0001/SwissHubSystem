@@ -44,7 +44,43 @@ const TEAM_ROLLE = '900000000000000111';
 /** Was der Handler an `editReply` übergeben hat. */
 interface Antwort {
   content?: string;
+  embeds?: Array<{
+    title?: string;
+    description?: string;
+    author?: { name: string; icon_url?: string };
+    thumbnail?: { url: string };
+    fields?: Array<{ name: string; value: string; inline?: boolean }>;
+    footer?: { text: string };
+    color?: number;
+  }>;
+  components?: Array<{ components: Array<{ label?: string; url?: string; custom_id?: string }> }>;
   allowedMentions?: { parse?: string[] };
+}
+
+/**
+ * Die Antwort als durchsuchbarer Text - Inhalt **und** Embed.
+ *
+ * Die Befehle antworten mit Karten statt mit Absätzen; die Zusagen dieser
+ * Tests gelten aber unverändert dem, was dort steht. Diese Funktion legt
+ * Titel, Beschreibung, alle Felder und die Fusszeile aneinander, damit eine
+ * Prüfung auf «steht das drin» nicht wissen muss, in welchem Embed-Feld es
+ * gelandet ist - und damit sie nicht schwächer wird, nur weil sich die Form
+ * geändert hat. Die Geheimnisprüfung weiter unten hängt genau daran.
+ */
+function alsText(antwort: Antwort): string {
+  const embed = antwort.embeds?.[0];
+  return [
+    antwort.content ?? '',
+    embed?.author?.name ?? '',
+    embed?.title ?? '',
+    embed?.description ?? '',
+    ...(embed?.fields ?? []).flatMap((eintrag) => [eintrag.name, eintrag.value]),
+    embed?.footer?.text ?? '',
+    // Auch die Adressen der Knöpfe: ein Link ist Inhalt, den jemand sieht.
+    ...(antwort.components ?? []).flatMap((reihe) =>
+      reihe.components.flatMap((knopf) => [knopf.label ?? '', knopf.url ?? '']),
+    ),
+  ].join('\n');
 }
 
 interface Mitschrift {
@@ -63,7 +99,7 @@ interface Mitschrift {
 function interaktion(
   befehl: 'note' | 'user',
   aufrufer: { id: string; roleIds: string[] },
-  ziel: { id: string; username: string },
+  ziel: { id: string; username: string; notiz?: string },
 ): { interaction: unknown; mitschrift: Mitschrift } {
   const mitschrift: Mitschrift = { deferFlags: undefined, antworten: [] };
   const interaction = {
@@ -72,7 +108,20 @@ function interaktion(
     user: { id: aufrufer.id, username: 'mod', avatar: null },
     member: { roles: { cache: new Map(aufrufer.roleIds.map((id) => [id, { id }])) } },
     options: {
-      getUser: (_name: string, _required?: boolean) => ({ id: ziel.id, username: ziel.username }),
+      /*
+       * Dieselben Felder, die discord.js an einem `User` führt und die die
+       * Handler anfassen: Kennung, Benutzername, Anzeigename und das
+       * Avatarbild für die Karte. Ohne `displayAvatarURL` wirft der Handler,
+       * und der Test sähe nur «Das het leider nöd klappt» - eine Attrappe,
+       * die zu wenig kann, prüft dann die Fehlerbehandlung statt der Antwort.
+       */
+      getUser: (_name: string, _required?: boolean) => ({
+        id: ziel.id,
+        username: ziel.username,
+        displayName: ziel.username,
+        displayAvatarURL: () => `https://cdn.example/${ziel.id}.png`,
+      }),
+      getString: (_name: string) => ziel.notiz ?? null,
     },
     deferReply: (optionen: { flags?: number }) => {
       mitschrift.deferFlags = optionen.flags;
@@ -160,8 +209,16 @@ describeWithDatabase('Moderationsbefehle /note und /user', () => {
       // Ein Moderationsbefehl in einer DM hätte keinen Serverkontext - und
       // damit keine Rollen, aus denen eine Berechtigung folgen könnte.
       expect(eintrag.dmPermission, eintrag.name).toBe(false);
-      expect(eintrag.options).toHaveLength(1);
+      /*
+       * Das Ziel ist immer verpflichtend - ohne Person gibt es nichts
+       * anzusehen. Alles Weitere ist optional: `/note` hat den Schreibweg
+       * als zweite Option, und der darf den Lesefall nicht erschweren.
+       */
+      expect(eintrag.options[0]?.name).toBe('user');
       expect(eintrag.options[0]?.required).toBe(true);
+      for (const option of eintrag.options.slice(1)) {
+        expect(option.required, `${eintrag.name}.${option.name}`).toBe(false);
+      }
     }
   });
 
@@ -235,9 +292,12 @@ describeWithDatabase('Moderationsbefehle /note und /user', () => {
      * Der Text ist entschaerft (Discord-Auszeichnung), deshalb wird auf ein
      * Stueck ohne Sonderzeichen geprueft.
      */
-    expect(antwort.content).toContain('danebenbenommen');
-    expect(antwort.content).toContain('Moderation');
-    expect(antwort.content).toContain('mod');
+    const text = alsText(antwort);
+    expect(text).toContain('danebenbenommen');
+    expect(text).toContain('Moderation');
+    expect(text).toContain('mod');
+    // Und als Karte, nicht als Absatz: das ist die Zusage dieses Blocks.
+    expect(antwort.embeds?.[0]?.fields?.length ?? 0).toBeGreaterThan(0);
   });
 
   it('unterscheidet «keine Notizen» von «nicht erlaubt»', async () => {
@@ -256,7 +316,102 @@ describeWithDatabase('Moderationsbefehle /note und /user', () => {
      * zwar in die unangenehme Richtung: man denkt, es gaebe nichts.
      */
     expect(antwort.content).not.toBe(ABSAGE);
-    expect(antwort.content).toContain('kei Notize');
+    expect(alsText(antwort)).toContain('Kei Notize');
+  });
+
+  // --- /note mit Notiz: der Schreibweg --------------------------------------
+
+  it('erfasst eine Notiz aus Discord in derselben Tabelle wie die WebApp', async () => {
+    await erlaube(MEMBER_PERMISSIONS.view, MEMBER_PERMISSIONS.notesAll, MEMBER_PERMISSIONS.notesCreate);
+    const { interaction, mitschrift } = interaktion(
+      'note',
+      { id: MOD, roleIds: [TEAM_ROLLE] },
+      { id: ZIEL, username: 'zielperson', notiz: 'Isch bim Event uffällig gsi.' },
+    );
+    await handleModerationCommand(interaction as never);
+
+    /*
+     * Die Zusage dieses Blocks: **eine** Akte. Geprüft wird nicht, was der
+     * Befehl geantwortet hat, sondern was in der Tabelle steht, aus der auch
+     * das Member Center liest - eine zweite Notizdatenbank fiele hier auf,
+     * weil diese Abfrage dann nichts fände.
+     */
+    const zeilen = await prisma.memberNote.findMany({ where: { targetDiscordId: ZIEL } });
+    expect(zeilen).toHaveLength(1);
+    expect(zeilen[0]?.content).toBe('Isch bim Event uffällig gsi.');
+    // Der Autor kommt aus dem Befehlskontext und nicht aus der Eingabe.
+    expect(zeilen[0]?.authorDiscordId).toBe(MOD);
+
+    // Und die Antwort zeigt die aktualisierte Liste samt Bestätigung.
+    const text = alsText(letzte(mitschrift));
+    expect(text).toContain('gspeicheret');
+    expect(text).toContain('uffällig');
+  });
+
+  it('schreibt nichts, wenn das Recht zum Schreiben fehlt', async () => {
+    // Lesen erlaubt, schreiben nicht - genau die Trennung, die das Member
+    // Center macht. Vorher gab es diesen Fall nicht, weil der Befehl nur las.
+    await erlaube(MEMBER_PERMISSIONS.view, MEMBER_PERMISSIONS.notesAll);
+    const { interaction, mitschrift } = interaktion(
+      'note',
+      { id: MOD, roleIds: [TEAM_ROLLE] },
+      { id: ZIEL, username: 'zielperson', notiz: 'Das darf nicht ankommen.' },
+    );
+    await handleModerationCommand(interaction as never);
+
+    expect(await prisma.memberNote.count({ where: { targetDiscordId: ZIEL } })).toBe(0);
+    // Die Absage kommt aus dem Modul und ist ein Satz, keine Karte.
+    expect(letzte(mitschrift).content ?? '').not.toBe('');
+  });
+
+  it('weist eine leere Notiz ab, statt einen leeren Eintrag anzulegen', async () => {
+    await erlaube(MEMBER_PERMISSIONS.view, MEMBER_PERMISSIONS.notesAll, MEMBER_PERMISSIONS.notesCreate);
+    const { interaction, mitschrift } = interaktion(
+      'note',
+      { id: MOD, roleIds: [TEAM_ROLLE] },
+      { id: ZIEL, username: 'zielperson', notiz: '   ' },
+    );
+    await handleModerationCommand(interaction as never);
+
+    expect(await prisma.memberNote.count({ where: { targetDiscordId: ZIEL } })).toBe(0);
+    expect(letzte(mitschrift).content ?? '').toContain('leer');
+  });
+
+  it('liest weiterhin nur, wenn die Notiz-Option fehlt', async () => {
+    /*
+     * Der Lesefall darf durch den Schreibweg nicht zum Schreibfall werden.
+     * Ohne die Option legt der Befehl nichts an - auch dann nicht, wenn der
+     * Aufrufer schreiben dürfte.
+     */
+    await erlaube(MEMBER_PERMISSIONS.view, MEMBER_PERMISSIONS.notesAll, MEMBER_PERMISSIONS.notesCreate);
+    const { interaction } = interaktion(
+      'note',
+      { id: MOD, roleIds: [TEAM_ROLLE] },
+      { id: ZIEL, username: 'zielperson' },
+    );
+    await handleModerationCommand(interaction as never);
+
+    expect(await prisma.memberNote.count({ where: { targetDiscordId: ZIEL } })).toBe(0);
+  });
+
+  it('gibt der Antwort einen Link in die WebApp und keinen Knopf ohne Handler', async () => {
+    await erlaube(MEMBER_PERMISSIONS.view, MEMBER_PERMISSIONS.notesAll);
+    const { interaction, mitschrift } = interaktion(
+      'note',
+      { id: MOD, roleIds: [TEAM_ROLLE] },
+      { id: ZIEL, username: 'zielperson' },
+    );
+    await handleModerationCommand(interaction as never);
+
+    const knoepfe = letzte(mitschrift).components?.[0]?.components ?? [];
+    expect(knoepfe).toHaveLength(1);
+    expect(knoepfe[0]?.url).toContain('/members/');
+    /*
+     * Kein `custom_id`: ein solcher Knopf löste eine Interaktion aus, die
+     * niemand verteilt - Discord zeigte dem Team dann «Interaktion
+     * fehlgeschlagen». Ein Link-Knopf braucht keinen Handler.
+     */
+    expect(knoepfe[0]?.custom_id).toBeUndefined();
   });
 
   // --- /user ---------------------------------------------------------------
@@ -282,7 +437,7 @@ describeWithDatabase('Moderationsbefehle /note und /user', () => {
     );
     await handleModerationCommand(interaction as never);
 
-    const inhalt = letzte(mitschrift).content ?? '';
+    const inhalt = alsText(letzte(mitschrift));
     expect(inhalt).toContain(ZIEL);
     /*
      * Der Anzeigename und das Beitrittsdatum kommen aus `getMemberSummary` -
@@ -292,8 +447,8 @@ describeWithDatabase('Moderationsbefehle /note und /user', () => {
      * Mitgliederspiegel, und der ist hier gesetzt.
      */
     expect(inhalt).toContain('Zieli');
-    expect(inhalt).toContain('Benutzername:');
-    expect(inhalt).toContain('Discord User ID:');
+    expect(inhalt).toContain('Benutzername');
+    expect(inhalt).toContain('Discord User ID');
     expect(inhalt).toContain('Konto erstellt');
     expect(inhalt).toContain('Server beigetrete');
     expect(inhalt).toContain('Member Center');
@@ -318,10 +473,10 @@ describeWithDatabase('Moderationsbefehle /note und /user', () => {
       { id: ZIEL, username: 'zielperson' },
     );
     await handleModerationCommand(schmal.interaction as never);
-    const ohne = letzte(schmal.mitschrift).content ?? '';
+    const ohne = alsText(letzte(schmal.mitschrift));
     expect(ohne).not.toContain('Interni Notize');
-    expect(ohne).not.toContain('**Moderation**');
-    expect(ohne).not.toContain('**Rolle');
+    expect(ohne).not.toContain('Massnahme im Protokoll');
+    expect(ohne).not.toContain('Rolle (');
 
     // Mit allen drei: die Abschnitte erscheinen.
     await erlaube(MEMBER_PERMISSIONS.rolesAll, MEMBER_PERMISSIONS.moderationAll, MEMBER_PERMISSIONS.notesAll);
@@ -331,9 +486,9 @@ describeWithDatabase('Moderationsbefehle /note und /user', () => {
       { id: ZIEL, username: 'zielperson' },
     );
     await handleModerationCommand(breit.interaction as never);
-    const mit = letzte(breit.mitschrift).content ?? '';
-    expect(mit).toContain('**Rolle');
-    expect(mit).toContain('**Moderation**');
+    const mit = alsText(letzte(breit.mitschrift));
+    expect(mit).toContain('Rolle (');
+    expect(mit).toContain('Massnahme im Protokoll');
     expect(mit).toContain('Interni Notize');
   });
 
@@ -347,8 +502,8 @@ describeWithDatabase('Moderationsbefehle /note und /user', () => {
     );
     await handleModerationCommand(interaction as never);
 
-    const inhalt = letzte(mitschrift).content ?? '';
-    expect(inhalt).toContain('nöd uf dem Server');
+    const inhalt = alsText(letzte(mitschrift));
+    expect(inhalt).toContain('Nöd uf dem Server');
     // Das Kontoalter steht trotzdem da - es kommt aus der Snowflake.
     expect(inhalt).toContain('Konto erstellt');
   });
@@ -429,7 +584,7 @@ describeWithDatabase('Moderationsbefehle /note und /user', () => {
     );
     await handleModerationCommand(interaction as never);
 
-    const inhalt = letzte(mitschrift).content ?? '';
+    const inhalt = alsText(letzte(mitschrift));
     for (const geheim of [
       'TOKENHASH-NICHT-ZEIGEN',
       'IPHASH-NICHT-ZEIGEN',
@@ -449,7 +604,7 @@ describeWithDatabase('Moderationsbefehle /note und /user', () => {
     expect(inhalt).not.toMatch(/@[\w.-]+\.[a-z]{2,}/iu);
     // Dass es ein Konto gibt, darf dastehen - das ist die Frage der
     // Moderation («chan ich ihm en Link schicke?»).
-    expect(inhalt).toContain('Konto: ja');
+    expect(inhalt).toContain('SwissHub-Konto');
   });
 });
 

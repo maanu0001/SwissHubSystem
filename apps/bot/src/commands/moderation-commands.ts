@@ -57,6 +57,17 @@ const log = createLogger('bot:commands:moderation');
 const EINTRITT = MEMBER_PERMISSIONS.view;
 
 /**
+ * Die Laengengrenze einer Notiz - Discord soll dasselbe erlauben wie das Modul.
+ *
+ * `members.NOTIZ_MAX` ist die Grenze, an der `pruefeNotiz` abweist. Stuende
+ * hier eine groessere Zahl, liesse Discord einen Text zu, den die Fachschicht
+ * ablehnt; stuende hier eine kleinere, waere Discord strenger als die WebApp
+ * und niemand wuesste warum. Discord erlaubt fuer eine Option hoechstens 6000
+ * Zeichen, darum die Deckelung.
+ */
+const NOTIZ_MAX = Math.min(members.NOTIZ_MAX, 6000);
+
+/**
  * Der einzige Antwortweg dieser Datei.
  *
  * ## Warum eine Funktion und nicht `editReply` an acht Stellen
@@ -75,17 +86,78 @@ const EINTRITT = MEMBER_PERMISSIONS.view;
  * Gekürzt wird hier ebenfalls: eine Discord-Nachricht fasst 2000 Zeichen, und
  * eine abgeschnittene Nachricht ist besser als eine abgewiesene.
  */
-async function antworte(interaction: ChatInputCommandInteraction, text: string): Promise<void> {
+interface Antwort {
+  /** Ein Satz - fuer Absagen und Hinweise, fuer die ein Embed zu viel waere. */
+  text?: string;
+  /** Die Karte - fuer alles, was Struktur hat. */
+  embed?: Embed;
+  /** Ein Link in die WebApp. Nur Link-Knoepfe: sie brauchen keinen Handler. */
+  knopf?: { label: string; url: string };
+}
+
+async function antworte(interaction: ChatInputCommandInteraction, antwort: Antwort): Promise<void> {
   await interaction.editReply({
-    content: kurz(text, 1900),
+    ...(antwort.text ? { content: kurz(antwort.text, 1900) } : {}),
+    ...(antwort.embed ? { embeds: [antwort.embed] } : {}),
+    /*
+     * Knoepfe nur als Link.
+     *
+     * Ein Link-Knopf loest keine Interaktion aus - Discord oeffnet die
+     * Adresse, und der Bot erfaehrt nichts davon. Deshalb braucht er keinen
+     * Eintrag im Interaktions-Verteiler und kann hier nicht zu einem
+     * Knopf werden, auf den niemand antwortet. Ein Knopf mit `custom_id`
+     * waere genau das, solange ihn kein Handler kennt.
+     */
+    ...(antwort.knopf
+      ? {
+          components: [
+            {
+              type: 1,
+              components: [{ type: 2, style: 5, label: antwort.knopf.label, url: antwort.knopf.url }],
+            },
+          ],
+        }
+      : {}),
     allowedMentions: { parse: [] },
   });
+}
+
+/**
+ * Die Farbe der Moderationskarten.
+ *
+ * Derselbe Ton wie die Jail-Liste - das ist die Farbe, die das Team an
+ * Moderationsantworten schon kennt. Eine zweite waere eine zweite Sprache
+ * fuer dieselbe Sache.
+ */
+const MODERATIONSFARBE = 0x83060a;
+
+/** Ein Embed, wie Discord es erwartet - nur die Felder, die hier vorkommen. */
+interface Embed {
+  title?: string;
+  description?: string;
+  color?: number;
+  author?: { name: string; icon_url?: string };
+  thumbnail?: { url: string };
+  fields?: Array<{ name: string; value: string; inline?: boolean }>;
+  footer?: { text: string };
+}
+
+/**
+ * Ein Feld fuer ein Embed - oder nichts.
+ *
+ * Discord weist ein Embed mit einem leeren `value` ab. Ein Abschnitt, fuer
+ * den es keine Daten gibt, soll aber nicht die ganze Antwort kosten - und
+ * «unbekannt» hinzuschreiben waere eine Angabe, wo keine ist.
+ */
+function feld(name: string, wert: string | null, inline = true): NonNullable<Embed['fields']> {
+  const inhalt = (wert ?? '').trim();
+  return inhalt === '' ? [] : [{ name, value: kurz(inhalt, 1024), inline }];
 }
 
 export const MODERATION_COMMAND_DEFINITIONS = [
   {
     name: 'note',
-    description: 'Die internen Notize zu eme Mitglied aalueg (nur für s Team).',
+    description: 'Notize zu eme Mitglied aalueg oder eini erfasse (nur für s Team).',
     dmPermission: false,
     options: [
       {
@@ -93,6 +165,21 @@ export const MODERATION_COMMAND_DEFINITIONS = [
         description: 'Wäm sini Notize?',
         type: ApplicationCommandOptionType.User,
         required: true,
+      },
+      {
+        /*
+         * Der optionale Schreibweg.
+         *
+         * Ohne diesen Wert liest der Befehl, mit ihm schreibt er - und zeigt
+         * danach dieselbe Liste wie sonst. Zwei Befehle (`/note` und
+         * `/note_add`) waeren zwei Namen fuer eine Akte; so bleibt es ein
+         * Befehl, und der Unterschied steht im Aufruf.
+         */
+        name: 'note',
+        description: 'Neui Notiz - wenn leer, wird nur glese.',
+        type: ApplicationCommandOptionType.String,
+        required: false,
+        max_length: NOTIZ_MAX,
       },
     ],
   },
@@ -213,62 +300,151 @@ function kurz(text: string, grenze: number): string {
  */
 async function zeigeNotizen(interaction: ChatInputCommandInteraction, actor: CommandActor): Promise<void> {
   const ziel = interaction.options.getUser('user', true);
+  const neueNotiz = interaction.options.getString('note');
   const betrachter = alsBetrachter(actor);
 
+  /*
+   * Lesen und Schreiben sind zwei Rechte.
+   *
+   * Wer Notizen sehen darf, darf nicht automatisch welche anlegen - das
+   * unterscheidet das Member Center, und hier gilt dasselbe. Der Eintritt ist
+   * in beiden Faellen `darfSehen(…, 'notes', …)`; das Schreiben verlangt
+   * zusaetzlich `notesCreate`, und zwar nicht hier, sondern in
+   * `members.createMemberNote` - eine Pruefung an der Stelle, die auch das
+   * Dashboard benutzt.
+   */
   if (!actor.can(EINTRITT) || !members.darfSehen(betrachter, 'notes', ziel.id)) {
-    await antworte(interaction, NO_PERMISSION);
+    await antworte(interaction, { text: NO_PERMISSION });
     return;
   }
 
   const guildId = await resolveGuildId();
+  const mitgliedUrl = appUrl(systemRoutes.mitglied(ziel.id));
+
+  let hinweis: string | null = null;
+  if (neueNotiz !== null) {
+    const geschrieben = await erfasseNotiz(betrachter, actor, ziel, neueNotiz, guildId);
+    if (geschrieben.fehler !== null) {
+      await antworte(interaction, { text: geschrieben.fehler });
+      return;
+    }
+    hinweis = geschrieben.hinweis;
+  }
+
   const notizen = await members.listMemberNotes(betrachter, ziel.id, guildId);
+  const name = ziel.displayName || ziel.username;
 
   if (notizen.length === 0) {
-    await antworte(
-      interaction,
-      `Zu <@${ziel.id}> git s kei Notize. Im Member Center chasch eini aalege: ${appUrl(
-        systemRoutes.mitglied(ziel.id),
-      )}`,
-    );
+    await antworte(interaction, {
+      embed: {
+        color: MODERATIONSFARBE,
+        author: { name, icon_url: ziel.displayAvatarURL({ size: 128 }) },
+        title: 'Kei Notize',
+        description: `Zu <@${ziel.id}> isch nüt vermerkt.`,
+        footer: { text: 'SwissHub System · Moderation' },
+      },
+      knopf: { label: 'Im Member Center erfasse', url: mitgliedUrl },
+    });
     return;
   }
 
   /*
-   * Höchstens zehn in der Nachricht.
+   * Hoechstens zehn als Felder.
    *
-   * Eine Discord-Nachricht fasst 2000 Zeichen, eine Notiz bis zu 2000. Was
-   * nicht passt, gehört ins Member Center - und der Link dorthin steht
-   * ohnehin darunter. Ein abgeschnittener Text, der aussieht wie die ganze
-   * Liste, wäre die schlechtere Antwort.
+   * Ein Embed fasst 25 Felder und insgesamt 6000 Zeichen; zehn Notizen mit je
+   * bis zu 300 Zeichen bleiben sicher darunter, auch mit Kopfzeilen. Was
+   * nicht passt, gehoert ins Member Center - und der Knopf dorthin steht
+   * ohnehin darunter. Eine abgeschnittene Liste, die aussieht wie die ganze,
+   * waere die schlechtere Antwort.
    */
   const sichtbar = notizen.slice(0, 10);
-  const zeilen = sichtbar.map((notiz) => {
+  const felder = sichtbar.flatMap((notiz) => {
     const kopf = [
-      notiz.pinned ? '📌' : '•',
+      notiz.pinned ? '📌' : null,
       notiz.category ? `[${entschaerfe(kurz(notiz.category, 40))}]` : null,
-      `von ${entschaerfe(kurz(notiz.author.username, 40))}`,
-      `am ${datum(notiz.createdAt)}`,
-      notiz.editedAt ? '(bearbeitet)' : null,
+      entschaerfe(kurz(notiz.author.username, 40)),
+      `· ${datum(notiz.createdAt)}`,
+      notiz.editedAt ? '· bearbeitet' : null,
     ]
       .filter((teil): teil is string => teil !== null)
       .join(' ');
-    return `${kopf}\n> ${entschaerfe(kurz(notiz.content, 300))}`;
+    return feld(kurz(kopf, 256), entschaerfe(kurz(notiz.content, 300)), false);
   });
 
   const rest = notizen.length - sichtbar.length;
-  const fuss = [
-    rest > 0 ? `… und ${rest} witeri.` : null,
-    `Alli Notize: ${appUrl(systemRoutes.mitglied(ziel.id))}`,
-  ]
-    .filter((teil): teil is string => teil !== null)
-    .join(' ');
+  await antworte(interaction, {
+    embed: {
+      color: MODERATIONSFARBE,
+      author: { name, icon_url: ziel.displayAvatarURL({ size: 128 }) },
+      title: `${notizen.length} ${notizen.length === 1 ? 'Moderationsnotiz' : 'Moderationsnotize'}`,
+      description: [hinweis, `<@${ziel.id}> · \`${ziel.id}\``].filter(Boolean).join('\n'),
+      fields: felder,
+      footer: {
+        text: rest > 0 ? `… und ${rest} witeri im SwissHub System` : 'SwissHub System · Moderation',
+      },
+    },
+    knopf: { label: 'Im Member Center öffne', url: mitgliedUrl },
+  });
 
-  await antworte(
-    interaction,
-    `**Notize zu <@${ziel.id}>** (${notizen.length})\n\n${zeilen.join('\n\n')}\n\n${fuss}`,
-  );
+  log.info('Notizen über /note gelesen', {
+    ziel: ziel.id,
+    anzahl: notizen.length,
+    geschrieben: hinweis !== null,
+  });
+}
 
-  log.info('Notizen über /note gelesen', { ziel: ziel.id, anzahl: notizen.length });
+/**
+ * Eine Notiz aus Discord erfassen.
+ *
+ * ## Warum hier nichts geprueft wird, was das Modul prueft
+ *
+ * Der Text geht unveraendert an `members.createMemberNote`. Dort sitzen die
+ * Berechtigung (`notesCreate`), die Laengengrenze und `sanitizeText` - und
+ * zwar dieselben, die auch das Member Center durchlaeuft. Eine eigene
+ * Pruefung hier waere eine zweite Regel fuer denselben Text, und die beiden
+ * laufen auseinander, sobald eine davon angepasst wird.
+ *
+ * Geprueft wird hier genau eines: dass ueberhaupt etwas dasteht. Discord
+ * laesst eine Option mit Leerzeichen zu, und eine leere Notiz ist kein
+ * Eintrag, sondern ein Versehen.
+ */
+async function erfasseNotiz(
+  betrachter: members.MemberViewer,
+  actor: CommandActor,
+  ziel: { id: string; username: string; displayName: string },
+  text: string,
+  guildId: string,
+): Promise<{ hinweis: string | null; fehler: string | null }> {
+  if (text.trim() === '') {
+    return { hinweis: null, fehler: 'Die Notiz isch leer - schryb öppis ine oder lah d Option wäg.' };
+  }
+
+  try {
+    await members.createMemberNote(
+      betrachter,
+      { discordId: actor.discordId, username: actor.username },
+      {
+        targetDiscordId: ziel.id,
+        targetLabel: ziel.displayName || ziel.username,
+        content: text,
+      },
+    );
+  } catch (fehler) {
+    /*
+     * Die Absage des Moduls weitergeben, nicht uebersetzen.
+     *
+     * `AppError` traegt eine `userMessage`, die fuer Menschen geschrieben ist
+     * - «Du darfst keine Notizen schreiben.» Sie hier neu zu formulieren
+     * hiesse, zwei Saetze fuer denselben Fall zu pflegen.
+     */
+    if (fehler instanceof AppError) {
+      return { hinweis: null, fehler: fehler.userMessage ?? NO_PERMISSION };
+    }
+    throw fehler;
+  }
+
+  log.info('Notiz über /note erfasst', { ziel: ziel.id, autor: actor.discordId, guildId });
+  return { hinweis: '✅ Notiz gspeicheret.', fehler: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -292,11 +468,13 @@ async function zeigeUebersicht(interaction: ChatInputCommandInteraction, actor: 
   const betrachter = alsBetrachter(actor);
 
   if (!actor.can(EINTRITT) || !members.darfSehen(betrachter, 'basic', ziel.id)) {
-    await antworte(interaction, NO_PERMISSION);
+    await antworte(interaction, { text: NO_PERMISSION });
     return;
   }
 
   const [uebersicht, guildId] = await Promise.all([members.getMemberSummary(ziel.id), resolveGuildId()]);
+  const mitgliedUrl = appUrl(systemRoutes.mitglied(ziel.id));
+  const bild = ziel.displayAvatarURL({ size: 256 });
 
   /*
    * Nicht (mehr) auf dem Server.
@@ -308,92 +486,99 @@ async function zeigeUebersicht(interaction: ChatInputCommandInteraction, actor: 
    */
   if (!uebersicht) {
     const erstellt = snowflakeDatum(ziel.id);
-    await antworte(
-      interaction,
-      [
-        `**${entschaerfe(ziel.username)}** <@${ziel.id}>`,
-        `Discord User ID: \`${ziel.id}\``,
-        `Konto erstellt: ${datum(erstellt)} (${alter(erstellt)})`,
-        '',
-        'Die Person isch **nöd uf dem Server**.',
-      ].join('\n'),
-    );
+    await antworte(interaction, {
+      embed: {
+        color: MODERATIONSFARBE,
+        author: { name: ziel.displayName || ziel.username, icon_url: bild },
+        thumbnail: { url: bild },
+        title: 'Nöd uf dem Server',
+        description: `<@${ziel.id}> · \`${ziel.id}\``,
+        fields: [
+          ...feld('Benutzername', ziel.username),
+          ...feld('Konto erstellt', erstellt ? `${datum(erstellt)}\n${alter(erstellt)}` : null),
+        ],
+        footer: { text: 'SwissHub System · Moderation' },
+      },
+      knopf: { label: 'Im Member Center öffne', url: mitgliedUrl },
+    });
     return;
   }
 
-  const zeilen: string[] = [
-    `**${entschaerfe(uebersicht.displayName)}** <@${uebersicht.discordId}>`,
-    `Benutzername: \`${uebersicht.username}\`${uebersicht.isBot ? ' · **Bot**' : ''}`,
-    `Discord User ID: \`${uebersicht.discordId}\``,
+  const nickname = await nicknameVon(uebersicht.discordId);
+
+  /*
+   * Die Abschnitte als Felder - und jeder einzelne hinter seiner Erlaubnis.
+   *
+   * Dieselbe abschnittsweise Grenze wie im Member Center: ein Moderator ohne
+   * Notizrecht sieht keine Notizzahl, einer ohne Rollenrecht keine Rollen.
+   * `darfSehen` entscheidet das, nicht diese Datei.
+   */
+  const felder: NonNullable<Embed['fields']> = [
+    ...feld('Benutzername', `\`${uebersicht.username}\`${uebersicht.isBot ? ' · **Bot**' : ''}`),
+    ...feld('Anzeigename', entschaerfe(uebersicht.displayName)),
+    ...feld('Servername', nickname ? entschaerfe(nickname) : null),
+    ...feld('Discord User ID', `\`${uebersicht.discordId}\``),
+    ...feld('Konto erstellt', `${datum(uebersicht.accountCreatedAt)}\n${alter(uebersicht.accountCreatedAt)}`),
+    ...feld('Server beigetrete', `${datum(uebersicht.joinedAt)}\n${alter(uebersicht.joinedAt)}`),
   ];
 
-  const nickname = await nicknameVon(uebersicht.discordId);
-  if (nickname) {
-    zeilen.push(`Servername: ${entschaerfe(nickname)}`);
-  }
+  const zustand = [
+    uebersicht.boosting ? '💎 boostet de Server' : null,
+    uebersicht.timedOut ? '🔇 isch grad getimeoutet' : null,
+    uebersicht.activeJail
+      ? `🔒 i de Jail${uebersicht.activeJail.endsAt ? ` bis ${datum(uebersicht.activeJail.endsAt)}` : ' (permanent)'}`
+      : null,
+  ].filter((teil): teil is string => teil !== null);
+  felder.push(...feld('Zuestand', zustand.length > 0 ? zustand.join('\n') : null, false));
 
-  zeilen.push(
-    `Konto erstellt: ${datum(uebersicht.accountCreatedAt)} (${alter(uebersicht.accountCreatedAt)})`,
-    `Server beigetrete: ${datum(uebersicht.joinedAt)} (${alter(uebersicht.joinedAt)})`,
-  );
-  if (uebersicht.boosting) {
-    zeilen.push('Boostet de Server: ja');
-  }
-  if (uebersicht.timedOut) {
-    zeilen.push('**Isch grad getimeoutet.**');
-  }
-
-  // --- Rollen, wenn erlaubt -------------------------------------------------
   if (members.darfSehen(betrachter, 'roles', ziel.id)) {
     const namen = uebersicht.roles.slice(0, 15).map((rolle) => entschaerfe(rolle.name));
     const uebrig = uebersicht.roles.length - namen.length;
-    zeilen.push(
-      '',
-      `**Rolle (${uebersicht.roles.length})**`,
-      namen.length === 0 ? 'keini' : `${namen.join(', ')}${uebrig > 0 ? ` … +${uebrig}` : ''}`,
+    felder.push(
+      ...feld(
+        `Rolle (${uebersicht.roles.length})`,
+        namen.length === 0 ? 'keini' : `${namen.join(', ')}${uebrig > 0 ? ` … +${uebrig}` : ''}`,
+        false,
+      ),
+      // Die hoechste Rolle steht bei Discord vorn - `getMemberSummary` liefert
+      // sie in der Serverreihenfolge, also ist das erste Element die oberste.
+      ...feld('Höchsti Rolle', uebersicht.roles[0] ? entschaerfe(uebersicht.roles[0].name) : null),
     );
   }
 
-  // --- Moderation, wenn erlaubt --------------------------------------------
   if (members.darfSehen(betrachter, 'moderation', ziel.id)) {
-    const massnahmen = await prisma.moderationAction.count({
-      where: { targetDiscordId: ziel.id },
-    });
-    zeilen.push(
-      '',
-      '**Moderation**',
-      uebersicht.activeJail
-        ? `Aktive Jail: ja (${uebersicht.activeJail.endsAt ? `bis ${datum(uebersicht.activeJail.endsAt)}` : 'permanent'})`
-        : 'Aktive Jail: nei',
-      `Massnahme im Protokoll: ${massnahmen}`,
-    );
+    const massnahmen = await prisma.moderationAction.count({ where: { targetDiscordId: ziel.id } });
+    felder.push(...feld('Massnahme im Protokoll', String(massnahmen)));
   }
 
-  // --- Notizen, wenn erlaubt -----------------------------------------------
   if (members.darfSehen(betrachter, 'notes', ziel.id)) {
     const anzahl = await members.countMemberNotes(betrachter, ziel.id, guildId);
-    zeilen.push('', `**Interni Notize:** ${anzahl}${anzahl > 0 ? ' - mit `/note` aalueg' : ''}`);
+    felder.push(...feld('Interni Notize', anzahl === 0 ? '0' : `${anzahl} · mit \`/note\` aalueg`));
   }
 
-  // --- SwissHub ------------------------------------------------------------
+  /*
+   * Nur ob, nicht was. Keine E-Mail, keine OAuth-Angaben, keine
+   * Sitzungskennungen - die Frage der Moderation ist «chan ich ihm en
+   * WebApp-Link schicke?», und das ist ein Ja oder ein Nein.
+   */
   const slug = await profile.slugVon(ziel.id);
   const konto = await prisma.user.count({ where: { discordId: ziel.id } });
-  zeilen.push(
-    '',
-    '**SwissHub**',
-    /*
-     * Nur ob, nicht was. Keine E-Mail, keine OAuth-Angaben, keine
-     * Sitzungskennungen - die Frage der Moderation ist «chan ich ihm en
-     * WebApp-Link schicke?», und das ist ein Ja oder ein Nein.
-     */
-    `Konto: ${konto > 0 ? 'ja' : 'nei'}`,
-    `Member Center: ${appUrl(systemRoutes.mitglied(ziel.id))}`,
-  );
+  felder.push(...feld('SwissHub-Konto', konto > 0 ? 'ja' : 'nei'));
   if (slug) {
-    zeilen.push(`Öffentlichs Profil: ${appUrl(systemRoutes.oeffentlichesProfil(slug))}`);
+    felder.push(...feld('Öffentlichs Profil', appUrl(systemRoutes.oeffentlichesProfil(slug)), false));
   }
 
-  await antworte(interaction, zeilen.join('\n'));
+  await antworte(interaction, {
+    embed: {
+      color: MODERATIONSFARBE,
+      author: { name: uebersicht.displayName, icon_url: bild },
+      thumbnail: { url: bild },
+      description: `<@${uebersicht.discordId}>`,
+      fields: felder,
+      footer: { text: 'SwissHub System · Moderation' },
+    },
+    knopf: { label: 'Im Member Center öffne', url: mitgliedUrl },
+  });
 
   log.info('Mitgliedsübersicht über /user gelesen', { ziel: ziel.id });
 }
@@ -462,11 +647,12 @@ export async function handleModerationCommand(interaction: ChatInputCommandInter
         return;
     }
   } catch (error) {
-    const fehler = error instanceof AppError ? error.userMessage : 'Das het leider nöd klappt.';
+    const fehler =
+      error instanceof AppError ? (error.userMessage ?? NO_PERMISSION) : 'Das het leider nöd klappt.';
     log.warn('Moderationsbefehl gescheitert', {
       befehl: interaction.commandName,
       grund: error instanceof Error ? error.message : 'unbekannt',
     });
-    await antworte(interaction, fehler);
+    await antworte(interaction, { text: fehler });
   }
 }
