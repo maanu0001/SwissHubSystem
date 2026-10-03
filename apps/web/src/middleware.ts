@@ -34,6 +34,60 @@ const EINBETTUNGS_HOSTS = [
  */
 const RAHMENFAEHIG = /^\/wrapped-buehne(\/|$)/;
 
+/**
+ * Die oeffentliche Spielauswahl - die einzigen Seiten, die eine Gastkennung
+ * brauchen, bevor sie gezeichnet werden.
+ */
+const SPIELWAHL = /^\/was-spielen-wir(\/|$)/;
+
+/** Der Name des Gast-Cookies. Dasselbe wie `COOKIE.spielwahlGast`. */
+const GAST_COOKIE = 'swisshub_spielwahl_gast';
+
+/** Die Form einer Gastkennung. Dasselbe wie `spielwahl.GAST_MUSTER`. */
+const GAST_MUSTER = /^gast:[0-9a-f]{32}$/u;
+
+/** Sieben Tage, wie `GAST_COOKIE_TAGE` in `server/gast.ts`. */
+const GAST_COOKIE_SEKUNDEN = 7 * 24 * 60 * 60;
+
+/**
+ * Die Gastkennung muss **vor** der Seite entstehen.
+ *
+ * ## Das Problem, das das loest
+ *
+ * Das CSRF-Token einer oeffentlichen Aktion ist ein HMAC ueber die
+ * Gastkennung. Die Seite leitet es ab und gibt es den Knoepfen mit; die
+ * Aktion prueft es gegen die Kennung aus dem Cookie.
+ *
+ * Eine Server Component darf in Next.js keine Cookies setzen. Wer also zum
+ * **ersten** Mal kam, hatte keine Kennung, die Seite schickte ein leeres
+ * Token mit, und die erste Handlung - eine Runde eroeffnen, einer Runde
+ * beitreten - wurde mit «CSRF-Token ungueltig» abgewiesen. Erst nach einem
+ * Neuladen passte beides zusammen. Genau der Fall, den ein Statuscode nicht
+ * zeigt: die Seite antwortet mit 200 und der erste Klick geht ins Leere.
+ *
+ * Die Middleware ist die einzige Stelle, die vor dem Rendern laeuft **und**
+ * Cookies setzen darf. Sie vergibt die Kennung deshalb hier - die Seite liest
+ * weiterhin nur, und die Aktion prueft weiterhin dasselbe.
+ *
+ * ## Was dabei nicht passiert
+ *
+ * Kein zweites System: dasselbe Cookie, dasselbe Muster, dieselbe Laufzeit
+ * wie in `server/gast.ts`, und `sicherGastKennung()` bleibt der Weg fuer
+ * jeden, der ohne diese Seiten ankommt. Dass die drei Werte uebereinstimmen,
+ * prueft ein Test - die Middleware laeuft in der Edge-Laufzeit und darf die
+ * Modul-Schicht mit ihrer Datenbankanbindung nicht laden, genau wie bei
+ * `EINBETTUNGS_HOSTS` oben.
+ *
+ * Keine Anmeldung, kein Profil, keine Spur: in der Kennung stehen 16
+ * Zufallsbytes und nichts sonst, sie ist `httpOnly`, und sie entsteht nur auf
+ * den Seiten, auf denen man gleich mitmachen koennen soll.
+ */
+function neueGastkennung(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `gast:${Array.from(bytes, (wert) => wert.toString(16).padStart(2, '0')).join('')}`;
+}
+
 export function middleware(request: NextRequest): NextResponse {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
   const isDevelopment = process.env.NODE_ENV !== 'production';
@@ -91,11 +145,41 @@ export function middleware(request: NextRequest): NextResponse {
     ...(isDevelopment ? [] : ['upgrade-insecure-requests']),
   ].join('; ');
 
+  /*
+   * Die Kennung noch in **diese** Anfrage hinein.
+   *
+   * Die Reihenfolge ist der ganze Trick: `request.cookies.set` schreibt in
+   * den `cookie`-Kopf der Anfrage, und `new Headers(request.headers)` nimmt
+   * ihn danach mitsamt der neuen Kennung auf. Daraus liest `cookies()` beim
+   * Rendern - und nur so traegt schon der erste Seitenaufruf ein Token, das
+   * zur Kennung passt. Umgekehrt herum waere die Kennung erst beim zweiten
+   * Aufruf da, und genau das war der Fehler.
+   */
+  const vorhandeneKennung = request.cookies.get(GAST_COOKIE)?.value;
+  const neueKennung =
+    SPIELWAHL.test(request.nextUrl.pathname) && !(vorhandeneKennung && GAST_MUSTER.test(vorhandeneKennung))
+      ? neueGastkennung()
+      : null;
+  if (neueKennung) {
+    request.cookies.set(GAST_COOKIE, neueKennung);
+  }
+
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('content-security-policy', csp);
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
+  if (neueKennung) {
+    // Und an die Antwort, damit der Browser sie behaelt - mit denselben
+    // Eigenschaften wie in `server/gast.ts`.
+    response.cookies.set(GAST_COOKIE, neueKennung, {
+      httpOnly: true,
+      secure: !isDevelopment,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: GAST_COOKIE_SEKUNDEN,
+    });
+  }
   response.headers.set('content-security-policy', csp);
   /*
    * `X-Frame-Options` kennt kein Muster und steht global auf `DENY`.
