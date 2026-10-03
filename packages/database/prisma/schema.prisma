@@ -1780,6 +1780,12 @@ enum XpSource {
   RAFFLE_REFUND
   /// XP-Gewinn aus einer Verlosung.
   RAFFLE_PRIZE
+  /// Einsatz eines XP-Slot-Spins.
+  SLOT_STAKE
+  /// Gewinn aus einem XP-Slot-Spin.
+  SLOT_WIN
+  /// Rueckgabe eines Slot-Einsatzes, wenn der Spin nicht zustande kam.
+  SLOT_REFUND
 }
 
 enum XpGameKind {
@@ -10312,13 +10318,11 @@ model WorkspaceProject {
 
   /**
    * Der Discord-Kanal dieses Projekts.
-   *
    * Dorthin gehen die Ereignisse dieses Projekts als Embed: eine neue Aufgabe,
    * eine erledigte, ein erreichter Meilenstein. `null` heisst: keine
    * Benachrichtigungen - und das ist die Vorgabe, denn ein Werkzeug, das
    * unaufgefordert in einen Kanal schreibt, waere eine Entscheidung, die
    * niemand getroffen hat.
-   *
    * Keine Beziehung auf eine Kanaltabelle: Kanaele gehoeren Discord. Dass die
    * Kennung zu einem Textkanal dieses Servers gehoert, prueft das Modul beim
    * Speichern.
@@ -10611,4 +10615,485 @@ model WorkspaceTemplateTask {
   createdAt DateTime @default(now())
 
   @@index([templateId, position])
+}
+
+// ---------------------------------------------------------------------------
+// XP-Slot
+//
+// Ein Spielautomat innerhalb des Level-Systems. Er gehoert zum Level-Modul und
+// ist kein eigenes Modul: der Einsatz sind XP, der Gewinn sind XP, und beides
+// geht durch `applyXpWithin` - dieselbe und einzige Stelle, an der sich ein
+// XP-Stand aendert.
+//
+// ## Was hier NICHT steht
+//
+// Kein XP-Stand (`LevelProfile`), keine XP-Buchung (`XpTransaction`), keine
+// Premium-Laufzeit (`PremiumSubscription`), kein Benutzer und keine Rolle.
+// Der Slot haelt ausschliesslich seine eigene Konfiguration, seine Ergebnisse
+// und die Zaehler, mit denen er seine Grenzen durchsetzt.
+//
+// ## Warum die Konfiguration in Zeilen und nicht in Moduleinstellungen steht
+//
+// Weil es acht Symbole mit je einem Bild, drei Auszahlungen und einem Gewicht
+// gibt, dazu Sound-Pakete mit zwanzig Slots. Als JSON in den
+// Moduleinstellungen waere das ein Feld, das niemand von Hand pflegen kann und
+// dessen Form nichts erzwingt. Als Zeilen laesst sich jedes Stueck einzeln
+// bearbeiten, und die Datenbank haelt die Beziehungen.
+// ---------------------------------------------------------------------------
+
+/// Der Gesamtzustand des Slots.
+///
+/// `EVENT_ONLY` heisst: nur spielbar, solange eine Eventkonfiguration laeuft.
+/// Ohne laufendes Event verhaelt er sich wie `MAINTENANCE`.
+enum XpSlotStatus {
+  ACTIVE
+  MAINTENANCE
+  DISABLED
+  EVENT_ONLY
+}
+
+/// Die Rolle eines Symbols im Spiel.
+///
+/// Sie entscheidet ueber die Auswertung, nicht ueber das Aussehen. `NORMAL`
+/// zahlt nur sich selbst, `WILD` ersetzt, `SCATTER` loest den Bonus aus,
+/// `JACKPOT` ist das SwissHub-Logo und `PREMIUM` zahlt in Tagen statt in XP.
+enum XpSlotSymbolRole {
+  NORMAL
+  WILD
+  SCATTER
+  JACKPOT
+  PREMIUM
+}
+
+/// Der Zustand eines Freispielpakets.
+enum XpSlotFreespinStatus {
+  ACTIVE
+  USED
+  EXPIRED
+  REVOKED
+}
+
+/// Die Stufen einer Bonusrunde.
+///
+/// Nach dem Ausloesen steht die Entscheidung an (`LADDER_1`): die garantierten
+/// Freispiele nehmen oder auf die naechste Stufe riskieren. `LOST` ist der
+/// Totalverlust - eine verlorene Risikowahl kostet die ganze Runde.
+enum XpSlotBonusStage {
+  LADDER_1
+  LADDER_2
+  SPINS
+  FINISHED
+  LOST
+}
+
+/// Woher ein Spin seinen Einsatz nahm.
+enum XpSlotSpinKind {
+  /// Mit XP bezahlt.
+  PAID
+  /// Aus einem vom Team gewaehrten Freispielpaket.
+  FREESPIN_PACKAGE
+  /// Aus einer gewonnenen Bonusrunde.
+  BONUS_ROUND
+  /// Testlauf der Verwaltung - ohne XP, ohne Statistik, ohne Belohnung.
+  TEST
+}
+
+/// Was aus einem gewonnenen Premium-Gewinn geworden ist.
+enum XpSlotPremiumState {
+  /// Gutgeschrieben - es gibt ein Abonnement.
+  CREDITED
+  /// Vorgemerkt: die Person hatte schon Premium. Wird nachgeholt.
+  QUEUED
+  /// Dauerhaft gescheitert, mit Grund.
+  FAILED
+}
+
+/// Die Art eines Sound-Pakets.
+enum XpSlotSoundPackKind {
+  STANDARD
+  EVENT
+  SPECIAL
+}
+
+/// Die Konfiguration des Slots - genau eine Zeile.
+///
+/// Die Einzelzeile ist bewusst: es gibt einen Slot, nicht mehrere. Ein
+/// Eventmodus ueberschreibt Teile davon zeitweise (`XpSlotEvent`), ohne diese
+/// Zeile anzufassen - danach gilt wieder, was hier steht, ohne dass jemand
+/// etwas zuruecksetzen muss.
+model XpSlotConfig {
+  /// Immer `default`. Der feste Schluessel ist der Grund, weshalb es keine
+  /// zweite Zeile geben kann.
+  id String @id @default("default")
+
+  status          XpSlotStatus @default(DISABLED)
+  /// Was in der Wartungsansicht steht.
+  maintenanceNote String?
+
+  /// Die spielbaren Einsaetze, aufsteigend. Nur diese sind spielbar.
+  betTiers Int[]
+  minBet   Int   @default(10)
+  maxBet   Int   @default(500)
+
+  /// Multiplikator des Jackpots: `Einsatz * jackpotMultiplier`.
+  jackpotMultiplier Int     @default(500)
+  /// Nur ein Jackpot, wenn die Linie fuenf echte Logos zeigt.
+  jackpotPureOnly   Boolean @default(true)
+
+  /// Ersetzt das Wild auch Logo, Premium und Bonus?
+  wildSubstitutesAll Boolean @default(false)
+
+  /// Wie viele Bonussymbole den Bonus ausloesen.
+  bonusTriggerCount  Int     @default(3)
+  /// Die garantierten Freispiele.
+  bonusBaseFreespins Int     @default(8)
+  /// Die beiden Risikostufen.
+  bonusLadder1       Int     @default(12)
+  bonusLadder2       Int     @default(16)
+  /// Gewinnchance je Risikostufe in Basispunkten (5000 = 50,00 %).
+  gambleChance1Bp    Int     @default(5000)
+  gambleChance2Bp    Int     @default(5000)
+  /// Zusaetzliche Freispiele bei einem Retrigger.
+  retriggerSpins     Int     @default(3)
+  stickyWilds        Boolean @default(true)
+
+  /// Premium ist ohne aktive Eventkonfiguration aus - so steht es im Konzept.
+  premiumEnabled Boolean @default(false)
+
+  /// Deckel je Spin, als Vielfaches des Einsatzes.
+  maxWinMultiplier Int @default(1000)
+
+  /// Grenzen je Person und Tag. `0` heisst «keine Grenze».
+  maxDailyLoss           Int   @default(0)
+  maxDailyWin            Int   @default(0)
+  maxSpinsPerSession     Int   @default(0)
+  sessionCooldownSeconds Int   @default(0)
+  /// Erlaubte Auto-Spin-Zahlen. Niemals unbegrenzt.
+  autoSpinCounts         Int[]
+
+  /// Schwellen der Gewinnstufen als Vielfaches des Einsatzes.
+  tierBigMultiplier  Int @default(10)
+  tierMegaMultiplier Int @default(25)
+
+  /// Gestaltung. Dateinamen aus dem Upload-Verzeichnis oder Adressen.
+  backgroundPath  String?
+  backgroundUrl   String?
+  logoPath        String?
+  logoUrl         String?
+  accentColor     String?
+  overlayOpacity  Int     @default(40)
+  glowStrength    Int     @default(60)
+  spinButtonStyle String  @default("puls")
+
+  /// Das aktive Sound-Paket.
+  activeSoundPackId String?
+  activeSoundPack   XpSlotSoundPack? @relation(fields: [activeSoundPackId], references: [id])
+
+  /// Der Discord-Feed fuer grosse Gewinne.
+  feedChannelId String?
+  feedBigWin    Boolean @default(false)
+  feedJackpot   Boolean @default(true)
+  feedPremium   Boolean @default(true)
+
+  updatedAt          DateTime @updatedAt
+  updatedByDiscordId String?
+}
+
+/// Ein Symbol auf den Walzen.
+model XpSlotSymbol {
+  id  String @id @default(cuid())
+  /// Stabiler Schluessel, der in jedem Spin-Ergebnis steht.
+  key String @unique
+
+  name   String
+  role   XpSlotSymbolRole @default(NORMAL)
+  active Boolean          @default(true)
+  /// Relatives Gewicht bei der Ziehung. `0` kommt nie.
+  weight Int              @default(10)
+  order  Int              @default(0)
+
+  imagePath String?
+  imageUrl  String?
+  glow      Boolean @default(false)
+
+  /// Auszahlung in Basispunkten des Einsatzes: 10000 = 1x Einsatz.
+  ///
+  /// Ganzzahlig und nicht als Komma-Multiplikator, weil zehn Linien
+  /// gleichzeitig zahlen: ein Dreier des haeufigsten Symbols liegt bei etwa
+  /// 0,04x Einsatz, und das waere als Fliesskommafeld eine Einladung zu
+  /// Rundungsfehlern an einer Stelle, an der echte XP entstehen.
+  payout3Bp Int @default(0)
+  payout4Bp Int @default(0)
+  payout5Bp Int @default(0)
+
+  /// Nur bei `PREMIUM`: Premium-Tage statt XP.
+  premiumDays3 Int @default(0)
+  premiumDays4 Int @default(0)
+  premiumDays5 Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, order])
+}
+
+/// Ein vollstaendiges Sound-Paket.
+model XpSlotSoundPack {
+  id   String              @id @default(cuid())
+  name String
+  kind XpSlotSoundPackKind @default(STANDARD)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sounds  XpSlotSound[]
+  configs XpSlotConfig[]
+  events  XpSlotEvent[]
+}
+
+/// Ein einzelner Klang in einem Paket.
+model XpSlotSound {
+  id     String          @id @default(cuid())
+  packId String
+  pack   XpSlotSoundPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+
+  /// Der Slot, etwa `spin_start` oder `jackpot`. Die Liste steht im Code.
+  slot String
+
+  /// Dateiname im Upload-Verzeichnis.
+  filePath String
+  /// Lautstaerke in Prozent.
+  volume   Int     @default(80)
+  enabled  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([packId, slot])
+}
+
+/// Ein zeitlich begrenzter Eventmodus.
+///
+/// `overrides` ist eine Teilmenge der Konfiguration, beim Speichern und beim
+/// Lesen gegen dasselbe Schema geprueft. Was nicht darin steht, bleibt wie in
+/// `XpSlotConfig` - danach gilt wieder alles Ursprungliche, ohne dass jemand
+/// etwas zuruecksetzen muss.
+model XpSlotEvent {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+
+  active   Boolean   @default(false)
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  /// Teilkonfiguration.
+  overrides       Json
+  /// Abweichende Symbolwerte je Schluessel.
+  symbolOverrides Json?
+
+  soundPackId String?
+  soundPack   XpSlotSoundPack? @relation(fields: [soundPackId], references: [id])
+
+  createdByDiscordId String?
+  activatedAt        DateTime?
+  deactivatedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  spins XpSlotSpin[]
+
+  @@index([active, endsAt])
+}
+
+/// Ein vom Team gewaehrtes Freispielpaket.
+///
+/// Der Einsatz steht im Paket und laesst sich von der Person nicht aendern -
+/// sonst waere ein Paket mit zehn Freispielen zu 10 XP eines mit zehn
+/// Freispielen zum Hoechsteinsatz.
+model XpSlotFreespinPackage {
+  id        String @id @default(cuid())
+  discordId String
+
+  /// Wie viele gewaehrt wurden und wie viele noch offen sind.
+  granted   Int
+  remaining Int
+  used      Int @default(0)
+
+  /// Der feste Einsatz je Freispiel.
+  bet Int
+
+  status    XpSlotFreespinStatus @default(ACTIVE)
+  expiresAt DateTime?
+  reason    String?
+
+  grantedByDiscordId String?
+  revokedByDiscordId String?
+  revokedAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  spins XpSlotSpin[]
+
+  @@index([discordId, status])
+  @@index([status, expiresAt])
+}
+
+/// Ein einzelner Spin - die Wahrheit ueber jedes Ergebnis.
+///
+/// Hier steht, was herauskam, und genug Konfiguration, um es spaeter
+/// nachzuvollziehen. Bewusst **keine** vollstaendige Kopie der Konfiguration:
+/// das waeren bei zehntausend Spins zehntausend Kopien derselben Tabelle. Was
+/// mitkommt, ist die Fassung und die Werte, die das Ergebnis bestimmt haben.
+model XpSlotSpin {
+  id        String @id @default(cuid())
+  discordId String
+
+  kind XpSlotSpinKind @default(PAID)
+  bet  Int
+
+  /// Die 15 Symbolschluessel, walzenweise von links: Index `reel * 3 + row`.
+  grid  String[]
+  /// Die Treffer je Linie - Linie, Symbol, Laenge, Auszahlung.
+  lines Json
+
+  /// Bruttogewinn in XP, bereits gedeckelt.
+  grossWin Int     @default(0)
+  /// Netto aus Sicht der Person: Gewinn minus Einsatz (bei Freispielen = Gewinn).
+  netWin   Int     @default(0)
+  /// Wurde der Deckel wirksam?
+  capped   Boolean @default(false)
+
+  jackpot      Boolean @default(false)
+  bonusTrigger Boolean @default(false)
+  /// Premium-Tage aus diesem Spin.
+  premiumDays  Int     @default(0)
+
+  xpBefore Int @default(0)
+  xpAfter  Int @default(0)
+
+  /// Die Werte, die dieses Ergebnis bestimmt haben - klein gehalten.
+  configNote Json?
+
+  freespinPackageId String?
+  freespinPackage   XpSlotFreespinPackage? @relation(fields: [freespinPackageId], references: [id], onDelete: SetNull)
+
+  bonusRoundId String?
+  bonusRound   XpSlotBonusRound? @relation("BonusSpins", fields: [bonusRoundId], references: [id], onDelete: SetNull)
+
+  eventId String?
+  event   XpSlotEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  /// Der Riegel gegen den zweiten Klick.
+  idempotencyKey String? @unique
+
+  createdAt DateTime @default(now())
+
+  startedBonus  XpSlotBonusRound?    @relation("TriggerSpin")
+  premiumGrants XpSlotPremiumGrant[]
+
+  @@index([discordId, createdAt])
+  @@index([createdAt])
+  @@index([jackpot, createdAt])
+}
+
+/// Eine Bonusrunde samt Risikoleiter.
+model XpSlotBonusRound {
+  id        String @id @default(cuid())
+  discordId String
+
+  /// Der Spin, der sie ausgeloest hat.
+  triggerSpinId String     @unique
+  triggerSpin   XpSlotSpin @relation("TriggerSpin", fields: [triggerSpinId], references: [id], onDelete: Cascade)
+
+  stage XpSlotBonusStage @default(LADDER_1)
+
+  /// Der feste Einsatz der Freispiele - der des ausloesenden Spins.
+  bet Int
+
+  /// Wie viele Freispiele zugesagt sind, offen sind und gespielt wurden.
+  awarded    Int @default(0)
+  remaining  Int @default(0)
+  played     Int @default(0)
+  /// Wie oft die Runde sich selbst verlaengert hat.
+  retriggers Int @default(0)
+
+  /// Die Risikowahlen: Stufe, Entscheidung, Ergebnis.
+  ladder Json?
+
+  /// Zellen, die als Wild stehen bleiben (Index `reel * 3 + row`).
+  stickyCells Int[]
+
+  totalWin Int @default(0)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  finishedAt DateTime?
+
+  spins XpSlotSpin[] @relation("BonusSpins")
+
+  @@index([discordId, stage])
+}
+
+/// Ein gewonnener Premium-Gewinn und sein Weg ins Premium-System.
+///
+/// Es gibt hier keine zweite Premium-Laufzeit: gutgeschrieben wird ueber
+/// `schenkePremium`, und diese Zeile haelt nur fest, dass es geschah - oder
+/// warum noch nicht. Wer schon Premium hat, bekommt den Gewinn vorgemerkt und
+/// spaeter; das ist der Grund fuer `QUEUED`.
+model XpSlotPremiumGrant {
+  id        String @id @default(cuid())
+  discordId String
+
+  spinId String
+  spin   XpSlotSpin @relation(fields: [spinId], references: [id], onDelete: Cascade)
+
+  days  Int
+  state XpSlotPremiumState @default(QUEUED)
+  /// Grund, wenn es nicht ging.
+  note  String?
+
+  subscriptionId String?
+  creditedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([state, createdAt])
+  @@index([discordId, createdAt])
+}
+
+/// Die laufende Sitzung einer Person - fuer Sitzungsgrenzen und die
+/// Sitzungsstatistik, die sie selbst sieht.
+model XpSlotSession {
+  id        String @id @default(cuid())
+  discordId String @unique
+
+  startedAt  DateTime @default(now())
+  lastSpinAt DateTime @default(now())
+
+  spins   Int @default(0)
+  staked  Int @default(0)
+  won     Int @default(0)
+  /// Der grooesste Einzelgewinn dieser Sitzung.
+  bestWin Int @default(0)
+
+  @@index([lastSpinAt])
+}
+
+/// Die Tagesbilanz einer Person - fuer die Tagesgrenzen.
+model XpSlotDaily {
+  id        String   @id @default(cuid())
+  discordId String
+  /// Der Tag in UTC, auf Mitternacht geschnitten.
+  day       DateTime
+
+  spins  Int @default(0)
+  staked Int @default(0)
+  won    Int @default(0)
+
+  @@unique([discordId, day])
+  @@index([day])
 }

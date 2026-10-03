@@ -208,6 +208,7 @@ describe('Auszeichnungen', () => {
     clips: { eingereicht: 0, treppchen: 0, siege: 0, erhalteneStimmen: 0 },
     events: 0,
     spielprofile: 0,
+    slot: auszeichnungen.leereSlotBilanz(),
     boostet: false,
     jetzt,
     ...teile,

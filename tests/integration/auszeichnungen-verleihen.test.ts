@@ -168,6 +168,19 @@ function grundlage(): Parameters<typeof profile.bewerte>[0] {
     events: 50,
     spielprofile: 10,
     boostet: true,
+    slot: {
+      spins: 5000,
+      einsatzGesamt: 500_000,
+      gewinnGesamt: 500_000,
+      nettoGewinn: 100_000,
+      groessterGewinn: 50_000,
+      jackpots: 5,
+      bonusRunden: 100,
+      freispieleGewonnen: 800,
+      premiumTage: 30,
+      grosseGewinne: 50,
+      megaGewinne: 20,
+    },
     jetzt: new Date('2026-01-01T00:00:00Z'),
   };
 }

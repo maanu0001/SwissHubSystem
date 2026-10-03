@@ -1,0 +1,571 @@
+/**
+ * Der XP-Slot.
+ *
+ * ## Warum eine eigene Datei
+ *
+ * Weil das hier kein Dashboard ist. Der Rest der WebApp besteht aus Karten,
+ * Tabellen und Formularen; dieses Panel soll sich wie ein Spiel anfuehlen.
+ * Die Mittel dafuer - Tiefe, Leuchten, Partikel, gestaffelte Walzenstopps -
+ * haben ausserhalb dieser Seite nichts zu suchen, und sie waeren in
+ * `globals.css` eine Last fuer jede andere Seite.
+ *
+ * ## Warum nur `transform` und `opacity` animiert werden
+ *
+ * Weil der Browser nur diese beiden ohne Neuberechnung des Layouts auf die
+ * Grafikkarte legt. Eine Walze, die `top` animiert, zwingt bei jedem Bild ein
+ * Reflow - bei fuenf Walzen und 60 Bildern je Sekunde sind das 300 Reflows.
+ * Deshalb steht hier nirgends `height`, `width`, `top` oder `margin` in einer
+ * Animation.
+ *
+ * ## Warum `prefers-reduced-motion` ganz unten steht
+ *
+ * Damit es alles darueber ueberschreibt, ohne dass irgendwo `!important`
+ * noetig waere. Die Regel nimmt Schuetteln, Zoom und Partikel weg und
+ * verkuerzt die Walzen - sie schaltet das Spiel nicht ab. Wer weniger
+ * Bewegung will, will spielen und nicht zusehen.
+ */
+
+.slot-buehne {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.25rem;
+  border: 1px solid hsl(var(--primary) / 0.3);
+  background:
+    radial-gradient(120% 80% at 50% -10%, hsl(var(--primary) / 0.28) 0%, transparent 60%),
+    linear-gradient(180deg, hsl(240 6% 8%) 0%, hsl(240 7% 4%) 100%);
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.04),
+    inset 0 0 80px -20px hsl(var(--primary) / 0.35),
+    0 30px 60px -30px hsl(0 0% 0% / 0.9);
+}
+
+/* Das eigene Bild legt sich unter alles, gedimmt durch die Overlay-Staerke. */
+.slot-buehne__bild {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  pointer-events: none;
+}
+
+.slot-buehne__schleier {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, hsl(240 7% 4% / 0.65) 0%, hsl(240 7% 3% / 0.92) 100%);
+  pointer-events: none;
+}
+
+/* Ein ruhiges Atmen im Hintergrund - kein Neonflackern. */
+.slot-buehne__puls {
+  position: absolute;
+  inset: -30%;
+  background: radial-gradient(45% 45% at 50% 45%, hsl(var(--primary-bright) / 0.16) 0%, transparent 70%);
+  animation: slot-atmen 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes slot-atmen {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.06);
+  }
+}
+
+/* --- Walzen -------------------------------------------------------------- */
+
+.slot-walzen {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+.slot-walze {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.85rem;
+  background: linear-gradient(180deg, hsl(240 6% 11% / 0.9) 0%, hsl(240 7% 6% / 0.9) 100%);
+  box-shadow:
+    inset 0 0 0 1px hsl(0 0% 100% / 0.05),
+    inset 0 18px 24px -18px hsl(0 0% 0% / 0.9),
+    inset 0 -18px 24px -18px hsl(0 0% 0% / 0.9);
+}
+
+.slot-zelle {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1;
+}
+
+.slot-zelle__bild {
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+  /*
+   * `will-change` nur hier und nur fuer `transform`: die Zelle wird bei
+   * Treffern skaliert. Auf dem Walzenband waere es fuenfzehn weitere Ebenen
+   * fuer die Grafikkarte, ohne dass sich etwas bewegt.
+   */
+  will-change: transform;
+}
+
+/* Ein Symbol ohne Bild: der Name in grosser Schrift. Besser als ein Loch. */
+.slot-zelle__text {
+  font-weight: 800;
+  font-size: clamp(1rem, 4vw, 2rem);
+  letter-spacing: -0.02em;
+  color: hsl(210 20% 92%);
+  text-shadow: 0 2px 12px hsl(0 0% 0% / 0.8);
+}
+
+.slot-zelle--glow .slot-zelle__bild,
+.slot-zelle--glow .slot-zelle__text {
+  filter: drop-shadow(0 0 10px hsl(var(--primary-bright) / 0.75));
+}
+
+/* Das laufende Band. Eine Animation, fuenf Walzen, kein Reflow. */
+.slot-band {
+  animation: slot-lauf 0.26s linear infinite;
+  will-change: transform;
+}
+
+@keyframes slot-lauf {
+  from {
+    transform: translate3d(0, -33.3333%, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Der Stopp: ein kurzes Ueberschwingen, dann sitzt es. */
+.slot-walze--stopp {
+  animation: slot-stopp 0.34s cubic-bezier(0.17, 0.89, 0.32, 1.28);
+}
+
+@keyframes slot-stopp {
+  0% {
+    transform: translate3d(0, -9%, 0);
+  }
+  60% {
+    transform: translate3d(0, 2.5%, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/*
+ * Die Sweat-Walze.
+ *
+ * Sie laeuft laenger und leuchtet dabei immer staerker. Das ist eine Aussage
+ * ueber das **fertige** Ergebnis - `sweatAbWalze` kommt vom Server und sagt,
+ * dass hier wirklich noch ein Bonussymbol fehlte. Nichts hier veraendert, was
+ * danach stehen bleibt.
+ */
+.slot-walze--sweat {
+  animation: slot-sweat 0.9s ease-in-out infinite;
+}
+
+@keyframes slot-sweat {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px hsl(var(--primary-bright) / 0.35),
+      0 0 18px -6px hsl(var(--primary-bright) / 0.5);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 2px hsl(var(--primary-bright) / 0.9),
+      0 0 46px -4px hsl(var(--primary-bright) / 0.95);
+  }
+}
+
+/* --- Treffer ------------------------------------------------------------- */
+
+.slot-zelle--treffer .slot-zelle__bild,
+.slot-zelle--treffer .slot-zelle__text {
+  animation: slot-treffer 0.62s ease-out;
+}
+
+@keyframes slot-treffer {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.22);
+    filter: drop-shadow(0 0 18px hsl(var(--primary-bright) / 1));
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.slot-zelle--treffer::after {
+  position: absolute;
+  inset: 8%;
+  border-radius: 0.6rem;
+  border: 2px solid hsl(var(--primary-bright) / 0.85);
+  box-shadow: 0 0 26px -4px hsl(var(--primary-bright) / 0.8);
+  content: '';
+  animation: slot-rahmen 0.62s ease-out;
+}
+
+@keyframes slot-rahmen {
+  from {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Die Gewinnlinie als gezeichneter Pfad. */
+.slot-linie {
+  position: absolute;
+  inset: 0.75rem;
+  pointer-events: none;
+}
+
+.slot-linie path {
+  fill: none;
+  stroke: hsl(var(--primary-bright));
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 8px hsl(var(--primary-bright) / 0.9));
+  stroke-dasharray: 1000;
+  animation: slot-linie-zeichnen 0.5s ease-out forwards;
+}
+
+@keyframes slot-linie-zeichnen {
+  from {
+    stroke-dashoffset: 1000;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* --- Gewinnstufen -------------------------------------------------------- */
+
+.slot-buehne--gross {
+  animation: slot-schub 0.5s ease-out;
+}
+
+.slot-buehne--mega {
+  animation:
+    slot-schub 0.5s ease-out,
+    slot-ruetteln 0.4s ease-in-out 2;
+}
+
+.slot-buehne--jackpot {
+  animation:
+    slot-schub 0.6s ease-out,
+    slot-ruetteln 0.4s ease-in-out 3;
+}
+
+@keyframes slot-schub {
+  0% {
+    box-shadow:
+      inset 0 0 0 1px hsl(var(--primary-bright) / 0.6),
+      inset 0 0 120px -20px hsl(var(--primary-bright) / 0.8),
+      0 30px 60px -30px hsl(0 0% 0% / 0.9);
+  }
+  100% {
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.04),
+      inset 0 0 80px -20px hsl(var(--primary) / 0.35),
+      0 30px 60px -30px hsl(0 0% 0% / 0.9);
+  }
+}
+
+@keyframes slot-ruetteln {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate3d(-3px, 1px, 0);
+  }
+  75% {
+    transform: translate3d(3px, -1px, 0);
+  }
+}
+
+/* Die Gewinnzahl zaehlt hoch - die Zahl selbst macht React, das Auftreten hier. */
+.slot-gewinn {
+  animation: slot-gewinn-auf 0.4s cubic-bezier(0.17, 0.89, 0.32, 1.28);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes slot-gewinn-auf {
+  from {
+    opacity: 0;
+    transform: scale(0.7) translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+}
+
+/* --- Partikel ------------------------------------------------------------ */
+
+/*
+ * Zwoelf Punkte, die nach oben treiben.
+ *
+ * Kein Canvas und keine Partikelbibliothek: zwoelf absolut positionierte
+ * Elemente mit einer `transform`-Animation kosten nichts und sehen bei einem
+ * Gewinn genau richtig aus. Eine Engine waere ein zweites Laufzeitsystem fuer
+ * einen Effekt, der in zwanzig Zeilen CSS passt.
+ */
+.slot-partikel {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.slot-partikel span {
+  position: absolute;
+  bottom: -8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: hsl(var(--primary-bright));
+  box-shadow: 0 0 10px hsl(var(--primary-bright) / 0.9);
+  animation: slot-treiben linear infinite;
+}
+
+@keyframes slot-treiben {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.6);
+  }
+  15% {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(var(--drift, 0), -340px, 0) scale(1.1);
+  }
+}
+
+/* --- Freispielmodus ------------------------------------------------------ */
+
+/*
+ * Der Freispielmodus sieht anders aus - Gold statt Rot.
+ *
+ * Nicht als Dekoration: wer nicht sieht, dass gerade Freispiele laufen,
+ * glaubt, der Einsatz werde abgebucht. Die Farbe ist die Auskunft, der Rest
+ * folgt ihr.
+ */
+.slot-buehne--frei {
+  border-color: hsl(42 90% 55% / 0.5);
+  background:
+    radial-gradient(120% 80% at 50% -10%, hsl(42 90% 50% / 0.26) 0%, transparent 60%),
+    linear-gradient(180deg, hsl(32 20% 9%) 0%, hsl(30 25% 4%) 100%);
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.06),
+    inset 0 0 90px -20px hsl(42 90% 50% / 0.4),
+    0 30px 60px -30px hsl(0 0% 0% / 0.9);
+}
+
+.slot-buehne--frei .slot-buehne__puls {
+  background: radial-gradient(45% 45% at 50% 45%, hsl(42 95% 60% / 0.2) 0%, transparent 70%);
+}
+
+.slot-buehne--frei .slot-partikel span,
+.slot-buehne--frei .slot-linie path {
+  background: hsl(42 95% 60%);
+  stroke: hsl(42 95% 60%);
+  box-shadow: 0 0 10px hsl(42 95% 60% / 0.9);
+}
+
+.slot-buehne--frei .slot-zelle--treffer::after {
+  border-color: hsl(42 95% 60% / 0.85);
+  box-shadow: 0 0 26px -4px hsl(42 95% 60% / 0.8);
+}
+
+.slot-frei-schild {
+  letter-spacing: 0.3em;
+  text-shadow: 0 0 24px hsl(42 95% 60% / 0.8);
+  animation: slot-atmen 3s ease-in-out infinite;
+}
+
+/* Eine festsitzende Wild-Zelle. */
+.slot-zelle--klebt::before {
+  position: absolute;
+  inset: 6%;
+  border-radius: 0.6rem;
+  border: 1px dashed hsl(42 95% 60% / 0.7);
+  content: '';
+}
+
+/* --- Spin-Knopf ---------------------------------------------------------- */
+
+.slot-knopf {
+  position: relative;
+  isolation: isolate;
+}
+
+.slot-knopf--puls:not(:disabled)::after {
+  position: absolute;
+  inset: -4px;
+  z-index: -1;
+  border-radius: inherit;
+  background: hsl(var(--primary-bright) / 0.45);
+  content: '';
+  animation: slot-knopf-puls 2.2s ease-out infinite;
+}
+
+@keyframes slot-knopf-puls {
+  0% {
+    opacity: 0.7;
+    transform: scale(0.96);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
+.slot-knopf--ring:not(:disabled) {
+  box-shadow:
+    0 0 0 2px hsl(var(--primary-bright) / 0.7),
+    0 0 28px -6px hsl(var(--primary-bright) / 0.8);
+}
+
+/* --- Risikoleiter -------------------------------------------------------- */
+
+.slot-leiter-stufe {
+  transition:
+    transform 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.slot-leiter-stufe--aktiv {
+  transform: scale(1.04);
+  border-color: hsl(var(--primary-bright) / 0.8);
+  box-shadow: 0 0 30px -10px hsl(var(--primary-bright) / 0.8);
+}
+
+.slot-leiter-stufe--verloren {
+  animation: slot-verloren 0.6s ease-out;
+  border-color: hsl(var(--destructive) / 0.7);
+}
+
+@keyframes slot-verloren {
+  0% {
+    transform: scale(1.05);
+  }
+  40% {
+    transform: scale(0.94) rotate(-1deg);
+  }
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+.slot-leiter-wurf {
+  animation: slot-wurf 0.9s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes slot-wurf {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(var(--ziel, 0), 0, 0);
+  }
+}
+
+/* --- Mobil --------------------------------------------------------------- */
+
+/*
+ * Mobil bewusst schlichter.
+ *
+ * Fuenf Walzen und drei Reihen bleiben - das Spielfeld ist das Spiel. Weg
+ * sind Partikel, das atmende Hintergrundlicht und das Ruetteln: auf einem
+ * Telefon kosten sie Bildrate und Akku, und sie wirken auf sechs Zentimetern
+ * ohnehin nicht. Die Desktop-Version darf deutlich mehr inszenieren.
+ */
+@media (max-width: 640px) {
+  .slot-partikel,
+  .slot-buehne__puls {
+    display: none;
+  }
+
+  .slot-buehne--mega,
+  .slot-buehne--jackpot {
+    animation: slot-schub 0.5s ease-out;
+  }
+
+  .slot-walzen {
+    gap: 0.25rem;
+    padding: 0.4rem;
+  }
+
+  .slot-zelle__text {
+    font-size: clamp(0.8rem, 5vw, 1.2rem);
+  }
+}
+
+/* --- Weniger Bewegung ---------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .slot-buehne__puls,
+  .slot-partikel {
+    display: none;
+  }
+
+  .slot-buehne--gross,
+  .slot-buehne--mega,
+  .slot-buehne--jackpot,
+  .slot-walze--sweat,
+  .slot-knopf--puls::after,
+  .slot-frei-schild {
+    animation: none;
+  }
+
+  /*
+   * Die Walzen laufen weiter, nur ruhiger und kuerzer. Ganz ohne Lauf waere
+   * das Ergebnis einfach da - und damit waere es kein Spiel mehr, sondern
+   * eine Anzeige.
+   */
+  .slot-band {
+    animation-duration: 0.5s;
+  }
+
+  .slot-walze--stopp {
+    animation: none;
+  }
+
+  .slot-zelle--treffer .slot-zelle__bild,
+  .slot-zelle--treffer .slot-zelle__text {
+    animation: none;
+    filter: drop-shadow(0 0 14px hsl(var(--primary-bright) / 0.9));
+  }
+
+  .slot-zelle--treffer::after,
+  .slot-gewinn,
+  .slot-leiter-wurf {
+    animation: none;
+  }
+
+  .slot-linie path {
+    animation: none;
+    stroke-dasharray: none;
+  }
+}

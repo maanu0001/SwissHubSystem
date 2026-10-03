@@ -356,6 +356,7 @@ export async function ladeProfilFuer(
     clipBilanz,
     events,
     verliehen,
+    slotBilanz,
   ] = await Promise.all([
     ladeLevel(discordId),
     profil.id && zeigeSpiele ? ladeSpiele(profil.id) : Promise.resolve([]),
@@ -384,6 +385,14 @@ export async function ladeProfilFuer(
     ladeClipBilanz(discordId),
     prisma.calendarRegistration.count({ where: { discordId, status: 'CONFIRMED' } }),
     verliehenAn(discordId),
+    /*
+     * Die XP-Slot-Bilanz.
+     *
+     * Summen, keine Spinzeilen - ein Profil darf nicht zehntausend Zeilen
+     * laden. Gerechnet wird im Slot-Modul, hier wird gelesen; es gibt keine
+     * zweite Vorstellung davon, was ein Jackpot ist.
+     */
+    ladeSlotBilanz(discordId),
   ]);
 
   /*
@@ -408,6 +417,7 @@ export async function ladeProfilFuer(
     events,
     spielprofile: spiele.length,
     boostet: spiegel.boosting,
+    slot: slotBilanz,
     jetzt: new Date(),
   };
 
@@ -1246,4 +1256,21 @@ async function ladeClipSiege(discordId: string): Promise<Array<{ id: string; lab
     id: eintrag.competition.key,
     label: `Runde ${eintrag.competition.number}: ${eintrag.clip.title}`,
   }));
+}
+
+/**
+ * Die XP-Slot-Bilanz einer Person.
+ *
+ * Bewusst mit `catch`: der Slot ist ein Tab im Level-Modul und kann
+ * abgeschaltet sein, und ein Profil darf nicht daran scheitern, dass jemand
+ * nie gespielt hat oder die Tabellen in einer frischen Umgebung noch leer
+ * sind. Null ueberall heisst «keine Auszeichnung» und ist richtig.
+ */
+async function ladeSlotBilanz(discordId: string): Promise<auszeichnungen.Grundlage['slot']> {
+  try {
+    const { xpslot } = await import('../level');
+    return await xpslot.slotGrundlage(discordId);
+  } catch {
+    return auszeichnungen.leereSlotBilanz();
+  }
 }

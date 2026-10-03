@@ -1,0 +1,72 @@
+import type { Metadata } from 'next';
+import { can } from '@swisshub/auth';
+import { prisma } from '@swisshub/database';
+import { level } from '@swisshub/modules';
+import { LevelSectionNav } from '@/modules/level/components/section-nav';
+import { SlotVerwaltung } from '@/modules/level/xpslot/components/verwaltung';
+import { PageHeader } from '@/components/shared/page-header';
+import { csrfTokenFor, requirePagePermission } from '@/server/auth';
+import { levelSections } from '@/server/level';
+import '@/modules/level/xpslot/xpslot.css';
+
+export const metadata: Metadata = { title: 'XP-Slot verwalten' };
+export const dynamic = 'force-dynamic';
+
+/**
+ * Die Verwaltung des XP-Slots.
+ *
+ * Alles wird hier serverseitig geladen und als Eigenschaften weitergegeben -
+ * die Oberflaeche ist eine Clientkomponente, weil sie zwoelf Bereiche
+ * umschaltet und Formulare haelt, aber sie holt nichts selbst. Jede Aenderung
+ * geht ueber eine Server Action, die die Berechtigung erneut prueft.
+ */
+export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
+  const context = await requirePagePermission(level.LEVEL_PERMISSIONS.xpslotManage);
+  const S = level.xpslot;
+
+  const konfiguration = await S.leseKonfiguration();
+  const [pakete, events, kennzahlen, verlauf, freispielZeilen] = await Promise.all([
+    S.pakete(konfiguration.wirksam.soundPackId),
+    S.eventListe(),
+    S.kennzahlen('alles'),
+    S.verlauf({ seite: 1, proSeite: 40 }),
+    /*
+     * Die offenen Pakete aller Personen.
+     *
+     * `offeneFreispiele` fragt je Person; hier wird die Tabelle gebraucht,
+     * also wird sie einmal gelesen. Zweihundert Pakete sind kein Problem,
+     * zweihundert Abfragen waeren eines.
+     */
+    prisma.xpSlotFreespinPackage.findMany({
+      where: { status: 'ACTIVE', remaining: { gt: 0 } },
+      orderBy: [{ expiresAt: 'asc' }, { createdAt: 'asc' }],
+      take: 200,
+    }),
+  ]);
+
+  return (
+    <>
+      <LevelSectionNav sections={levelSections(context)} />
+
+      <PageHeader
+        title="XP-Slot verwalten"
+        description="Jede Zahl hier verändert die Auszahlungsquote. Sie steht nach jedem Speichern oben."
+        className="mb-4"
+      />
+
+      <SlotVerwaltung
+        csrfToken={csrfTokenFor(context)}
+        konfiguration={konfiguration}
+        rtp={S.rtpVon(konfiguration)}
+        pakete={pakete}
+        freispiele={freispielZeilen.map(S.alsPaket)}
+        events={events}
+        kennzahlen={kennzahlen}
+        verlauf={verlauf}
+        klangSlots={S.KLANG_SLOTS}
+        testfaelle={S.TESTFAELLE.map((fall) => ({ key: fall, label: S.TESTFALL_LABEL[fall] }))}
+        darfFreispiele={can(context, level.LEVEL_PERMISSIONS.xpslotFreespinsManage)}
+      />
+    </>
+  );
+}

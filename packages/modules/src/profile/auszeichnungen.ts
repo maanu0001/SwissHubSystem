@@ -61,6 +61,26 @@ export interface Grundlage {
   events: number;
   /** Ausgefuellte Spielprofile. */
   spielprofile: number;
+  /**
+   * Die Bilanz im XP-Slot.
+   *
+   * Gelesen aus `level/xpslot/statistik.ts` - nicht hier gerechnet. Testlaeufe
+   * der Verwaltung sind dort ausgeschlossen; ein erzwungener Jackpot ist kein
+   * Jackpot und soll keine Auszeichnung ausloesen.
+   */
+  slot: {
+    spins: number;
+    einsatzGesamt: number;
+    gewinnGesamt: number;
+    nettoGewinn: number;
+    groessterGewinn: number;
+    jackpots: number;
+    bonusRunden: number;
+    freispieleGewonnen: number;
+    premiumTage: number;
+    grosseGewinne: number;
+    megaGewinne: number;
+  };
   /** Server-Boost laut Discord-Spiegel. */
   boostet: boolean;
   /** Referenzzeitpunkt - als Parameter, damit Tests nicht an der Uhr haengen. */
@@ -99,7 +119,18 @@ export type MesswertKey =
   | 'clipsSiege'
   | 'clipStimmen'
   | 'events'
-  | 'spielprofile';
+  | 'spielprofile'
+  | 'slotSpins'
+  | 'slotEinsatz'
+  | 'slotGewinn'
+  | 'slotNetto'
+  | 'slotBesterGewinn'
+  | 'slotJackpots'
+  | 'slotBonusRunden'
+  | 'slotFreispiele'
+  | 'slotPremiumTage'
+  | 'slotGrosseGewinne'
+  | 'slotMegaGewinne';
 
 /**
  * Die Ja-Nein-Merkmale.
@@ -108,11 +139,17 @@ export type MesswertKey =
  * Schwellenfeld bleibt deshalb in der Verwaltung gesperrt; es gaebe nichts
  * einzustellen.
  */
-export type FlaggenKey = 'hoechstlevel' | 'boostet';
+export type FlaggenKey = 'hoechstlevel' | 'boostet' | 'slotJackpot';
 
 export const FLAGGEN: Record<FlaggenKey, { label: string; lies: (g: Grundlage) => boolean }> = {
   hoechstlevel: { label: 'Höchstlevel erreicht', lies: (g) => g.hoechstlevel },
   boostet: { label: 'Boostet den Server', lies: (g) => g.boostet },
+  /*
+   * «Hat den Jackpot geknackt» ist ein Ja-Nein-Merkmal und keine Schwelle.
+   * Ein Schwellenwert waere hier eine Einstellung ohne Bedeutung: einen
+   * halben Jackpot gibt es nicht. Wie oft, zaehlt `slotJackpots` daneben.
+   */
+  slotJackpot: { label: 'XP-Slot-Jackpot geknackt', lies: (g) => g.slot.jackpots > 0 },
 };
 
 /** Die Bedingung einer gerechneten Auszeichnung - Daten, kein Code. */
@@ -196,7 +233,92 @@ export const MESSWERTE: Record<MesswertKey, Messwert> = {
     ganzzahlig: true,
     lies: (g) => g.spielprofile,
   },
+  slotSpins: { label: 'XP-Slot: Spins', einheit: 'Spins', ganzzahlig: true, lies: (g) => g.slot.spins },
+  slotEinsatz: {
+    label: 'XP-Slot: gesetzte XP',
+    einheit: 'XP',
+    ganzzahlig: true,
+    lies: (g) => g.slot.einsatzGesamt,
+  },
+  slotGewinn: {
+    label: 'XP-Slot: gewonnene XP',
+    einheit: 'XP',
+    ganzzahlig: true,
+    lies: (g) => g.slot.gewinnGesamt,
+  },
+  slotNetto: {
+    label: 'XP-Slot: Gewinn über dem Einsatz',
+    einheit: 'XP',
+    ganzzahlig: true,
+    lies: (g) => g.slot.nettoGewinn,
+  },
+  slotBesterGewinn: {
+    label: 'XP-Slot: grösster Einzelgewinn',
+    einheit: 'XP',
+    ganzzahlig: true,
+    lies: (g) => g.slot.groessterGewinn,
+  },
+  slotJackpots: {
+    label: 'XP-Slot: Jackpots',
+    einheit: 'Jackpots',
+    ganzzahlig: true,
+    lies: (g) => g.slot.jackpots,
+  },
+  slotBonusRunden: {
+    label: 'XP-Slot: Bonusrunden',
+    einheit: 'Runden',
+    ganzzahlig: true,
+    lies: (g) => g.slot.bonusRunden,
+  },
+  slotFreispiele: {
+    label: 'XP-Slot: gewonnene Freispiele',
+    einheit: 'Freispiele',
+    ganzzahlig: true,
+    lies: (g) => g.slot.freispieleGewonnen,
+  },
+  slotPremiumTage: {
+    label: 'XP-Slot: gewonnene Premium-Tage',
+    einheit: 'Tage',
+    ganzzahlig: true,
+    lies: (g) => g.slot.premiumTage,
+  },
+  slotGrosseGewinne: {
+    label: 'XP-Slot: Big Wins',
+    einheit: 'Gewinne',
+    ganzzahlig: true,
+    lies: (g) => g.slot.grosseGewinne,
+  },
+  slotMegaGewinne: {
+    label: 'XP-Slot: Mega Wins',
+    einheit: 'Gewinne',
+    ganzzahlig: true,
+    lies: (g) => g.slot.megaGewinne,
+  },
 };
+
+/**
+ * Eine XP-Slot-Bilanz ohne einen einzigen Spin.
+ *
+ * Gebraucht an zwei Stellen: wenn der Slot nichts liefert (abgeschaltet,
+ * frische Umgebung) und in Tests, die eine Grundlage von Hand bauen. Ohne
+ * diese Funktion stuenden elf Nullen an jeder dieser Stellen, und die
+ * zwoelfte Stelle haette sie beim naechsten neuen Messwert vergessen.
+ */
+export function leereSlotBilanz(): Grundlage['slot'] {
+  return {
+    spins: 0,
+    einsatzGesamt: 0,
+    gewinnGesamt: 0,
+    nettoGewinn: 0,
+    groessterGewinn: 0,
+    jackpots: 0,
+    bonusRunden: 0,
+    freispieleGewonnen: 0,
+    premiumTage: 0,
+    grosseGewinne: 0,
+    megaGewinne: 0,
+  };
+}
 
 /** Kurzform fuer eine Schwellenbedingung. */
 const ab = (messwert: MesswertKey, wert: number): Bedingung => ({ art: 'schwelle', messwert, wert });
@@ -424,6 +546,120 @@ const ARTEN: readonly AuszeichnungsArt[] = [
     stufe: 'gold',
     bedingung: wenn('boostet'),
   },
+
+  /*
+   * --- XP-Slot -----------------------------------------------------------
+   *
+   * Zwoelf Auszeichnungen, und sie gehoeren bewusst **hierher** und nicht in
+   * das Slot-Modul: es gibt genau eine Auszeichnungsliste, genau eine
+   * Verwaltung dafuer und genau einen Tab im Profil. Ein zweites
+   * Auszeichnungssystem neben diesem waere eine zweite Wahrheit darueber, was
+   * jemand erreicht hat.
+   *
+   * Die Schwellen unten sind Vorgaben; einstellbar sind sie wie bei jeder
+   * anderen gerechneten Auszeichnung ueber `berechnete-arten.ts`.
+   *
+   * Gezaehlt wird, was **eingesetzt und gewonnen** wurde - nicht, wie viel
+   * jemand verloren hat. Eine Auszeichnung fuer Verluste waere eine
+   * Belohnung fuer das Verlieren, und das waere der falsche Anreiz in einem
+   * Spiel mit echtem XP-Einsatz.
+   */
+  {
+    key: 'slot-spins-100',
+    label: 'Walzendreher',
+    beschreibung: '100 Spins im XP-Slot gedreht.',
+    symbol: 'Dice5',
+    stufe: 'bronze',
+    bedingung: ab('slotSpins', 100),
+  },
+  {
+    key: 'slot-spins-1000',
+    label: 'Stammgast',
+    beschreibung: '1000 Spins im XP-Slot gedreht.',
+    symbol: 'Dice5',
+    stufe: 'silber',
+    bedingung: ab('slotSpins', 1000),
+  },
+  {
+    key: 'slot-einsatz',
+    label: 'Hoher Einsatz',
+    beschreibung: '50 000 XP im XP-Slot gesetzt.',
+    symbol: 'Coins',
+    stufe: 'silber',
+    bedingung: ab('slotEinsatz', 50_000),
+  },
+  {
+    key: 'slot-gewinn',
+    label: 'Glückssträhne',
+    beschreibung: '50 000 XP im XP-Slot gewonnen.',
+    symbol: 'Sparkles',
+    stufe: 'silber',
+    bedingung: ab('slotGewinn', 50_000),
+  },
+  {
+    key: 'slot-netto',
+    label: 'Im Plus',
+    beschreibung: 'Im XP-Slot insgesamt 10 000 XP mehr gewonnen als gesetzt.',
+    symbol: 'TrendingUp',
+    stufe: 'gold',
+    bedingung: ab('slotNetto', 10_000),
+  },
+  {
+    key: 'slot-bester',
+    label: 'Grosser Treffer',
+    beschreibung: 'Einen Einzelgewinn von 5000 XP im XP-Slot geholt.',
+    symbol: 'Trophy',
+    stufe: 'silber',
+    bedingung: ab('slotBesterGewinn', 5000),
+  },
+  {
+    key: 'slot-jackpot',
+    label: 'Jackpot',
+    beschreibung: 'Den Jackpot im XP-Slot geknackt.',
+    symbol: 'Crown',
+    stufe: 'gold',
+    bedingung: wenn('slotJackpot'),
+  },
+  {
+    key: 'slot-jackpots-3',
+    label: 'Dreifach Jackpot',
+    beschreibung: 'Den Jackpot im XP-Slot dreimal geknackt.',
+    symbol: 'Crown',
+    stufe: 'gold',
+    bedingung: ab('slotJackpots', 3),
+  },
+  {
+    key: 'slot-bonus',
+    label: 'Bonusjäger',
+    beschreibung: '25 Bonusrunden im XP-Slot ausgelöst.',
+    symbol: 'Gift',
+    stufe: 'bronze',
+    bedingung: ab('slotBonusRunden', 25),
+  },
+  {
+    key: 'slot-freispiele',
+    label: 'Freispielsammler',
+    beschreibung: '200 Freispiele im XP-Slot gewonnen.',
+    symbol: 'Ticket',
+    stufe: 'silber',
+    bedingung: ab('slotFreispiele', 200),
+  },
+  {
+    key: 'slot-bigwins',
+    label: 'Big Winner',
+    beschreibung: '10 Big Wins im XP-Slot.',
+    symbol: 'Zap',
+    stufe: 'bronze',
+    bedingung: ab('slotGrosseGewinne', 10),
+  },
+  {
+    key: 'slot-megawins',
+    label: 'Mega Winner',
+    beschreibung: '5 Mega Wins im XP-Slot.',
+    symbol: 'Flame',
+    stufe: 'gold',
+    bedingung: ab('slotMegaGewinne', 5),
+  },
 ];
 
 const NACH_KEY = new Map(ARTEN.map((a) => [a.key, a]));
@@ -527,6 +763,19 @@ export const AUSZEICHNUNGS_SYMBOLE: readonly string[] = [
   'ShieldCheck',
   'Gamepad2',
   'Dices',
+  /*
+   * Die vier kamen mit den XP-Slot-Auszeichnungen dazu.
+   *
+   * Diese Liste ist die Auswahl in der Verwaltung **und** die Pruefung beim
+   * Speichern (`AUSZEICHNUNGS_SYMBOLE.includes`). Ein Symbol, das im Code
+   * steht und hier fehlt, liesse sich im Formular nicht mehr auswaehlen -
+   * wer eine Beschriftung aendern wollte, bekaeme eine Absage wegen eines
+   * Symbols, das er nie angefasst hat.
+   */
+  'Dice5',
+  'Coins',
+  'TrendingUp',
+  'Ticket',
   'Clapperboard',
   'Music',
   'Mic',

@@ -177,6 +177,23 @@ export const UPLOAD_KINDS = [
    * ausgeschlossen - es gibt keinen Weg, auf dem sie einen Namen bekaeme.
    */
   'workspace',
+  /**
+   * Die Symbolbilder des XP-Slots.
+   *
+   * Dieselbe Pruefung wie jedes andere Bild hier - PNG, JPG oder WEBP,
+   * erkannt an den Bytes. Transparenz bleibt erhalten, weil nichts
+   * umgewandelt wird.
+   */
+  'slotsymbol',
+  /**
+   * Die Klaenge des XP-Slots.
+   *
+   * Andere Endungen als die Bilder, deshalb liegt die Formatkenntnis in
+   * `level/xpslot/klang-speicher.ts` - wie bei den Clipvideos. Der
+   * Namensraum steht trotzdem hier, weil es genau eine Liste geben soll,
+   * die sagt, welche Praefixe im Upload-Verzeichnis vorkommen duerfen.
+   */
+  'slotsound',
 ] as const;
 export type UploadKind = (typeof UPLOAD_KINDS)[number];
 

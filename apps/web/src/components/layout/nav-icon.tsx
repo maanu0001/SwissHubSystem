@@ -1,6 +1,7 @@
 import {
   Images,
   CreditCard,
+  Cherry,
   Dice5,
   Cpu,
   Gauge,
@@ -29,6 +30,7 @@ import {
   CalendarClock,
   Dices,
   Gamepad2,
+  Coins,
   Crown,
   Database,
   DatabaseBackup,
@@ -106,6 +108,7 @@ import {
 const ICONS = {
   Images,
   CreditCard,
+  Cherry,
   Dice5,
   Cpu,
   Gauge,
@@ -134,6 +137,7 @@ const ICONS = {
   CalendarClock,
   Dices,
   Gamepad2,
+  Coins,
   Crown,
   Bug,
   Flame,

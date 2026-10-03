@@ -62,6 +62,19 @@ export const RATE_LIMITS = {
    */
   raffleEnter: { limit: 10, windowMs: 5 * 60 * 1000 },
   raffleManage: { limit: 40, windowMs: 5 * 60 * 1000 },
+  /**
+   * Ein Spin im XP-Slot.
+   *
+   * Grosszuegig bemessen, weil Auto-Spin ueber 100 Runden gehen darf und
+   * jede davon eine Anfrage ist. Die Grenze bremst nicht das Spielen,
+   * sondern ein Skript, das die Walzen in einer Schleife dreht - dagegen
+   * wirken zusaetzlich der Idempotenzschluessel und die Tagesgrenzen.
+   */
+  slotSpin: { limit: 400, windowMs: 5 * 60 * 1000 },
+  /** Konfiguration, Symbole, Auszahlungen, Freispiele - Verwaltung. */
+  slotAdmin: { limit: 60, windowMs: 5 * 60 * 1000 },
+  /** Ein Symbolbild oder ein Klang - jedes Mal ein paar Megabyte. */
+  slotUpload: { limit: 30, windowMs: 30 * 60 * 1000 },
   /** Ziehen und neu ziehen - selten und folgenreich. */
   raffleDraw: { limit: 10, windowMs: 10 * 60 * 1000 },
   /**

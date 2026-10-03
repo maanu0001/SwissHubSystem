@@ -99,6 +99,25 @@ export const LEVEL_PERMISSIONS = {
   raffleCancel: 'level.raffle.cancel',
   raffleDelete: 'level.raffle.delete',
   raffleHistory: 'level.raffle.history',
+  /**
+   * Der XP-Slot.
+   *
+   * `play` ist die Berechtigung des gewoehnlichen Mitglieds - sie entscheidet
+   * auch darueber, ob der Tab im Level-Modul erscheint und ob `/xp-slot`
+   * antwortet. Es gibt bewusst keine festen Rollenkennungen im Code: welche
+   * Rolle spielen darf, steht in der Rollenverwaltung.
+   *
+   * `manage` ist die Verwaltung: Symbole, Auszahlungen, Design, Klaenge,
+   * Events, Status. `stats` ist das Hinsehen ohne das Eingreifen -
+   * Kennzahlen und Spielverlauf fremder Personen. `freespins.manage` steht
+   * getrennt, weil ein Freispielpaket ein Geschenk mit echtem Wert ist: wer
+   * eine Auszahlung justieren darf, soll nicht nebenbei hundert Freispiele
+   * zum Hoechsteinsatz verteilen koennen.
+   */
+  xpslotPlay: 'level.xpslot.play',
+  xpslotManage: 'level.xpslot.manage',
+  xpslotStats: 'level.xpslot.stats',
+  xpslotFreespinsManage: 'level.xpslot.freespins.manage',
 } as const;
 
 /** Farbe der Level-Embeds. */
@@ -946,6 +965,33 @@ registerModule({
       label: 'Verlosung löschen',
       description:
         'Eine abgeschlossene oder abgebrochene Verlosung endgültig entfernen. Verbuchte XP bleiben unberührt.',
+      module: LEVEL_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: LEVEL_PERMISSIONS.xpslotPlay,
+      label: 'XP-Slot spielen',
+      description: 'Den XP-Slot öffnen und mit eigenen XP spielen.',
+      module: LEVEL_MODULE_ID,
+    },
+    {
+      key: LEVEL_PERMISSIONS.xpslotManage,
+      label: 'XP-Slot verwalten',
+      description:
+        'Symbole, Auszahlungen, Design, Klänge, Events und den Status des XP-Slots ändern. Wirkt auf die Gewinnchancen aller.',
+      module: LEVEL_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: LEVEL_PERMISSIONS.xpslotStats,
+      label: 'XP-Slot-Statistiken ansehen',
+      description: 'Kennzahlen des XP-Slots und den Spielverlauf einzelner Mitglieder einsehen.',
+      module: LEVEL_MODULE_ID,
+    },
+    {
+      key: LEVEL_PERMISSIONS.xpslotFreespinsManage,
+      label: 'XP-Slot-Freispiele vergeben',
+      description: 'Freispielpakete gewähren und entziehen. Ein Freispiel hat echten XP-Wert.',
       module: LEVEL_MODULE_ID,
       critical: true,
     },

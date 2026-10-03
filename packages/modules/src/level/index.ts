@@ -22,3 +22,4 @@ export * from './card-banner';
 export * from './public-leaderboard';
 export * as raffle from './raffle';
 export * from './custom-card';
+export * as xpslot from './xpslot';

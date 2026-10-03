@@ -22,6 +22,7 @@ const SYMBOLE = {
   members: 'Users',
   leaderboard: 'Trophy',
   games: 'Dice5',
+  slot: 'Cherry',
   roles: 'Shield',
   rules: 'Gauge',
   voice: 'Mic',

@@ -517,6 +517,34 @@ export async function settleDecayFor(
 }
 
 /**
+ * Sperrt das Profil einer Person innerhalb einer laufenden Transaktion.
+ *
+ * ## Wofuer
+ *
+ * Fuer Abläufe, die den XP-Stand **lesen und davon abhängig handeln** müssen,
+ * bevor sie buchen: der XP-Slot prüft, ob der Einsatz gedeckt ist, zieht
+ * dann ab, dreht die Walzen und schreibt den Gewinn gut - und zwischen der
+ * Prüfung und der Abbuchung darf niemand dazwischenkommen.
+ *
+ * Ohne diese Sperre wäre die Prüfung eine Momentaufnahme: zwei gleichzeitige
+ * Spins könnten denselben Stand zweimal einsetzen, und die Klemmung auf
+ * `MAX(0, ...)` hätte den zweiten Einsatz stillschweigend verkleinert - ein
+ * Spin auf Kredit.
+ *
+ * ## Warum nicht `applyXp` mit `delta: 0`
+ *
+ * Weil das eine Buchung ohne Wirkung wäre, die trotzdem schreibt. Die Sperre
+ * ist eine Sperre und keine Buchung; sie legt das Profil bei Bedarf an und
+ * gibt es zurück, mehr nicht.
+ */
+export async function sperreProfil(
+  tx: Prisma.TransactionClient,
+  identity: LevelIdentity,
+): Promise<LevelProfile> {
+  return lockProfile(tx, identity);
+}
+
+/**
  * Reserviert einen Einsatz für ein Spiel.
  *
  * Der Vorgänger prüfte den Punktestand nur und buchte erst am Ende ab. Wer

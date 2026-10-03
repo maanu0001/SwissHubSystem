@@ -20,6 +20,7 @@ import {
   MODERATION_COMMAND_NAMES,
   handleModerationCommand,
 } from './moderation-commands';
+import { XPSLOT_COMMAND_DEFINITIONS, XPSLOT_COMMAND_NAMES, handleXpSlotCommand } from './xpslot-commands';
 import {
   AUTOMATION_COMMAND_DEFINITIONS,
   AUTOMATION_COMMAND_NAMES,
@@ -38,6 +39,7 @@ const ALL_COMMANDS = [
   ...SPIELWAHL_COMMAND_DEFINITIONS,
   ...EMOJI_COMMAND_DEFINITIONS,
   ...MODERATION_COMMAND_DEFINITIONS,
+  ...XPSLOT_COMMAND_DEFINITIONS,
 ];
 
 /**
@@ -102,6 +104,10 @@ export function registerCommandHandler(client: Client): void {
       return;
     }
     if (!interaction.isChatInputCommand()) {
+      return;
+    }
+    if (XPSLOT_COMMAND_NAMES.has(interaction.commandName)) {
+      void handleXpSlotCommand(interaction);
       return;
     }
     if (LEVEL_COMMAND_NAMES.has(interaction.commandName)) {
