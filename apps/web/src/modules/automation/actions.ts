@@ -9,6 +9,7 @@ import { automation as automationModul } from '@swisshub/modules';
 import { AUDIT_ACTIONS, prisma, recordAudit } from '@swisshub/database';
 import {
   aendere,
+  aendereSystemfelder,
   archiviere,
   brichAb,
   conditionNodeSchema,
@@ -251,6 +252,57 @@ export const schalteAutomationAction = defineAction(
     await schalte(guildId, input.id, input.enabled, akteurVon(ctx));
     revalidateAutomationen();
     return { eingeschaltet: input.enabled, probleme: [] };
+  },
+);
+
+/**
+ * Die freigegebenen Felder einer Systemautomation speichern.
+ *
+ * Die Systemeinladung kommt mit leerer Rollenliste auf den Server - welche
+ * Rollen eine Einladung verschicken duerfen, weiss nur die Gilde. Diese
+ * Action ist der Weg, sie einzutragen; alles andere an einer
+ * Systemautomation bleibt gesperrt, und das erzwingt
+ * `aendereSystemfelder` im Speicher, nicht diese Datei.
+ *
+ * Verlangt wird zusaetzlich `systemManage` - dieselbe Berechtigung, die das
+ * Ein- und Ausschalten einer Systemautomation verlangt. Wer sie einschalten
+ * darf, darf auch sagen, fuer wen sie gilt; wer sie nicht einschalten darf,
+ * soll sie auch nicht vorbereiten koennen.
+ */
+export const aendereSystemautomationAction = defineAction(
+  {
+    name: 'automation.updateSystem',
+    module: MODULE_ID,
+    permission: P.edit,
+    schema: z.object({
+      id: z.string().min(1),
+      /*
+       * Nach Pfad geschluesselt, und bewusst `unknown`: was ein Feld
+       * aufnimmt, sagt das Schema seines Triggers - geprueft wird dort und
+       * nicht hier zum zweiten Mal. Die Zahl der Felder ist begrenzt, damit
+       * eine Anfrage nicht beliebig gross wird.
+       */
+      werte: z.record(z.unknown()).refine((eintrag) => Object.keys(eintrag).length <= 20, {
+        message: 'Zu viele Felder.',
+      }),
+    }),
+    rateLimit: 'automationWrite',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    if (!can(ctx, P.systemManage)) {
+      throw new AppError('FORBIDDEN', {
+        userMessage: 'Systemautomationen darf nur verwalten, wer die Berechtigung dafür hat.',
+      });
+    }
+
+    const guildId = await guildIdVonSitzung(ctx);
+    const automation = await aendereSystemfelder(guildId, input.id, input.werte, akteurVon(ctx));
+
+    revalidateAutomationen();
+    revalidatePath(`/automationen/${input.id}`);
+    return { id: automation.id, version: automation.version };
   },
 );
 

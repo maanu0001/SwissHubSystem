@@ -10,8 +10,9 @@ import { Panel } from '@/components/shared/panel';
 import { Button } from '@/components/ui/button';
 import { EmptyState, ErrorState } from '@/components/shared/states';
 import { Builder } from '@/modules/automation/components/builder';
+import { Systemfelder } from '@/modules/automation/components/systemfelder';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
-import { ladeBausteine } from '@/server/automation';
+import { ladeBausteine, systemFelder } from '@/server/automation';
 import { loadDiscordOptions } from '@/server/configuration';
 
 export const metadata: Metadata = { title: 'Automation' };
@@ -22,10 +23,16 @@ const P = automation.AUTOMATION_PERMISSIONS;
 /**
  * Eine Automation ansehen und bearbeiten.
  *
- * Eine Systemautomation wird gezeigt, aber nicht zum Bearbeiten freigegeben:
- * sie gehoert SwissHub und wird beim Start abgeglichen. Was hier jemand
- * aenderte, waere nach dem naechsten Deployment wieder weg - und das waere
- * die verwirrendste Art, eine Aenderung zu verlieren.
+ * Bei einer Systemautomation ist der Ablauf gesperrt: er gehoert SwissHub und
+ * wird beim Start abgeglichen. Was hier jemand daran aenderte, waere nach dem
+ * naechsten Deployment wieder weg - und das waere die verwirrendste Art, eine
+ * Aenderung zu verlieren.
+ *
+ * Was ihr fehlt, sind die Werte, die nur der Server kennt: welche Rollen die
+ * Einladung verschicken duerfen. Die stehen in einer eigenen Karte darueber
+ * und werden vom Abgleich nicht angefasst. Vorher gab es diese Karte nicht -
+ * die Systemeinladung lag damit mit leerer Rollenliste da und lehnte jeden
+ * Aufruf ab, ohne dass sich das haette aendern lassen.
  */
 export default async function AutomationPage({
   params,
@@ -55,15 +62,33 @@ export default async function AutomationPage({
 
   const istSystem = eintrag.kind === 'SYSTEM';
   const darfSpeichern = can(context, P.edit) && !istSystem;
+  // Die freigegebenen Felder - bei einer gewoehnlichen Automation keine, weil
+  // dort der Builder alles kann.
+  const freigegeben = istSystem ? systemFelder(eintrag, bausteine) : [];
 
   return (
     <>
       {istSystem ? (
-        <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm">
-          <Lock className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          Eine Systemautomation von SwissHub. Sie lässt sich ein- und ausschalten, aber nicht bearbeiten -
-          beim nächsten Deployment würde die Änderung überschrieben.
+        <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm">
+          <Lock className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span>
+            Eine Systemautomation von SwissHub. Der Ablauf ist vorgegeben und wird beim Start abgeglichen -
+            {freigegeben.length > 0
+              ? ' ausfüllen lassen sich die Felder oben, und die bleiben stehen.'
+              : ' ändern lässt sich daran nichts.'}
+          </span>
         </div>
+      ) : null}
+
+      {freigegeben.length > 0 ? (
+        <Systemfelder
+          csrfToken={csrfTokenFor(context)}
+          automationId={eintrag.id}
+          felder={freigegeben}
+          roles={discordOptions.roles}
+          channels={discordOptions.channels}
+          darfSpeichern={can(context, P.edit) && can(context, automation.AUTOMATION_PERMISSIONS.systemManage)}
+        />
       ) : null}
 
       <Builder

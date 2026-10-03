@@ -6,6 +6,7 @@ import {
   listEventDefinitions,
   listTemplates,
   listTriggers,
+  systemFreigabe,
   type AutomationField,
 } from '@swisshub/automation';
 
@@ -59,6 +60,88 @@ export interface AutomationBausteine {
   aktionen: BausteinAnsicht[];
   ereignisse: EreignisAnsicht[];
   vorlagen: VorlageAnsicht[];
+}
+
+/**
+ * Ein freigegebenes Feld einer Systemautomation - fertig zum Anzeigen.
+ *
+ * `pfad` ist, was gespeichert wird; `feld` ist, wie es aussieht. Beides
+ * zusammenzufuehren ist Serverarbeit: die Feldbeschreibung steht in der
+ * Registry, der Wert in der Datenbank, und die Freigabe in der Vorlage.
+ */
+export interface SystemFeld {
+  pfad: string;
+  label: string;
+  feld: AutomationField;
+  wert: unknown;
+}
+
+/**
+ * Welche Felder einer Systemautomation die Gilde ausfuellen darf.
+ *
+ * Die Pfade kommen aus der Vorlage (`auszufuellen`), die Beschreibung des
+ * Feldes aus der Registry des Triggers beziehungsweise der Aktion. Findet
+ * sich zu einem Pfad keine Beschreibung, wird er **weggelassen** und nicht
+ * als Textfeld geraten: ein falsch geratenes Feld schriebe einen Text dorthin,
+ * wo eine Liste stehen muss.
+ */
+export function systemFelder(
+  automation: {
+    systemKey: string | null;
+    triggerType: string;
+    triggerConfig: unknown;
+    steps: unknown;
+  },
+  bausteine: AutomationBausteine,
+): SystemFeld[] {
+  const felder: SystemFeld[] = [];
+
+  for (const freigabe of systemFreigabe(automation.systemKey)) {
+    const teile = freigabe.pfad.split('.');
+
+    if (teile[0] === 'triggerConfig' && teile.length === 2) {
+      const trigger = bausteine.trigger.find((eintrag) => eintrag.id === automation.triggerType);
+      const feld = trigger?.fields.find((eintrag) => eintrag.key === teile[1]);
+      if (feld) {
+        felder.push({
+          pfad: freigabe.pfad,
+          label: freigabe.label,
+          feld,
+          wert: lesePfad(automation.triggerConfig, [teile[1] as string]),
+        });
+      }
+      continue;
+    }
+
+    if (teile[0] === 'steps' && teile.length === 4 && teile[2] === 'config') {
+      const schritte = Array.isArray(automation.steps) ? automation.steps : [];
+      const schritt = schritte[Number(teile[1])] as { typ?: string } | undefined;
+      const aktion = bausteine.aktionen.find((eintrag) => eintrag.id === schritt?.typ);
+      const feld = aktion?.fields.find((eintrag) => eintrag.key === teile[3]);
+      if (feld) {
+        felder.push({
+          pfad: freigabe.pfad,
+          label: freigabe.label,
+          feld,
+          wert: lesePfad(automation.steps, teile.slice(1)),
+        });
+      }
+    }
+  }
+
+  return felder;
+}
+
+/** Einen Wert entlang eines Pfads lesen. Gibt `undefined`, wenn er ins Leere zeigt. */
+function lesePfad(wurzel: unknown, teile: string[]): unknown {
+  let aktuell: unknown = wurzel;
+  for (const teil of teile) {
+    if (aktuell === null || typeof aktuell !== 'object') {
+      return undefined;
+    }
+    aktuell = (aktuell as Record<string, unknown>)[teil];
+  }
+  return aktuell;
 }
 
 export const ladeBausteine = cache(async (): Promise<AutomationBausteine> => {

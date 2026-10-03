@@ -267,4 +267,21 @@ registerTemplate({
     },
   ],
   auszufuellen: [{ pfad: 'triggerConfig.rollen', label: 'Rollen, die die Einladung schicken dürfen' }],
+  /*
+   * Diese Vorlage ist nicht nur ein Angebot, sondern entsteht beim Start als
+   * Zeile - siehe `system.ts`. Der Schlüssel steht hier, damit die Zuordnung
+   * an der Vorlage selbst sichtbar ist; `auszufuellen` wird dadurch zur
+   * Freigabe: die Rollen darf die Gilde ändern, den Ablauf nicht.
+   */
+  systemKey: 'system_invite',
+  /*
+   * Einer nach dem anderen, je Mitglied.
+   *
+   * Zwei gleichzeitige Einladungen an dieselbe Person wären zwei identische
+   * Direktnachrichten. Der Schlüssel ist die Kennung des Betroffenen; ohne
+   * Betroffenen gibt es keinen Schlüssel und damit keine Einschränkung.
+   */
+  concurrency: 'SKIP_IF_RUNNING',
+  concurrencyKey: '{{event.subjectId}}',
+  maxRunsPerMinute: 10,
 });

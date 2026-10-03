@@ -164,6 +164,7 @@ export { ereignisEinerAutomation, pruefeAutomation, type Pruefbericht, type Prue
 
 export {
   aendere,
+  aendereSystemfelder,
   archiviere,
   holeAutomation,
   legeAn,
@@ -193,8 +194,10 @@ export {
 export {
   clearTemplates,
   getTemplate,
+  listSystemVorlagen,
   listTemplates,
   registerTemplate,
+  systemFreigabe,
   vorlageVollstaendig,
   type AutomationVorlage,
 } from './templates';

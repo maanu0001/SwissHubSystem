@@ -109,7 +109,13 @@ describeWithDatabase('Systemeinladung', () => {
       where: { systemKey: automationModul.SYSTEM_EINLADUNG_KEY },
     });
 
-    // So, wie es ein Teammitglied im Dashboard täte.
+    /*
+     * Direkt in die Zeile geschrieben, weil hier der Abgleich geprüft wird
+     * und nicht der Weg dorthin: beides zusammen - Rollen und Schalter - setzt
+     * kein einzelner Aufruf. Dass die Rollen über `aendereSystemfelder`
+     * ankommen und den nächsten Start überleben, steht in
+     * `automation-systemfelder.test.ts`.
+     */
     await prisma.automation.update({
       where: { id: vorher.id },
       data: { enabled: true, triggerConfig: { rollen: [ROLLE], hinweis: 'WebApp-Einladung an eine Person' } },

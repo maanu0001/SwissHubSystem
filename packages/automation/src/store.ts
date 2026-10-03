@@ -3,9 +3,11 @@ import type { Automation, AutomationConcurrency, AutomationKind } from '@swisshu
 import { createLogger } from '@swisshub/logger';
 import { conditionNodeSchema } from './conditions';
 import { darfAusDiscordStarten } from './core-triggers';
+import { getTrigger } from './registry';
 import { planeNaechsten } from './dispatcher';
 import { verwerfeJobs } from './scheduler';
 import { stepsSchema } from './steps';
+import { systemFreigabe } from './templates';
 
 const logger = createLogger('automation:store');
 
@@ -280,11 +282,21 @@ export async function aendere(
     });
   }
   if (vorhanden.kind === 'SYSTEM') {
-    // Eine Systemautomation gehört SwissHub, nicht der Gilde. Sie liesse sich
-    // sonst so verändern, dass eine Kernfunktion still ausfällt.
+    /*
+     * Eine Systemautomation gehört SwissHub, nicht der Gilde. Sie liesse sich
+     * sonst so verändern, dass eine Kernfunktion still ausfällt - und beim
+     * nächsten Start wäre die Änderung ohnehin wieder weg, weil der Abgleich
+     * Name, Bedingungen und Schritte zurückschreibt.
+     *
+     * Was die Gilde ausfüllen darf, geht durch `aendereSystemfelder`. Diese
+     * Tür bleibt zu: der allgemeine Editor schickt eine ganze Automation, und
+     * davon dürfte hier fast nichts ankommen. Eine Absage ist ehrlicher, als
+     * das meiste still zu verwerfen.
+     */
     throw Object.assign(new Error('Systemautomation'), {
       code: 'FORBIDDEN',
-      userMessage: 'Systemautomationen lassen sich nicht bearbeiten.',
+      userMessage:
+        'Bei einer Systemautomation lassen sich nur die freigegebenen Felder ändern, nicht der Ablauf.',
     });
   }
 
@@ -326,6 +338,212 @@ export async function aendere(
   });
 
   return geaendert;
+}
+
+/**
+ * Die freigegebenen Felder einer Systemautomation ändern.
+ *
+ * ## Warum es diese Tür überhaupt gibt
+ *
+ * Die Systemeinladung entsteht beim Start als Zeile - mit leerer Rollenliste,
+ * weil nur der Server weiss, welche Rollen eine Einladung verschicken dürfen.
+ * Ohne diese Funktion war sie damit unbenutzbar: `aendere` lehnte jede
+ * Änderung ab, also blieb die Liste leer, also lehnte der Trigger jeden
+ * Aufruf ab. Die Automation war vorhanden, abschaltbar, einschaltbar - und
+ * tat nichts.
+ *
+ * ## Warum nicht einfach `aendere` öffnen
+ *
+ * Weil dann der ganze Builder auf eine Systemautomation losgelassen wäre:
+ * Schritte umstellen, Bedingungen löschen, Text ändern. Beim nächsten Start
+ * schreibt der Abgleich das alles zurück - die Änderung wäre weg, ohne dass
+ * jemand etwas gemerkt hätte. Deshalb geht hier nur durch, was die Vorlage
+ * als `auszufuellen` ausweist, und der Abgleich lässt `triggerConfig`
+ * unangetastet. Beides zusammen ist die Zusage: was hier gespeichert wird,
+ * bleibt auch nach einem Deployment stehen.
+ *
+ * `werte` ist nach Pfad geschlüsselt - genau nach den Pfaden der Vorlage.
+ * Alles andere ist ein Fehler und nicht etwas, das still übergangen wird.
+ */
+export async function aendereSystemfelder(
+  guildId: string,
+  id: string,
+  werte: Record<string, unknown>,
+  akteur: Akteur,
+): Promise<Automation> {
+  const vorhanden = await holeAutomation(guildId, id);
+  if (!vorhanden) {
+    throw Object.assign(new Error('Automation nicht gefunden'), {
+      code: 'NOT_FOUND',
+      userMessage: 'Diese Automation gibt es nicht.',
+    });
+  }
+  if (vorhanden.kind !== 'SYSTEM') {
+    // Eine gewöhnliche Automation wird ganz gespeichert. Diese Tür hier wäre
+    // ein zweiter Schreibweg auf dieselbe Zeile - und damit ein zweiter Ort,
+    // an dem Prüfungen stehen müssten.
+    throw Object.assign(new Error('Keine Systemautomation'), {
+      code: 'VALIDATION_FAILED',
+      userMessage: 'Diese Automation wird im Builder bearbeitet.',
+    });
+  }
+
+  const freigegeben = new Set(systemFreigabe(vorhanden.systemKey).map((eintrag) => eintrag.pfad));
+  const pfade = Object.keys(werte);
+  if (freigegeben.size === 0 || pfade.length === 0) {
+    throw Object.assign(new Error('Keine Freigabe'), {
+      code: 'FORBIDDEN',
+      userMessage: 'Bei dieser Systemautomation gibt es nichts zum Ausfüllen.',
+    });
+  }
+  const fremd = pfade.filter((pfad) => !freigegeben.has(pfad));
+  if (fremd.length > 0) {
+    throw Object.assign(new Error('Pfad nicht freigegeben'), {
+      code: 'FORBIDDEN',
+      userMessage: 'Dieses Feld ist bei einer Systemautomation nicht freigegeben.',
+    });
+  }
+
+  /*
+   * Gearbeitet wird auf einer Kopie des Gespeicherten, nicht auf dem, was
+   * hereinkam. So kann die Eingabe nichts mitbringen, wonach niemand gefragt
+   * hat - weder ein zusätzliches Feld in der Trigger-Konfiguration noch ein
+   * anderer Schritt.
+   */
+  const stand = {
+    triggerConfig: klone(vorhanden.triggerConfig) as Record<string, unknown>,
+    steps: klone(vorhanden.steps),
+  };
+  for (const pfad of pfade) {
+    setzePfad(stand, pfad, werte[pfad]);
+  }
+
+  // Dieselbe Formprüfung wie bei jeder anderen Änderung, und dazu die des
+  // Triggers: ein Pfad, der die Konfiguration ungültig macht, darf nicht
+  // gespeichert werden, nur weil er freigegeben ist.
+  const { steps, conditions } = pruefeForm({
+    guildId,
+    name: vorhanden.name,
+    triggerType: vorhanden.triggerType,
+    triggerConfig: stand.triggerConfig,
+    conditions: vorhanden.conditions,
+    steps: stand.steps,
+  });
+  pruefeTriggerKonfiguration(vorhanden.triggerType, stand.triggerConfig);
+
+  const geaendert = await prisma.automation.update({
+    where: { id },
+    data: {
+      triggerConfig: stand.triggerConfig as Prisma.InputJsonValue,
+      steps: steps as Prisma.InputJsonValue,
+      conditions: (conditions ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+      version: { increment: 1 },
+      updatedBy: akteur.discordId,
+    },
+  });
+
+  await schreibeFassung(geaendert, akteur, 'Freigegebene Felder bearbeitet');
+
+  // Wie bei `aendere`: die geplanten Termine gehören zur alten Fassung. Ein
+  // freigegebener Pfad kann eine Uhrzeit enthalten.
+  await verwerfeJobs(geaendert.id);
+  if (geaendert.enabled) {
+    await planeNaechsten(geaendert);
+  }
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.AUTOMATION_UPDATED,
+    module: 'automation',
+    actorDiscordId: akteur.discordId,
+    actorUsername: akteur.username ?? null,
+    targetLabel: geaendert.name,
+    metadata: {
+      automationId: geaendert.id,
+      version: geaendert.version,
+      systemKey: vorhanden.systemKey,
+      pfade,
+    },
+  });
+
+  return geaendert;
+}
+
+/** Eine tiefe Kopie eines JSON-Werts. */
+function klone(wert: unknown): unknown {
+  return wert === null || wert === undefined ? wert : (JSON.parse(JSON.stringify(wert)) as unknown);
+}
+
+/**
+ * Welche Pfade überhaupt freigebbar sind.
+ *
+ * Nicht die Vorlage entscheidet das allein. Stünde dort eines Tages
+ * `steps.0.typ`, liesse sich die Aktion austauschen - und damit aus einer
+ * Direktnachricht ein Rollenentzug machen. Erlaubt ist deshalb nur, was ein
+ * **Wert** ist: etwas in der Trigger-Konfiguration oder im `config` eines
+ * Schritts.
+ */
+const VERBOTENE_SCHLUESSEL = new Set(['__proto__', 'prototype', 'constructor']);
+
+function setzePfad(
+  stand: { triggerConfig: Record<string, unknown>; steps: unknown },
+  pfad: string,
+  wert: unknown,
+): void {
+  const teile = pfad.split('.');
+  if (teile.some((teil) => teil === '' || VERBOTENE_SCHLUESSEL.has(teil))) {
+    throw Object.assign(new Error('Pfad unzulässig'), {
+      code: 'FORBIDDEN',
+      userMessage: 'Dieses Feld lässt sich nicht ändern.',
+    });
+  }
+
+  const erlaubt =
+    (teile[0] === 'triggerConfig' && teile.length >= 2) ||
+    (teile[0] === 'steps' && teile.length >= 4 && teile[2] === 'config');
+  if (!erlaubt) {
+    throw Object.assign(new Error('Pfad unzulässig'), {
+      code: 'FORBIDDEN',
+      userMessage: 'Bei einer Systemautomation lassen sich nur Werte ausfüllen, nicht der Ablauf.',
+    });
+  }
+
+  let ziel: unknown = stand;
+  for (const teil of teile.slice(0, -1)) {
+    if (ziel === null || typeof ziel !== 'object') {
+      throw Object.assign(new Error('Pfad zeigt ins Leere'), {
+        code: 'VALIDATION_FAILED',
+        userMessage: 'Dieses Feld gibt es in dieser Automation nicht.',
+      });
+    }
+    ziel = (ziel as Record<string, unknown>)[teil];
+  }
+  if (ziel === null || typeof ziel !== 'object') {
+    throw Object.assign(new Error('Pfad zeigt ins Leere'), {
+      code: 'VALIDATION_FAILED',
+      userMessage: 'Dieses Feld gibt es in dieser Automation nicht.',
+    });
+  }
+  (ziel as Record<string, unknown>)[teile[teile.length - 1] as string] = wert;
+}
+
+/**
+ * Die Trigger-Konfiguration gegen das Schema des Triggers prüfen.
+ *
+ * `pruefeForm` prüft Schritte und Bedingungen; die Konfiguration des Triggers
+ * kennt nur der Trigger selbst. Ist er nicht angemeldet - etwa weil sein Modul
+ * aus ist - wird nicht geprüft und auch nicht abgelehnt: dann ist die
+ * Automation ohnehin nicht einschaltbar, und das meldet die Prüfung vor dem
+ * Einschalten.
+ */
+function pruefeTriggerKonfiguration(triggerType: string, config: Record<string, unknown>): void {
+  const trigger = getTrigger(triggerType);
+  const geprueft = trigger?.configSchema?.safeParse(config);
+  if (geprueft && !geprueft.success) {
+    throw Object.assign(new Error('Trigger-Konfiguration ungültig'), {
+      code: 'VALIDATION_FAILED',
+      userMessage: geprueft.error.issues[0]?.message ?? 'Die Eingabe passt nicht zu diesem Auslöser.',
+    });
+  }
 }
 
 /**

@@ -1,5 +1,5 @@
 import { createLogger } from '@swisshub/logger';
-import { getTemplate, stelleSystemautomationSicher } from '@swisshub/automation';
+import { listSystemVorlagen, stelleSystemautomationSicher } from '@swisshub/automation';
 
 const log = createLogger('automation:system');
 
@@ -37,10 +37,15 @@ const log = createLogger('automation:system');
 /** Der Schlüssel der Systemeinladung. Steht in `Automation.systemKey`. */
 export const SYSTEM_EINLADUNG_KEY = 'system_invite';
 
-/** Welche Vorlage ihren Inhalt liefert. */
-const SYSTEM_AUTOMATIONEN: ReadonlyArray<{ systemKey: string; vorlage: string }> = [
-  { systemKey: SYSTEM_EINLADUNG_KEY, vorlage: 'system-einladung' },
-];
+/*
+ * Welche Vorlagen Systemautomationen sind, steht an den Vorlagen.
+ *
+ * Hier stand einmal eine zweite Liste, die Schlüssel und Vorlagen-Kennung
+ * einander zuordnete. Sie war die Stelle, an der die beiden auseinanderlaufen
+ * konnten: eine umbenannte Vorlage, und der Abgleich fand nichts mehr - was
+ * nur als Warnung im Protokoll auftauchte. Jetzt trägt die Vorlage ihren
+ * `systemKey` selbst, und `listSystemVorlagen()` ist die einzige Liste.
+ */
 
 /**
  * Die Systemautomationen dieser Gilde abgleichen.
@@ -50,39 +55,34 @@ const SYSTEM_AUTOMATIONEN: ReadonlyArray<{ systemKey: string; vorlage: string }>
  * im Protokoll.
  */
 export async function stelleSystemautomationenSicher(guildId: string): Promise<void> {
-  for (const eintrag of SYSTEM_AUTOMATIONEN) {
-    const vorlage = getTemplate(eintrag.vorlage);
-    if (!vorlage) {
-      // Kann nur passieren, wenn die Vorlagen nicht geladen wurden - dann ist
-      // etwas anderes kaputt, und ein erfundener Ersatz würde es verdecken.
-      log.warn('Vorlage für Systemautomation fehlt', eintrag);
-      continue;
-    }
+  const vorlagen = listSystemVorlagen();
+  if (vorlagen.length === 0) {
+    // Kann nur passieren, wenn die Vorlagen nicht geladen wurden - dann ist
+    // etwas anderes kaputt, und ein erfundener Ersatz würde es verdecken.
+    log.warn('Keine Systemvorlagen angemeldet');
+    return;
+  }
 
+  for (const vorlage of vorlagen) {
     try {
       await stelleSystemautomationSicher({
         guildId,
-        systemKey: eintrag.systemKey,
+        systemKey: vorlage.systemKey,
         name: vorlage.name,
         description: vorlage.description,
         triggerType: vorlage.triggerType,
         triggerConfig: vorlage.triggerConfig,
         conditions: vorlage.conditions ?? null,
         steps: vorlage.steps,
-        /*
-         * Einer nach dem anderen, je Mitglied.
-         *
-         * Zwei gleichzeitige Einladungen an dieselbe Person wären zwei
-         * identische Direktnachrichten. Der Schlüssel ist die Kennung des
-         * Betroffenen; ohne Betroffenen gibt es keinen Schlüssel und damit
-         * keine Einschränkung.
-         */
-        concurrency: 'SKIP_IF_RUNNING',
-        concurrencyKey: '{{event.subjectId}}',
-        maxRunsPerMinute: 10,
+        concurrency: vorlage.concurrency,
+        concurrencyKey: vorlage.concurrencyKey ?? null,
+        maxRunsPerMinute: vorlage.maxRunsPerMinute,
       });
     } catch (error) {
-      log.warn('Systemautomation konnte nicht abgeglichen werden', { ...eintrag, error });
+      log.warn('Systemautomation konnte nicht abgeglichen werden', {
+        systemKey: vorlage.systemKey,
+        error,
+      });
     }
   }
 }

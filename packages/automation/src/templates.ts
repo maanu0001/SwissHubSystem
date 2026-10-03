@@ -1,3 +1,4 @@
+import type { AutomationConcurrency } from '@swisshub/database';
 import { getAction, getCondition, getTrigger } from './registry';
 import type { ConditionNode } from './conditions';
 import type { StepNode } from './steps';
@@ -37,6 +38,33 @@ export interface AutomationVorlage {
    * Diese Liste sagt der Oberfläche, worauf sie hinweisen soll.
    */
   auszufuellen?: Array<{ pfad: string; label: string }>;
+  /**
+   * Wenn diese Vorlage eine Systemautomation beschreibt: deren Schlüssel.
+   *
+   * Damit hängen die beiden Dinge zusammen, die zusammengehören: die Zeile in
+   * der Datenbank (`Automation.systemKey`) und die Vorlage, aus der ihr Inhalt
+   * kommt. Vorher stand diese Zuordnung in einer zweiten Liste im
+   * Modulpaket - und wer nur die Vorlage ansah, konnte nicht erkennen, dass
+   * sie beim Start als Zeile entsteht.
+   *
+   * Sie beantwortet ausserdem die Frage, die `aendereSystemfelder` stellt:
+   * **welche Felder** einer Systemautomation darf eine Gilde ändern. Die
+   * Antwort ist `auszufuellen` - dieselbe Liste, die der Oberfläche sagt, was
+   * noch fehlt. Zwei Listen zu führen hiesse, dass eines Tages ein Feld in
+   * der einen steht und in der anderen nicht.
+   */
+  systemKey?: string;
+  /**
+   * Gleichzeitigkeit, falls die Vorlage darauf angewiesen ist.
+   *
+   * Steht hier nichts, gilt die Vorgabe des Speichers (`ALLOW`). Bei einer
+   * Systemautomation gehört das hierher und nicht in den Abgleich: dort wäre
+   * es ein Wert für alle Systemvorlagen gewesen - und die zweite hätte ihn
+   * geerbt, ohne dass es jemandem auffällt.
+   */
+  concurrency?: AutomationConcurrency;
+  concurrencyKey?: string;
+  maxRunsPerMinute?: number;
 }
 
 const vorlagen = new Map<string, AutomationVorlage>();
@@ -47,6 +75,34 @@ export function registerTemplate(vorlage: AutomationVorlage): void {
 
 export function getTemplate(id: string): AutomationVorlage | undefined {
   return vorlagen.get(id);
+}
+
+/** Die Vorlagen, die eine Systemautomation beschreiben. */
+export function listSystemVorlagen(): Array<AutomationVorlage & { systemKey: string }> {
+  return [...vorlagen.values()].filter((vorlage): vorlage is AutomationVorlage & { systemKey: string } =>
+    Boolean(vorlage.systemKey),
+  );
+}
+
+/**
+ * Welche Felder einer Systemautomation die Gilde ausfüllen darf.
+ *
+ * Eine Systemautomation gehört SwissHub: Name, Ablauf und Bedingungen kommen
+ * aus der Vorlage und werden bei jedem Start abgeglichen. Was der Gilde
+ * gehört, sind die Werte, die nur sie kennt - welche Rollen, welcher Kanal.
+ * Genau die stehen in `auszufuellen`.
+ *
+ * Eine leere Liste heisst «nichts freigegeben», nicht «alles». Ein
+ * unbekannter Schlüssel ergibt ebenfalls eine leere Liste: ohne Vorlage ist
+ * nicht bekannt, was vorgegeben ist, und dann ist Sperren die richtige
+ * Antwort.
+ */
+export function systemFreigabe(systemKey: string | null | undefined): Array<{ pfad: string; label: string }> {
+  if (!systemKey) {
+    return [];
+  }
+  const vorlage = [...vorlagen.values()].find((eintrag) => eintrag.systemKey === systemKey);
+  return vorlage?.auszufuellen ?? [];
 }
 
 /**

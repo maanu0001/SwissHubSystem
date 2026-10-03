@@ -7,8 +7,10 @@ import {
   istErlaubterPfad,
   leeresUmfeld,
   leseWert,
+  listSystemVorlagen,
   listTemplates,
   render,
+  systemFreigabe,
   vorlageVollstaendig,
   type AutomationContext,
 } from '@swisshub/automation';
@@ -197,11 +199,81 @@ describe('Die Systemautomation und ihr Abgleich', () => {
   it('kennt genau einen Schlüssel und holt die Vorlage aus der Registry', () => {
     const text = ohneKommentare(quelle('packages/modules/src/automation/system.ts'));
     expect(automationModul.SYSTEM_EINLADUNG_KEY).toBe('system_invite');
-    expect(text).toContain('getTemplate(');
-    // Keine zweite Beschreibung derselben Automation: was sie tut, steht in
-    // der Vorlage, nicht doppelt hier.
+    expect(text).toContain('listSystemVorlagen(');
+    /*
+     * Keine zweite Beschreibung derselben Automation: was sie tut, steht in
+     * der Vorlage. Auch keine zweite **Liste** - der Schlüssel steht an der
+     * Vorlage, nicht hier. Stünde er doppelt, liefen die beiden irgendwann
+     * auseinander, und der Abgleich fände die Vorlage nicht mehr.
+     */
     expect(text).not.toContain('nachricht.direkt');
+    expect(text).not.toContain("vorlage: '");
     expect(text).not.toMatch(/['"]\d{17,20}['"]/u);
+  });
+
+  it('verbindet die Vorlage mit dem Schlüssel, unter dem sie gespeichert wird', () => {
+    /*
+     * Die beiden Enden derselben Sache: die Zeile in der Datenbank trägt
+     * `systemKey`, die Vorlage trägt denselben Wert. Davon hängt die Freigabe
+     * ab - ohne diese Verbindung wüsste `aendereSystemfelder` nicht, welche
+     * Felder zu dieser Automation freigegeben sind, und gäbe sicherheitshalber
+     * keines frei.
+     */
+    const systemvorlagen = listSystemVorlagen();
+    expect(systemvorlagen.map((eintrag) => eintrag.systemKey)).toContain(
+      automationModul.SYSTEM_EINLADUNG_KEY,
+    );
+    expect(getTemplate('system-einladung')?.systemKey).toBe(automationModul.SYSTEM_EINLADUNG_KEY);
+  });
+
+  it('bringt ihre Gleichzeitigkeit selbst mit', () => {
+    /*
+     * Zwei gleichzeitige Einladungen an dieselbe Person wären zwei identische
+     * Direktnachrichten. Diese Werte standen im Abgleich - und damit hätte
+     * eine zweite Systemvorlage sie geerbt, ohne dass es jemandem auffällt.
+     */
+    const einladung = getTemplate('system-einladung');
+    expect(einladung?.concurrency).toBe('SKIP_IF_RUNNING');
+    expect(einladung?.concurrencyKey).toBe('{{event.subjectId}}');
+    const text = ohneKommentare(quelle('packages/modules/src/automation/system.ts'));
+    expect(text).not.toContain("'SKIP_IF_RUNNING'");
+    expect(text).toContain('vorlage.concurrency');
+  });
+
+  it('gibt genau die Felder frei, die die Vorlage ausweist', () => {
+    expect(systemFreigabe(automationModul.SYSTEM_EINLADUNG_KEY).map((feld) => feld.pfad)).toEqual([
+      'triggerConfig.rollen',
+    ]);
+    /*
+     * Leer heisst «nichts freigegeben», nicht «alles». Ein unbekannter
+     * Schlüssel ist der gefährlichere Fall: ohne Vorlage ist nicht bekannt,
+     * was vorgegeben ist - dann ist Sperren die richtige Antwort.
+     */
+    expect(systemFreigabe('gibt-es-nicht')).toEqual([]);
+    expect(systemFreigabe(null)).toEqual([]);
+  });
+
+  it('lässt an einer Systemautomation nur Werte ausfüllen, nicht den Ablauf', () => {
+    /*
+     * Die Grenze, die nicht in der Vorlage steht. Stünde dort eines Tages
+     * `steps.0.typ`, liesse sich die Aktion austauschen - aus einer
+     * Direktnachricht würde ein Rollenentzug. Der Speicher prüft deshalb die
+     * Gestalt des Pfads selbst.
+     */
+    const text = quelle('packages/automation/src/store.ts');
+    const abschnitt = text.slice(text.indexOf('function setzePfad'));
+    expect(abschnitt).toContain("teile[0] === 'triggerConfig'");
+    expect(abschnitt).toContain("teile[2] === 'config'");
+    expect(abschnitt).toContain('VERBOTENE_SCHLUESSEL');
+  });
+
+  it('verlangt für die freigegebenen Felder dieselbe Berechtigung wie das Einschalten', () => {
+    // Wer eine Systemautomation einschalten darf, darf auch sagen, für wen
+    // sie gilt; wer sie nicht einschalten darf, soll sie nicht vorbereiten.
+    const text = quelle('apps/web/src/modules/automation/actions.ts');
+    const abschnitt = text.slice(text.indexOf('export const aendereSystemautomationAction'));
+    const ende = abschnitt.indexOf('export const loescheAutomationAction');
+    expect(abschnitt.slice(0, ende)).toContain('can(ctx, P.systemManage)');
   });
 
   it('wird beim Start des Bots abgeglichen', () => {
