@@ -62,6 +62,7 @@ const kategorieSchema = z.object({
   hinweis: z.string().max(200).nullish(),
   sortOrder: z.number().int().min(0).max(999).optional(),
   publicVisible: z.boolean().optional(),
+  exklusiv: z.boolean().optional(),
 });
 
 export const erstelleKategorieAction = defineAction(

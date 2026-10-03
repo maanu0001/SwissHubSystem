@@ -1,9 +1,10 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Check, Loader2, Lock, Plus } from 'lucide-react';
+import { ConfirmationDialog } from '@/components/shared/confirmation-dialog';
 import { aendereEigeneRolleAction } from '../actions';
 import { cn } from '@/lib/utils';
 
@@ -25,6 +26,11 @@ import { cn } from '@/lib/utils';
  * Zuweisung geschieht, entscheidet `aendereEigeneRolle` beim Klick noch
  * einmal - die Seite kann Minuten alt sein. Ein manipuliertes `disabled` im
  * Browser bringt deshalb nichts.
+ *
+ * Das gilt auch für den Tausch in einer Gruppe, aus der nur eine Rolle
+ * gleichzeitig gilt: der Dialog fragt vorher, weil ein Klick sonst
+ * unangekündigt etwas wegnähme. Durchgesetzt wird die Einschränkung im
+ * Dienst - wer den Dialog umgeht, tauscht trotzdem.
  */
 export function RollenKnopf({
   discordRoleId,
@@ -34,6 +40,7 @@ export function RollenKnopf({
   vergebbar,
   entfernbar,
   sperrText,
+  weichenFuer = [],
 }: {
   discordRoleId: string;
   name: string;
@@ -42,9 +49,19 @@ export function RollenKnopf({
   vergebbar: boolean;
   entfernbar: boolean;
   sperrText: string | null;
+  /**
+   * Rollen, die dieser Klick ablegen würde - Namen, in der Reihenfolge der
+   * Seite.
+   *
+   * Nur in einer Gruppe mit «nur eine Rolle gleichzeitig» und nur, wenn die
+   * Person dort schon eine andere trägt. Leer heisst: nichts geht verloren,
+   * also auch keine Rückfrage.
+   */
+  weichenFuer?: string[];
 }): React.JSX.Element | null {
   const router = useRouter();
   const [laeuft, starte] = useTransition();
+  const [frageOffen, setFrageOffen] = useState(false);
 
   if (!vergebbar && !hatSie) {
     // Gesperrt und begründet: eine Erklärung ist mehr wert als ein Knopf, der
@@ -64,7 +81,9 @@ export function RollenKnopf({
   const richtung = hatSie ? 'entfernen' : 'hinzufuegen';
   const gesperrt = laeuft || (hatSie && !entfernbar);
 
-  const klick = (): void => {
+  const tauscht = !hatSie && weichenFuer.length > 0;
+
+  const ausfuehren = (): void => {
     starte(async () => {
       const antwort = await aendereEigeneRolleAction({ csrfToken, discordRoleId, richtung });
       if (!antwort.ok) {
@@ -83,29 +102,54 @@ export function RollenKnopf({
     });
   };
 
+  const klick = (): void => {
+    if (tauscht) {
+      setFrageOffen(true);
+      return;
+    }
+    ausfuehren();
+  };
+
   return (
-    <button
-      type="button"
-      onClick={klick}
-      disabled={gesperrt}
-      aria-label={hatSie ? `${name} abgeben` : `${name} nehmen`}
-      title={hatSie && !entfernbar ? 'Diese Rolle lässt sich nicht selbst abgeben.' : undefined}
-      className={cn(
-        'inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60',
-        hatSie
-          ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20'
-          : 'border-border bg-background text-foreground hover:bg-muted',
-      )}
-    >
-      {laeuft ? (
-        <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
-      ) : hatSie ? (
-        <Check className="size-3.5 shrink-0" aria-hidden="true" />
-      ) : (
-        <Plus className="size-3.5 shrink-0" aria-hidden="true" />
-      )}
-      {hatSie ? 'Du hast sie' : 'Nehmen'}
-    </button>
+    <>
+      {tauscht ? (
+        <ConfirmationDialog
+          open={frageOffen}
+          onOpenChange={setFrageOffen}
+          title={`«${name}» nehmen?`}
+          description={
+            weichenFuer.length === 1
+              ? `Aus dieser Gruppe gilt nur eine Rolle. «${weichenFuer[0]}» wird dafür abgegeben.`
+              : `Aus dieser Gruppe gilt nur eine Rolle. «${weichenFuer.join('», «')}» werden dafür abgegeben.`
+          }
+          confirmLabel="Tauschen"
+          onConfirm={ausfuehren}
+        />
+      ) : null}
+
+      <button
+        type="button"
+        onClick={klick}
+        disabled={gesperrt}
+        aria-label={hatSie ? `${name} abgeben` : `${name} nehmen`}
+        title={hatSie && !entfernbar ? 'Diese Rolle lässt sich nicht selbst abgeben.' : undefined}
+        className={cn(
+          'inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60',
+          hatSie
+            ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20'
+            : 'border-border bg-background text-foreground hover:bg-muted',
+        )}
+      >
+        {laeuft ? (
+          <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+        ) : hatSie ? (
+          <Check className="size-3.5 shrink-0" aria-hidden="true" />
+        ) : (
+          <Plus className="size-3.5 shrink-0" aria-hidden="true" />
+        )}
+        {hatSie ? 'Du hast sie' : tauscht ? 'Tauschen' : 'Nehmen'}
+      </button>
+    </>
   );
 }

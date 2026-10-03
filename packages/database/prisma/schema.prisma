@@ -432,6 +432,17 @@ model ServerRoleCategory {
   /// «vorbereiten und spaeter zeigen» ist der haeufigere Wunsch als «loeschen».
   publicVisible Boolean @default(true)
 
+  /// Darf man aus dieser Gruppe nur **eine** Rolle gleichzeitig tragen?
+  ///
+  /// Fuer Gruppen, in denen sich die Rollen gegenseitig ausschliessen: eine
+  /// Hauptplattform, ein Zeitfenster, ein Rang. Wer eine zweite waehlt,
+  /// tauscht - der Dienst nimmt die bisherige im selben Vorgang weg.
+  ///
+  /// Aus, weil es die Ausnahme ist. Die meisten Gruppen sind Sammlungen
+  /// («welche Spiele spielsch du»), und dort waere ein Tausch beim Anklicken
+  /// das Gegenteil des Erwarteten.
+  exklusiv Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Plus, Trash2 } from 'lucide-react';
+import { CircleDot, Eye, EyeOff, Layers, Plus, Trash2 } from 'lucide-react';
 import type { serverrollen } from '@swisshub/modules';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,7 +64,13 @@ export function KategorienVerwaltung({
 
   const aendern = (
     id: string,
-    daten: { sortOrder?: number; publicVisible?: boolean; name?: string; hinweis?: string | null },
+    daten: {
+      sortOrder?: number;
+      publicVisible?: boolean;
+      exklusiv?: boolean;
+      name?: string;
+      hinweis?: string | null;
+    },
   ): void => {
     starte(async () => {
       const antwort = await bearbeiteKategorieAction({ csrfToken, id, ...daten });
@@ -173,6 +179,33 @@ export function KategorienVerwaltung({
                   <EyeOff className="size-4" aria-hidden="true" />
                 )}
                 {gruppe.publicVisible ? 'Sichtbar' : 'Versteckt'}
+              </Button>
+
+              {/*
+               * Nur eine Rolle aus dieser Gruppe gleichzeitig.
+               *
+               * Ein Knopf und kein Haken, weil er in derselben Zeile steht wie
+               * «Sichtbar» und dasselbe tut: einen Zustand umschalten, den man
+               * am Knopf selbst ablesen kann.
+               */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={laeuft}
+                onClick={() => aendern(gruppe.id, { exklusiv: !gruppe.exklusiv })}
+                title={
+                  gruppe.exklusiv
+                    ? 'Nur eine Rolle aus dieser Gruppe gleichzeitig - klicken, um mehrere zu erlauben'
+                    : 'Mehrere Rollen aus dieser Gruppe möglich - klicken, um auf eine zu beschränken'
+                }
+              >
+                {gruppe.exklusiv ? (
+                  <CircleDot className="size-4" aria-hidden="true" />
+                ) : (
+                  <Layers className="size-4" aria-hidden="true" />
+                )}
+                {gruppe.exklusiv ? 'Nur eine' : 'Mehrere'}
               </Button>
 
               <Button

@@ -48,6 +48,8 @@ export interface KategorieFuerVerwaltung {
   hinweis: string | null;
   sortOrder: number;
   publicVisible: boolean;
+  /** Nur eine Rolle aus dieser Gruppe gleichzeitig. */
+  exklusiv: boolean;
   anzahlRollen: number;
 }
 
@@ -85,6 +87,7 @@ export async function ladeVerwaltung(): Promise<VerwaltungsAnsicht> {
       hinweis: kategorie.hinweis,
       sortOrder: kategorie.sortOrder,
       publicVisible: kategorie.publicVisible,
+      exklusiv: kategorie.exklusiv,
       anzahlRollen: kategorie._count.rollen,
     })),
     rollen: rollen
@@ -134,6 +137,7 @@ export interface KategorieEingabe {
   hinweis?: string | null;
   sortOrder?: number;
   publicVisible?: boolean;
+  exklusiv?: boolean;
 }
 
 export async function erstelleKategorie(eingabe: KategorieEingabe): Promise<string> {
@@ -147,6 +151,8 @@ export async function erstelleKategorie(eingabe: KategorieEingabe): Promise<stri
       hinweis: eingabe.hinweis ? sanitizeText(eingabe.hinweis, 200).trim() || null : null,
       sortOrder: eingabe.sortOrder ?? 0,
       publicVisible: eingabe.publicVisible ?? true,
+      // Aus, weil die Sammlung der Normalfall ist. Wer tauschen will, sagt es.
+      exklusiv: eingabe.exklusiv ?? false,
     },
   });
   return kategorie.id;
@@ -166,6 +172,7 @@ export async function bearbeiteKategorie(id: string, eingabe: Partial<KategorieE
         : {}),
       ...(eingabe.sortOrder !== undefined ? { sortOrder: eingabe.sortOrder } : {}),
       ...(eingabe.publicVisible !== undefined ? { publicVisible: eingabe.publicVisible } : {}),
+      ...(eingabe.exklusiv !== undefined ? { exklusiv: eingabe.exklusiv } : {}),
     },
   });
 }

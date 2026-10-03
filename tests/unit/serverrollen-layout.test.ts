@@ -49,3 +49,48 @@ describe('Serverrollen: eine vertikale Liste', () => {
     expect(RUMPF).toContain('<CardContent className="space-y-3">');
   });
 });
+
+const KNOPF = ohneKommentare(
+  readFileSync(join(process.cwd(), 'apps/web/src/modules/serverrollen/components/rollen-knopf.tsx'), 'utf8'),
+);
+
+/**
+ * Die Rückfrage vor einem Tausch.
+ *
+ * In einer Gruppe, aus der nur eine Rolle gleichzeitig gilt, nimmt ein Klick
+ * etwas weg. Das muss vorher dastehen - ein Dialog und kein Hinweistext
+ * danach. Durchgesetzt wird die Einschränkung im Dienst; hier festgehalten ist
+ * nur, dass die Seite nicht stumm tauscht.
+ */
+describe('Serverrollen: der Tausch wird angekündigt', () => {
+  it('fragt, ehe eine andere Rolle abgegeben wird', () => {
+    expect(KNOPF).toContain('ConfirmationDialog');
+    // Die Rückfrage hängt daran, dass tatsächlich etwas wegfällt - nicht an
+    // der Gruppe allein. Wer noch keine Rolle aus ihr hat, verliert nichts.
+    expect(KNOPF).toContain('weichenFuer.length > 0');
+  });
+
+  it('nennt im Dialog die Rolle, die wegfällt', () => {
+    // «Eine andere Rolle» wäre keine Antwort auf «welche?».
+    expect(KNOPF).toMatch(/weichenFuer\[0\]|weichenFuer\.join/u);
+  });
+
+  it('beschriftet den Knopf als Tausch und nicht als Nehmen', () => {
+    expect(KNOPF).toContain("tauscht ? 'Tauschen' : 'Nehmen'");
+  });
+
+  it('übergibt der Seite nur die Rollen derselben Gruppe', () => {
+    /*
+     * Die Liste entsteht aus `gruppe.rollen` und nicht aus allen Rollen der
+     * Seite: exklusiv heisst «eine aus dieser Gruppe», nicht «eine überhaupt».
+     */
+    expect(RUMPF).toContain('weichenFuer={');
+    expect(RUMPF).toContain('gruppe.exklusiv');
+    expect(RUMPF).toMatch(/gruppe\.rollen[\s\S]{0,400}meine\.has/u);
+  });
+
+  it('zeigt die Einschränkung an der Gruppe', () => {
+    // Zwanzig gleiche Hinweise unter zwanzig Rollen wären Rauschen.
+    expect(RUMPF).toContain('nur eine');
+  });
+});

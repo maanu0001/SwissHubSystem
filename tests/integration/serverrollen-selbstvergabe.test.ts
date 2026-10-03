@@ -33,6 +33,9 @@ const BOT_ROLLE = '900000000000005101';
 const FREI = '900000000000005102';
 const GEFAEHRLICH = '900000000000005103';
 const UEBER_DEM_BOT = '900000000000005104';
+const PLATTFORM_PC = '900000000000005105';
+const PLATTFORM_PS = '900000000000005106';
+const ANDERE_GRUPPE = '900000000000005107';
 
 interface RollenZeile {
   roleId: string;
@@ -53,6 +56,9 @@ const STANDARD_ROLLEN: RollenZeile[] = [
     permissions: DISCORD_PERMISSIONS.KICK_MEMBERS.toString(),
   },
   { roleId: UEBER_DEM_BOT, name: 'Admin-Team', position: 90 },
+  { roleId: PLATTFORM_PC, name: 'PC', color: 0x00a0a0, position: 8 },
+  { roleId: PLATTFORM_PS, name: 'PlayStation', color: 0x0000a0, position: 7 },
+  { roleId: ANDERE_GRUPPE, name: 'Minecraft', position: 6 },
 ];
 
 async function schreibeRollen(rollen: RollenZeile[]): Promise<void> {
@@ -78,11 +84,23 @@ async function schreibeRollen(rollen: RollenZeile[]): Promise<void> {
 function attrappe(eigeneRollen: string[] = []) {
   const vergeben: Array<{ discordId: string; roleId: string }> = [];
   const entzogen: Array<{ discordId: string; roleId: string }> = [];
+  /*
+   * `setRoles` getrennt mitgeschrieben, nicht in `vergeben` einsortiert.
+   *
+   * Beim Tausch in einer exklusiven Gruppe ist der **eine** Aufruf die Zusage:
+   * nacheinander entfernen und hinzufügen wären zwei, und zwischen ihnen hätte
+   * die Person zwei Rollen aus der Gruppe oder keine. Wäre er hier mit
+   * `roles.add` zusammengelegt, liesse sich das nicht mehr unterscheiden.
+   */
+  const gesetzt: Array<{ discordId: string; roleIds: string[] }> = [];
   const gateway = {
     members: {
       get: vi.fn(async (discordId: string) =>
         discordId === BOT ? mitgliedsAttrappe(BOT, [BOT_ROLLE]) : mitgliedsAttrappe(discordId, eigeneRollen),
       ),
+      setRoles: vi.fn(async (discordId: string, roleIds: string[]) => {
+        gesetzt.push({ discordId, roleIds });
+      }),
     },
     roles: {
       list: vi.fn(async () => []),
@@ -100,7 +118,7 @@ function attrappe(eigeneRollen: string[] = []) {
     },
     guild: { get: vi.fn(async () => ({ id: '1', name: 'SwissHub', ownerId: '9' })) },
   };
-  return { gateway, vergeben, entzogen };
+  return { gateway, vergeben, entzogen, gesetzt };
 }
 
 function mitgliedsAttrappe(discordId: string, roleIds: string[]) {
@@ -306,6 +324,157 @@ describeWithDatabase('Serverrollen: eine Rolle selbst nehmen', () => {
     const danach = await serverrollen.aendereEigeneRolle(MITGLIED, FREI, 'hinzufuegen');
     expect(danach.erfolg).toBe(true);
   });
+
+  // --- Eine Gruppe, aus der nur eine Rolle gleichzeitig gilt ---------------
+
+  /**
+   * Zwei Rollen in einer Gruppe anlegen und sagen, ob sie sich ausschliessen.
+   *
+   * Gibt die Kennung der Gruppe zurück, damit ein Test sie nachträglich
+   * umstellen kann - genau das ist der Fall, in dem eine offene Seite veraltet
+   * ist.
+   */
+  async function plattformgruppe(exklusiv: boolean, zweiteAbgebbar = true): Promise<string> {
+    const gruppe = await serverrollen.erstelleKategorie({ name: 'Plattform', exklusiv });
+    await serverrollen.speichereRolle(PLATTFORM_PC, { categoryId: gruppe, selfAssignable: true });
+    await serverrollen.speichereRolle(PLATTFORM_PS, {
+      categoryId: gruppe,
+      selfAssignable: true,
+      selfRemovable: zweiteAbgebbar,
+    });
+    return gruppe;
+  }
+
+  it('tauscht in einem Zug, statt die zweite Rolle daraufzulegen', async () => {
+    const discord = attrappe([PLATTFORM_PS, ANDERE_GRUPPE]);
+    setDiscordGateway(discord.gateway as never);
+    await plattformgruppe(true);
+
+    const ergebnis = await serverrollen.aendereEigeneRolle(MITGLIED, PLATTFORM_PC, 'hinzufuegen');
+
+    expect(ergebnis.erfolg).toBe(true);
+    /*
+     * Ein Aufruf für den ganzen Tausch - und nicht ein `add` plus ein
+     * `remove`. Dazwischen hätte die Person entweder zwei Plattformen oder,
+     * wenn der zweite Aufruf fehlschlägt, keine.
+     */
+    expect(discord.vergeben).toEqual([]);
+    expect(discord.entzogen).toEqual([]);
+    expect(discord.gesetzt).toHaveLength(1);
+
+    const gesetzt = discord.gesetzt[0]!.roleIds;
+    expect(gesetzt).toContain(PLATTFORM_PC);
+    expect(gesetzt).not.toContain(PLATTFORM_PS);
+    // Rollen aus anderen Gruppen bleiben unangetastet. Die Liste ist eine
+    // vollständige Liste - was hier fehlte, wäre weg.
+    expect(gesetzt).toContain(ANDERE_GRUPPE);
+
+    // Und die Person erfährt, was sie dafür abgegeben hat.
+    expect(ergebnis.getauscht).toEqual(['PlayStation']);
+    expect(ergebnis.nachricht).toContain('PlayStation');
+  });
+
+  it('stapelt weiter, wenn die Gruppe keine Einschränkung hat', async () => {
+    const discord = attrappe([PLATTFORM_PS]);
+    setDiscordGateway(discord.gateway as never);
+    await plattformgruppe(false);
+
+    const ergebnis = await serverrollen.aendereEigeneRolle(MITGLIED, PLATTFORM_PC, 'hinzufuegen');
+
+    expect(ergebnis.erfolg).toBe(true);
+    // Der Normalfall bleibt der Normalfall: «welche Spiele spielsch du» ist
+    // eine Sammlung, und dort wäre ein Tausch das Gegenteil des Erwarteten.
+    expect(discord.vergeben).toEqual([{ discordId: MITGLIED, roleId: PLATTFORM_PC }]);
+    expect(discord.gesetzt).toEqual([]);
+    expect(ergebnis.getauscht).toBeUndefined();
+  });
+
+  it('erzwingt den Tausch auch bei einer Seite, die noch von vorher offen ist', async () => {
+    const discord = attrappe([PLATTFORM_PS]);
+    setDiscordGateway(discord.gateway as never);
+    const gruppe = await plattformgruppe(false);
+
+    /*
+     * Die Gruppe wird erst nach dem Aufbau der Seite exklusiv. Die offene
+     * Seite zeigt weiter «Nehmen» und fragt nicht nach - durchgesetzt wird es
+     * trotzdem, weil der Dienst die Datenbank fragt und nicht die Seite.
+     */
+    await serverrollen.bearbeiteKategorie(gruppe, { exklusiv: true });
+
+    const ergebnis = await serverrollen.aendereEigeneRolle(MITGLIED, PLATTFORM_PC, 'hinzufuegen');
+
+    expect(ergebnis.erfolg).toBe(true);
+    expect(discord.gesetzt).toHaveLength(1);
+    expect(discord.gesetzt[0]!.roleIds).not.toContain(PLATTFORM_PS);
+  });
+
+  it('tauscht keine Rolle weg, die sich nicht selbst abgeben lässt', async () => {
+    const discord = attrappe([PLATTFORM_PS]);
+    setDiscordGateway(discord.gateway as never);
+    await plattformgruppe(true, false);
+
+    const ergebnis = await serverrollen.aendereEigeneRolle(MITGLIED, PLATTFORM_PC, 'hinzufuegen');
+
+    /*
+     * Sonst wäre die Exklusivität eine Lücke in `selfRemovable`: was über den
+     * Knopf «abgeben» nicht geht, darf über «andere nehmen» auch nicht gehen.
+     */
+    expect(ergebnis.erfolg).toBe(false);
+    expect(ergebnis.nachricht).toContain('PlayStation');
+    expect(discord.gesetzt).toEqual([]);
+    expect(discord.vergeben).toEqual([]);
+    expect(discord.entzogen).toEqual([]);
+  });
+
+  it('lässt eine Rolle aus einer anderen Gruppe in Ruhe', async () => {
+    const discord = attrappe([ANDERE_GRUPPE]);
+    setDiscordGateway(discord.gateway as never);
+    await plattformgruppe(true);
+    const andere = await serverrollen.erstelleKategorie({ name: 'Spiele', exklusiv: true });
+    await serverrollen.speichereRolle(ANDERE_GRUPPE, { categoryId: andere, selfAssignable: true });
+
+    const ergebnis = await serverrollen.aendereEigeneRolle(MITGLIED, PLATTFORM_PC, 'hinzufuegen');
+
+    // Exklusiv heisst «eine aus **dieser** Gruppe», nicht «eine überhaupt».
+    expect(ergebnis.erfolg).toBe(true);
+    expect(ergebnis.getauscht).toBeUndefined();
+    expect(discord.vergeben).toEqual([{ discordId: MITGLIED, roleId: PLATTFORM_PC }]);
+  });
+
+  it('gibt eine Rolle aus einer exklusiven Gruppe ganz normal ab', async () => {
+    const discord = attrappe([PLATTFORM_PS]);
+    setDiscordGateway(discord.gateway as never);
+    await plattformgruppe(true);
+
+    const ergebnis = await serverrollen.aendereEigeneRolle(MITGLIED, PLATTFORM_PS, 'entfernen');
+
+    // «Nur eine» heisst nicht «mindestens eine». Keine zu haben ist erlaubt.
+    expect(ergebnis.erfolg).toBe(true);
+    expect(discord.entzogen).toEqual([{ discordId: MITGLIED, roleId: PLATTFORM_PS }]);
+    expect(discord.gesetzt).toEqual([]);
+  });
+
+  it('hält den Tausch in der Prüfspur fest', async () => {
+    const discord = attrappe([PLATTFORM_PS]);
+    setDiscordGateway(discord.gateway as never);
+    await plattformgruppe(true);
+
+    await serverrollen.aendereEigeneRolle(MITGLIED, PLATTFORM_PC, 'hinzufuegen');
+
+    const eintrag = await prisma.auditLog.findFirstOrThrow({
+      where: { action: 'SERVERROLE_SELF_ADDED' },
+    });
+    // Wer später fragt, warum jemand «PlayStation» verloren hat, findet es
+    // hier - und nicht nur, dass «PC» dazugekommen ist.
+    expect((eintrag.metadata as { getauscht?: unknown }).getauscht).toEqual(['PlayStation']);
+  });
+
+  it('legt eine neue Gruppe ohne Einschränkung an', async () => {
+    const gruppe = await serverrollen.erstelleKategorie({ name: 'Ohne Angabe' });
+    const zeile = await prisma.serverRoleCategory.findUniqueOrThrow({ where: { id: gruppe } });
+    // Die Vorgabe ist die Sammlung. Wer tauschen will, sagt es ausdrücklich.
+    expect(zeile.exklusiv).toBe(false);
+  });
 });
 
 describeWithDatabase('Serverrollen: die öffentliche Seite', () => {
@@ -334,6 +503,23 @@ describeWithDatabase('Serverrollen: die öffentliche Seite', () => {
     await setModuleEnabled(serverrollen.SERVERROLLEN_MODULE_ID, false, 'test');
     clearRevisionCaches();
     expect(await serverrollen.ladeOeffentlicheRollen()).toBeNull();
+  });
+
+  it('sagt der Seite, welche Gruppe nur eine Rolle zulässt', async () => {
+    const eine = await serverrollen.erstelleKategorie({ name: 'Plattform', exklusiv: true });
+    const viele = await serverrollen.erstelleKategorie({ name: 'Spiele' });
+    await serverrollen.speichereRolle(PLATTFORM_PC, { categoryId: eine, beschreibung: 'Am Rechner' });
+    await serverrollen.speichereRolle(FREI, { categoryId: viele, beschreibung: 'Für Valorant-Abende' });
+
+    const seite = await serverrollen.ladeOeffentlicheRollen();
+
+    /*
+     * Ohne dieses Feld könnte die Seite nicht vorher fragen - der Tausch
+     * passierte dann beim ersten Klick, ohne Ankündigung.
+     */
+    const gruppen = new Map((seite?.kategorien ?? []).map((gruppe) => [gruppe.name, gruppe.exklusiv]));
+    expect(gruppen.get('Plattform')).toBe(true);
+    expect(gruppen.get('Spiele')).toBe(false);
   });
 
   it('zeigt nur Rollen, zu denen etwas eingetragen ist', async () => {

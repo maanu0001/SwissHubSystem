@@ -97,7 +97,19 @@ export default async function OeffentlicheRollenSeite(): Promise<React.JSX.Eleme
           {seite.kategorien.map((gruppe) => (
             <Card key={gruppe.id}>
               <CardHeader>
-                <CardTitle className="text-lg">{gruppe.name}</CardTitle>
+                <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
+                  {gruppe.name}
+                  {gruppe.exklusiv ? (
+                    /*
+                      Die Einschraenkung steht am Gruppentitel und nicht an
+                      jeder Rolle: sie gilt fuer die Gruppe, und zwanzig
+                      gleiche Hinweise darunter waeren Rauschen.
+                    */
+                    <span className="rounded-full border border-border/70 px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                      nur eine
+                    </span>
+                  ) : null}
+                </CardTitle>
                 {gruppe.hinweis ? <CardDescription>{gruppe.hinweis}</CardDescription> : null}
               </CardHeader>
               <CardContent className="space-y-3">
@@ -139,6 +151,17 @@ export default async function OeffentlicheRollenSeite(): Promise<React.JSX.Eleme
                           vergebbar={rolle.selbstVergebbar}
                           entfernbar={rolle.selbstEntfernbar}
                           sperrText={rolle.sperrText}
+                          weichenFuer={
+                            gruppe.exklusiv
+                              ? gruppe.rollen
+                                  .filter(
+                                    (andere) =>
+                                      andere.discordRoleId !== rolle.discordRoleId &&
+                                      meine.has(andere.discordRoleId),
+                                  )
+                                  .map((andere) => andere.name)
+                              : []
+                          }
                         />
                       </div>
                     ) : null}

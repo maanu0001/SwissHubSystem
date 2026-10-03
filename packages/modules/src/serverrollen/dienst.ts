@@ -37,6 +37,14 @@ export interface OeffentlicheKategorie {
   id: string;
   name: string;
   hinweis: string | null;
+  /**
+   * Nur **eine** Rolle aus dieser Gruppe gleichzeitig.
+   *
+   * Steht hier `true`, tauscht ein Klick statt zu stapeln. Die Seite sagt das
+   * vorher - erzwungen wird es im Dienst, denn eine veraltete Seite darf keine
+   * zweite Rolle durchlassen.
+   */
+  exklusiv: boolean;
   rollen: OeffentlicheRolle[];
 }
 
@@ -173,13 +181,19 @@ export async function ladeOeffentlicheRollen(): Promise<OeffentlicheRollenseite 
       id: kategorie.id,
       name: kategorie.name,
       hinweis: kategorie.hinweis,
+      exklusiv: kategorie.exklusiv,
       rollen: nachKategorie.get(kategorie.id) ?? [],
     }))
     .filter((gruppe) => gruppe.rollen.length > 0);
 
   const ohneGruppe = nachKategorie.get(null) ?? [];
   if (ohneGruppe.length > 0) {
-    gruppen.push({ id: 'ohne', name: 'Sonstige', hinweis: null, rollen: ohneGruppe });
+    /*
+     * «Sonstige» ist keine Gruppe, sondern der Rest. Sie kann darum nicht
+     * exklusiv sein - Rollen landen hier, weil ihnen eine Zuordnung fehlt, und
+     * nicht weil sie zusammengehören.
+     */
+    gruppen.push({ id: 'ohne', name: 'Sonstige', hinweis: null, exklusiv: false, rollen: ohneGruppe });
   }
 
   return {
@@ -200,6 +214,14 @@ export interface ZuweisungsErgebnis {
   /** Was der Person gesagt wird. */
   nachricht: string;
   urteil: SelbstzuweisungsUrteil | null;
+  /**
+   * Rollen, die beim Tausch weggefallen sind - mit Namen, nicht mit Kennung.
+   *
+   * Eine Oberfläche, die nur «gespeichert» sagt, während zwei Rollen den
+   * Besitzer gewechselt haben, lässt die Person im Unklaren. Leer bei allem,
+   * was kein Tausch war.
+   */
+  getauscht?: string[];
 }
 
 /**
@@ -306,7 +328,59 @@ export async function aendereEigeneRolle(
   }
 
   const grund = `Selbstvergabe über SwissHub (${discordId})`;
-  if (richtung === 'hinzufuegen') {
+
+  /*
+   * Eine Gruppe, aus der nur eine Rolle gleichzeitig gilt.
+   *
+   * Der Tausch passiert hier und nicht in der Oberfläche: eine Seite, die
+   * schon offen war, als die Gruppe exklusiv wurde, würde sonst eine zweite
+   * Rolle durchlassen. Dass die Seite vorher fragt, ist Höflichkeit; dass es
+   * danach nur eine ist, ist die Zusage.
+   */
+  const abzulegen =
+    richtung === 'hinzufuegen' && meta.categoryId
+      ? await geschwisterrollen(meta.categoryId, discordRoleId, mitglied.roleIds)
+      : [];
+
+  const nichtAbgebbar = abzulegen.filter((eintrag) => !eintrag.selfRemovable);
+  if (nichtAbgebbar.length > 0) {
+    /*
+     * Eine Rolle, die man nicht selbst abgeben darf, steht im Weg.
+     *
+     * Sie über den Tausch stillschweigend wegzunehmen wäre eine Lücke in
+     * `selfRemovable`: was über den Knopf «abgeben» nicht geht, darf über den
+     * Knopf «andere nehmen» auch nicht gehen. Also eine Absage mit Grund.
+     */
+    const namen = nichtAbgebbar
+      .map((eintrag) => rollen.find((treffer) => treffer.id === eintrag.discordRoleId)?.name)
+      .filter((name): name is string => Boolean(name));
+    return {
+      erfolg: false,
+      nachricht:
+        namen.length > 0
+          ? `Dafür müsste «${namen.join('», «')}» weg, und die lässt sich nicht selbst abgeben. Melde dich beim Team.`
+          : 'Dafür müsste eine Rolle weg, die sich nicht selbst abgeben lässt. Melde dich beim Team.',
+      urteil,
+    };
+  }
+
+  const getauscht = abzulegen
+    .map((eintrag) => rollen.find((treffer) => treffer.id === eintrag.discordRoleId)?.name)
+    .filter((name): name is string => Boolean(name));
+
+  if (richtung === 'hinzufuegen' && abzulegen.length > 0) {
+    /*
+     * Ein Aufruf für den ganzen Tausch.
+     *
+     * `setRoles` schreibt die Liste in einem PATCH. Nacheinander entfernen und
+     * hinzufügen wären zwei Aufrufe, und zwischen ihnen hätte die Person
+     * entweder zwei Rollen aus der Gruppe oder keine - je nachdem, welcher
+     * fehlschlägt.
+     */
+    const abgelegt = new Set(abzulegen.map((eintrag) => eintrag.discordRoleId));
+    const naechste = [...mitglied.roleIds.filter((eintrag) => !abgelegt.has(eintrag)), discordRoleId];
+    await discord.members.setRoles(discordId, naechste, grund);
+  } else if (richtung === 'hinzufuegen') {
     await discord.roles.add(discordId, discordRoleId, grund);
   } else {
     await discord.roles.remove(discordId, discordRoleId, grund);
@@ -322,12 +396,51 @@ export async function aendereEigeneRolle(
     targetDiscordId: discordId,
     targetLabel: rolle.name,
     success: true,
-    metadata: { discordRoleId },
+    metadata: { discordRoleId, ...(getauscht.length > 0 ? { getauscht } : {}) },
   });
+
+  if (getauscht.length > 0) {
+    return {
+      erfolg: true,
+      nachricht: `«${rolle.name}» ist jetzt deine - «${getauscht.join('», «')}» ist dafür weg.`,
+      urteil,
+      getauscht,
+    };
+  }
 
   return {
     erfolg: true,
     nachricht: richtung === 'hinzufuegen' ? `«${rolle.name}» ist jetzt deine.` : `«${rolle.name}» ist weg.`,
     urteil,
   };
+}
+
+/**
+ * Die anderen Rollen derselben exklusiven Gruppe, die jemand gerade trägt.
+ *
+ * Leer, wenn die Gruppe keine Einschränkung hat - dann ist nichts zu tauschen.
+ * Gefragt wird die Datenbank und nicht die Seite: welche Gruppe exklusiv ist,
+ * kann sich geändert haben, seit die Seite gebaut wurde.
+ */
+async function geschwisterrollen(
+  categoryId: string,
+  discordRoleId: string,
+  eigeneRollen: readonly string[],
+): Promise<Array<{ discordRoleId: string; selfRemovable: boolean }>> {
+  const kategorie = await prisma.serverRoleCategory.findUnique({
+    where: { id: categoryId },
+    select: { exklusiv: true },
+  });
+  if (!kategorie?.exklusiv) {
+    return [];
+  }
+
+  const geschwister = await prisma.serverRoleMeta.findMany({
+    where: {
+      categoryId,
+      discordRoleId: { in: [...eigeneRollen].filter((eintrag) => eintrag !== discordRoleId) },
+    },
+    select: { discordRoleId: true, selfRemovable: true },
+  });
+  return geschwister;
 }
