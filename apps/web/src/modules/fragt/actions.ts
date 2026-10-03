@@ -251,7 +251,15 @@ export const fragtEntwurfBearbeitenAction = defineAction(
       stimmenZeigen: z.boolean().optional(),
       ueberschrift: z.string().trim().min(1).max(240).optional(),
       untertitel: z.string().trim().max(240).nullable().optional(),
-      cta: z.string().trim().min(1).max(200).optional(),
+      /*
+       * Der Aufruf darf leer sein.
+       *
+       * `min(1)` hiess: ein geleertes Feld liess sich nicht speichern, und die
+       * Aktion antwortete mit einem Formfehler auf einen Wunsch, der legitim
+       * ist - manche Folge braucht keinen Aufruf. Leer heisst jetzt: die
+       * Aufruf-Folie zeichnet keinen Text (siehe `FolieAufruf`).
+       */
+      cta: z.string().trim().max(200).optional(),
       folien: z
         .array(
           z.object({

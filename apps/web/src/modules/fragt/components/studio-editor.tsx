@@ -90,7 +90,13 @@ export interface StudioAnsicht {
     zusatztext: string | null;
   };
   /** Was das Modul vorgibt - zur Beschriftung von «wie im Modul». */
-  vorgabe: { akzent: string; logo: fragt.ExportLogoWahl; zusatztext: string };
+  vorgabe: {
+    akzent: string;
+    logo: fragt.ExportLogoWahl;
+    zusatztext: string;
+    /** Ob ueberhaupt ein Serverlogo hochgeladen ist - sonst zeichnet «Serverlogo» das Signet. */
+    serverlogoVorhanden: boolean;
+  };
   /** Nur zur Anzeige - unveraenderlich. */
   zahlen: { gesamt: number; gewinner: string | null; prozent: number | null };
 }
@@ -120,6 +126,17 @@ const FOLIEN_LABEL: Record<fragt.FolienArt, string> = {
   duell: 'Das Duell',
   cta: 'Der Aufruf',
 };
+
+/**
+ * Die Folien in der Reihenfolge des Carousels - fuer den Vorschauwaehler.
+ *
+ * Hier und nicht aus `fragt.FOLIEN_ARTEN`: dieses Modul ist nur als `import
+ * type` eingebunden, damit die Modulschicht mit ihrer Datenbankanbindung
+ * nicht ins Client-Bundle geraet. Der `Record` darueber erzwingt die
+ * Vollstaendigkeit des Typs, und `satisfies` erzwingt sie fuer diese Liste -
+ * eine sechste Folienart bricht hier die Uebersetzung, statt still zu fehlen.
+ */
+const FOLIEN_REIHE = ['frage', 'gewinner', 'verteilung', 'duell', 'cta'] satisfies fragt.FolienArt[];
 
 export function StudioEditor({
   csrfToken,
@@ -165,11 +182,27 @@ export function StudioEditor({
    * jeder Aenderung eine neue Adresse.
    */
   const [stand, setStand] = useState(0);
+  /*
+   * Welche Folie die Vorschau zeigt.
+   *
+   * `null` heisst «die des Einzelbildes» - die Route leitet sie dann aus der
+   * Vorlage ab (`winner` wird `gewinner` und so weiter). Genau das war der
+   * Fehler, den man als «mein Untertitel erscheint nicht» erlebt hat: der
+   * Untertitel steht **nur** auf der Frage-Folie, der Aufruf **nur** auf der
+   * Aufruf-Folie, und die Vorschau zeigte keine von beiden. Man bearbeitete
+   * also Text fuer Folien, die nicht im Bild waren, und sah ihn nie.
+   *
+   * Mit dem Waehler darunter laesst sich jede Folie ansehen. Beim Wechsel des
+   * Feldes springt die Vorschau von selbst auf die Folie, auf der das Feld
+   * steht - sonst muesste man wissen, wo was erscheint, um zu sehen, dass es
+   * erscheint.
+   */
+  const [vorschauFolie, setVorschauFolie] = useState<fragt.FolienArt | null>(null);
 
   const gesperrt = ansicht.status !== 'OFFEN';
   const gepostet = ansicht.status === 'VEROEFFENTLICHT';
 
-  const vorschauAdresse = (art?: fragt.FolienArt): string =>
+  const vorschauAdresse = (art?: fragt.FolienArt | null): string =>
     `/api/fragt/grafik/${ansicht.entwurfId}?format=${format}${art ? `&art=${art}` : ''}&v=${stand}`;
 
   async function speichern(): Promise<void> {
@@ -322,6 +355,11 @@ export function StudioEditor({
               disabled={gesperrt}
               onChange={(ereignis) => setUeberschrift(ereignis.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              {ueberschrift.trim() === ''
+                ? 'Leer: auf jeder Folie steht der Wortlaut der Frage.'
+                : 'Ersetzt die Schlagzeile auf allen Folien - der Wortlaut der Frage bleibt in der Abstimmung.'}
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="studio-untertitel">Untertitel</Label>
@@ -330,8 +368,19 @@ export function StudioEditor({
               value={untertitel}
               maxLength={240}
               disabled={gesperrt}
+              /*
+               * Die Vorschau springt auf die Folie, auf der das Feld steht.
+               *
+               * Der Untertitel erscheint nur auf der Frage-Folie. Ohne diesen
+               * Sprung muesste man wissen, wo er auftaucht, um zu sehen, dass
+               * er auftaucht - und genau daran ist es vorher gescheitert.
+               */
+              onFocus={(): void => setVorschauFolie('frage')}
               onChange={(ereignis) => setUntertitel(ereignis.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              Steht auf der Frage-Folie, unter der Schlagzeile. Leer: kein Untertitel.
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="studio-cta">Aufruf</Label>
@@ -340,8 +389,14 @@ export function StudioEditor({
               value={cta}
               maxLength={200}
               disabled={gesperrt}
+              onFocus={(): void => setVorschauFolie('cta')}
               onChange={(ereignis) => setCta(ereignis.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              {cta.trim() === ''
+                ? 'Leer: die Aufruf-Folie bleibt ohne Text - schalte sie dann besser ab.'
+                : 'Steht auf der Aufruf-Folie, der letzten im Carousel.'}
+            </p>
           </div>
 
           {/* Die Zahlen - zur Ansicht, nicht zur Bearbeitung. */}
@@ -463,9 +518,29 @@ export function StudioEditor({
                   )}
                 >
                   {wahl === null ? `Wie im Modul (${LOGO_LABEL[ansicht.vorgabe.logo]})` : LOGO_LABEL[wahl]}
+                  {wahl === 'serverlogo' && !ansicht.vorgabe.serverlogoVorhanden ? (
+                    <span className="mt-0.5 block text-[0.7rem] text-muted-foreground">
+                      keins hochgeladen
+                    </span>
+                  ) : null}
                 </button>
               ))}
             </div>
+            {/*
+              Warum sich nichts aendert, wenn nichts da ist.
+
+              «Serverlogo» ohne hochgeladene Datei zeichnet das Signet - das
+              ist die bessere Grafik, aber ohne diesen Satz sieht es aus, als
+              waere die Auswahl kaputt. Der Link geht an die Stelle, an der das
+              Logo hochgeladen wird; eine zweite Upload-Flaeche hier waere eine
+              zweite Wahrheit ueber dasselbe Bild.
+            */}
+            {logo === 'serverlogo' && !ansicht.vorgabe.serverlogoVorhanden ? (
+              <p className="text-xs text-muted-foreground">
+                Es ist kein Serverlogo hochgeladen - der Export zeigt darum das Signet. Unter Einstellungen →
+                Branding lässt sich eines hinterlegen; es gilt dann überall.
+              </p>
+            ) : null}
           </div>
 
           {/* --- Zusatztext -------------------------------------------- */}
@@ -572,6 +647,46 @@ export function StudioEditor({
               {FORMATE.find((eintrag) => eintrag.wert === format)?.masse}
             </span>
           </div>
+
+          {/*
+            Welche Folie zu sehen ist.
+
+            Vorher zeigte die Vorschau immer nur das Einzelbild der Vorlage -
+            und damit nie die Frage-Folie und nie die Aufruf-Folie. Untertitel
+            und Aufruf stehen aber genau dort. Wer sie bearbeitete, sah nichts
+            und musste glauben, das Feld sei kaputt.
+          */}
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={(): void => setVorschauFolie(null)}
+              aria-pressed={vorschauFolie === null}
+              className={cn(
+                'min-h-9 rounded-full border px-3 text-xs transition-colors',
+                vorschauFolie === null
+                  ? 'border-primary bg-primary/10 text-foreground'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Einzelbild
+            </button>
+            {FOLIEN_REIHE.map((art) => (
+              <button
+                key={art}
+                type="button"
+                onClick={(): void => setVorschauFolie(art)}
+                aria-pressed={vorschauFolie === art}
+                className={cn(
+                  'min-h-9 rounded-full border px-3 text-xs transition-colors',
+                  vorschauFolie === art
+                    ? 'border-primary bg-primary/10 text-foreground'
+                    : 'border-border text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {FOLIEN_LABEL[art]}
+              </button>
+            ))}
+          </div>
           {/*
             Dasselbe Bild wie der Export.
 
@@ -581,8 +696,8 @@ export function StudioEditor({
           */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={vorschauAdresse()}
-            alt={`Vorschau: ${ueberschrift}`}
+            src={vorschauAdresse(vorschauFolie)}
+            alt={`Vorschau: ${ueberschrift || 'Folie'}`}
             className="mx-auto w-full max-w-sm rounded-lg border border-border bg-black"
           />
         </div>

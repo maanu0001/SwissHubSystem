@@ -356,6 +356,32 @@ export function zeichneSocialFolie(auftrag: FolienAuftrag): React.JSX.Element {
   }
 }
 
+/**
+ * Die Schlagzeile einer Folie.
+ *
+ * ## Warum das eine Funktion ist und kein Feldzugriff
+ *
+ * Weil es zwei Quellen gibt und genau eine Regel, welche gilt. Jede Folie
+ * zeichnete bisher `daten.frageText` - den Wortlaut, den die Leute beim
+ * Abstimmen gelesen haben. Die **Ueberschrift** daneben ist redaktionell: sie
+ * ist dafuer da, dass eine Frage auf Instagram anders klingen darf als auf
+ * Discord. So stand es im Datenmodell, so stand es im Kommentar in `daten.ts`
+ * - und sie wurde von keiner einzigen Folie gelesen.
+ *
+ * Das Feld war also einstellbar, wurde gespeichert und erschien per
+ * Konstruktion nirgends. Kein Statuscode und kein Unit-Test ueber das DTO
+ * zeigt das; man sieht es erst, wenn man das Bild anschaut.
+ *
+ * Jetzt gilt: steht eine Ueberschrift da, ist **sie** die Schlagzeile, auf
+ * jeder Folie. Ist sie leer, bleibt es beim Wortlaut der Frage - das Verhalten
+ * von vorher. Eine Stelle entscheidet das, damit die fuenf Folien nicht
+ * auseinanderlaufen koennen.
+ */
+export function schlagzeile(daten: SocialDaten): string {
+  const eigene = daten.ueberschrift.trim();
+  return eigene === '' ? daten.frageText : eigene;
+}
+
 /** Ein Auftrag, dessen Marke schon gesetzt ist - was die Folien bekommen. */
 type Erfuellt = FolienAuftrag & { marke: FolienMarke };
 
@@ -509,13 +535,13 @@ function FolieFrage({ format, daten, marke }: Erfuellt): React.JSX.Element {
           style={{
             display: 'flex',
             marginTop: klein ? 34 : 46,
-            fontSize: passendeGroesse(daten.frageText, innen, klein ? 86 : 104, 4),
+            fontSize: passendeGroesse(schlagzeile(daten), innen, klein ? 86 : 104, 4),
             fontWeight: 700,
             lineHeight: 1.08,
             color: WEISS,
           }}
         >
-          {daten.frageText}
+          {schlagzeile(daten)}
         </div>
         {daten.untertitel ? (
           <div
@@ -574,12 +600,12 @@ function FolieGewinner({ format, daten, marke }: Erfuellt): React.JSX.Element {
         <div
           style={{
             display: 'flex',
-            fontSize: passendeGroesse(daten.frageText, innen, klein ? 40 : 48, 3),
+            fontSize: passendeGroesse(schlagzeile(daten), innen, klein ? 40 : 48, 3),
             lineHeight: 1.18,
             color: GEDAEMPFT,
           }}
         >
-          {daten.frageText}
+          {schlagzeile(daten)}
         </div>
 
         {/*
@@ -710,12 +736,12 @@ function FolieOhneGewinner({
         <div
           style={{
             display: 'flex',
-            fontSize: passendeGroesse(daten.frageText, innen, klein ? 40 : 48, 3),
+            fontSize: passendeGroesse(schlagzeile(daten), innen, klein ? 40 : 48, 3),
             lineHeight: 1.18,
             color: GEDAEMPFT,
           }}
         >
-          {daten.frageText}
+          {schlagzeile(daten)}
         </div>
         <div
           style={{
@@ -803,14 +829,14 @@ function FolieVerteilung({ format, daten, marke }: Erfuellt): React.JSX.Element 
         <div
           style={{
             display: 'flex',
-            fontSize: passendeGroesse(daten.frageText, innen, klein ? 52 : 62, 3),
+            fontSize: passendeGroesse(schlagzeile(daten), innen, klein ? 52 : 62, 3),
             fontWeight: 700,
             lineHeight: 1.12,
             color: WEISS,
             marginBottom: klein ? 40 : 56,
           }}
         >
-          {daten.frageText}
+          {schlagzeile(daten)}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1065,13 +1091,18 @@ function FolieDuell({ format, daten, marke }: Erfuellt): React.JSX.Element {
           style={{
             display: 'flex',
             marginTop: klein ? 22 : 30,
-            fontSize: passendeGroesse(daten.frageText, mass.breite - (klein ? 128 : 176), klein ? 44 : 52, 2),
+            fontSize: passendeGroesse(
+              schlagzeile(daten),
+              mass.breite - (klein ? 128 : 176),
+              klein ? 44 : 52,
+              2,
+            ),
             fontWeight: 700,
             lineHeight: 1.1,
             color: WEISS,
           }}
         >
-          {daten.frageText}
+          {schlagzeile(daten)}
         </div>
       </div>
 
@@ -1107,6 +1138,7 @@ function FolieAufruf({ format, daten, marke }: Erfuellt): React.JSX.Element {
   const mass = SOCIAL_MASSE[format];
   const klein = format !== 'story';
   const innen = mass.breite - (klein ? 76 : 96) * 2;
+  const aufruf = daten.cta.trim();
 
   return (
     <Buehne
@@ -1131,28 +1163,38 @@ function FolieAufruf({ format, daten, marke }: Erfuellt): React.JSX.Element {
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', flexGrow: 1 }}>
-        {/* Ein grosses rotes Feld, in dem der Aufruf steht. Die Vorlage hat
-            genau ein Element - das ist ihre Aufgabe. */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            padding: klein ? 52 : 68,
-            backgroundColor: marke.akzent,
-          }}
-        >
+        {/*
+          Ein grosses rotes Feld, in dem der Aufruf steht. Die Vorlage hat
+          genau ein Element - das ist ihre Aufgabe.
+
+          Ohne Aufruf bleibt das Feld weg. Ein leeres farbiges Rechteck waere
+          kein Aufruf, sondern eine Flaeche, die aussieht wie ein Fehler; und
+          `passendeGroesse('')` rechnete dafuer auch noch die groesste Schrift
+          aus. Wer die Folie ganz loswerden will, schaltet sie im Studio ab -
+          das steht als Hinweis neben dem Feld.
+        */}
+        {aufruf === '' ? null : (
           <div
             style={{
               display: 'flex',
-              fontSize: passendeGroesse(daten.cta, innen - (klein ? 104 : 136), klein ? 68 : 84, 4),
-              fontWeight: 700,
-              lineHeight: 1.14,
-              color: WEISS,
+              flexDirection: 'column',
+              padding: klein ? 52 : 68,
+              backgroundColor: marke.akzent,
             }}
           >
-            {daten.cta}
+            <div
+              style={{
+                display: 'flex',
+                fontSize: passendeGroesse(aufruf, innen - (klein ? 104 : 136), klein ? 68 : 84, 4),
+                fontWeight: 700,
+                lineHeight: 1.14,
+                color: WEISS,
+              }}
+            >
+              {aufruf}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </Buehne>
   );

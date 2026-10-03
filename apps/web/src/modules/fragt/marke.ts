@@ -121,12 +121,27 @@ export async function markenVorgabe(): Promise<{
   akzent: string;
   logo: fragt.ExportLogoWahl;
   zusatztext: string;
+  serverlogoVorhanden: boolean;
 }> {
   const einstellungen = await getModuleSettings<fragt.FragtSettings>(fragt.FRAGT_MODULE_ID);
+  /*
+   * Ob es ueberhaupt ein Serverlogo gibt.
+   *
+   * `logoFuerFolie` faellt bei «serverlogo ohne hochgeladene Datei» auf das
+   * Signet zurueck - mit Absicht, denn eine leere Stelle waere eine Grafik,
+   * der man nicht ansieht, dass etwas fehlt. Nur sah man im Studio dann auch
+   * nicht, **warum** sich nichts aenderte: man waehlte «Serverlogo», und es
+   * blieb beim Signet. Das fuehlt sich an wie ein kaputtes Feld.
+   *
+   * Darum wird die Auskunft hier mitgegeben, damit der Editor sie hinschreiben
+   * kann, statt den Nutzer raten zu lassen.
+   */
+  const konfiguration = await branding.getBrandingConfig();
   return {
     akzent: normalisiereFarbe(einstellungen.exportAkzentfarbe) ?? STANDARD_AKZENT,
     logo: einstellungen.exportLogo,
     zusatztext: sanitizeText(einstellungen.exportZusatztext ?? '', 80).trim(),
+    serverlogoVorhanden: Boolean(konfiguration.logoPath),
   };
 }
 
