@@ -357,6 +357,7 @@ export type {
   WorkspaceTaskStatus,
   WorkspaceTemplate,
   WorkspaceTemplateTask,
+  WorkspaceVisibility,
   XpRaffle,
   XpRaffleDraw,
   XpRaffleEntry,

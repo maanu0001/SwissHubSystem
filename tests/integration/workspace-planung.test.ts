@@ -24,6 +24,17 @@ const { workspace } = await import('@swisshub/modules');
 const GUILD = '000000000000000001';
 const ANNA = '100000000000000001';
 
+/*
+ * Ein Betrachter, der alles sehen darf.
+ *
+ * Diese Datei prueft nicht die Sichtbarkeit - das tut
+ * `workspace-sichtbarkeit.test.ts`. Hier soll die Sichtbarkeit nichts
+ * veraendern, und `darfAlles` ist die klarste Art, das zu sagen: ohne sie
+ * haengt jede Zeile dieser Datei zusaetzlich an den Discord-Rollen einer
+ * Attrappe.
+ */
+const ALLES = { discordId: ANNA, darfAlles: true } as const;
+
 async function leeren(): Promise<void> {
   await prisma.workspaceActivity.deleteMany({});
   await prisma.workspaceMilestone.deleteMany({});
@@ -128,7 +139,7 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
     expect(projekt.status).toBe('PLANNED');
     expect(projekt.dueAt?.toISOString().slice(0, 10)).toBe('2026-12-05');
 
-    const aufgaben = await workspace.ladeAufgaben(GUILD, { projectId: projekt.id });
+    const aufgaben = await workspace.ladeAufgaben(GUILD, ALLES, { projectId: projekt.id });
     expect(aufgaben).toHaveLength(4);
     const nachTitel = new Map(
       aufgaben.map((zeile) => [zeile.aufgabe.title, zeile.aufgabe.dueAt?.toISOString().slice(0, 10) ?? null]),
@@ -158,7 +169,7 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
     });
     const projekt = await workspace.erstelleAusVorlage(vorlage.id, ANNA, { zielAm: null });
 
-    const aufgaben = await workspace.ladeAufgaben(GUILD, { projectId: projekt.id });
+    const aufgaben = await workspace.ladeAufgaben(GUILD, ALLES, { projectId: projekt.id });
     // Lieber keine Frist als zwei falsche, gerechnet auf den Tag des Anlegens.
     expect(aufgaben.every((zeile) => zeile.aufgabe.dueAt === null)).toBe(true);
   });
@@ -173,7 +184,7 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
 
     // Eine Aufgabe im Projekt streichen ändert die Vorlage nicht - die
     // Aufgaben sind Kopien und keine Verknüpfung.
-    const aufgaben = await workspace.ladeAufgaben(GUILD, { projectId: projekt.id });
+    const aufgaben = await workspace.ladeAufgaben(GUILD, ALLES, { projectId: projekt.id });
     await workspace.loescheAufgabe(aufgaben[0]!.aufgabe.id, ANNA);
 
     const geladen = (await workspace.ladeVorlagen(GUILD)).find((v) => v.id === vorlage.id);
@@ -218,6 +229,7 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
 
     const termine = await workspace.ladeTermine(
       GUILD,
+      ALLES,
       new Date('2026-06-01T00:00:00Z'),
       new Date('2026-07-01T00:00:00Z'),
     );
@@ -238,6 +250,7 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
 
     const termine = await workspace.ladeTermine(
       GUILD,
+      ALLES,
       new Date('2026-06-01T00:00:00Z'),
       new Date('2026-07-01T00:00:00Z'),
     );
@@ -263,6 +276,7 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
 
     const termine = await workspace.ladeTermine(
       GUILD,
+      ALLES,
       new Date('2026-06-01T00:00:00Z'),
       new Date('2026-07-01T00:00:00Z'),
     );
@@ -287,8 +301,8 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
 
     const von = new Date('2026-06-01T00:00:00Z');
     const bis = new Date('2026-07-01T00:00:00Z');
-    expect(await workspace.ladeTermine(GUILD, von, bis)).toHaveLength(2);
-    expect(await workspace.ladeTermine(GUILD, von, bis, { nurOffene: true })).toHaveLength(0);
+    expect(await workspace.ladeTermine(GUILD, ALLES, von, bis)).toHaveLength(2);
+    expect(await workspace.ladeTermine(GUILD, ALLES, von, bis, { nurOffene: true })).toHaveLength(0);
   });
 
   it('nimmt die Termine eines archivierten Projekts aus der Planung', async () => {
@@ -309,6 +323,7 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
 
     const termine = await workspace.ladeTermine(
       GUILD,
+      ALLES,
       new Date('2026-06-01T00:00:00Z'),
       new Date('2026-07-01T00:00:00Z'),
     );
@@ -334,12 +349,12 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
       dueAt: new Date('2026-06-10T12:00:00Z'),
     });
 
-    const vorher = (await workspace.ladeVerlauf({ projectId: projekt.id })).filter(
+    const vorher = (await workspace.ladeVerlauf({ projectId: projekt.id }, ALLES)).filter(
       (eintrag) => eintrag.art === 'milestone.changed',
     ).length;
 
     await workspace.aendereMeilenstein(meilenstein.id, ANNA, { erledigt: true });
-    const nachHaken = (await workspace.ladeVerlauf({ projectId: projekt.id })).filter(
+    const nachHaken = (await workspace.ladeVerlauf({ projectId: projekt.id }, ALLES)).filter(
       (eintrag) => eintrag.art === 'milestone.changed',
     ).length;
     // Ein Häkchen ist keine Planungsänderung.
@@ -348,7 +363,7 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
     await workspace.aendereMeilenstein(meilenstein.id, ANNA, {
       dueAt: new Date('2026-06-20T12:00:00Z'),
     });
-    const nachDatum = (await workspace.ladeVerlauf({ projectId: projekt.id })).filter(
+    const nachDatum = (await workspace.ladeVerlauf({ projectId: projekt.id }, ALLES)).filter(
       (eintrag) => eintrag.art === 'milestone.changed',
     ).length;
     expect(nachDatum).toBe(vorher + 1);
@@ -363,7 +378,7 @@ describeWithDatabase('Workspace - Planung und Vorlagen', () => {
     await workspace.aendereMeilenstein(meilenstein.id, ANNA, { erledigt: true });
     await workspace.erstelleAufgabe(GUILD, ANNA, { titel: 'Offen', projectId: projekt.id });
 
-    const ansicht = await workspace.ladeProjekt(projekt.id);
+    const ansicht = await workspace.ladeProjekt(projekt.id, ALLES);
     // Null Prozent, obwohl ein Meilenstein abgehakt ist: der Fortschritt kommt
     // aus Aufgaben. Sonst sprang er auf 50, weil jemand ein Datum bestätigt hat.
     expect(ansicht?.fortschritt).toEqual({ gesamt: 1, erledigt: 0, prozent: 0 });

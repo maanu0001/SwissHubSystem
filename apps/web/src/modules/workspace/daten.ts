@@ -1,4 +1,6 @@
 import 'server-only';
+import { can } from '@swisshub/auth';
+import type { AuthContext } from '@swisshub/auth';
 import { getModuleSettings, members, traegerDerBerechtigung, workspace } from '@swisshub/modules';
 
 /**
@@ -15,6 +17,26 @@ import { getModuleSettings, members, traegerDerBerechtigung, workspace } from '@
  * Eine eigene Namenstabelle gibt es hier nicht. Das Modul ist intern, und die
  * Identitäten sind die, die es schon gibt.
  */
+
+/**
+ * Wer schaut - fuer die Sichtbarkeitspruefung des Moduls.
+ *
+ * `darfAlles` haengt an `settingsManage`: wer die Moduleinstellungen aendern
+ * darf, verwaltet den Workspace und muss auch an ein verwaistes privates
+ * Projekt herankommen - sonst gaebe es Projekte, die niemand mehr aufraeumen
+ * kann, wenn ihre Mitglieder den Server verlassen haben.
+ *
+ * **Nicht** `projectsEdit`: das ist die Berechtigung, Projekte zu bearbeiten,
+ * und nicht die, alle zu sehen. Die beiden zu vermischen hiesse, dass jedes
+ * Teammitglied mit Schreibrecht jedes private Projekt liest - und die
+ * Sichtbarkeit waere eine Anzeigeeinstellung.
+ */
+export function workspaceBetrachter(context: AuthContext): workspace.WorkspaceBetrachter {
+  return {
+    discordId: context.user.discordId,
+    darfAlles: can(context, workspace.WORKSPACE_PERMISSIONS.settingsManage),
+  };
+}
 
 export interface Teammitglied {
   discordId: string;

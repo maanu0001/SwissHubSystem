@@ -8,6 +8,7 @@ import type { WorkspacePriority, WorkspaceTaskStatus } from '@swisshub/database'
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { ZustaendigWahl } from './zustaendig-wahl';
 import { AUFGABEN_STATUS_LABEL, PRIORITAET_LABEL } from '../labels';
 import {
   workspaceAufgabeLoeschenAction,
@@ -148,37 +149,18 @@ export function AufgabeSteuerung({
       </div>
 
       <fieldset className="space-y-2">
-        <legend className="text-sm font-medium">Zuständig</legend>
-        <div className="flex flex-wrap gap-2">
-          {team.map((mitglied) => {
-            const an = gewaehlt.includes(mitglied.discordId);
-            return (
-              <label
-                key={mitglied.discordId}
-                className={cn(
-                  'flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-3 text-sm transition-colors',
-                  an
-                    ? 'border-primary bg-primary/10 text-foreground'
-                    : 'border-border text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={an}
-                  onChange={(): void =>
-                    setGewaehlt((bisher) =>
-                      bisher.includes(mitglied.discordId)
-                        ? bisher.filter((eintrag) => eintrag !== mitglied.discordId)
-                        : [...bisher, mitglied.discordId],
-                    )
-                  }
-                  className="sr-only"
-                />
-                {mitglied.name}
-              </label>
-            );
-          })}
-        </div>
+        <ZustaendigWahl
+          team={team}
+          gewaehlt={gewaehlt}
+          aufAendern={(discordId): void =>
+            setGewaehlt((bisher) =>
+              bisher.includes(discordId)
+                ? bisher.filter((eintrag) => eintrag !== discordId)
+                : [...bisher, discordId],
+            )
+          }
+        />
+
         {/*
           Hier ist ein Speicherknopf richtig: eine Zuweisung ist eine
           Entscheidung über mehrere Kästchen, und jeder Klick einzeln zu

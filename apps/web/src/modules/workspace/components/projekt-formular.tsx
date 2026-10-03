@@ -18,6 +18,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChannelSelect } from '@/modules/configuration/components/channel-select';
+import { RoleSelect } from '@/modules/configuration/components/role-select';
+import type { ChannelOption, RoleOption } from '@/modules/configuration/components/discord-option-types';
 import { PRIORITAET_LABEL, PROJEKT_STATUS_LABEL, datumFuerFeld } from '../labels';
 import { workspaceProjektAendernAction, workspaceProjektErstellenAction } from '../actions';
 
@@ -40,17 +43,37 @@ import { workspaceProjektAendernAction, workspaceProjektErstellenAction } from '
  */
 
 const STATUS: WorkspaceProjectStatus[] = ['PLANNED', 'ACTIVE', 'PAUSED', 'COMPLETED'];
+
+/** Die drei Stufen - dieselben Werte wie im Schema. */
+type Sichtbarkeit = 'TEAM' | 'SELECTED_GROUPS' | 'PRIVATE';
 const PRIORITAETEN: WorkspacePriority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
 export function ProjektFormular({
   csrfToken,
   projekt,
+  roles = [],
+  channels = [],
 }: {
   csrfToken: string;
   projekt?: Pick<
     WorkspaceProject,
-    'id' | 'title' | 'description' | 'status' | 'priority' | 'accent' | 'startAt' | 'dueAt' | 'tags'
+    | 'id'
+    | 'title'
+    | 'description'
+    | 'status'
+    | 'priority'
+    | 'accent'
+    | 'startAt'
+    | 'dueAt'
+    | 'tags'
+    | 'visibility'
+    | 'visibleRoleIds'
+    | 'discordChannelId'
   >;
+  /** Fuer die Gruppenauswahl - dieselben Optionen wie in den Moduleinstellungen. */
+  roles?: RoleOption[];
+  /** Fuer den Projektkanal. */
+  channels?: ChannelOption[];
 }): React.JSX.Element {
   const router = useRouter();
   const [offen, setOffen] = useState(false);
@@ -65,6 +88,17 @@ export function ProjektFormular({
   const [startAt, setStartAt] = useState(datumFuerFeld(projekt?.startAt ?? null));
   const [dueAt, setDueAt] = useState(datumFuerFeld(projekt?.dueAt ?? null));
   const [tags, setTags] = useState((projekt?.tags ?? []).join(', '));
+  /*
+   * Die Sichtbarkeit steht im Anlegen-Formular und nicht in einem zweiten
+   * Schritt danach.
+   *
+   * Ein Projekt, das erst sichtbar entsteht und dann privat gestellt wird, war
+   * dazwischen offen - und wer in dieser Zeit die Liste geladen hat, hat es
+   * gesehen. Die Entscheidung gehoert also in dieselbe Maske wie der Titel.
+   */
+  const [sichtbarkeit, setSichtbarkeit] = useState<Sichtbarkeit>(projekt?.visibility ?? 'TEAM');
+  const [gruppen, setGruppen] = useState<string[]>([...(projekt?.visibleRoleIds ?? [])]);
+  const [kanal, setKanal] = useState(projekt?.discordChannelId ?? '');
 
   const speichern = (): void => {
     if (titel.trim() === '') {
@@ -86,6 +120,11 @@ export function ProjektFormular({
           .split(',')
           .map((tag) => tag.trim())
           .filter((tag) => tag !== ''),
+        sichtbarkeit,
+        // Nur bei «ausgewaehlte Gruppen» hat die Liste eine Bedeutung; sonst
+        // leert der Server sie ohnehin.
+        sichtbarFuerRollen: sichtbarkeit === 'SELECTED_GROUPS' ? gruppen : [],
+        discordChannelId: kanal || null,
       } as const;
 
       const antwort = projekt
@@ -242,6 +281,90 @@ export function ProjektFormular({
                 onChange={(ereignis): void => setTags(ereignis.target.value)}
                 placeholder="turnier, sponsoring"
               />
+            </div>
+
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Wer sieht das Projekt</legend>
+              <Select
+                value={sichtbarkeit}
+                onValueChange={(wert): void => setSichtbarkeit(wert as Sichtbarkeit)}
+              >
+                <SelectTrigger aria-label="Sichtbarkeit">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TEAM">Alle mit Workspace-Zugang</SelectItem>
+                  <SelectItem value="SELECTED_GROUPS">Nur bestimmte Rollen</SelectItem>
+                  <SelectItem value="PRIVATE">Nur die Projektmitglieder</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {sichtbarkeit === 'SELECTED_GROUPS' ? (
+                /*
+                Dieselbe Mechanik wie im Automation-Builder: `RoleSelect` waehlt
+                eine Rolle, und die gewaehlten stehen als Chips darunter. Eine
+                zweite Mehrfachauswahl zu bauen hiesse, zwei zu pflegen.
+              */
+                <div className="space-y-2">
+                  <RoleSelect
+                    id="ws-p-gruppen"
+                    value=""
+                    roles={roles.filter((rolle) => !gruppen.includes(rolle.id))}
+                    onChange={(naechste): void => {
+                      if (naechste) {
+                        setGruppen((bisher) => [...bisher, naechste]);
+                      }
+                    }}
+                    placeholder="Rolle hinzufügen"
+                  />
+                  {gruppen.length === 0 ? (
+                    <p className="text-xs text-warning">
+                      Noch keine Rolle gewählt - dann sehen es nur die Projektmitglieder.
+                    </p>
+                  ) : (
+                    <ul className="flex flex-wrap gap-1.5">
+                      {gruppen.map((rolleId) => (
+                        <li key={rolleId}>
+                          <button
+                            type="button"
+                            onClick={(): void =>
+                              setGruppen((bisher) => bisher.filter((eintrag) => eintrag !== rolleId))
+                            }
+                            className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs transition-colors hover:border-destructive/60 hover:text-destructive"
+                          >
+                            {roles.find((eintrag) => eintrag.id === rolleId)?.name ?? rolleId}
+                            <span aria-hidden="true">×</span>
+                            <span className="sr-only">entfernen</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+
+              <p className="text-xs text-muted-foreground">
+                {sichtbarkeit === 'TEAM'
+                  ? 'Projekt, Aufgaben und Kommentare sind für alle sichtbar, die den Workspace öffnen dürfen.'
+                  : sichtbarkeit === 'SELECTED_GROUPS'
+                    ? 'Die Projektmitglieder sehen es immer - zusätzlich alle mit einer dieser Rollen.'
+                    : 'Nur die Projektmitglieder. Auch Aufgaben, Kommentare und Anhänge bleiben verborgen.'}
+              </p>
+            </fieldset>
+
+            <div className="space-y-2">
+              <Label htmlFor="ws-p-kanal">Discord-Kanal</Label>
+              <ChannelSelect
+                id="ws-p-kanal"
+                channels={channels}
+                value={kanal}
+                onChange={(naechster): void => setKanal(naechster ?? '')}
+                placeholder="Kein Kanal"
+              />
+              <p className="text-xs text-muted-foreground">
+                Neue und erledigte Aufgaben sowie erreichte Meilensteine gehen als Embed dorthin. Ohne Kanal
+                passiert nichts.
+              </p>
             </div>
           </div>
         </div>

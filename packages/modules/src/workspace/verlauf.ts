@@ -1,5 +1,6 @@
 import { prisma } from '@swisshub/database';
 import { sanitizeText } from '@swisshub/shared';
+import { sichereAufgabenSicht, sichereProjektSicht, type WorkspaceBetrachter } from './sichtbarkeit';
 
 /**
  * Der Verlauf eines Projekts oder einer Aufgabe.
@@ -84,10 +85,21 @@ export async function vermerke(eingabe: VermerkEingabe): Promise<void> {
  */
 export async function ladeVerlauf(
   bezug: { taskId: string } | { projectId: string },
+  betrachter: WorkspaceBetrachter,
   grenze = 30,
 ): Promise<
   Array<{ id: string; art: string; detail: string | null; actorDiscordId: string; createdAt: Date }>
 > {
+  /*
+   * Der Verlauf ist eine Erzaehlung. «X hat den Status geaendert» zu einem
+   * Projekt, das man nicht sehen darf, ist dieselbe Auskunft wie das Projekt
+   * selbst - nur kleingeschrieben.
+   */
+  if ('taskId' in bezug) {
+    await sichereAufgabenSicht(bezug.taskId, betrachter);
+  } else {
+    await sichereProjektSicht(bezug.projectId, betrachter);
+  }
   return prisma.workspaceActivity.findMany({
     where: 'taskId' in bezug ? { taskId: bezug.taskId } : { projectId: bezug.projectId },
     orderBy: { createdAt: 'desc' },

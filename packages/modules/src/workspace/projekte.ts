@@ -1,13 +1,23 @@
 import { AUDIT_ACTIONS, prisma, recordAudit } from '@swisshub/database';
+import type { Prisma } from '@swisshub/database';
 import type {
   WorkspaceMemberRole,
   WorkspacePriority,
   WorkspaceProject,
   WorkspaceProjectStatus,
+  WorkspaceVisibility,
 } from '@swisshub/database';
+import { TEXT_CHANNEL_TYPES, discord } from '@swisshub/discord';
 import { AppError, normalisiereFarbe, sanitizeText } from '@swisshub/shared';
 import { WORKSPACE_MODULE_ID } from './config';
 import { AKTIVE_PROJEKT_STATUS, fortschritt, normalisiereTags, type Fortschritt } from './typen';
+import {
+  darfProjektSehen,
+  projektFilter,
+  rollenDesBetrachters,
+  undAlles,
+  type WorkspaceBetrachter,
+} from './sichtbarkeit';
 import { vermerke } from './verlauf';
 
 /**
@@ -41,6 +51,12 @@ export interface ProjektEingabe {
   dueAt?: Date | null;
   tags?: readonly string[];
   linkedModuleId?: string | null;
+  /** Wer es sehen darf. Vorgabe `TEAM` - siehe `sichtbarkeit.ts`. */
+  sichtbarkeit?: WorkspaceVisibility;
+  /** Die Discord-Rollen bei `SELECTED_GROUPS`. */
+  sichtbarFuerRollen?: readonly string[];
+  /** Der Kanal fuer die Ereignisse dieses Projekts - `null` heisst keine. */
+  discordChannelId?: string | null;
 }
 
 /** Was die Oberfläche von einem Projekt braucht. */
@@ -74,6 +90,63 @@ function pruefeZeitraum(startAt: Date | null, dueAt: Date | null): void {
   }
 }
 
+/**
+ * Sichtbarkeit und Rollenliste zusammen pruefen.
+ *
+ * Die beiden gehoeren zusammen und werden deshalb zusammen geprueft: Rollen
+ * ohne `SELECTED_GROUPS` waeren eine Angabe, die nichts tut, und
+ * `SELECTED_GROUPS` ohne Rollen ist ein privates Projekt, das sich nicht so
+ * nennt. Das erste wird geleert, das zweite abgewiesen - weil es aussieht wie
+ * ein Versehen und nicht wie eine Entscheidung.
+ */
+function pruefeSichtbarkeit(
+  sichtbarkeit: WorkspaceVisibility,
+  rollen: readonly string[],
+): { sichtbarkeit: WorkspaceVisibility; rollen: string[] } {
+  if (sichtbarkeit !== 'SELECTED_GROUPS') {
+    return { sichtbarkeit, rollen: [] };
+  }
+  const sauber = [...new Set(rollen.filter((rolle) => /^\d{16,20}$/u.test(rolle)))].slice(0, 25);
+  if (sauber.length === 0) {
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage: 'Wähle mindestens eine Rolle - oder stelle das Projekt auf «nur Mitglieder».',
+    });
+  }
+  return { sichtbarkeit, rollen: sauber };
+}
+
+/**
+ * Der Kanal muss ein Textkanal dieses Servers sein.
+ *
+ * Geprueft und nicht geglaubt: eine Kanalkennung aus einem Formular koennte
+ * jeden Kanal nennen, den Discord kennt - auch einen auf einem fremden Server.
+ * Die Pruefung laeuft gegen die Kanalliste der Gilde; ist sie nicht zu holen,
+ * wird die Angabe abgewiesen und nicht durchgelassen.
+ */
+async function pruefeKanal(channelId: string | null): Promise<string | null> {
+  if (!channelId) {
+    return null;
+  }
+  if (!/^\d{16,20}$/u.test(channelId)) {
+    throw new AppError('VALIDATION_FAILED', { userMessage: 'Das ist keine Kanalkennung.' });
+  }
+  // Ohne Gildenkennung: der Discord-Zugang kennt genau eine, und die Liste ist
+  // die dieser Gilde. Ein Kanal von irgendwoher steht deshalb nicht darin.
+  const kanaele = await discord.channels.list().catch(() => null);
+  if (!kanaele) {
+    throw new AppError('CONFLICT', {
+      userMessage: 'Die Kanalliste ist gerade nicht erreichbar. Versuche es nochmals.',
+    });
+  }
+  const treffer = kanaele.find((kanal) => kanal.id === channelId);
+  if (!treffer || !TEXT_CHANNEL_TYPES.has(treffer.type)) {
+    throw new AppError('VALIDATION_FAILED', {
+      userMessage: 'Dieser Kanal gibt es auf diesem Server nicht - oder er ist kein Textkanal.',
+    });
+  }
+  return channelId;
+}
+
 export async function erstelleProjekt(
   guildId: string,
   akteurDiscordId: string,
@@ -83,6 +156,15 @@ export async function erstelleProjekt(
   const startAt = eingabe.startAt ?? null;
   const dueAt = eingabe.dueAt ?? null;
   pruefeZeitraum(startAt, dueAt);
+  /*
+   * Die Sichtbarkeit wird **beim Anlegen** entschieden, nicht nachtraeglich.
+   *
+   * Ein Projekt, das erst sichtbar entsteht und dann privat gestellt wird, war
+   * dazwischen offen - und wer in dieser Zeit die Liste geladen hat, hat es
+   * gesehen. Deshalb steht die Angabe in derselben `create`-Anweisung.
+   */
+  const sicht = pruefeSichtbarkeit(eingabe.sichtbarkeit ?? 'TEAM', eingabe.sichtbarFuerRollen ?? []);
+  const kanal = await pruefeKanal(eingabe.discordChannelId ?? null);
 
   const projekt = await prisma.$transaction(async (tx) => {
     const angelegt = await tx.workspaceProject.create({
@@ -98,6 +180,9 @@ export async function erstelleProjekt(
         dueAt,
         tags: normalisiereTags(eingabe.tags ?? []),
         linkedModuleId: eingabe.linkedModuleId ?? null,
+        visibility: sicht.sichtbarkeit,
+        visibleRoleIds: sicht.rollen,
+        discordChannelId: kanal,
         createdByDiscordId: akteurDiscordId,
       },
     });
@@ -159,6 +244,19 @@ export async function aendereProjekt(
   if (eingabe.dueAt !== undefined) daten.dueAt = eingabe.dueAt;
   if (eingabe.tags !== undefined) daten.tags = normalisiereTags(eingabe.tags);
   if (eingabe.linkedModuleId !== undefined) daten.linkedModuleId = eingabe.linkedModuleId;
+  if (eingabe.sichtbarkeit !== undefined || eingabe.sichtbarFuerRollen !== undefined) {
+    // Zusammen geprueft, auch wenn nur eines der beiden Felder kam: die
+    // bisherige Liste gilt weiter, wenn keine neue mitgeschickt wurde.
+    const sicht = pruefeSichtbarkeit(
+      eingabe.sichtbarkeit ?? vorher.visibility,
+      eingabe.sichtbarFuerRollen ?? vorher.visibleRoleIds,
+    );
+    daten.visibility = sicht.sichtbarkeit;
+    daten.visibleRoleIds = sicht.rollen;
+  }
+  if (eingabe.discordChannelId !== undefined) {
+    daten.discordChannelId = await pruefeKanal(eingabe.discordChannelId);
+  }
 
   const nachher = await prisma.workspaceProject.update({ where: { id: projectId }, data: daten });
 
@@ -346,15 +444,35 @@ export async function darfBearbeiten(
  */
 export async function ladeProjekte(
   guildId: string,
+  betrachter: WorkspaceBetrachter,
   optionen: { archiviert?: boolean; status?: readonly WorkspaceProjectStatus[]; suche?: string } = {},
 ): Promise<ProjektAnsicht[]> {
   const suche = optionen.suche?.trim();
+  /*
+   * Der Sichtbarkeitsfilter steht **im** `where` und nicht hinter der Abfrage.
+   *
+   * Nachtraeglich herauszufiltern hiesse, unsichtbare Projekte zu laden - und
+   * `take: 200` wuerde dann Plaetze an Zeilen vergeben, die niemand sehen
+   * darf: eine Liste, die kuerzer wird, weil es ein privates Projekt gibt, ist
+   * selbst eine Auskunft.
+   */
+  const sicht = await projektFilter(betrachter);
   const projekte = await prisma.workspaceProject.findMany({
-    where: {
-      guildId,
-      archivedAt: optionen.archiviert ? { not: null } : null,
-      ...(optionen.status ? { status: { in: [...optionen.status] } } : {}),
-      ...(suche
+    /*
+     * Alle Teile mit UND, keiner gespreizt.
+     *
+     * Sichtbarkeit und Suche bringen beide ein `OR` mit. Gespreizt in dasselbe
+     * Objekt wuerde das eine das andere ueberschreiben - und zwar lautlos.
+     * `undAlles` kann das nicht passieren.
+     */
+    where: undAlles<Prisma.WorkspaceProjectWhereInput>(
+      sicht,
+      {
+        guildId,
+        archivedAt: optionen.archiviert ? { not: null } : null,
+        ...(optionen.status ? { status: { in: [...optionen.status] } } : {}),
+      },
+      suche
         ? {
             OR: [
               { title: { contains: suche, mode: 'insensitive' as const } },
@@ -362,8 +480,8 @@ export async function ladeProjekte(
               { tags: { has: suche.toLowerCase() } },
             ],
           }
-        : {}),
-    },
+        : null,
+    ),
     orderBy: { updatedAt: 'desc' },
     take: 200,
     include: { members: { select: { discordId: true, rolle: true } } },
@@ -409,20 +527,44 @@ export async function ladeProjekte(
 }
 
 /** Die aktiven Projekte - für Auswahllisten und die Übersicht. */
-export async function ladeAktiveProjekte(guildId: string): Promise<WorkspaceProject[]> {
+export async function ladeAktiveProjekte(
+  guildId: string,
+  betrachter: WorkspaceBetrachter,
+): Promise<WorkspaceProject[]> {
+  // Auch hier: diese Liste fuellt Auswahlfelder. Ein Projekt, das jemand nicht
+  // sehen darf, darf er auch nicht als Ziel einer Aufgabe auswaehlen.
+  const sicht = await projektFilter(betrachter);
   return prisma.workspaceProject.findMany({
-    where: { guildId, archivedAt: null, status: { in: [...AKTIVE_PROJEKT_STATUS] } },
+    where: undAlles<Prisma.WorkspaceProjectWhereInput>(sicht, {
+      guildId,
+      archivedAt: null,
+      status: { in: [...AKTIVE_PROJEKT_STATUS] },
+    }),
     orderBy: { title: 'asc' },
     take: 200,
   });
 }
 
-export async function ladeProjekt(projectId: string): Promise<ProjektAnsicht | null> {
+export async function ladeProjekt(
+  projectId: string,
+  betrachter: WorkspaceBetrachter,
+): Promise<ProjektAnsicht | null> {
   const projekt = await prisma.workspaceProject.findUnique({
     where: { id: projectId },
     include: { members: { select: { discordId: true, rolle: true } } },
   });
   if (!projekt) {
+    return null;
+  }
+  /*
+   * Nicht sichtbar ergibt `null` - dasselbe wie «gibt es nicht».
+   *
+   * Absichtlich kein Wurf: die Seite macht aus `null` ein 404, und genau das
+   * ist die richtige Antwort. Ein Fehler waere eine Fehlerseite - und die
+   * sagt, dass da etwas ist.
+   */
+  const rollen = await rollenDesBetrachters(betrachter);
+  if (!darfProjektSehen(projekt, betrachter, rollen)) {
     return null;
   }
   const zeilen = await prisma.workspaceTask.groupBy({

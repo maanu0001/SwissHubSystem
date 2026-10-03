@@ -8,6 +8,7 @@ import type {
 import { AppError, sanitizeText } from '@swisshub/shared';
 import { MAX_UPLOAD_BYTES, storeLogoUpload } from '../branding/storage';
 import { meldeEreignis } from '../automation/emit';
+import { sichereAufgabenSicht, sichereProjektSicht, type WorkspaceBetrachter } from './sichtbarkeit';
 import { vermerke } from './verlauf';
 
 /**
@@ -152,7 +153,12 @@ export async function loescheKommentar(kommentarId: string, akteurDiscordId: str
   await prisma.workspaceComment.delete({ where: { id: kommentarId } });
 }
 
-export async function ladeKommentare(taskId: string, grenze = 100): Promise<WorkspaceComment[]> {
+export async function ladeKommentare(
+  taskId: string,
+  betrachter: WorkspaceBetrachter,
+  grenze = 100,
+): Promise<WorkspaceComment[]> {
+  await sichereAufgabenSicht(taskId, betrachter);
   return prisma.workspaceComment.findMany({
     where: { taskId },
     orderBy: { createdAt: 'asc' },
@@ -226,7 +232,11 @@ export async function loescheChecklistenpunkt(punktId: string): Promise<void> {
   await prisma.workspaceChecklistItem.delete({ where: { id: punktId } });
 }
 
-export async function ladeCheckliste(taskId: string): Promise<WorkspaceChecklistItem[]> {
+export async function ladeCheckliste(
+  taskId: string,
+  betrachter: WorkspaceBetrachter,
+): Promise<WorkspaceChecklistItem[]> {
+  await sichereAufgabenSicht(taskId, betrachter);
   return prisma.workspaceChecklistItem.findMany({
     where: { taskId },
     orderBy: { position: 'asc' },
@@ -332,8 +342,30 @@ export async function loescheLink(linkId: string): Promise<void> {
   await prisma.workspaceLink.delete({ where: { id: linkId } });
 }
 
-export async function ladeLinks(bezug: { taskId: string } | { projectId: string }): Promise<WorkspaceLink[]> {
+export async function ladeLinks(
+  bezug: { taskId: string } | { projectId: string },
+  betrachter: WorkspaceBetrachter,
+): Promise<WorkspaceLink[]> {
+  await sichereBezug(bezug, betrachter);
   return prisma.workspaceLink.findMany({ where: bezug, orderBy: { createdAt: 'asc' }, take: 50 });
+}
+
+/**
+ * Der Bezug - Aufgabe oder Projekt - durch dieselbe Pruefung.
+ *
+ * Links und Anhaenge haengen an einem von beiden, und beide Wege muessen
+ * gleich eng sein: ein Anhang an einer Aufgabe eines privaten Projekts waere
+ * sonst ueber die Anhangliste erreichbar, obwohl die Aufgabe es nicht ist.
+ */
+async function sichereBezug(
+  bezug: { taskId: string } | { projectId: string },
+  betrachter: WorkspaceBetrachter,
+): Promise<void> {
+  if ('taskId' in bezug) {
+    await sichereAufgabenSicht(bezug.taskId, betrachter);
+    return;
+  }
+  await sichereProjektSicht(bezug.projectId, betrachter);
 }
 
 // --- Anhänge ----------------------------------------------------------------
@@ -409,7 +441,9 @@ export async function loescheAnhang(anhangId: string): Promise<void> {
 
 export async function ladeAnhaenge(
   bezug: { taskId: string } | { projectId: string },
+  betrachter: WorkspaceBetrachter,
 ): Promise<WorkspaceAttachment[]> {
+  await sichereBezug(bezug, betrachter);
   return prisma.workspaceAttachment.findMany({
     where: bezug,
     orderBy: { createdAt: 'asc' },

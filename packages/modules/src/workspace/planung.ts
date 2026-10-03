@@ -1,7 +1,15 @@
 import { prisma } from '@swisshub/database';
-import type { WorkspaceMilestone, WorkspacePriority } from '@swisshub/database';
+import type { Prisma, WorkspaceMilestone, WorkspacePriority } from '@swisshub/database';
 import { AppError, sanitizeText } from '@swisshub/shared';
 import { nichtArchiviert } from './aufgaben';
+import { meldeImProjektkanal } from './kanalmeldung';
+import {
+  aufgabenFilter,
+  projektFilter,
+  sichereProjektSicht,
+  undAlles,
+  type WorkspaceBetrachter,
+} from './sichtbarkeit';
 import { OFFENE_STATUS } from './typen';
 import { vermerke } from './verlauf';
 
@@ -56,18 +64,35 @@ export interface Termin {
  */
 export async function ladeTermine(
   guildId: string,
+  betrachter: WorkspaceBetrachter,
   von: Date,
   bis: Date,
   optionen: { nurOffene?: boolean } = {},
 ): Promise<Termin[]> {
+  /*
+   * Drei Abfragen, ein Filter.
+   *
+   * Der Kalender ist die unauffaelligste Luecke: er zeigt Aufgaben,
+   * Meilensteine **und** Projektziele - drei Wege zum Titel eines privaten
+   * Projekts. Alle drei tragen deshalb denselben Filter, und ein vierter Weg
+   * muesste ihn ebenso tragen.
+   */
+  const [aufgabenSicht, projektSicht] = await Promise.all([
+    aufgabenFilter(betrachter),
+    projektFilter(betrachter),
+  ]);
   const [aufgaben, meilensteine, projekte] = await Promise.all([
     prisma.workspaceTask.findMany({
-      where: {
-        guildId,
-        dueAt: { gte: von, lt: bis },
-        ...(optionen.nurOffene ? { status: { in: [...OFFENE_STATUS] } } : {}),
-        ...nichtArchiviert(),
-      },
+      // Mit UND: Sichtbarkeit und «nicht archiviert» haben beide ein `OR`.
+      where: undAlles<Prisma.WorkspaceTaskWhereInput>(
+        aufgabenSicht,
+        {
+          guildId,
+          dueAt: { gte: von, lt: bis },
+          ...(optionen.nurOffene ? { status: { in: [...OFFENE_STATUS] } } : {}),
+        },
+        nichtArchiviert(),
+      ),
       select: {
         id: true,
         title: true,
@@ -82,7 +107,11 @@ export async function ladeTermine(
     prisma.workspaceMilestone.findMany({
       where: {
         dueAt: { gte: von, lt: bis },
-        project: { guildId, archivedAt: null },
+        // Der Filter steckt im Projekt, weil ein Meilenstein immer eines hat.
+        project: undAlles<Prisma.WorkspaceProjectWhereInput>(projektSicht, {
+          guildId,
+          archivedAt: null,
+        }),
         ...(optionen.nurOffene ? { erledigt: false } : {}),
       },
       select: {
@@ -96,7 +125,11 @@ export async function ladeTermine(
       take: 200,
     }),
     prisma.workspaceProject.findMany({
-      where: { guildId, archivedAt: null, dueAt: { gte: von, lt: bis } },
+      where: undAlles<Prisma.WorkspaceProjectWhereInput>(projektSicht, {
+        guildId,
+        archivedAt: null,
+        dueAt: { gte: von, lt: bis },
+      }),
       select: { id: true, title: true, dueAt: true, status: true, accent: true },
       take: 100,
     }),
@@ -256,6 +289,20 @@ export async function aendereMeilenstein(
     });
   }
 
+  /*
+   * Ein erreichter Meilenstein ist die Nachricht, die ein Team lesen will.
+   *
+   * Nur beim Wechsel auf erledigt - nicht bei jedem Speichern, und nicht beim
+   * Zuruecknehmen: «Meilenstein wieder offen» ist eine Korrektur und keine
+   * Mitteilung.
+   */
+  if (eingabe.erledigt === true && !vorher.erledigt) {
+    await meldeImProjektkanal(vorher.projectId, {
+      titel: `Meilenstein erreicht: ${nachher.title}`,
+      pfad: `/workspace/projekte/${vorher.projectId}`,
+    });
+  }
+
   return nachher;
 }
 
@@ -267,7 +314,11 @@ export async function loescheMeilenstein(meilensteinId: string): Promise<void> {
   await prisma.workspaceMilestone.delete({ where: { id: meilensteinId } });
 }
 
-export async function ladeMeilensteine(projectId: string): Promise<WorkspaceMilestone[]> {
+export async function ladeMeilensteine(
+  projectId: string,
+  betrachter: WorkspaceBetrachter,
+): Promise<WorkspaceMilestone[]> {
+  await sichereProjektSicht(projectId, betrachter);
   return prisma.workspaceMilestone.findMany({
     where: { projectId },
     orderBy: { dueAt: 'asc' },

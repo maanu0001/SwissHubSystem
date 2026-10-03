@@ -11,7 +11,7 @@ import { StatCard } from '@/components/shared/stat-card';
 import { EmptyState } from '@/components/shared/states';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { ladeTeam, namenKarte, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import {
   ChecklisteZahl,
   Frist,
@@ -27,6 +27,7 @@ import { ArchivKnopf, Mitgliederverwaltung } from '@/modules/workspace/component
 import { Anhaenge, Links } from '@/modules/workspace/components/mitarbeit';
 import { Meilensteine } from '@/modules/workspace/components/meilensteine';
 import { ROLLE_LABEL, VERLAUF_LABEL, zeitpunktText } from '@/modules/workspace/labels';
+import { loadDiscordOptions } from '@/server/configuration';
 
 export const metadata: Metadata = { title: 'Projekt · Workspace' };
 export const dynamic = 'force-dynamic';
@@ -47,12 +48,21 @@ export default async function WorkspaceProjektPage({
   params: Promise<{ projectId: string }>;
 }): Promise<React.JSX.Element> {
   const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const betrachter = workspaceBetrachter(context);
+  /*
+   * Rollen und Kanaele fuer das Projektformular.
+   *
+   * Aus demselben Zwischenspeicher wie die Moduleinstellungen - die Liste
+   * gilt eine Minute, und eine zweite Quelle fuer Discord-Optionen waere eine
+   * zweite Antwort auf dieselbe Frage.
+   */
+  const discordOptionen = await loadDiscordOptions();
   const { projectId } = await params;
   const guildId = await resolveGuildId();
   const einstellungen = await workspaceEinstellungen();
   const jetzt = new Date();
 
-  const ansicht = await workspace.ladeProjekt(projectId);
+  const ansicht = await workspace.ladeProjekt(projectId, betrachter);
   // Ein Projekt einer anderen Gilde ist für diese Seite kein Projekt. Ohne
   // diese Prüfung wäre die Kennung in der Adresse ein Weg hinein.
   if (!ansicht || ansicht.projekt.guildId !== guildId) {
@@ -60,16 +70,16 @@ export default async function WorkspaceProjektPage({
   }
 
   const [aufgaben, verlauf, team, zahlen, links, anhaenge, meilensteine] = await Promise.all([
-    workspace.ladeAufgaben(guildId, { projectId, mitArchivierten: true, grenze: 200 }),
-    workspace.ladeVerlauf({ projectId }, 20),
+    workspace.ladeAufgaben(guildId, betrachter, { projectId, mitArchivierten: true, grenze: 200 }),
+    workspace.ladeVerlauf({ projectId }, betrachter, 20),
     ladeTeam(),
-    workspace.ladeUebersichtszahlen(guildId, context.user.discordId, {
+    workspace.ladeUebersichtszahlen(guildId, betrachter, {
       jetzt,
       baldTage: einstellungen.baldFaelligTage,
     }),
-    workspace.ladeLinks({ projectId }),
-    workspace.ladeAnhaenge({ projectId }),
-    workspace.ladeMeilensteine(projectId),
+    workspace.ladeLinks({ projectId }, betrachter),
+    workspace.ladeAnhaenge({ projectId }, betrachter),
+    workspace.ladeMeilensteine(projectId, betrachter),
   ]);
 
   const namen = await namenKarte([
@@ -131,7 +141,12 @@ export default async function WorkspaceProjektPage({
               />
             ) : null}
             {darfBearbeiten && !ansicht.projekt.archivedAt ? (
-              <ProjektFormular csrfToken={csrfToken} projekt={ansicht.projekt} />
+              <ProjektFormular
+                csrfToken={csrfToken}
+                projekt={ansicht.projekt}
+                roles={discordOptionen.roles}
+                channels={discordOptionen.channels}
+              />
             ) : null}
             {darfArchivieren ? (
               <ArchivKnopf

@@ -28,6 +28,17 @@ const GUILD = '000000000000000001';
 const ANNA = '100000000000000001';
 const BEN = '100000000000000002';
 
+/*
+ * Ein Betrachter, der alles sehen darf.
+ *
+ * Diese Datei prueft nicht die Sichtbarkeit - das tut
+ * `workspace-sichtbarkeit.test.ts`. Hier soll die Sichtbarkeit nichts
+ * veraendern, und `darfAlles` ist die klarste Art, das zu sagen: ohne sie
+ * haengt jede Zeile dieser Datei zusaetzlich an den Discord-Rollen einer
+ * Attrappe.
+ */
+const ALLES = { discordId: ANNA, darfAlles: true } as const;
+
 async function leeren(): Promise<void> {
   await prisma.workspaceComment.deleteMany({});
   await prisma.workspaceChecklistItem.deleteMany({});
@@ -87,7 +98,7 @@ describeWithDatabase('Workspace - Mitarbeit', () => {
   it('hält einen Kommentar im Verlauf fest', async () => {
     const taskId = await eineAufgabe();
     await workspace.schreibeKommentar(taskId, ANNA, 'Erledigt bis Freitag.');
-    const verlauf = await workspace.ladeVerlauf({ taskId });
+    const verlauf = await workspace.ladeVerlauf({ taskId }, ALLES);
     expect(verlauf.map((eintrag) => eintrag.art)).toContain('task.comment');
   });
 
@@ -114,7 +125,7 @@ describeWithDatabase('Workspace - Mitarbeit', () => {
     await workspace.ergaenzeChecklistenpunkt(taskId, ANNA, 'Zweitens');
     await workspace.ergaenzeChecklistenpunkt(taskId, ANNA, 'Drittens');
 
-    const punkte = await workspace.ladeCheckliste(taskId);
+    const punkte = await workspace.ladeCheckliste(taskId, ALLES);
     expect(punkte.map((punkt) => punkt.text)).toEqual(['Erstens', 'Zweitens', 'Drittens']);
     expect(punkte.map((punkt) => punkt.position)).toEqual([0, 1, 2]);
   });
@@ -132,7 +143,7 @@ describeWithDatabase('Workspace - Mitarbeit', () => {
     await workspace.ergaenzeChecklistenpunkt(taskId, ANNA, 'B');
     await workspace.hakeAb(eins.id, true);
 
-    const ansicht = await workspace.ladeAufgabe(taskId);
+    const ansicht = await workspace.ladeAufgabe(taskId, ALLES);
     expect(ansicht?.checklisteGesamt).toBe(2);
     expect(ansicht?.checklisteOffen).toBe(1);
   });
@@ -177,10 +188,10 @@ describeWithDatabase('Workspace - Mitarbeit', () => {
     const projekt = await workspace.erstelleProjekt(GUILD, ANNA, { titel: 'Mit Links' });
     await workspace.ergaenzeLink({ projectId: projekt.id }, ANNA, 'Design', 'https://example.com/d');
 
-    expect(await workspace.ladeLinks({ projectId: projekt.id })).toHaveLength(1);
+    expect(await workspace.ladeLinks({ projectId: projekt.id }, ALLES)).toHaveLength(1);
     // Und nicht an einer beliebigen Aufgabe.
     const taskId = await eineAufgabe();
-    expect(await workspace.ladeLinks({ taskId })).toHaveLength(0);
+    expect(await workspace.ladeLinks({ taskId }, ALLES)).toHaveLength(0);
   });
 
   it('nimmt keinen Link an eine Aufgabe, die es nicht gibt', async () => {

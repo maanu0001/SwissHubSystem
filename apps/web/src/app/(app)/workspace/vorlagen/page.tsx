@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/shared/states';
 import { cn } from '@/lib/utils';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { workspaceEinstellungen } from '@/modules/workspace/daten';
+import { workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import { PRIORITAET_LABEL } from '@/modules/workspace/labels';
 import { Tags } from '@/modules/workspace/components/abzeichen';
 import {
@@ -57,6 +57,7 @@ export default async function WorkspaceVorlagenPage({
    * `view` nicht hat.
    */
   const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const betrachter = workspaceBetrachter(context);
   const { archiv } = await searchParams;
   const archiviert = archiv === 'ja';
   const guildId = await resolveGuildId();
@@ -64,7 +65,7 @@ export default async function WorkspaceVorlagenPage({
 
   const [vorlagen, zahlen] = await Promise.all([
     workspace.ladeVorlagen(guildId, { archiviert }),
-    workspace.ladeUebersichtszahlen(guildId, context.user.discordId, {
+    workspace.ladeUebersichtszahlen(guildId, betrachter, {
       baldTage: einstellungen.baldFaelligTage,
     }),
   ]);

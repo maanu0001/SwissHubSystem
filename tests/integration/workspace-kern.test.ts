@@ -38,6 +38,17 @@ const GUILD = '000000000000000001';
 const ANNA = '100000000000000001';
 const BEN = '100000000000000002';
 
+/*
+ * Ein Betrachter, der alles sehen darf.
+ *
+ * Diese Datei prueft nicht die Sichtbarkeit - das tut
+ * `workspace-sichtbarkeit.test.ts`. Hier soll die Sichtbarkeit nichts
+ * veraendern, und `darfAlles` ist die klarste Art, das zu sagen: ohne sie
+ * haengt jede Zeile dieser Datei zusaetzlich an den Discord-Rollen einer
+ * Attrappe.
+ */
+const ALLES = { discordId: ANNA, darfAlles: true } as const;
+
 async function leeren(): Promise<void> {
   await prisma.workspaceActivity.deleteMany({});
   await prisma.workspaceTaskAssignee.deleteMany({});
@@ -185,7 +196,7 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
     await workspace.setzeStatus(eine.id, ANNA, 'DONE');
     await workspace.setzeStatus(zwei.id, ANNA, 'CANCELLED');
 
-    const ansicht = await workspace.ladeProjekt(projekt.id);
+    const ansicht = await workspace.ladeProjekt(projekt.id, ALLES);
     // Eine zählende Aufgabe, und die ist fertig - nicht zwei von zwei und
     // nicht eine von zwei.
     expect(ansicht?.fortschritt).toEqual({ gesamt: 1, erledigt: 1, prozent: 100 });
@@ -199,7 +210,7 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
     await workspace.erstelleAufgabe(GUILD, ANNA, { titel: 'C', projectId: zwei.id });
     await workspace.setzeStatus(a.id, ANNA, 'DONE');
 
-    const liste = await workspace.ladeProjekte(GUILD);
+    const liste = await workspace.ladeProjekte(GUILD, ALLES);
     const nachTitel = new Map(liste.map((zeile) => [zeile.projekt.title, zeile]));
     expect(nachTitel.get('Eins')?.fortschritt.prozent).toBe(50);
     expect(nachTitel.get('Eins')?.offeneAufgaben).toBe(1);
@@ -214,16 +225,16 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
     await workspace.archiviere(projekt.id, ANNA);
 
     // Aus den Standardansichten verschwunden …
-    expect(await workspace.ladeProjekte(GUILD)).toHaveLength(0);
+    expect(await workspace.ladeProjekte(GUILD, ALLES)).toHaveLength(0);
     // … aber im Archiv, und Status und Merker laufen nicht auseinander.
-    const archiv = await workspace.ladeProjekte(GUILD, { archiviert: true });
+    const archiv = await workspace.ladeProjekte(GUILD, ALLES, { archiviert: true });
     expect(archiv).toHaveLength(1);
     expect(archiv[0]?.projekt.status).toBe('ARCHIVED');
     expect(archiv[0]?.projekt.archivedByDiscordId).toBe(ANNA);
     // Die Aufgaben sind noch da - nur nicht mehr in der Standardliste.
     expect(await prisma.workspaceTask.count({ where: { projectId: projekt.id } })).toBe(1);
-    expect(await workspace.ladeAufgaben(GUILD)).toHaveLength(0);
-    expect(await workspace.ladeAufgaben(GUILD, { mitArchivierten: true })).toHaveLength(1);
+    expect(await workspace.ladeAufgaben(GUILD, ALLES)).toHaveLength(0);
+    expect(await workspace.ladeAufgaben(GUILD, ALLES, { mitArchivierten: true })).toHaveLength(1);
 
     // Zweimal archivieren ändert nichts und wirft nicht.
     const nochmal = await workspace.archiviere(projekt.id, ANNA);
@@ -232,14 +243,14 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
     const zurueck = await workspace.holeZurueck(projekt.id, ANNA);
     expect(zurueck.archivedAt).toBeNull();
     expect(zurueck.status).toBe('ACTIVE');
-    expect(await workspace.ladeAufgaben(GUILD)).toHaveLength(1);
+    expect(await workspace.ladeAufgaben(GUILD, ALLES)).toHaveLength(1);
   });
 
   it('lässt eine Aufgabe ohne Projekt in der Standardansicht stehen', async () => {
     // Sie ist nicht archiviert - sie hat nur kein Projekt. Ohne die
     // Sonderbehandlung fiele sie aus jeder Liste.
     await workspace.erstelleAufgabe(GUILD, ANNA, { titel: 'Freischwebend' });
-    const liste = await workspace.ladeAufgaben(GUILD);
+    const liste = await workspace.ladeAufgaben(GUILD, ALLES);
     expect(liste.map((zeile) => zeile.aufgabe.title)).toEqual(['Freischwebend']);
   });
 
@@ -334,7 +345,7 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
     });
     expect(zustaendige.map((eintrag) => eintrag.discordId)).toEqual([ANNA]);
 
-    const verlauf = await workspace.ladeVerlauf({ taskId: aufgabe.id });
+    const verlauf = await workspace.ladeVerlauf({ taskId: aufgabe.id }, ALLES);
     expect(verlauf.filter((eintrag) => eintrag.art === 'task.assignee')).toHaveLength(2);
   });
 
@@ -354,7 +365,7 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
       prioritaet: 'URGENT',
     });
 
-    const liste = await workspace.ladeAufgaben(GUILD);
+    const liste = await workspace.ladeAufgaben(GUILD, ALLES);
     // Ein Termin morgen geht einer wichtigen Aufgabe ohne Datum vor, und was
     // keine Frist hat, steht hinten statt die Liste zu füllen.
     expect(liste.map((zeile) => zeile.aufgabe.id)).toEqual([bald.id, spaeter.id, ohne.id]);
@@ -371,14 +382,14 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
     });
     const offen = await workspace.erstelleAufgabe(GUILD, ANNA, { titel: 'Niemand' });
 
-    expect((await workspace.ladeAufgaben(GUILD, { zustaendig: ANNA })).map((z) => z.aufgabe.id)).toEqual([
-      meine.id,
-    ]);
-    expect((await workspace.ladeAufgaben(GUILD, { ohneZustaendige: true })).map((z) => z.aufgabe.id)).toEqual(
-      [offen.id],
-    );
-    expect(await workspace.ladeAufgaben(GUILD, { zustaendig: BEN })).toHaveLength(1);
-    expect((await workspace.ladeAufgaben(GUILD, { zustaendig: BEN }))[0]?.aufgabe.id).toBe(fremde.id);
+    expect(
+      (await workspace.ladeAufgaben(GUILD, ALLES, { zustaendig: ANNA })).map((z) => z.aufgabe.id),
+    ).toEqual([meine.id]);
+    expect(
+      (await workspace.ladeAufgaben(GUILD, ALLES, { ohneZustaendige: true })).map((z) => z.aufgabe.id),
+    ).toEqual([offen.id]);
+    expect(await workspace.ladeAufgaben(GUILD, ALLES, { zustaendig: BEN })).toHaveLength(1);
+    expect((await workspace.ladeAufgaben(GUILD, ALLES, { zustaendig: BEN }))[0]?.aufgabe.id).toBe(fremde.id);
   });
 
   it('schreibt den Verlauf, aber nicht jeden Zug ins Audit Log', async () => {
@@ -387,7 +398,7 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
     await workspace.setzeStatus(aufgabe.id, ANNA, 'DONE');
     await workspace.setzePrioritaet(aufgabe.id, ANNA, 'HIGH');
 
-    const verlauf = await workspace.ladeVerlauf({ taskId: aufgabe.id });
+    const verlauf = await workspace.ladeVerlauf({ taskId: aufgabe.id }, ALLES);
     expect(verlauf.map((eintrag) => eintrag.art)).toEqual([
       'task.priority',
       'task.done',
@@ -417,9 +428,9 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
     });
     await workspace.erstelleProjekt(GUILD, ANNA, { titel: 'Sponsoring Acme' });
 
-    expect(await workspace.ladeProjekte(GUILD, { suche: 'winter' })).toHaveLength(1);
-    expect(await workspace.ladeProjekte(GUILD, { suche: 'Turnier' })).toHaveLength(1);
-    expect(await workspace.ladeProjekte(GUILD, { suche: 'nichts' })).toHaveLength(0);
+    expect(await workspace.ladeProjekte(GUILD, ALLES, { suche: 'winter' })).toHaveLength(1);
+    expect(await workspace.ladeProjekte(GUILD, ALLES, { suche: 'Turnier' })).toHaveLength(1);
+    expect(await workspace.ladeProjekte(GUILD, ALLES, { suche: 'nichts' })).toHaveLength(0);
   });
 
   it('verlangt einen Titel', async () => {

@@ -11,6 +11,8 @@ import { meldeEreignis } from '../automation/emit';
 import { getModuleSettings } from '../module-state';
 import { WORKSPACE_MODULE_ID, type WorkspaceSettings } from './config';
 import { PRIORITAET_GEWICHT, normalisiereTags } from './typen';
+import { meldeImProjektkanal } from './kanalmeldung';
+import { aufgabenFilter, undAlles, type WorkspaceBetrachter } from './sichtbarkeit';
 import { vermerke } from './verlauf';
 
 /**
@@ -164,6 +166,17 @@ export async function erstelleAufgabe(
     metadata: { taskId: aufgabe.id, projectId },
   });
   await meldeZuweisungen(aufgabe, zustaendige, akteurDiscordId);
+  // In den Kanal des Projekts, falls einer eingetragen ist - und ohne den
+  // Vorgang abzubrechen, wenn Discord gerade nicht mitspielt.
+  await meldeImProjektkanal(aufgabe.projectId, {
+    titel: `Neue Aufgabe: ${aufgabe.title}`,
+    felder: [
+      { name: 'Priorität', value: aufgabe.priority },
+      ...(aufgabe.dueAt ? [{ name: 'Fällig', value: aufgabe.dueAt.toISOString().slice(0, 10) }] : []),
+      ...(zustaendige.length > 0 ? [{ name: 'Zuständig', value: `${zustaendige.length}` }] : []),
+    ],
+    pfad: `/workspace/aufgaben/${aufgabe.id}`,
+  });
 
   return aufgabe;
 }
@@ -312,6 +325,21 @@ export async function setzeStatus(
 
   if (status === 'BLOCKED') {
     await meldeBlockiert(vorher, akteurDiscordId);
+  }
+
+  /*
+   * Erledigt und blockiert gehen in den Kanal, die uebrigen Wechsel nicht.
+   *
+   * «Offen → In Arbeit» ist der Alltag; dafuer eine Nachricht zu schicken
+   * hiesse, den Kanal mit dem Board zu verwechseln. Erledigt ist ein Ergebnis,
+   * blockiert ein Hilferuf - beides will man lesen, ohne das Board zu oeffnen.
+   */
+  if (erledigt || status === 'BLOCKED') {
+    await meldeImProjektkanal(vorher.projectId, {
+      titel: erledigt ? `Erledigt: ${nachher.title}` : `Blockiert: ${nachher.title}`,
+      ...(erledigt ? {} : { beschreibung: 'Die Aufgabe kommt nicht weiter.' }),
+      pfad: `/workspace/aufgaben/${taskId}`,
+    });
   }
 
   return nachher;
@@ -569,32 +597,48 @@ export interface AufgabenFilter {
  * das Enum alphabetisch nicht hergibt (`HIGH` vor `LOW` vor `NORMAL`). Bei
  * einer nach oben begrenzten Liste ist das günstiger als ein `CASE` im SQL.
  */
-export async function ladeAufgaben(guildId: string, filter: AufgabenFilter = {}): Promise<AufgabeMitBezug[]> {
+export async function ladeAufgaben(
+  guildId: string,
+  betrachter: WorkspaceBetrachter,
+  filter: AufgabenFilter = {},
+): Promise<AufgabeMitBezug[]> {
   const suche = filter.suche?.trim();
+  /*
+   * Aufgaben erben die Sichtbarkeit ihres Projekts.
+   *
+   * Ohne diesen Filter waere das Board die Luecke: der Titel jeder Aufgabe
+   * eines privaten Projekts stuende darin, samt Frist und Zustaendigen. Dass
+   * die Projektseite selbst gesperrt ist, haette dann nichts genuetzt.
+   */
+  const sicht = await aufgabenFilter(betrachter);
   const zeilen = await prisma.workspaceTask.findMany({
-    where: {
-      guildId,
-      ...(filter.projectId !== undefined ? { projectId: filter.projectId } : {}),
-      ...(filter.status ? { status: { in: [...filter.status] } } : {}),
-      ...(filter.prioritaet ? { priority: { in: [...filter.prioritaet] } } : {}),
-      ...(filter.zustaendig ? { assignees: { some: { discordId: filter.zustaendig } } } : {}),
-      ...(filter.ohneZustaendige ? { assignees: { none: {} } } : {}),
-      ...(filter.bisFrist ? { dueAt: { not: null, lte: filter.bisFrist } } : {}),
-      ...(filter.mitArchivierten ? {} : nichtArchiviert()),
-      ...(suche
+    /*
+     * Drei Teile mit je einem eigenen `OR` - Sichtbarkeit, «nicht
+     * archiviert», Suche. Gespreizt in dasselbe Objekt haette jeder den
+     * vorigen ueberschrieben, lautlos. Deshalb `undAlles`.
+     */
+    where: undAlles<Prisma.WorkspaceTaskWhereInput>(
+      sicht,
+      {
+        guildId,
+        ...(filter.projectId !== undefined ? { projectId: filter.projectId } : {}),
+        ...(filter.status ? { status: { in: [...filter.status] } } : {}),
+        ...(filter.prioritaet ? { priority: { in: [...filter.prioritaet] } } : {}),
+        ...(filter.zustaendig ? { assignees: { some: { discordId: filter.zustaendig } } } : {}),
+        ...(filter.ohneZustaendige ? { assignees: { none: {} } } : {}),
+        ...(filter.bisFrist ? { dueAt: { not: null, lte: filter.bisFrist } } : {}),
+      },
+      filter.mitArchivierten ? null : nichtArchiviert(),
+      suche
         ? {
-            AND: [
-              {
-                OR: [
-                  { title: { contains: suche, mode: 'insensitive' as const } },
-                  { description: { contains: suche, mode: 'insensitive' as const } },
-                  { tags: { has: suche.toLowerCase() } },
-                ],
-              },
+            OR: [
+              { title: { contains: suche, mode: 'insensitive' as const } },
+              { description: { contains: suche, mode: 'insensitive' as const } },
+              { tags: { has: suche.toLowerCase() } },
             ],
           }
-        : {}),
-    },
+        : null,
+    ),
     include: {
       assignees: { select: { discordId: true } },
       project: { select: { title: true } },
@@ -636,9 +680,20 @@ function vergleiche(a: AufgabeMitBezug, b: AufgabeMitBezug): number {
   return b.aufgabe.updatedAt.getTime() - a.aufgabe.updatedAt.getTime();
 }
 
-export async function ladeAufgabe(taskId: string): Promise<AufgabeMitBezug | null> {
-  const zeile = await prisma.workspaceTask.findUnique({
-    where: { id: taskId },
+export async function ladeAufgabe(
+  taskId: string,
+  betrachter: WorkspaceBetrachter,
+): Promise<AufgabeMitBezug | null> {
+  /*
+   * Die Sichtbarkeit steckt im `where`, nicht in einer Pruefung danach.
+   *
+   * Eine Aufgabe eines Projekts, das dieser Betrachter nicht sehen darf, ergibt
+   * damit `null` - dasselbe wie «gibt es nicht», und die Seite macht daraus ein
+   * 404. Eine Fehlerseite waere eine Auskunft: sie sagt, dass da etwas ist.
+   */
+  const sicht = await aufgabenFilter(betrachter);
+  const zeile = await prisma.workspaceTask.findFirst({
+    where: undAlles<Prisma.WorkspaceTaskWhereInput>(sicht, { id: taskId }),
     include: {
       assignees: { select: { discordId: true } },
       project: { select: { title: true } },

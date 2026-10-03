@@ -23,7 +23,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
+import { ZustaendigWahl } from './zustaendig-wahl';
 import { ERINNERUNG_LABEL, PRIORITAET_LABEL, datumFuerFeld } from '../labels';
 import { workspaceAufgabeAendernAction, workspaceAufgabeErstellenAction } from '../actions';
 import type { Teammitglied } from '../daten';
@@ -284,38 +284,12 @@ export function AufgabeFormular({
             </p>
           </div>
 
-          {!bearbeiten && team.length > 0 ? (
-            <fieldset className="space-y-2">
-              <legend className="text-sm font-medium">Zuständig</legend>
-              <div className="flex flex-wrap gap-2">
-                {team.map((mitglied) => {
-                  const gewaehlt = zustaendige.includes(mitglied.discordId);
-                  return (
-                    <label
-                      key={mitglied.discordId}
-                      className={cn(
-                        'flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-3 text-sm transition-colors',
-                        gewaehlt
-                          ? 'border-primary bg-primary/10 text-foreground'
-                          : 'border-border text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={gewaehlt}
-                        onChange={(): void => schalteZustaendig(mitglied.discordId)}
-                        className="sr-only"
-                      />
-                      {mitglied.name}
-                    </label>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Angeboten werden die, die den Workspace öffnen dürfen.
-              </p>
-            </fieldset>
-          ) : null}
+          {/*
+            Dieselbe Auswahl wie in der Steuerung einer bestehenden Aufgabe -
+            und beim Bearbeiten ebenso. Dass sie dort fehlte, war kein Entwurf:
+            wer eine Aufgabe bearbeitet, will auch die Zustaendigen aendern.
+          */}
+          <ZustaendigWahl team={team} gewaehlt={zustaendige} aufAendern={schalteZustaendig} />
         </div>
 
         <DialogFooter>

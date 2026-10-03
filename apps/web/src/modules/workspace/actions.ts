@@ -7,6 +7,7 @@ import { resolveGuildId } from '@swisshub/discord';
 import { workspace } from '@swisshub/modules';
 import { AppError, systemRoutes } from '@swisshub/shared';
 import { defineAction } from '@/server/action';
+import { workspaceBetrachter } from '@/modules/workspace/daten';
 import type { AuthContext } from '@swisshub/auth';
 
 /**
@@ -71,12 +72,41 @@ const datumSchema = z
   .nullable()
   .transform((wert) => (wert ? new Date(`${wert}T12:00:00Z`) : null));
 
+/**
+ * Sichtbarkeit zuerst - bei **jeder** Aktion mit einer Kennung.
+ *
+ * Eine Berechtigung sagt «darf Aufgaben bearbeiten». Sie sagt nichts darüber,
+ * ob diese Aufgabe zu einem Projekt gehört, das der Aufrufer überhaupt sehen
+ * darf. Ohne diese Zeile wäre jede private Projektkennung aus einem Formular
+ * ein Schreibzugriff - und, weil Fehlermeldungen auskunftsfreudig sind, auch
+ * ein Lesezugriff.
+ *
+ * Geprüft wird im Modul (`sichtbarkeit.ts`), damit dieselbe Regel gilt wie
+ * beim Lesen. Was es nicht zu sehen gibt, gibt es nicht: der Fehler ist
+ * `NOT_FOUND` und nicht `FORBIDDEN`.
+ */
+async function pruefeSichtbarkeit(
+  ctx: AuthContext,
+  input: { taskId?: string | null | undefined; projectId?: string | null | undefined },
+): Promise<void> {
+  const betrachter = workspaceBetrachter(ctx);
+  if (input.taskId) {
+    await workspace.sichereAufgabenSicht(input.taskId, betrachter);
+  }
+  if (input.projectId) {
+    await workspace.sichereProjektSicht(input.projectId, betrachter);
+  }
+}
+
 /** Die Projektleitung oder die globale Berechtigung - geprüft, nicht angenommen. */
 async function pruefeProjektzugriff(
   ctx: AuthContext,
   projectId: string,
   globaleBerechtigung: string,
 ): Promise<void> {
+  // Erst sehen, dann dürfen: ein Projekt, das nicht sichtbar ist, gibt es für
+  // diesen Aufrufer nicht - auch nicht als «darf nicht bearbeiten».
+  await pruefeSichtbarkeit(ctx, { projectId });
   const erlaubt = await workspace.darfBearbeiten(
     projectId,
     ctx.user.discordId,
@@ -140,10 +170,15 @@ export const workspaceProjektErstellenAction = defineAction(
       startAt: datumSchema.optional(),
       dueAt: datumSchema.optional(),
       tags: tagsSchema.optional(),
+      sichtbarkeit: z.enum(['TEAM', 'SELECTED_GROUPS', 'PRIVATE']).optional(),
+      sichtbarFuerRollen: z.array(kennungSchema).max(25).optional(),
+      discordChannelId: kennungSchema.nullable().optional(),
     }),
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    // Keine Sichtbarkeitspruefung: hier entsteht das Projekt erst, und seine
+    // Sichtbarkeit ist Teil der Eingabe.
     const guildId = await resolveGuildId();
     const projekt = await workspace.erstelleProjekt(guildId, ctx.user.discordId, input);
     neuLadenProjekt(projekt.id);
@@ -175,6 +210,9 @@ export const workspaceProjektAendernAction = defineAction(
       startAt: datumSchema.optional(),
       dueAt: datumSchema.optional(),
       tags: tagsSchema.optional(),
+      sichtbarkeit: z.enum(['TEAM', 'SELECTED_GROUPS', 'PRIVATE']).optional(),
+      sichtbarFuerRollen: z.array(kennungSchema).max(25).optional(),
+      discordChannelId: kennungSchema.nullable().optional(),
     }),
     rateLimit: 'workspaceSchreiben',
   },
@@ -219,6 +257,7 @@ export const workspaceProjektArchivierenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     await workspace.archiviere(input.projectId, ctx.user.discordId);
     neuLadenProjekt(input.projectId);
     return { ok: true };
@@ -234,6 +273,7 @@ export const workspaceProjektZurueckholenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     await workspace.holeZurueck(input.projectId, ctx.user.discordId);
     neuLadenProjekt(input.projectId);
     return { ok: true };
@@ -262,6 +302,15 @@ export const workspaceAufgabeErstellenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    /*
+     * Auch beim Anlegen - wegen der Projektkennung.
+     *
+     * Eine Aufgabe in einem Projekt anzulegen, das man nicht sehen darf, waere
+     * der bequemste Weg hinein: man schreibt sich selbst eine Aufgabe hinzu
+     * und liest danach alles, was daran haengt. Ohne Projekt prueft die Hilfe
+     * nichts - dann gibt es auch nichts zu pruefen.
+     */
+    await pruefeSichtbarkeit(ctx, input);
     const guildId = await resolveGuildId();
     const aufgabe = await workspace.erstelleAufgabe(guildId, ctx.user.discordId, input);
     neuLadenProjekt(aufgabe.projectId);
@@ -288,6 +337,7 @@ export const workspaceAufgabeAendernAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     const { taskId, ...rest } = input;
     const aufgabe = await workspace.aendereAufgabe(taskId, ctx.user.discordId, rest);
     neuLadenProjekt(aufgabe.projectId);
@@ -317,6 +367,7 @@ export const workspaceStatusSetzenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     const aufgabe = await workspace.setzeStatus(input.taskId, ctx.user.discordId, input.status, {
       ...(input.erwarteterStatus ? { erwarteterStatus: input.erwarteterStatus } : {}),
     });
@@ -335,6 +386,7 @@ export const workspacePrioritaetSetzenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     const aufgabe = await workspace.setzePrioritaet(input.taskId, ctx.user.discordId, input.prioritaet);
     neuLadenProjekt(aufgabe.projectId);
     revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
@@ -354,6 +406,7 @@ export const workspaceZustaendigeSetzenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     await workspace.setzeZustaendige(input.taskId, ctx.user.discordId, input.discordIds);
     neuLaden();
     revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
@@ -374,6 +427,7 @@ export const workspaceFristSetzenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     const aufgabe = await workspace.setzeFrist(input.taskId, ctx.user.discordId, input.dueAt, input.reminder);
     neuLadenProjekt(aufgabe.projectId);
     revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
@@ -390,6 +444,7 @@ export const workspaceAufgabeLoeschenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     await workspace.loescheAufgabe(input.taskId, ctx.user.discordId);
     neuLaden();
     return { ok: true };
@@ -422,6 +477,7 @@ export const workspaceKommentarSchreibenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     const kommentar = await workspace.schreibeKommentar(input.taskId, ctx.user.discordId, input.text);
     revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
     return { kommentarId: kommentar.id };
@@ -443,6 +499,7 @@ export const workspaceKommentarLoeschenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     await workspace.loescheKommentar(input.kommentarId, ctx.user.discordId);
     revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
     return { ok: true };
@@ -461,6 +518,7 @@ export const workspaceChecklisteErgaenzenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     const punkt = await workspace.ergaenzeChecklistenpunkt(input.taskId, ctx.user.discordId, input.text);
     revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
     return { punktId: punkt.id };
@@ -479,7 +537,8 @@ export const workspaceChecklisteAbhakenAction = defineAction(
     }),
     rateLimit: 'workspaceSchreiben',
   },
-  async ({ input }) => {
+  async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     await workspace.hakeAb(input.punktId, input.erledigt);
     revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
     // Der Fortschritt der Aufgabe steht auch auf dem Board und in den Listen.
@@ -499,7 +558,8 @@ export const workspaceChecklisteLoeschenAction = defineAction(
     }),
     rateLimit: 'workspaceSchreiben',
   },
-  async ({ input }) => {
+  async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     await workspace.loescheChecklistenpunkt(input.punktId);
     revalidatePath(systemRoutes.workspaceAufgabe(input.taskId));
     neuLaden();
@@ -524,6 +584,7 @@ export const workspaceLinkErgaenzenAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     const bezug = bezugAus(input);
     const link = await workspace.ergaenzeLink(bezug, ctx.user.discordId, input.titel, input.url);
     neuLadenBezug(bezug);
@@ -543,7 +604,8 @@ export const workspaceLinkLoeschenAction = defineAction(
     }),
     rateLimit: 'workspaceSchreiben',
   },
-  async ({ input }) => {
+  async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     await workspace.loescheLink(input.linkId);
     neuLadenBezug(bezugAus(input));
     return { ok: true };
@@ -562,7 +624,8 @@ export const workspaceAnhangLoeschenAction = defineAction(
     }),
     rateLimit: 'workspaceSchreiben',
   },
-  async ({ input }) => {
+  async ({ ctx, input }) => {
+    await pruefeSichtbarkeit(ctx, input);
     await workspace.loescheAnhang(input.anhangId);
     neuLadenBezug(bezugAus(input));
     return { ok: true };
@@ -752,6 +815,8 @@ export const workspaceProjektAusVorlageAction = defineAction(
     rateLimit: 'workspaceSchreiben',
   },
   async ({ ctx, input }) => {
+    // Keine Sichtbarkeitspruefung: eine Vorlage ist kein Projekt, und das
+    // Projekt daraus entsteht erst - mit der Vorgabe `TEAM`.
     const projekt = await workspace.erstelleAusVorlage(input.templateId, ctx.user.discordId, {
       ...(input.titel ? { titel: input.titel } : {}),
       zielAm: input.zielAm,

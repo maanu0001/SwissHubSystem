@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { namenKarte, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import {
   Fortschrittsbalken,
   Frist,
@@ -21,6 +21,7 @@ import {
   Zustaendige,
 } from '@/modules/workspace/components/abzeichen';
 import { ProjektFormular } from '@/modules/workspace/components/projekt-formular';
+import { loadDiscordOptions } from '@/server/configuration';
 
 export const metadata: Metadata = { title: 'Projekte · Workspace' };
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,15 @@ export default async function WorkspaceProjektePage({
   searchParams: Promise<{ q?: string }>;
 }): Promise<React.JSX.Element> {
   const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const betrachter = workspaceBetrachter(context);
+  /*
+   * Rollen und Kanaele fuer das Projektformular.
+   *
+   * Aus demselben Zwischenspeicher wie die Moduleinstellungen - die Liste
+   * gilt eine Minute, und eine zweite Quelle fuer Discord-Optionen waere eine
+   * zweite Antwort auf dieselbe Frage.
+   */
+  const discordOptionen = await loadDiscordOptions();
   const { q } = await searchParams;
   const suche = (q ?? '').trim();
   const guildId = await resolveGuildId();
@@ -49,8 +59,8 @@ export default async function WorkspaceProjektePage({
   const jetzt = new Date();
 
   const [projekte, zahlen] = await Promise.all([
-    workspace.ladeProjekte(guildId, suche ? { suche } : {}),
-    workspace.ladeUebersichtszahlen(guildId, context.user.discordId, {
+    workspace.ladeProjekte(guildId, betrachter, suche ? { suche } : {}),
+    workspace.ladeUebersichtszahlen(guildId, betrachter, {
       jetzt,
       baldTage: einstellungen.baldFaelligTage,
     }),
@@ -81,7 +91,13 @@ export default async function WorkspaceProjektePage({
             Suchen
           </Button>
         </form>
-        {darfAnlegen ? <ProjektFormular csrfToken={csrfTokenFor(context)} /> : null}
+        {darfAnlegen ? (
+          <ProjektFormular
+            csrfToken={csrfTokenFor(context)}
+            roles={discordOptionen.roles}
+            channels={discordOptionen.channels}
+          />
+        ) : null}
       </div>
 
       <Panel

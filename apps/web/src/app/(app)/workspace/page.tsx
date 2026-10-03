@@ -12,7 +12,7 @@ import { EmptyState } from '@/components/shared/states';
 import { cn } from '@/lib/utils';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { ladeTeam, namenKarte, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import {
   Frist,
   Fortschrittsbalken,
@@ -23,6 +23,7 @@ import {
 } from '@/modules/workspace/components/abzeichen';
 import { AufgabeFormular } from '@/modules/workspace/components/aufgabe-formular';
 import { ProjektFormular } from '@/modules/workspace/components/projekt-formular';
+import { loadDiscordOptions } from '@/server/configuration';
 
 export const metadata: Metadata = { title: 'Workspace' };
 export const dynamic = 'force-dynamic';
@@ -43,25 +44,34 @@ export const dynamic = 'force-dynamic';
  */
 export default async function WorkspaceUebersichtPage(): Promise<React.JSX.Element> {
   const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const betrachter = workspaceBetrachter(context);
+  /*
+   * Rollen und Kanaele fuer das Projektformular.
+   *
+   * Aus demselben Zwischenspeicher wie die Moduleinstellungen - die Liste
+   * gilt eine Minute, und eine zweite Quelle fuer Discord-Optionen waere eine
+   * zweite Antwort auf dieselbe Frage.
+   */
+  const discordOptionen = await loadDiscordOptions();
   const guildId = await resolveGuildId();
   const einstellungen = await workspaceEinstellungen();
   const jetzt = new Date();
 
   const [zahlen, projekte, ueberfaellig, naechste, team] = await Promise.all([
-    workspace.ladeUebersichtszahlen(guildId, context.user.discordId, {
+    workspace.ladeUebersichtszahlen(guildId, betrachter, {
       jetzt,
       baldTage: einstellungen.baldFaelligTage,
     }),
-    workspace.ladeProjekte(guildId),
+    workspace.ladeProjekte(guildId, betrachter),
     // Überfällig: alles Offene mit Frist vor heute. Der Dienst sortiert nach
     // Frist, die ältesten stehen also oben - und das sind die, die am längsten
     // niemandem aufgefallen sind.
-    workspace.ladeAufgaben(guildId, {
+    workspace.ladeAufgaben(guildId, betrachter, {
       status: workspace.OFFENE_STATUS,
       bisFrist: new Date(Date.UTC(jetzt.getUTCFullYear(), jetzt.getUTCMonth(), jetzt.getUTCDate()) - 1),
       grenze: 8,
     }),
-    workspace.ladeAufgaben(guildId, { status: workspace.OFFENE_STATUS, grenze: 8 }),
+    workspace.ladeAufgaben(guildId, betrachter, { status: workspace.OFFENE_STATUS, grenze: 8 }),
     ladeTeam(),
   ]);
 
@@ -88,7 +98,13 @@ export default async function WorkspaceUebersichtPage(): Promise<React.JSX.Eleme
             team={team}
           />
         ) : null}
-        {darfProjekte ? <ProjektFormular csrfToken={csrfToken} /> : null}
+        {darfProjekte ? (
+          <ProjektFormular
+            csrfToken={csrfToken}
+            roles={discordOptionen.roles}
+            channels={discordOptionen.channels}
+          />
+        ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

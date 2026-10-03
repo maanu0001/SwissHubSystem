@@ -1,0 +1,133 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { Search } from 'lucide-react';
+import { DiscordAvatar } from '@/components/shared/discord-avatar';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import type { Teammitglied } from '@/modules/workspace/daten';
+
+/**
+ * Wer zustaendig ist - mit Gesicht und Suche.
+ *
+ * ## Warum eine Komponente und nicht zwei
+ *
+ * Diese Auswahl stand zweimal: einmal im Anlegen-Formular, einmal in der
+ * Steuerung einer bestehenden Aufgabe. Zwei gleich aussehende Listen, die
+ * getrennt gepflegt wurden - und entsprechend auseinandergelaufen sind: im
+ * Formular war sie beim Bearbeiten gar nicht da, und Avatare hatte keine von
+ * beiden. Jetzt gibt es eine.
+ *
+ * ## Warum Avatare
+ *
+ * Weil man Leute an Gesichtern erkennt und nicht an Namen, die sich aehneln.
+ * `DiscordAvatar` ist die eine Avatar-Darstellung der Anwendung - sie liefert
+ * immer ein Bild, auch ohne Hash.
+ *
+ * ## Warum die Suche erst ab einer gewissen Groesse
+ *
+ * Ein Suchfeld ueber fuenf Namen ist Moebel. Ab zwoelf ist das Scrollen die
+ * Zumutung - dann erscheint es.
+ */
+
+const SUCHE_AB = 12;
+
+export function ZustaendigWahl({
+  team,
+  gewaehlt,
+  aufAendern,
+  disabled = false,
+  hinweis,
+}: {
+  team: readonly Teammitglied[];
+  gewaehlt: readonly string[];
+  aufAendern: (discordId: string) => void;
+  disabled?: boolean;
+  hinweis?: string;
+}): React.JSX.Element | null {
+  const [suche, setSuche] = useState('');
+
+  const gefiltert = useMemo(() => {
+    const begriff = suche.trim().toLowerCase();
+    if (begriff === '') {
+      return team;
+    }
+    /*
+     * Gewaehlte bleiben sichtbar, auch wenn sie nicht zum Suchbegriff passen.
+     *
+     * Sonst verschwindet, wen man schon ausgewaehlt hat, sobald man nach der
+     * naechsten Person sucht - und man nimmt sie versehentlich wieder heraus,
+     * weil man glaubt, sie sei nicht dabei.
+     */
+    return team.filter(
+      (mitglied) => gewaehlt.includes(mitglied.discordId) || mitglied.name.toLowerCase().includes(begriff),
+    );
+  }, [team, suche, gewaehlt]);
+
+  if (team.length === 0) {
+    return null;
+  }
+
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-sm font-medium">Zuständig</legend>
+
+      {team.length >= SUCHE_AB ? (
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            value={suche}
+            onChange={(ereignis): void => setSuche(ereignis.target.value)}
+            placeholder="Name suchen"
+            aria-label="Zuständige suchen"
+            className="pl-9"
+            disabled={disabled}
+          />
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        {gefiltert.map((mitglied) => {
+          const an = gewaehlt.includes(mitglied.discordId);
+          return (
+            <label
+              key={mitglied.discordId}
+              className={cn(
+                'flex min-h-11 cursor-pointer items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-sm transition-colors',
+                an
+                  ? 'border-primary bg-primary/10 text-foreground'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+                disabled && 'cursor-not-allowed opacity-60',
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={an}
+                disabled={disabled}
+                onChange={(): void => aufAendern(mitglied.discordId)}
+                className="sr-only"
+              />
+              <DiscordAvatar
+                discordId={mitglied.discordId}
+                avatarHash={mitglied.avatarHash}
+                name={mitglied.name}
+                size={28}
+              />
+              <span className="truncate">{mitglied.name}</span>
+            </label>
+          );
+        })}
+        {gefiltert.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Niemand passt zu dieser Suche.</p>
+        ) : null}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        {hinweis ?? 'Angeboten werden die, die den Workspace öffnen dürfen.'}
+      </p>
+    </fieldset>
+  );
+}

@@ -16,7 +16,7 @@ import { EmptyState } from '@/components/shared/states';
 import { cn } from '@/lib/utils';
 import { requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { workspaceEinstellungen } from '@/modules/workspace/daten';
+import { workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import { Legende, Monatsgitter, Wochengitter } from '@/modules/workspace/components/planungsgitter';
 import { fristText } from '@/modules/workspace/labels';
 
@@ -104,6 +104,7 @@ export default async function WorkspacePlanungPage({
   searchParams: Promise<Suche>;
 }): Promise<React.JSX.Element> {
   const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const betrachter = workspaceBetrachter(context);
   const suche = await searchParams;
   const guildId = await resolveGuildId();
   const einstellungen = await workspaceEinstellungen();
@@ -116,8 +117,8 @@ export default async function WorkspacePlanungPage({
   const bis = wochenansicht ? tageSpaeter(von, ZONE, 7) : naechsterMonatsBeginnIn(von, ZONE);
 
   const [termine, zahlen] = await Promise.all([
-    workspace.ladeTermine(guildId, von, bis, { nurOffene }),
-    workspace.ladeUebersichtszahlen(guildId, context.user.discordId, {
+    workspace.ladeTermine(guildId, betrachter, von, bis, { nurOffene }),
+    workspace.ladeUebersichtszahlen(guildId, betrachter, {
       jetzt: heute,
       baldTage: einstellungen.baldFaelligTage,
     }),

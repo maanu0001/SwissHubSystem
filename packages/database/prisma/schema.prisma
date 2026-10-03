@@ -10252,6 +10252,23 @@ enum WorkspaceReminder {
   ONE_WEEK
 }
 
+/// Wer ein Projekt sehen darf.
+///
+/// `TEAM` ist die Vorgabe: wer den Workspace oeffnen darf, sieht es. Das ist
+/// bei einem internen Werkzeug der Normalfall und soll es bleiben.
+///
+/// `SELECTED_GROUPS` nennt Discord-Rollen - «nur Moderation und Leitung». Die
+/// Projektmitglieder sehen es immer, auch ohne eine dieser Rollen; sonst
+/// koennte man jemanden zu einem Projekt hinzufuegen, das er nicht sieht.
+///
+/// `PRIVATE` heisst: nur die Mitglieder. Fuer das, was es in jedem Team gibt -
+/// eine Personalsache, eine Absprache, die noch keine ist.
+enum WorkspaceVisibility {
+  TEAM
+  SELECTED_GROUPS
+  PRIVATE
+}
+
 model WorkspaceProject {
   id      String @id @default(cuid())
   guildId String
@@ -10280,6 +10297,33 @@ model WorkspaceProject {
    * nichts.
    */
   linkedModuleId String?
+
+  /// Wer das Projekt sehen darf - siehe `WorkspaceVisibility`.
+  ///
+  /// Durchgesetzt wird es im Modul und nicht in der Oberflaeche: jede Abfrage
+  /// auf Projekte und Aufgaben traegt den Filter, und jeder Zugriff ueber eine
+  /// Kennung geht durch dieselbe Pruefung. Ein verstecktes Projekt, dessen
+  /// Kennung man kennt, waere sonst offen.
+  visibility WorkspaceVisibility @default(TEAM)
+
+  /// Die Discord-Rollen bei `SELECTED_GROUPS`. Leer heisst: niemand ausser den
+  /// Mitgliedern - dieselbe Lesart wie beim Discord-Trigger der Automationen.
+  visibleRoleIds String[] @default([])
+
+  /**
+   * Der Discord-Kanal dieses Projekts.
+   *
+   * Dorthin gehen die Ereignisse dieses Projekts als Embed: eine neue Aufgabe,
+   * eine erledigte, ein erreichter Meilenstein. `null` heisst: keine
+   * Benachrichtigungen - und das ist die Vorgabe, denn ein Werkzeug, das
+   * unaufgefordert in einen Kanal schreibt, waere eine Entscheidung, die
+   * niemand getroffen hat.
+   *
+   * Keine Beziehung auf eine Kanaltabelle: Kanaele gehoeren Discord. Dass die
+   * Kennung zu einem Textkanal dieses Servers gehoert, prueft das Modul beim
+   * Speichern.
+   */
+  discordChannelId String?
 
   /// Gesetzt heisst archiviert. Ein Zeitpunkt statt eines Schalters, weil die
   /// Frage «seit wann» im Archiv regelmaessig gestellt wird.

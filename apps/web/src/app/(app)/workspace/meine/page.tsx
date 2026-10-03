@@ -11,7 +11,7 @@ import { EmptyState } from '@/components/shared/states';
 import { cn } from '@/lib/utils';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { ladeTeam, namenKarte, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import {
   ChecklisteZahl,
   Frist,
@@ -57,6 +57,7 @@ export default async function WorkspaceMeinePage({
   searchParams: Promise<Suche>;
 }): Promise<React.JSX.Element> {
   const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const betrachter = workspaceBetrachter(context);
   const suche = await searchParams;
   const guildId = await resolveGuildId();
   const einstellungen = await workspaceEinstellungen();
@@ -70,16 +71,16 @@ export default async function WorkspaceMeinePage({
   const text = (suche.q ?? '').trim();
 
   const [aufgaben, projekte, team, zahlen] = await Promise.all([
-    workspace.ladeAufgaben(guildId, {
+    workspace.ladeAufgaben(guildId, betrachter, {
       status: statusFilter.status,
       ...(nurMeine ? { zustaendig: context.user.discordId } : {}),
       ...(prio ? { prioritaet: [prio] } : {}),
       ...(text ? { suche: text } : {}),
       grenze: 200,
     }),
-    workspace.ladeAktiveProjekte(guildId),
+    workspace.ladeAktiveProjekte(guildId, betrachter),
     ladeTeam(),
-    workspace.ladeUebersichtszahlen(guildId, context.user.discordId, {
+    workspace.ladeUebersichtszahlen(guildId, betrachter, {
       jetzt,
       baldTage: einstellungen.baldFaelligTage,
     }),
