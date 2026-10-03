@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   Music,
   Palette,
+  RotateCcw,
   Save,
   Settings,
   Sparkles,
@@ -33,7 +34,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ConfirmationDialog } from '@/components/shared/confirmation-dialog';
 import { cn } from '@/lib/utils';
-import { quelle } from '../adressen';
+import { istEigenesBild, quelle, STANDARD_KLAENGE, symbolBild } from '../adressen';
 import {
   designSpeichernAction,
   eventAktivierenAction,
@@ -263,6 +264,7 @@ function useSpeichern(): {
   fuehreAus: (
     aufgabe: () => Promise<{ ok: boolean; error?: { message: string }; data?: unknown }>,
     erfolg: string,
+    danach?: () => void,
   ) => Promise<unknown>;
 } {
   const [laeuft, setLaeuft] = useState(false);
@@ -272,6 +274,13 @@ function useSpeichern(): {
     async (
       aufgabe: () => Promise<{ ok: boolean; error?: { message: string }; data?: unknown }>,
       erfolg: string,
+      /*
+       * Fuer den Fall, dass das Formular den geaenderten Wert selbst halten
+       * muss. `router.refresh()` laedt die Serverdaten neu, aber ein `useState`
+       * im Formular bleibt stehen - sonst zeigte das Feld nach dem
+       * Zuruecksetzen weiter den alten Dateinamen.
+       */
+      danach?: () => void,
     ) => {
       setLaeuft(true);
       try {
@@ -281,6 +290,7 @@ function useSpeichern(): {
           return null;
         }
         toast.success(erfolg);
+        danach?.();
         router.refresh();
         return antwort.data ?? null;
       } finally {
@@ -686,7 +696,12 @@ function SymbolZeile({
     premiumTage5: symbol.premiumDays5,
   });
   const [laedt, setLaedt] = useState(false);
-  const bild = quelle(werte.bildPfad, werte.bildUrl || null);
+  /*
+   * Dieselbe Aufloesung wie im Spiel - Vorschau und Produktivansicht duerfen
+   * nicht auseinanderlaufen. Ohne eigenes Bild steht hier das mitgelieferte.
+   */
+  const bild = symbolBild({ key: symbol.key, bildPfad: werte.bildPfad, bildUrl: werte.bildUrl || null });
+  const eigenes = istEigenesBild({ bildPfad: werte.bildPfad, bildUrl: werte.bildUrl || null });
 
   const hochladen = async (datei: File): Promise<void> => {
     setLaedt(true);
@@ -712,13 +727,27 @@ function SymbolZeile({
   return (
     <section className="rounded-xl border border-border bg-card p-4">
       <div className="flex flex-wrap items-start gap-4">
-        <div className="grid size-16 shrink-0 place-items-center rounded-lg border border-border bg-background/60">
-          {bild ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={bild} alt="" className="size-12 object-contain" />
-          ) : (
-            <span className="text-xs text-muted-foreground">kein Bild</span>
-          )}
+        <div className="shrink-0 text-center">
+          <div className="grid size-16 place-items-center rounded-lg border border-border bg-background/60">
+            {bild ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={bild} alt="" className="size-12 object-contain" />
+            ) : (
+              <span className="text-xs text-muted-foreground">kein Bild</span>
+            )}
+          </div>
+          {/*
+            Woher das Bild kommt, steht unter dem Bild und nicht im Text
+            daneben: wer acht Symbole durchsieht, sucht genau hier.
+          */}
+          <p
+            className={cn(
+              'mt-1.5 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+              eigenes ? 'bg-primary/15 text-[hsl(var(--primary-bright))]' : 'bg-muted text-muted-foreground',
+            )}
+          >
+            {eigenes ? 'Eigenes' : 'Standard'}
+          </p>
         </div>
         <div className="flex-1 space-y-3">
           <div className="grid gap-3 sm:grid-cols-4">
@@ -825,6 +854,47 @@ function SymbolZeile({
                 }}
               />
             </label>
+            {/*
+              Zuruecksetzen heisst: die Referenz loeschen und speichern.
+
+              Es wird nichts kopiert und nichts wiederhergestellt - das
+              Standardbild liegt im Auslieferungsverzeichnis und gilt immer
+              dann, wenn hier nichts steht. Darum ist der Knopf still, wenn
+              ohnehin schon der Standard laeuft.
+            */}
+            {eigenes ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={laeuft}
+                onClick={() =>
+                  void fuehreAus(
+                    () =>
+                      symbolSpeichernAction({
+                        csrfToken,
+                        key: symbol.key,
+                        name: werte.name,
+                        aktiv: werte.aktiv,
+                        gewicht: werte.gewicht,
+                        glow: werte.glow,
+                        bildPfad: null,
+                        bildUrl: null,
+                        auszahlung3: werte.auszahlung3,
+                        auszahlung4: werte.auszahlung4,
+                        auszahlung5: werte.auszahlung5,
+                        premiumTage3: werte.premiumTage3,
+                        premiumTage4: werte.premiumTage4,
+                        premiumTage5: werte.premiumTage5,
+                      }),
+                    `${werte.name} nutzt wieder das Standardsymbol.`,
+                    () => setWerte((v) => ({ ...v, bildPfad: null, bildUrl: '' })),
+                  )
+                }
+              >
+                <RotateCcw aria-hidden="true" />
+                Auf Standard zurücksetzen
+              </Button>
+            ) : null}
             <Button
               size="sm"
               disabled={laeuft}
@@ -1448,6 +1518,9 @@ function KlangZeile({
   fuehreAus: ReturnType<typeof useSpeichern>['fuehreAus'];
 }): React.JSX.Element {
   const [laedt, setLaedt] = useState(false);
+  // Fuer diesen Slot mitgeliefert - oder nicht. Die beiden Musikslots haben
+  // bewusst keinen Standard, deshalb kann das hier `null` sein.
+  const standard = STANDARD_KLAENGE[klang.slot] ?? null;
 
   const hochladen = async (datei: File): Promise<void> => {
     setLaedt(true);
@@ -1477,6 +1550,16 @@ function KlangZeile({
       <span className="min-w-[10rem] flex-1 text-xs font-medium">
         {klang.label}
         {klang.musik ? <span className="ml-1 text-[10px] text-muted-foreground">Schleife</span> : null}
+        <span
+          className={cn(
+            'ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+            klang.dateiname
+              ? 'bg-primary/15 text-[hsl(var(--primary-bright))]'
+              : 'bg-muted text-muted-foreground',
+          )}
+        >
+          {klang.dateiname ? 'Eigener' : standard ? 'Standard' : 'Leer'}
+        </span>
       </span>
 
       {klang.dateiname ? (
@@ -1530,6 +1613,16 @@ function KlangZeile({
           >
             <Trash2 aria-hidden="true" />
           </Button>
+        </>
+      ) : standard ? (
+        /*
+          Kein eigener Klang - also der mitgelieferte, und zwar derselbe, den
+          das Spiel spielt. Die Vorschau darf hier nicht anders klingen als
+          dort, sonst prueft die Verwaltung etwas, das es im Spiel nicht gibt.
+        */
+        <>
+          <audio controls preload="none" src={standard} className="h-8 max-w-[14rem]" />
+          <span className="text-[11px] text-muted-foreground">mitgeliefert - Hochladen ersetzt ihn</span>
         </>
       ) : (
         <span className="text-[11px] text-muted-foreground">leer - still</span>

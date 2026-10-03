@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { level } from '@swisshub/modules';
 
@@ -172,8 +172,20 @@ describe('Die Oberfläche entscheidet nichts', () => {
   });
 
   it('sperrt die Einsatzwahl, solange Freispiele laufen', () => {
+    /*
+     * Geprueft wird die Bedingung, nicht die Schreibweise: der Waehler ist
+     * inzwischen ein Schrittknopf statt einer Reihe, und beide Knoepfe tragen
+     * zusaetzlich ihre eigene Grenze (Anfang und Ende der Liste). Fest bleibt,
+     * dass `festerEinsatz !== null` jeden der beiden sperrt - sonst koennte
+     * jemand den Einsatz eines laufenden Freispiels aendern.
+     */
     const quelle = lies(SPIEL);
-    expect(quelle).toContain('disabled={beschaeftigt || festerEinsatz !== null}');
+    const schritte = [...quelle.matchAll(/slot-einsatz__schritt[\s\S]{0,400}?disabled=\{([^}]+)\}/gu)];
+    expect(schritte).toHaveLength(2);
+    for (const schritt of schritte) {
+      expect(schritt[1]).toContain('beschaeftigt');
+      expect(schritt[1]).toContain('festerEinsatz !== null');
+    }
   });
 });
 
@@ -335,8 +347,19 @@ describe('Bewegung und Mobil', () => {
     expect(css).toContain('@media (max-width: 640px)');
     const abschnitt = css.slice(css.indexOf('@media (max-width: 640px)'));
     expect(abschnitt).toContain('.slot-partikel');
-    // Kein Eingriff in die Rasterform: fuenf Walzen bleiben fuenf Walzen.
-    expect(abschnitt).not.toContain('grid-template-columns');
+    /*
+     * Kein Eingriff in die Rasterform des Spielfelds: fuenf Walzen bleiben
+     * fuenf Walzen, mobil wird nur die Zelle kleiner. Geprueft wird jetzt
+     * genau das Raster der Walzen - das HUD darf mobil durchaus von vier auf
+     * zwei Spalten gehen, und eine Pruefung auf «irgendwo steht
+     * grid-template-columns» hielte das faelschlich fuer einen Verstoss.
+     */
+    const walzenMobil = abschnitt.slice(
+      abschnitt.indexOf('.slot-walzen {'),
+      abschnitt.indexOf('}', abschnitt.indexOf('.slot-walzen {')),
+    );
+    expect(walzenMobil).toContain('--slot-zelle:');
+    expect(walzenMobil).not.toContain('grid-template-columns');
   });
 
   it('animiert nur transform und opacity', () => {
@@ -464,5 +487,131 @@ describe('Zahlen und Zeiten laufzeitunabhängig', () => {
     // Der Zeitstempel kommt aus dem Level-Modul, das ihn schon
     // laufzeitunabhaengig zusammensetzt - kein zweiter Formatierer.
     expect(verwaltung).toContain('formatDateTime(eintrag.zeit)');
+  });
+});
+
+describe('Standard-Assets', () => {
+  /*
+   * Die Rueckfall-Logik ist der Kern dieser Anforderung: ohne hochgeladenes
+   * Asset soll der Slot trotzdem vollstaendig aussehen. Geprueft wird beides -
+   * die Entscheidung (welche Adresse kommt heraus) und die Datei dahinter.
+   * Eine Entscheidung, die auf eine fehlende Datei zeigt, waere ein kaputtes
+   * Bild statt eines Platzhalters, und genau das war die Vorgabe nicht.
+   */
+  const SYMBOL_KEYS = ['eins', 'drei', 'fuenf', 'zehn', 'logo', 'wild', 'bonus', 'premium'];
+
+  const adressen = lies('apps/web/src/modules/level/xpslot/adressen.ts');
+
+  it('liefert für jedes der acht Symbole ein mitgeliefertes Bild', () => {
+    for (const key of SYMBOL_KEYS) {
+      expect(adressen).toContain(`${key}: '/xp-slot/symbole/${key}.svg'`);
+      expect(existsSync(`apps/web/public/xp-slot/symbole/${key}.svg`)).toBe(true);
+    }
+  });
+
+  it('liefert für jeden Klangslot der Vorgabe eine mitgelieferte Datei', () => {
+    /*
+     * Die beiden Musikslots sind bewusst ausgenommen: eine Hintergrundschleife
+     * ist Geschmack, und als mitgelieferte Datei waere sie groesser als alle
+     * Effekte zusammen. Alle uebrigen Slots muessen einen Standard haben.
+     */
+    const ohneMusik = level.xpslot.KLANG_SLOTS.filter((slot) => !level.xpslot.MUSIK_SLOTS.includes(slot.key));
+    for (const slot of ohneMusik) {
+      expect(adressen).toContain(`${slot.key}: '/xp-slot/klaenge/${slot.key}.wav'`);
+      expect(existsSync(`apps/web/public/xp-slot/klaenge/${slot.key}.wav`)).toBe(true);
+    }
+    expect(ohneMusik.length).toBeGreaterThanOrEqual(17);
+  });
+
+  it('liefert die mitgelieferten Dateien lokal aus - kein fremder Host', () => {
+    for (const treffer of adressen.matchAll(/'(\/xp-slot\/[^']+)'/gu)) {
+      expect(treffer[1]!.startsWith('/xp-slot/')).toBe(true);
+    }
+    expect(adressen).not.toContain('http://');
+    expect(adressen).not.toContain('https://');
+  });
+
+  it('zieht das eigene Bild dem Standard vor und fällt danach zurück', () => {
+    // Die Reihenfolge im Quelltext ist die Entscheidung: erst `quelle`
+    // (hochgeladen oder fremde Adresse), dann das mitgelieferte.
+    expect(adressen).toContain(
+      'return quelle(symbol.bildPfad, symbol.bildUrl) ?? STANDARD_SYMBOLE[symbol.key] ?? null;',
+    );
+    expect(adressen).toContain('if (dateiname) {\n    return dateiAdresse(dateiname);\n  }');
+  });
+
+  it('kopiert kein Standardasset in den Upload-Bereich', () => {
+    /*
+     * Zuruecksetzen heisst, die Referenz zu loeschen - nicht, eine Datei
+     * zurueckzukopieren. Darum darf die Verwaltung beim Zuruecksetzen nur
+     * `null` schicken.
+     */
+    const verwaltung = lies('apps/web/src/modules/level/xpslot/components/verwaltung.tsx');
+    expect(verwaltung).toContain('bildPfad: null,\n                        bildUrl: null,');
+    expect(verwaltung).toContain('Auf Standard zurücksetzen');
+  });
+
+  it('zeigt in der Verwaltung, ob ein Asset eigen oder Standard ist', () => {
+    const verwaltung = lies('apps/web/src/modules/level/xpslot/components/verwaltung.tsx');
+    expect(verwaltung).toContain("{eigenes ? 'Eigenes' : 'Standard'}");
+    expect(verwaltung).toContain("{klang.dateiname ? 'Eigener' : standard ? 'Standard' : 'Leer'}");
+  });
+
+  it('spielt im Browser den Standard, wenn kein eigener Klang eingerichtet ist', () => {
+    const klang = ohneKommentare(lies('apps/web/src/modules/level/xpslot/components/klang.ts'));
+    // Erst die Standards in die Karte, dann die der Verwaltung darueber.
+    const standardZuerst = klang.indexOf('Object.keys(STANDARD_KLAENGE)');
+    const custom = klang.indexOf('for (const eintrag of klaenge)');
+    expect(standardZuerst).toBeGreaterThan(0);
+    expect(custom).toBeGreaterThan(standardZuerst);
+  });
+});
+
+describe('Feste Walzengeometrie', () => {
+  /*
+   * Der Fehler, den diese Pruefungen festhalten: die Walze war inhaltshoch.
+   * Gestoppt drei Zellen, laufend sechs - und damit verdoppelte sie beim Spin
+   * ihre Hoehe. Ein Test am Quelltext kann das nicht messen, aber er kann die
+   * drei Eigenschaften festhalten, ohne die es wieder passieren wuerde. Die
+   * Messung selbst macht der Browser-Smoke.
+   */
+  const css = lies(CSS);
+
+  it('gibt der Walze eine feste Breite und eine Höhe aus genau drei Zellen', () => {
+    expect(css).toContain('width: var(--slot-zelle);');
+    expect(css).toContain('height: calc(var(--slot-zelle) * 3);');
+  });
+
+  it('legt beide Bänder absolut in das Walzenfenster', () => {
+    const block = css.slice(css.indexOf('.slot-stand,'), css.indexOf('.slot-zelle {'));
+    expect(block).toContain('position: absolute;');
+    expect(block).toContain('grid-auto-rows: var(--slot-zelle);');
+  });
+
+  it('gibt der Zelle keine inhaltsabhängige Höhe mehr', () => {
+    // `aspect-ratio` an der Zelle war die Ursache: sie machte die Hoehe der
+    // Walze zu einer Funktion der Zellenzahl.
+    const zelle = css.slice(css.indexOf('.slot-zelle {'), css.indexOf('.slot-zelle__bild'));
+    expect(zelle).not.toContain('aspect-ratio');
+    expect(zelle).toContain('height: var(--slot-zelle);');
+  });
+
+  it('bewegt beim Stopp das Band und nicht die Walze', () => {
+    expect(css).toContain('.slot-walze--stopp .slot-stand {');
+    expect(css).not.toMatch(/\.slot-walze--stopp\s*\{\s*animation/u);
+  });
+
+  it('skaliert die Maschine nicht, sondern rechnet in echten Längen', () => {
+    // `transform: scale` auf dem ganzen Spielfeld waere unscharfer Text und
+    // verschobene Klickflaechen - ausdruecklich nicht gewollt.
+    const walzenBlock = css.slice(css.indexOf('.slot-walzen {'), css.indexOf('.slot-walze {'));
+    expect(walzenBlock).toContain('clamp(');
+    expect(walzenBlock).not.toContain('scale(');
+  });
+
+  it('bindet die Zellgröße auch an die Fensterhöhe', () => {
+    // Sonst passt das Spielfeld auf einem 768er-Laptop nicht neben die
+    // Steuerung, und genau das war die zweite Beschwerde.
+    expect(css).toMatch(/--slot-zelle:\s*clamp\([^)]*min\([^)]*vh/u);
   });
 });

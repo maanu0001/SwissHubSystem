@@ -322,7 +322,13 @@ describeWithDatabase('XP-Slot: Verwaltung', () => {
     expect(nachher.kind).toBe('SPECIAL');
 
     await S.loeschePaket(paket.id, TEAM);
-    expect(await prisma.xpSlotSoundPack.count()).toBe(0);
+    /*
+     * Geprueft wird, dass **dieses** Paket weg ist - nicht, dass die Tabelle
+     * leer ist. Die Grundstellung legt ein leeres Paket «Standard» an, damit
+     * die Verwaltung die Klangzeilen ueberhaupt zeigen kann; es gehoert nicht
+     * diesem Test und darf stehen bleiben.
+     */
+    expect(await prisma.xpSlotSoundPack.findUnique({ where: { id: paket.id } })).toBeNull();
 
     const protokoll = await prisma.auditLog.findMany({
       where: { action: { startsWith: 'XP_SLOT_SOUNDPACK' } },

@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { quelle } from '../adressen';
+import { symbolBild } from '../adressen';
 
 /**
  * Die Infotafel.
@@ -98,7 +98,7 @@ export function Infotafel({ ansicht }: { ansicht: Ansicht }): React.JSX.Element 
                 </thead>
                 <tbody>
                   {ansicht.symbole.map((symbol) => {
-                    const bild = quelle(symbol.bildPfad, symbol.bildUrl);
+                    const bild = symbolBild(symbol);
                     return (
                       <tr key={symbol.key} className="border-t border-border">
                         <td className="p-2">

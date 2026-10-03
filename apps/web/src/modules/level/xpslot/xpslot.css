@@ -78,18 +78,50 @@
 
 /* --- Walzen -------------------------------------------------------------- */
 
+/*
+ * Die Geometrie der Walzen - und warum sie hier und nicht im Inhalt steht.
+ *
+ * ## Der Fehler, den diese Regeln beheben
+ *
+ * Die Walze war einmal inhaltshoch: drei Zellen im Stillstand, sechs waehrend
+ * des Laufs (das Band muss ueber die sichtbare Hoehe hinausreichen, sonst
+ * klafft beim Umlauf eine Luecke). Mit `aspect-ratio: 1 / 1` je Zelle hiess
+ * das: die Walze **verdoppelte** beim Spin ihre Hoehe und zog das halbe
+ * Spielfeld mit. `overflow: hidden` half nicht - es beschneidet den Inhalt
+ * eines Kastens, nicht den Kasten selbst.
+ *
+ * ## Die Loesung
+ *
+ * Eine Zellgroesse als Variable, daraus Breite und Hoehe der Walze. Beides
+ * sind feste Laengen, die nichts vom Inhalt wissen - drei Zellen oder sechs,
+ * die Walze misst dasselbe. Das Band liegt absolut darin und bewegt sich mit
+ * `transform`; eine Bewegung, die das Layout nicht anfasst.
+ *
+ * ## Warum `clamp` und nicht `transform: scale`
+ *
+ * Weil eine skalierte Maschine unscharfen Text und verschobene Klickflaechen
+ * haette. Hier aendert sich eine Laenge - alles andere rechnet der Browser in
+ * echten Pixeln. Die Hoehe ist zusaetzlich an `vh` gebunden, damit das Spiel
+ * auf einem 768er-Laptop neben die Steuerung passt, ohne dass jemand scrollt.
+ */
 .slot-walzen {
+  --slot-zelle: clamp(42px, min(7.4vw, 9.4vh), 96px);
+  --slot-spalt: 0.4rem;
   position: relative;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.5rem;
-  padding: 0.75rem;
+  grid-template-columns: repeat(5, var(--slot-zelle));
+  justify-content: center;
+  gap: var(--slot-spalt);
+  padding: var(--slot-spalt);
 }
 
 .slot-walze {
   position: relative;
   overflow: hidden;
-  border-radius: 0.85rem;
+  width: var(--slot-zelle);
+  /* Drei sichtbare Zellen. Nicht mehr, nicht weniger, nie etwas anderes. */
+  height: calc(var(--slot-zelle) * 3);
+  border-radius: 0.7rem;
   background: linear-gradient(180deg, hsl(240 6% 11% / 0.9) 0%, hsl(240 7% 6% / 0.9) 100%);
   box-shadow:
     inset 0 0 0 1px hsl(0 0% 100% / 0.05),
@@ -97,11 +129,29 @@
     inset 0 -18px 24px -18px hsl(0 0% 0% / 0.9);
 }
 
+/*
+ * Das Band im Walzenfenster.
+ *
+ * Absolut, damit seine Hoehe die Walze nicht anfasst - und genau so hoch wie
+ * seine Zellen zusammen. Im Stillstand sind das drei, im Lauf sechs; die
+ * Walze merkt von beidem nichts.
+ */
+.slot-stand,
+.slot-band {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: grid;
+  grid-auto-rows: var(--slot-zelle);
+}
+
 .slot-zelle {
   position: relative;
   display: grid;
   place-items: center;
-  aspect-ratio: 1 / 1;
+  width: var(--slot-zelle);
+  height: var(--slot-zelle);
 }
 
 .slot-zelle__bild {
@@ -136,26 +186,40 @@
   will-change: transform;
 }
 
+/*
+ * Ein Umlauf ist genau drei Zellen weit.
+ *
+ * Frueher stand hier ein Drittel der Bandhoehe. Das war dasselbe, solange das
+ * Band sechs Zellen hatte - aber es war an den Inhalt gebunden statt an das
+ * Raster. In Zellen gerechnet stimmt es auch dann noch, wenn jemand die Zahl
+ * der Fuellzellen aendert.
+ */
 @keyframes slot-lauf {
   from {
-    transform: translate3d(0, -33.3333%, 0);
+    transform: translate3d(0, calc(var(--slot-zelle) * -3), 0);
   }
   to {
     transform: translate3d(0, 0, 0);
   }
 }
 
-/* Der Stopp: ein kurzes Ueberschwingen, dann sitzt es. */
-.slot-walze--stopp {
+/*
+ * Der Stopp: ein kurzes Ueberschwingen, dann sitzt es.
+ *
+ * Bewegt wird das Band im Fenster, nicht das Fenster. Die Walze selbst steht
+ * waehrend des ganzen Spins vollkommen still - sie ist der Rahmen, und ein
+ * Rahmen, der mitfedert, verschiebt alles daneben.
+ */
+.slot-walze--stopp .slot-stand {
   animation: slot-stopp 0.34s cubic-bezier(0.17, 0.89, 0.32, 1.28);
 }
 
 @keyframes slot-stopp {
   0% {
-    transform: translate3d(0, -9%, 0);
+    transform: translate3d(0, calc(var(--slot-zelle) * -0.26), 0);
   }
   60% {
-    transform: translate3d(0, 2.5%, 0);
+    transform: translate3d(0, calc(var(--slot-zelle) * 0.07), 0);
   }
   100% {
     transform: translate3d(0, 0, 0);
@@ -229,10 +293,10 @@
   }
 }
 
-/* Die Gewinnlinie als gezeichneter Pfad. */
+/* Die Gewinnlinie als gezeichneter Pfad - genau ueber den Zellen. */
 .slot-linie {
   position: absolute;
-  inset: 0.75rem;
+  inset: var(--slot-spalt);
   pointer-events: none;
 }
 
@@ -512,9 +576,15 @@
     animation: slot-schub 0.5s ease-out;
   }
 
+  /*
+   * Mobil darf die Zelle einen groesseren Anteil der Breite nehmen: auf 390
+   * Pixeln waeren 7.4vw winzig, und fuenf Walzen sollen den Bildschirm fuellen.
+   * Die Hoehengrenze faellt weg - in der Senkrechten ist auf dem Telefon Platz,
+   * in der Breite nicht.
+   */
   .slot-walzen {
-    gap: 0.25rem;
-    padding: 0.4rem;
+    --slot-zelle: clamp(40px, 16.4vw, 74px);
+    --slot-spalt: 0.25rem;
   }
 
   .slot-zelle__text {
@@ -548,7 +618,7 @@
     animation-duration: 0.5s;
   }
 
-  .slot-walze--stopp {
+  .slot-walze--stopp .slot-stand {
     animation: none;
   }
 
@@ -567,5 +637,398 @@
   .slot-linie path {
     animation: none;
     stroke-dasharray: none;
+  }
+}
+
+/* --- HUD ----------------------------------------------------------------- */
+
+/*
+ * Die Anzeigen ueber dem Spielfeld.
+ *
+ * Bewusst keine Dashboard-Kacheln: kleines Label, grosse Zahl, kein Rahmen um
+ * jede einzelne. Zusammen sind sie ein Streifen und nicht vier Karten - das
+ * ist der Unterschied zwischen einer Auswertung und einem Spiel.
+ */
+.slot-hud {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 0.9rem;
+  border: 1px solid hsl(var(--primary) / 0.22);
+  background: hsl(var(--primary) / 0.18);
+}
+
+.slot-hud__feld {
+  position: relative;
+  padding: 0.5rem 0.75rem;
+  background: linear-gradient(180deg, hsl(240 6% 10%) 0%, hsl(240 7% 6%) 100%);
+}
+
+.slot-hud__label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsl(215 14% 58%);
+}
+
+.slot-hud__wert {
+  font-size: clamp(1rem, 2.6vw, 1.5rem);
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: hsl(210 20% 96%);
+}
+
+.slot-hud__notiz {
+  font-size: 0.625rem;
+  color: hsl(215 14% 52%);
+}
+
+/*
+ * Der Puls bei einer Aenderung.
+ *
+ * Eine Zahl, die sich lautlos austauscht, wird uebersehen - und beim XP-Stand
+ * ist genau das die wichtigste Information nach einem Spin. Der Schimmer
+ * laeuft einmal und ist nach einer halben Sekunde vorbei; er ersetzt kein
+ * Hochzaehlen, sondern sagt «hier hat sich etwas geaendert».
+ */
+.slot-hud__feld--auf .slot-hud__wert {
+  animation: slot-wert-auf 0.6s ease-out;
+}
+
+.slot-hud__feld--ab .slot-hud__wert {
+  animation: slot-wert-ab 0.45s ease-out;
+}
+
+@keyframes slot-wert-auf {
+  0% {
+    transform: scale(1);
+    color: hsl(210 20% 96%);
+  }
+  30% {
+    transform: scale(1.09);
+    color: hsl(var(--primary-bright));
+    text-shadow: 0 0 18px hsl(var(--primary-bright) / 0.8);
+  }
+  100% {
+    transform: scale(1);
+    color: hsl(210 20% 96%);
+  }
+}
+
+@keyframes slot-wert-ab {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+  40% {
+    transform: translate3d(0, 2px, 0);
+    opacity: 0.6;
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+/* --- Steuerung ----------------------------------------------------------- */
+
+.slot-steuerung {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  border-radius: 0.9rem;
+  border: 1px solid hsl(var(--border));
+  background: linear-gradient(180deg, hsl(240 6% 9%) 0%, hsl(240 7% 6%) 100%);
+  padding: 0.75rem;
+}
+
+/*
+ * Der Einsatzwaehler.
+ *
+ * Minus, Wert, Plus - eine Zeile, die man ohne Nachdenken liest. Die alte
+ * Reihe aus sechs gleich aussehenden Knoepfen zwang dazu, den aktiven zu
+ * suchen; hier steht der Einsatz gross in der Mitte und ist die Antwort auf
+ * die einzige Frage, die hier gestellt wird.
+ */
+.slot-einsatz {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid hsl(var(--primary) / 0.3);
+  background: hsl(240 7% 7%);
+  padding: 0.25rem;
+}
+
+.slot-einsatz__schritt {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 0.55rem;
+  background: hsl(240 6% 13%);
+  color: hsl(210 20% 90%);
+  transition:
+    background-color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.slot-einsatz__schritt:hover:not(:disabled) {
+  background: hsl(var(--primary) / 0.35);
+}
+
+.slot-einsatz__schritt:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.slot-einsatz__schritt:disabled {
+  opacity: 0.35;
+}
+
+.slot-einsatz__wert {
+  min-width: 5.5rem;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: hsl(210 20% 96%);
+}
+
+.slot-einsatz__wert--fest {
+  color: hsl(42 95% 62%);
+}
+
+/*
+ * Der Spin-Knopf.
+ *
+ * Er ist der einzige Knopf, der gross sein darf. Tiefe durch zwei Verlaeufe
+ * statt durch einen Schlagschatten, ein Lichtsaum oben, und beim Druecken
+ * geht er wirklich ein Stueck hinein - das ist die ganze Haptik, die ein
+ * Knopf im Browser haben kann.
+ */
+.slot-spin {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-width: 11rem;
+  height: 3.5rem;
+  padding: 0 1.75rem;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--primary-bright) / 0.55);
+  background: linear-gradient(
+    180deg,
+    hsl(var(--primary-bright) / 0.95) 0%,
+    hsl(var(--primary)) 55%,
+    hsl(var(--primary) / 0.85) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.35),
+    inset 0 -8px 16px -8px hsl(0 0% 0% / 0.7),
+    0 10px 24px -10px hsl(var(--primary) / 0.9);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: hsl(0 0% 100%);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
+}
+
+.slot-spin:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.4),
+    inset 0 -8px 16px -8px hsl(0 0% 0% / 0.7),
+    0 14px 30px -10px hsl(var(--primary) / 1);
+}
+
+.slot-spin:active:not(:disabled) {
+  transform: translate3d(0, 2px, 0);
+  box-shadow:
+    inset 0 2px 6px hsl(0 0% 0% / 0.5),
+    0 4px 12px -8px hsl(var(--primary) / 0.9);
+}
+
+.slot-spin:focus-visible {
+  outline: 2px solid hsl(var(--primary-bright));
+  outline-offset: 3px;
+}
+
+.slot-spin:disabled {
+  opacity: 0.55;
+  filter: saturate(0.6);
+}
+
+/* Waehrend die Walzen laufen: ein wanderndes Licht statt eines toten Knopfs. */
+.slot-spin--laeuft::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 20%, hsl(0 0% 100% / 0.28) 50%, transparent 80%);
+  background-size: 220% 100%;
+  content: '';
+  animation: slot-spin-licht 1.1s linear infinite;
+}
+
+@keyframes slot-spin-licht {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+/* Im Freispiel wechselt auch der Knopf die Farbe - Gold statt Rot. */
+.slot-buehne--frei ~ .slot-steuerung .slot-spin,
+.slot-steuerung--frei .slot-spin {
+  border-color: hsl(42 95% 62% / 0.6);
+  background: linear-gradient(180deg, hsl(42 95% 62%) 0%, hsl(38 90% 50%) 55%, hsl(36 85% 44%) 100%);
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.4),
+    inset 0 -8px 16px -8px hsl(0 0% 0% / 0.7),
+    0 10px 24px -10px hsl(40 90% 50% / 0.9);
+  color: hsl(30 40% 12%);
+}
+
+/*
+ * Die kleinen Schalter: Auto-Spin, Quick Spin, Werkzeuge.
+ *
+ * Ein Chip zeigt seinen Zustand durch Farbe und Rand, nicht durch ein
+ * Haekchen daneben. Dieselbe Form fuer alle - wer eine Reihe aus Chips sieht,
+ * weiss, dass er etwas waehlen kann.
+ */
+.slot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 2rem;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(240 6% 11%);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: hsl(215 14% 70%);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.slot-chip:hover:not(:disabled) {
+  border-color: hsl(var(--primary) / 0.5);
+  color: hsl(210 20% 92%);
+}
+
+.slot-chip:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.slot-chip:focus-visible {
+  outline: 2px solid hsl(var(--primary-bright));
+  outline-offset: 2px;
+}
+
+.slot-chip:disabled {
+  opacity: 0.4;
+}
+
+.slot-chip--an {
+  border-color: hsl(var(--primary-bright) / 0.7);
+  background: hsl(var(--primary) / 0.22);
+  color: hsl(0 0% 100%);
+  box-shadow: inset 0 0 12px -4px hsl(var(--primary-bright) / 0.8);
+}
+
+/* Die Gewinnzeile unter dem Spielfeld - fester Platz, damit nichts springt. */
+.slot-gewinnzeile {
+  display: grid;
+  place-items: center;
+  min-height: 3.25rem;
+  padding: 0 0.75rem 0.5rem;
+}
+
+/* --- Mobil: HUD und Steuerung -------------------------------------------- */
+
+@media (max-width: 640px) {
+  /*
+   * Mobil bleiben es vier Spalten - nur schmaler.
+   *
+   * Zwei Spalten waren zwei Zeilen, und zwei Zeilen HUD sind auf einem
+   * Telefon 65 Pixel, die dem Spielfeld fehlen. Gemessen auf 390x844: mit
+   * zwei Zeilen endete die Steuerung hundert Pixel unterhalb des
+   * Bildschirms. Die Werte werden klein, aber sie stehen alle vier da - und
+   * genau darum geht es bei einem HUD.
+   */
+  .slot-hud__feld {
+    padding: 0.4rem 0.4rem;
+  }
+
+  .slot-hud__label {
+    font-size: 0.5625rem;
+    letter-spacing: 0.08em;
+  }
+
+  /*
+   * Einsatz und Spin sollen nebeneinander passen, Auto und Quick Spin in die
+   * Zeile darunter. Vier umgebrochene Zeilen waren der zweite Grund, weshalb
+   * die Steuerung aus dem Bild lief.
+   */
+  .slot-steuerung {
+    gap: 0.4rem;
+    padding: 0.5rem;
+  }
+
+  .slot-einsatz {
+    padding: 0.15rem;
+  }
+
+  .slot-einsatz__schritt {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .slot-einsatz__wert {
+    min-width: 4.25rem;
+    font-size: 0.95rem;
+  }
+
+  .slot-spin {
+    min-width: 7.5rem;
+    height: 3rem;
+    padding: 0 1rem;
+    font-size: 0.9rem;
+  }
+
+  .slot-gewinnzeile {
+    min-height: 2.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slot-hud__feld--auf .slot-hud__wert,
+  .slot-hud__feld--ab .slot-hud__wert,
+  .slot-spin--laeuft::before {
+    animation: none;
+  }
+
+  .slot-spin:active:not(:disabled),
+  .slot-chip:active:not(:disabled),
+  .slot-einsatz__schritt:active:not(:disabled) {
+    transform: none;
   }
 }

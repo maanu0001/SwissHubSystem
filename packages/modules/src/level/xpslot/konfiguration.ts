@@ -240,6 +240,30 @@ export async function sorgeFuerKonfiguration(): Promise<void> {
       },
     });
   }
+
+  /*
+   * Ein Sound-Paket, das es immer gibt.
+   *
+   * Gespielt wird auch ohne eines: fehlt einem Slot die Datei, nimmt die
+   * Oberflaeche den mitgelieferten Klang. In der Verwaltung aber haengen die
+   * Klangzeilen an einem Paket - ohne Paket saehe das Team eine leere Seite
+   * und wuesste nicht, dass der Slot klingt. Deshalb steht hier ein leeres
+   * Paket: es enthaelt keine einzige Datei und ist genau deshalb der
+   * Standardsatz.
+   *
+   * Nur, wenn es ueberhaupt keines gibt. Wer eigene Pakete angelegt hat,
+   * bekommt kein neuntes dazu.
+   */
+  const paketeVorhanden = await prisma.xpSlotSoundPack.count();
+  if (paketeVorhanden === 0) {
+    const paket = await prisma.xpSlotSoundPack.create({
+      data: { name: 'Standard', kind: 'STANDARD' },
+    });
+    await prisma.xpSlotConfig.update({
+      where: { id: 'default' },
+      data: { activeSoundPackId: paket.id },
+    });
+  }
 }
 
 /** Das Event, das jetzt laeuft - oder keines. */

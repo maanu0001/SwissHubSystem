@@ -1,15 +1,24 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Gauge, Music, Pause, Play, RotateCcw, Sparkles, Volume2, VolumeX, Zap } from 'lucide-react';
+import {
+  Gauge,
+  Minus,
+  Music,
+  Pause,
+  Play,
+  Plus,
+  RotateCcw,
+  Sparkles,
+  Volume2,
+  VolumeX,
+  Zap,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import type { level } from '@swisshub/modules';
 import { formatSwissNumber } from '@swisshub/shared';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { Gewinnlinie, Partikel, Walzen } from './walzen';
+import { Partikel, Walzen } from './walzen';
 import { Infotafel } from './infotafel';
 import { Leiter } from './leiter';
 import { useTon, useWenigerBewegung } from './klang';
@@ -130,6 +139,30 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       // Siehe oben.
     }
   }, []);
+
+  /*
+   * Der Einsatz als Position in der Liste.
+   *
+   * Die spielbaren Einsaetze sind eine Aufzaehlung und keine Spanne - «plus»
+   * heisst darum «der naechste erlaubte Wert» und nicht «plus hundert». Steht
+   * der aktuelle Wert nicht in der Liste (etwa weil die Verwaltung die Stufen
+   * geaendert hat, waehrend jemand spielte), ist der Index -1 und beide
+   * Knoepfe fuehren zurueck in die Liste.
+   */
+  const einsatzIndex = ansicht.einsaetze.indexOf(einsatz);
+  const einsatzSchritt = useCallback(
+    (richtung: 1 | -1) => {
+      const jetzt = ansicht.einsaetze.indexOf(einsatz);
+      const naechster = jetzt < 0 ? 0 : Math.min(ansicht.einsaetze.length - 1, Math.max(0, jetzt + richtung));
+      const wert = ansicht.einsaetze[naechster];
+      if (wert === undefined || wert === einsatz) {
+        return;
+      }
+      ton.spiele('ui_button');
+      setEinsatz(wert);
+    },
+    [ansicht.einsaetze, einsatz, ton],
+  );
 
   const imFreispiel = spieler.bonus?.stufe === 'SPINS' || spieler.freispieleOffen > 0;
   const freispieleRest =
@@ -404,19 +437,34 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
   }
 
   return (
-    <div className="space-y-4">
-      {/* --- Kopfzeile: XP, Einsatz, Freispiele - immer sichtbar --- */}
-      <div className="grid gap-2 sm:grid-cols-4">
-        <Wert label="Deine XP" wert={formatSwissNumber(spieler.xp)} />
-        <Wert label="Einsatz" wert={`${wirksamerEinsatz} XP`} hinweis={festerEinsatz ? 'festgelegt' : null} />
-        <Wert
-          label="Freispiele"
-          wert={String(freispieleRest)}
-          hinweis={festerEinsatz ? `zu ${festerEinsatz} XP` : null}
+    <div className="mx-auto w-full max-w-[54rem] space-y-3">
+      {/*
+        Das HUD.
+
+        Vier Werte, die waehrend des Spielens nie verschwinden duerfen: was ich
+        habe, was ich setze, was ich gewonnen habe, was noch frei ist. Sie
+        stehen oben und nicht unten, weil der Blick beim Spielen auf dem
+        Spielfeld liegt und von dort nach oben kuerzer ist als nach unten
+        ueber die Steuerung hinweg.
+      */}
+      <div className="slot-hud">
+        <HudFeld label="XP" wert={spieler.xp} />
+        <HudFeld
+          label="Einsatz"
+          wert={wirksamerEinsatz}
+          notiz={festerEinsatz !== null ? 'festgelegt' : null}
+          still
         />
-        <Wert
-          label={imFreispiel ? 'Bonusgewinn' : 'Letzter Gewinn'}
-          wert={`${formatSwissNumber(imFreispiel ? (spieler.bonus?.gewinn ?? 0) : (ergebnis?.gewinn ?? 0))} XP`}
+        <HudFeld
+          label="Gewinn"
+          wert={imFreispiel ? (spieler.bonus?.gewinn ?? 0) : (ergebnis?.gewinn ?? 0)}
+          vorzeichen
+        />
+        <HudFeld
+          label="Freispiele"
+          wert={freispieleRest}
+          notiz={festerEinsatz !== null ? `zu ${festerEinsatz} XP` : null}
+          still
         />
       </div>
 
@@ -447,50 +495,51 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
         <div className="slot-buehne__puls" style={{ opacity: ansicht.design.glow / 100 }} />
 
         {imFreispiel ? (
-          <p className="slot-frei-schild relative pt-4 text-center text-xs font-bold uppercase text-[hsl(42_95%_60%)]">
+          <p className="slot-frei-schild relative pt-3 text-center text-[11px] font-bold uppercase text-[hsl(42_95%_60%)]">
             Free Spins · {freispieleRest} übrig
             {spieler.bonus?.retriggers ? ` · ${spieler.bonus.retriggers}× verlängert` : ''}
           </p>
         ) : null}
 
-        <div className="relative">
-          <Walzen
-            grid={grid}
-            symbole={ansicht.symbole}
-            laufend={laufend}
-            treffer={trefferZellen}
-            klebend={spieler.bonus?.stufe === 'SPINS' ? spieler.bonus.stickyZellen : []}
-            sweatAbWalze={ergebnis?.sweatAbWalze ?? null}
-            reihen={ansicht.reihen}
-            walzen={ansicht.walzen}
-          />
-          {linienPfad ? (
-            <Gewinnlinie zellen={linienPfad} reihen={ansicht.reihen} walzen={ansicht.walzen} />
+        <Walzen
+          grid={grid}
+          symbole={ansicht.symbole}
+          laufend={laufend}
+          treffer={trefferZellen}
+          klebend={spieler.bonus?.stufe === 'SPINS' ? spieler.bonus.stickyZellen : []}
+          sweatAbWalze={ergebnis?.sweatAbWalze ?? null}
+          reihen={ansicht.reihen}
+          walzen={ansicht.walzen}
+          linie={linienPfad}
+        />
+
+        {/*
+          Die Gewinnzeile hat immer dieselbe Hoehe - auch ohne Gewinn.
+
+          Sonst waechst die Buehne in dem Moment, in dem ein Gewinn erscheint,
+          und schiebt die Steuerung nach unten. Genau diese Art von Sprung soll
+          dieser Umbau beseitigen; ein leerer Platz ist der Preis dafuer.
+        */}
+        <div className="slot-gewinnzeile relative">
+          {ergebnis && ergebnis.gewinn > 0 && !laufend.some(Boolean) ? (
+            <div className="text-center">
+              <p className="slot-gewinn text-2xl font-black text-[hsl(var(--primary-bright))] sm:text-3xl">
+                +<Hochzaehlen ziel={ergebnis.gewinn} ruhig={wenigerBewegung} /> XP
+              </p>
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                {stufe === 'jackpot'
+                  ? 'Jackpot'
+                  : stufe === 'mega'
+                    ? 'Mega Win'
+                    : stufe === 'gross'
+                      ? 'Big Win'
+                      : `${ergebnis.treffer.length} ${ergebnis.treffer.length === 1 ? 'Linie' : 'Linien'}`}
+                {ergebnis.gedeckelt ? ' · Höchstgewinn erreicht' : ''}
+                {ergebnis.premiumTage > 0 ? ` · +${ergebnis.premiumTage} Tage Premium` : ''}
+              </p>
+            </div>
           ) : null}
         </div>
-
-        {ergebnis && ergebnis.gewinn > 0 && !laufend.some(Boolean) ? (
-          <div className="relative pb-4 text-center">
-            <p className="slot-gewinn text-3xl font-black text-[hsl(var(--primary-bright))]">
-              +{formatSwissNumber(ergebnis.gewinn)} XP
-            </p>
-            <p className="text-xs uppercase tracking-widest text-muted-foreground">
-              {stufe === 'jackpot'
-                ? 'Jackpot'
-                : stufe === 'mega'
-                  ? 'Mega Win'
-                  : stufe === 'gross'
-                    ? 'Big Win'
-                    : `${ergebnis.treffer.length} ${ergebnis.treffer.length === 1 ? 'Linie' : 'Linien'}`}
-              {ergebnis.gedeckelt ? ' · Höchstgewinn erreicht' : ''}
-            </p>
-            {ergebnis.premiumTage > 0 ? (
-              <p className="mt-1 text-sm font-semibold text-[hsl(42_95%_60%)]">
-                + {ergebnis.premiumTage} Tage Premium
-              </p>
-            ) : null}
-          </div>
-        ) : null}
 
         {(stufe === 'gross' || stufe === 'mega' || stufe === 'jackpot') && !wenigerBewegung ? (
           <Partikel anzahl={stufe === 'jackpot' ? 18 : 12} />
@@ -512,188 +561,222 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
         />
       ) : null}
 
-      {/* --- Steuerung --- */}
-      <div className="rounded-xl border border-border bg-card p-4">
-        {spieler.gesperrt ? (
-          <p className="mb-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
-            {spieler.gesperrt}
-          </p>
-        ) : null}
+      {spieler.gesperrt ? (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-center text-sm text-warning">
+          {spieler.gesperrt}
+        </p>
+      ) : null}
 
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-[12rem] flex-1">
-            <Label className="text-xs">Einsatz</Label>
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {ansicht.einsaetze.map((wert) => (
-                <Button
-                  key={wert}
-                  size="sm"
-                  variant={wirksamerEinsatz === wert ? 'default' : 'outline'}
-                  disabled={beschaeftigt || festerEinsatz !== null}
-                  /*
-                   * Ein eigener Name, obwohl «100» dasteht.
-                   *
-                   * Die Auto-Spin-Knoepfe tragen dieselben Zahlen. Wer die
-                   * Seite nur hoert, bekaeme zwei Knoepfe «100» ohne
-                   * Unterschied - und derselbe Grund liess den Browser-Smoke
-                   * zwei Treffer finden.
-                   */
-                  aria-label={`Einsatz ${wert} XP`}
-                  onClick={() => {
-                    ton.spiele('ui_button');
-                    setEinsatz(wert);
-                  }}
-                >
-                  {wert}
-                </Button>
-              ))}
-            </div>
-            {festerEinsatz !== null ? (
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Freispiele laufen mit ihrem festgelegten Einsatz.
-              </p>
-            ) : null}
-          </div>
+      {/*
+        Die Hauptsteuerung: Einsatz, Spin, Auto-Spin.
 
-          <Button
-            size="lg"
-            className={cn(
-              'slot-knopf min-w-[9rem]',
-              ansicht.design.knopfStil === 'puls' && 'slot-knopf--puls',
-              ansicht.design.knopfStil === 'ring' && 'slot-knopf--ring',
-            )}
-            disabled={beschaeftigt || entscheidung || spieler.gesperrt !== null}
-            onClick={() => void spin()}
+        Eine Zeile, zentriert, mit dem Spin-Knopf in der Mitte. Alles andere -
+        Lautstaerke, Infotafel, Statistik - steht darunter und darf scrollen;
+        diese drei duerfen es nicht.
+      */}
+      <div className={cn('slot-steuerung', imFreispiel && 'slot-steuerung--frei')}>
+        <div className="slot-einsatz">
+          <button
+            type="button"
+            className="slot-einsatz__schritt"
+            aria-label="Einsatz verringern"
+            disabled={beschaeftigt || festerEinsatz !== null || einsatzIndex <= 0}
+            onClick={() => einsatzSchritt(-1)}
           >
-            {beschaeftigt && autoRest === 0 ? (
-              <Sparkles aria-hidden="true" className="animate-pulse" />
-            ) : (
-              <Play aria-hidden="true" />
-            )}
-            {imFreispiel ? 'Freispiel' : 'Spin'}
-          </Button>
+            <Minus aria-hidden="true" className="size-4" />
+          </button>
+          <span
+            className={cn('slot-einsatz__wert', festerEinsatz !== null && 'slot-einsatz__wert--fest')}
+            aria-live="polite"
+          >
+            {formatSwissNumber(wirksamerEinsatz)}
+            <span className="ml-1 text-[11px] font-semibold text-muted-foreground">XP</span>
+          </span>
+          <button
+            type="button"
+            className="slot-einsatz__schritt"
+            aria-label="Einsatz erhöhen"
+            disabled={beschaeftigt || festerEinsatz !== null || einsatzIndex >= ansicht.einsaetze.length - 1}
+            onClick={() => einsatzSchritt(1)}
+          >
+            <Plus aria-hidden="true" className="size-4" />
+          </button>
+        </div>
 
-          {autoRest > 0 ? (
-            <Button
-              size="lg"
-              variant="destructive"
-              onClick={() => {
-                abbrechenRef.current = true;
-              }}
-            >
-              <Pause aria-hidden="true" />
-              Stop ({autoRest})
-            </Button>
-          ) : (
-            <div>
-              <Label className="text-xs">Auto-Spin</Label>
-              <div className="mt-1 flex gap-1.5">
-                {ansicht.autoSpinZahlen.map((anzahl) => (
-                  <Button
-                    key={anzahl}
-                    size="sm"
-                    variant="outline"
-                    disabled={beschaeftigt || entscheidung || spieler.gesperrt !== null}
-                    aria-label={`Auto-Spin über ${anzahl} Runden`}
-                    onClick={() => void autoStarten(anzahl)}
-                  >
-                    {anzahl}
-                  </Button>
-                ))}
-              </div>
-            </div>
+        <button
+          type="button"
+          className={cn(
+            'slot-spin',
+            beschaeftigt && 'slot-spin--laeuft',
+            ansicht.design.knopfStil === 'puls' && 'slot-knopf--puls',
+            ansicht.design.knopfStil === 'ring' && 'slot-knopf--ring',
           )}
-        </div>
+          disabled={beschaeftigt || entscheidung || spieler.gesperrt !== null}
+          onClick={() => void spin()}
+        >
+          {beschaeftigt ? (
+            <Sparkles aria-hidden="true" className="size-5 animate-pulse" />
+          ) : (
+            <Play aria-hidden="true" className="size-5" />
+          )}
+          {imFreispiel ? 'Freispiel' : 'Spin'}
+        </button>
 
-        <div className="mt-4 flex flex-wrap items-center gap-4 border-t border-border pt-3">
-          <Infotafel ansicht={ansicht} />
+        {autoRest > 0 ? (
+          <button
+            type="button"
+            className="slot-chip slot-chip--an"
+            onClick={() => {
+              abbrechenRef.current = true;
+            }}
+          >
+            <Pause aria-hidden="true" className="size-3.5" />
+            Stop ({autoRest})
+          </button>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              Auto
+            </span>
+            {ansicht.autoSpinZahlen.map((anzahl) => (
+              <button
+                key={anzahl}
+                type="button"
+                className="slot-chip"
+                disabled={beschaeftigt || entscheidung || spieler.gesperrt !== null}
+                aria-label={`Auto-Spin über ${anzahl} Runden`}
+                onClick={() => void autoStarten(anzahl)}
+              >
+                {anzahl}
+              </button>
+            ))}
+          </div>
+        )}
 
-          <label className="flex items-center gap-2 text-xs">
-            {/*
-              Ein eigener Name auf dem Schalter.
-
-              Die drei Schalter stehen in einer Reihe mit der Infotafel; ohne
-              eigenen Namen sind sie nur ueber ihre Position zu finden - fuer
-              Screenreader und fuer den Browser-Smoke gleichermassen. Der
-              Smoke griff dadurch die Infotafel statt den Schalter.
-            */}
-            <Switch aria-label="Quick Spin" checked={schnell} onCheckedChange={setzeSchnell} />
-            <Zap aria-hidden="true" className="size-3.5" />
-            Quick Spin
-          </label>
-
-          <label className="flex items-center gap-2 text-xs">
-            <Switch
-              aria-label="Effekte"
-              checked={ton.einstellungen.effekteAn}
-              onCheckedChange={(wert) => {
-                ton.freigeben();
-                ton.setzeEinstellungen({ effekteAn: wert });
-              }}
-            />
-            {ton.einstellungen.effekteAn ? (
-              <Volume2 aria-hidden="true" className="size-3.5" />
-            ) : (
-              <VolumeX aria-hidden="true" className="size-3.5" />
-            )}
-            Effekte
-          </label>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={ton.einstellungen.effekteLaut}
-            aria-label="Lautstärke der Effekte"
-            className="w-24 accent-[hsl(var(--primary-bright))]"
-            onChange={(ereignis) => ton.setzeEinstellungen({ effekteLaut: Number(ereignis.target.value) })}
-          />
-
-          <label className="flex items-center gap-2 text-xs">
-            <Switch
-              aria-label="Musik"
-              checked={ton.einstellungen.musikAn}
-              onCheckedChange={(wert) => {
-                ton.freigeben();
-                ton.setzeEinstellungen({ musikAn: wert });
-                if (!wert) {
-                  ton.stoppeSchleife('musik');
-                  ton.stoppeSchleife('freespin_loop');
-                }
-              }}
-            />
-            <Music aria-hidden="true" className="size-3.5" />
-            Musik
-          </label>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={ton.einstellungen.musikLaut}
-            aria-label="Lautstärke der Musik"
-            className="w-24 accent-[hsl(var(--primary-bright))]"
-            onChange={(ereignis) => ton.setzeEinstellungen({ musikLaut: Number(ereignis.target.value) })}
-          />
-
-          <Button variant="ghost" size="sm" onClick={() => void standAktualisieren()}>
-            <RotateCcw aria-hidden="true" />
-            Stand aktualisieren
-          </Button>
-        </div>
+        <button
+          type="button"
+          className={cn('slot-chip', schnell && 'slot-chip--an')}
+          aria-label="Quick Spin"
+          aria-pressed={schnell}
+          onClick={() => {
+            ton.spiele('ui_button');
+            setzeSchnell(!schnell);
+          }}
+        >
+          <Zap aria-hidden="true" className="size-3.5" />
+          Quick Spin
+        </button>
       </div>
 
-      {/* --- Sitzungsstatistik --- */}
-      <div className="grid gap-2 sm:grid-cols-5">
-        <Wert label="Spins (Sitzung)" wert={String(spieler.statistik.spins)} />
-        <Wert label="Eingesetzt" wert={`${formatSwissNumber(spieler.statistik.einsatz)} XP`} />
-        <Wert label="Gewonnen" wert={`${formatSwissNumber(spieler.statistik.gewinn)} XP`} />
-        <Wert
-          label="Saldo"
-          wert={`${spieler.statistik.saldo > 0 ? '+' : ''}${formatSwissNumber(spieler.statistik.saldo)} XP`}
+      {/*
+        Die Werkzeuge.
+
+        Infotafel, Ton, Stand - alles, was man einmal einstellt und dann in
+        Ruhe laesst. Auf dem Telefon rutscht die Zeile unter die Steuerung und
+        darf dort auch ausserhalb des Bildschirms liegen.
+      */}
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <Infotafel ansicht={ansicht} />
+
+        <button
+          type="button"
+          className={cn('slot-chip', ton.einstellungen.effekteAn && 'slot-chip--an')}
+          aria-label="Effekte"
+          aria-pressed={ton.einstellungen.effekteAn}
+          onClick={() => {
+            ton.freigeben();
+            ton.setzeEinstellungen({ effekteAn: !ton.einstellungen.effekteAn });
+          }}
+        >
+          {ton.einstellungen.effekteAn ? (
+            <Volume2 aria-hidden="true" className="size-3.5" />
+          ) : (
+            <VolumeX aria-hidden="true" className="size-3.5" />
+          )}
+          Effekte
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={ton.einstellungen.effekteLaut}
+          aria-label="Lautstärke der Effekte"
+          className="h-1 w-20 accent-[hsl(var(--primary-bright))]"
+          onChange={(ereignis) => ton.setzeEinstellungen({ effekteLaut: Number(ereignis.target.value) })}
         />
-        <Wert label="Bester Spin" wert={`${formatSwissNumber(spieler.statistik.bestesSpin)} XP`} />
+
+        <button
+          type="button"
+          className={cn('slot-chip', ton.einstellungen.musikAn && 'slot-chip--an')}
+          aria-label="Musik"
+          aria-pressed={ton.einstellungen.musikAn}
+          onClick={() => {
+            const wert = !ton.einstellungen.musikAn;
+            ton.freigeben();
+            ton.setzeEinstellungen({ musikAn: wert });
+            if (!wert) {
+              ton.stoppeSchleife('musik');
+              ton.stoppeSchleife('freespin_loop');
+            }
+          }}
+        >
+          <Music aria-hidden="true" className="size-3.5" />
+          Musik
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={ton.einstellungen.musikLaut}
+          aria-label="Lautstärke der Musik"
+          className="h-1 w-20 accent-[hsl(var(--primary-bright))]"
+          onChange={(ereignis) => ton.setzeEinstellungen({ musikLaut: Number(ereignis.target.value) })}
+        />
+
+        <button
+          type="button"
+          className="slot-chip"
+          aria-label="Stand aktualisieren"
+          onClick={() => void standAktualisieren()}
+        >
+          <RotateCcw aria-hidden="true" className="size-3.5" />
+          Stand
+        </button>
       </div>
 
-      <p className="text-center text-xs text-muted-foreground">
+      {/* --- Sitzungsstatistik: eine Zeile, kein Kachelfeld --- */}
+      <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center text-[11px] text-muted-foreground">
+        <span>
+          Sitzung: <strong className="tabular-nums text-foreground">{spieler.statistik.spins}</strong> Spins
+        </span>
+        <span>
+          Eingesetzt{' '}
+          <strong className="tabular-nums text-foreground">
+            {formatSwissNumber(spieler.statistik.einsatz)}
+          </strong>
+        </span>
+        <span>
+          Gewonnen{' '}
+          <strong className="tabular-nums text-foreground">
+            {formatSwissNumber(spieler.statistik.gewinn)}
+          </strong>
+        </span>
+        <span>
+          Saldo{' '}
+          <strong className="tabular-nums text-foreground">
+            {spieler.statistik.saldo > 0 ? '+' : ''}
+            {formatSwissNumber(spieler.statistik.saldo)}
+          </strong>
+        </span>
+        <span>
+          Bester Spin{' '}
+          <strong className="tabular-nums text-foreground">
+            {formatSwissNumber(spieler.statistik.bestesSpin)}
+          </strong>
+        </span>
+      </p>
+
+      <p className="text-center text-[11px] text-muted-foreground">
         Spiele bewusst mit deinen XP. Theoretische Auszahlungsquote: {(ansicht.rtp * 100).toFixed(1)} % über
         viele Spins.
       </p>
@@ -701,25 +784,109 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
   );
 }
 
-function Wert({
+/**
+ * Ein Feld im HUD.
+ *
+ * Es merkt sich seinen vorherigen Wert und blitzt auf, wenn er sich aendert -
+ * nach oben rot und gross, nach unten ein kurzes Absacken. Ohne das taeuscht
+ * ein Spiel, bei dem die wichtigste Zahl lautlos ausgewechselt wird, Stillstand
+ * vor.
+ *
+ * `still` schaltet die Reaktion ab: Einsatz und Freispielzahl aendern sich,
+ * weil jemand sie geaendert hat - da ist ein Aufblitzen keine Nachricht,
+ * sondern Unruhe.
+ */
+function HudFeld({
   label,
   wert,
-  hinweis = null,
+  notiz = null,
+  vorzeichen = false,
+  still = false,
 }: {
   label: string;
-  wert: string;
-  hinweis?: string | null;
+  wert: number;
+  notiz?: string | null;
+  vorzeichen?: boolean;
+  still?: boolean;
 }): React.JSX.Element {
+  const [richtung, setRichtung] = useState<'auf' | 'ab' | null>(null);
+  const vorher = useRef(wert);
+
+  useEffect(() => {
+    if (still || wert === vorher.current) {
+      vorher.current = wert;
+      return undefined;
+    }
+    setRichtung(wert > vorher.current ? 'auf' : 'ab');
+    vorher.current = wert;
+    // Die Klasse muss wieder weg, sonst laeuft die Animation beim naechsten
+    // Rendern nicht erneut an - eine CSS-Animation startet nur beim Wechsel.
+    const uhr = window.setTimeout(() => setRichtung(null), 700);
+    return () => window.clearTimeout(uhr);
+  }, [still, wert]);
+
   return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="text-lg font-bold tabular-nums">{wert}</p>
-      {hinweis ? <p className="text-[11px] text-muted-foreground">{hinweis}</p> : null}
+    <div
+      className={cn(
+        'slot-hud__feld',
+        richtung === 'auf' && 'slot-hud__feld--auf',
+        richtung === 'ab' && 'slot-hud__feld--ab',
+      )}
+    >
+      <p className="slot-hud__label">{label}</p>
+      <p className="slot-hud__wert">
+        {vorzeichen && wert > 0 ? '+' : ''}
+        {formatSwissNumber(wert)}
+      </p>
+      {notiz ? <p className="slot-hud__notiz">{notiz}</p> : null}
     </div>
   );
 }
 
-/** Das Startbild: die ersten Symbole, damit das Feld nicht leer beginnt. */
+/**
+ * Eine Zahl, die hochzaehlt.
+ *
+ * Ueber `requestAnimationFrame` und nicht ueber einen Intervall: der Browser
+ * entscheidet, wann ein Bild faellig ist, und bei einem Hintergrundtab faellt
+ * gar keines an. Ein Intervall zaehlte dort weiter und waere beim Zurueckkommen
+ * mitten im Sprung.
+ *
+ * Bei `prefers-reduced-motion` steht die Endzahl sofort da. Wer weniger
+ * Bewegung will, will das Ergebnis und nicht die Vorfuehrung.
+ */
+function Hochzaehlen({ ziel, ruhig }: { ziel: number; ruhig: boolean }): React.JSX.Element {
+  const [wert, setWert] = useState(ruhig ? ziel : 0);
+
+  useEffect(() => {
+    if (ruhig) {
+      setWert(ziel);
+      return undefined;
+    }
+    const dauer = 650;
+    const start = performance.now();
+    let bild = 0;
+    const schritt = (jetzt: number): void => {
+      const p = Math.min(1, (jetzt - start) / dauer);
+      // Weich auslaufen: schnell los, ruhig an die Endzahl heran.
+      setWert(Math.round(ziel * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) {
+        bild = requestAnimationFrame(schritt);
+      }
+    };
+    bild = requestAnimationFrame(schritt);
+    return () => cancelAnimationFrame(bild);
+  }, [ruhig, ziel]);
+
+  return <>{formatSwissNumber(wert)}</>;
+}
+/**
+ * Das Spielfeld vor dem ersten Spin.
+ *
+ * Kein leeres Raster und keine Zufallsziehung im Browser: ein fester Satz
+ * Symbole, damit die Maschine beim Laden aussieht wie eine Maschine. Welche
+ * Symbole das sind, bedeutet nichts - gespielt wird erst mit dem ersten Spin,
+ * und der kommt vom Server.
+ */
 function startfeld(ansicht: Ansicht): string[] {
   const keys = ansicht.symbole.map((symbol) => symbol.key);
   if (keys.length === 0) {
@@ -731,14 +898,6 @@ function startfeld(ansicht: Ansicht): string[] {
   );
 }
 
-/**
- * Hex nach HSL-Bestandteilen.
- *
- * Die Akzentfarbe ist im Dashboard ein Hex-Wert, die Designvariablen des
- * Systems sind HSL-Bestandteile (`358 79% 52%`). Umgerechnet wird hier, weil
- * genau eine Variable gesetzt wird und ein zweites Farbsystem im CSS die
- * Alternative waere.
- */
 function hexZuHsl(hex: string): string {
   const roh = hex.replace('#', '');
   const r = Number.parseInt(roh.slice(0, 2), 16) / 255;

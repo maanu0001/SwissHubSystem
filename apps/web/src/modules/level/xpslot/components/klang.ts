@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { dateiAdresse } from '../adressen';
+import { klangQuelle, STANDARD_KLAENGE } from '../adressen';
 
 /**
  * Die Tonausgabe des XP-Slots.
@@ -40,10 +40,22 @@ import { dateiAdresse } from '../adressen';
 
 export interface KlangEintrag {
   slot: string;
-  dateiname: string;
+  /** Die hochgeladene Datei - oder `null` fuer den mitgelieferten Klang. */
+  dateiname: string | null;
   lautstaerke: number;
   musik: boolean;
 }
+
+/**
+ * Die Slots, die als Schleife laufen.
+ *
+ * Dieselbe Liste wie `MUSIK_SLOTS` im Modulkern, und zwar bewusst zweimal:
+ * diese Datei laeuft im Browser und darf die Modulschicht mit ihrer
+ * Datenbankanbindung nicht laden. Die Konfiguration bringt das Merkmal je
+ * Eintrag ohnehin mit; gebraucht wird die Liste nur fuer die Slots, fuer die
+ * es gar keine Konfigurationszeile gibt - die mitgelieferten.
+ */
+const MUSIK_SLOTS = new Set(['musik', 'freespin_loop']);
 
 export interface KlangEinstellungen {
   musikAn: boolean;
@@ -130,8 +142,20 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
     setze(lies());
   }, []);
 
+  /*
+   * Die Klaenge, die tatsaechlich spielen.
+   *
+   * Erst die mitgelieferten, dann die der Verwaltung darueber. Ein Slot, fuer
+   * den jemand eine Datei hochgeladen hat, spielt diese; alle uebrigen spielen
+   * den Standard. Wird die Datei spaeter entfernt, kommt der Slot gar nicht
+   * mehr aus der Konfiguration - und faellt damit von allein auf den Standard
+   * zurueck. Genau deshalb braucht «zuruecksetzen» hier keinen eigenen Zweig.
+   */
   const nachSlot = useMemo(() => {
     const karte = new Map<string, KlangEintrag>();
+    for (const slot of Object.keys(STANDARD_KLAENGE)) {
+      karte.set(slot, { slot, dateiname: null, lautstaerke: 80, musik: MUSIK_SLOTS.has(slot) });
+    }
     for (const eintrag of klaenge) {
       karte.set(eintrag.slot, eintrag);
     }
@@ -166,8 +190,12 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
       if (vorhanden) {
         return vorhanden;
       }
+      const adresse = klangQuelle(slot, eintrag.dateiname);
+      if (!adresse) {
+        return null;
+      }
       try {
-        const element = new window.Audio(dateiAdresse(eintrag.dateiname));
+        const element = new window.Audio(adresse);
         element.preload = 'auto';
         element.loop = eintrag.musik;
         elemente.current.set(slot, element);

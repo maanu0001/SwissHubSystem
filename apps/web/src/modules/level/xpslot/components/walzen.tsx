@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { quelle } from '../adressen';
+import { symbolBild } from '../adressen';
 import { cn } from '@/lib/utils';
 
 /**
@@ -44,6 +44,8 @@ export interface WalzenProps {
   sweatAbWalze: number | null;
   reihen: number;
   walzen: number;
+  /** Die Zellen der hervorgehobenen Gewinnlinie - oder nichts. */
+  linie?: readonly number[] | null;
 }
 
 /** Ein zufaelliges Fuellsymbol - nur fuer das laufende Band. */
@@ -60,6 +62,7 @@ export function Walzen({
   sweatAbWalze,
   reihen,
   walzen,
+  linie = null,
 }: WalzenProps): React.JSX.Element {
   const nachKey = useMemo(() => new Map(symbole.map((eintrag) => [eintrag.key, eintrag])), [symbole]);
   const trefferSet = useMemo(() => new Set(treffer), [treffer]);
@@ -76,7 +79,14 @@ export function Walzen({
             key={walze}
             className={cn('slot-walze', !laeuft && 'slot-walze--stopp', sweat && 'slot-walze--sweat')}
           >
-            <div className={laeuft ? 'slot-band' : undefined}>
+            {/*
+              Zwei Klassen fuer zwei Zustaende, beide absolut im Walzenfenster:
+              `slot-band` traegt die Fuellzellen und laeuft, `slot-stand` traegt
+              das Ergebnis und federt beim Stopp aus. Weil beide absolut liegen,
+              aendert der Wechsel die Hoehe der Walze nicht - und genau das war
+              der Fehler, bei dem sich die Maschine waehrend des Spins dehnte.
+            */}
+            <div className={laeuft ? 'slot-band' : 'slot-stand'}>
               {laeuft
                 ? /*
                    * Sechs Fuellzellen statt drei: das Band muss ueber die
@@ -101,6 +111,13 @@ export function Walzen({
           </div>
         );
       })}
+
+      {/*
+        Die Linie liegt im Raster und nicht darueber: das Raster ist zentriert
+        und nur so breit wie fuenf Walzen, der Kasten darum ist breiter. Eine
+        Linie, die sich am Kasten ausrichtet, traefe die Zellen nicht.
+      */}
+      {linie && linie.length > 1 ? <Gewinnlinie zellen={linie} reihen={reihen} walzen={walzen} /> : null}
     </div>
   );
 }
@@ -114,7 +131,7 @@ function Zelle({
   treffer?: boolean;
   klebt?: boolean;
 }): React.JSX.Element {
-  const bild = symbol ? quelle(symbol.bildPfad, symbol.bildUrl) : null;
+  const bild = symbol ? symbolBild(symbol) : null;
 
   return (
     <div
