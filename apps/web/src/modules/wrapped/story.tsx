@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { SZENEN_KOMPONENTEN, SZENEN_DAUER } from './szenen/registry';
 import { Faden } from './teile/faden';
 import { cn } from '@/lib/utils';
+import { erhebungsSatz } from '@swisshub/modules/wrapped/szenen';
 import type { WrappedDaten } from '@swisshub/modules/wrapped/daten';
 import './wrapped.css';
 
@@ -162,6 +163,9 @@ export function WrappedStory({
   }, [weiter, zurueck, zurueckHref]);
 
   const Szene = SZENEN_KOMPONENTEN[aktuell];
+  // Aus den Quellen derselben Daten, mit denen die Szenen rechnen - damit der
+  // Satz nicht von einer zweiten Stelle kommt, die irgendwann abweicht.
+  const erhebung = useMemo(() => erhebungsSatz(daten), [daten]);
 
   return (
     <div
@@ -270,6 +274,20 @@ export function WrappedStory({
             className="h-full flex-1 cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40"
             aria-label="Nächste Szene"
           />
+        </div>
+      ) : null}
+
+      {/*
+        Teilweise erhobene Quellen - ein Satz, unten, gedaempft.
+
+        Die Szenen laufen mit Teil-Daten, und das ist richtig: ein halbes Jahr
+        Zahlen ist mehr wert als ein leerer Rueckblick. Nur darf es nicht
+        aussehen wie ein ganzes. Einer fuer die ganze Geschichte statt einer je
+        Szene - vierzehn Fussnoten liest niemand.
+      */}
+      {erhebung && !einzeln ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 px-5 text-center sm:px-8">
+          <span className="text-[0.65rem] leading-snug text-white/45">{erhebung}</span>
         </div>
       ) : null}
 

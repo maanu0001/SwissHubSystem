@@ -94,6 +94,17 @@ export interface StoryFolie {
   score: number;
   /** Verweis auf einen Community-Moment, falls es einer ist. */
   momentId?: string;
+  /**
+   * Woran die Zahl dieser Folie haengt, wenn sie nicht ueber den ganzen
+   * Zeitraum erhoben wurde.
+   *
+   * `null` heisst: vollstaendig erhoben, kein Hinweis noetig. Steht hier ein
+   * Satz, gehoert er **auf** die Folie - nicht in eine Diagnose, die nur das
+   * Team sieht. Eine Zahl ueber die halbe Strecke, dargestellt wie eine ueber
+   * die ganze, ist eine Falschaussage; dieselbe Zahl mit dem Satz darunter
+   * ist eine Auskunft.
+   */
+  erhebung?: string | null;
 }
 
 export interface StoryEntfaellt {
@@ -224,14 +235,37 @@ function pruefeQuelle(quelle: WrappedQuellen[keyof WrappedQuellen], name: string
   if (quelle.lage === 'fehlt') {
     return entfaellt('nicht_erhoben', `${name} wurde in diesem Zeitraum nicht erhoben.`);
   }
-  if (quelle.lage === 'teilweise') {
-    const prozent = Math.round(quelle.abdeckung * 100);
-    return entfaellt(
-      'nur_teilweise_erhoben',
-      `${name} wurde erst ab dem ${quelle.seit?.slice(0, 10) ?? '?'} erhoben - das deckt nur ${prozent} % des Zeitraums ab.`,
-    );
-  }
   return null;
+}
+
+/**
+ * Der Satz zu einer Quelle, die nur einen Teil des Zeitraums abdeckt.
+ *
+ * ## Warum die Folie jetzt entsteht
+ *
+ * Hier stand vorher eine Absage: `teilweise` liess die Folie entfallen. Das
+ * war gut gemeint und im Ergebnis die falsche Entscheidung. Wer im Juli das
+ * Analytics-Modul eingeschaltet hat, bekam fuer das Jahr **keine**
+ * Sprachzeit-Folie - obwohl ein halbes Jahr lang gemessen wurde und die
+ * Zahlen stimmen. Aus «unvollstaendig» wurde «nicht vorhanden», und das ist
+ * nicht ehrlicher, sondern nur leerer.
+ *
+ * Also: Zahl zeigen, Herkunft dazuschreiben. Was nicht passieren darf, ist
+ * das eine ohne das andere - deshalb gibt diese Funktion den Satz zurueck und
+ * nicht einen Schalter: eine Folie, die ihn vergisst, hat keinen Hinweis, und
+ * das faellt beim Lesen des Aufrufs auf.
+ *
+ * `null` heisst vollstaendig erhoben.
+ */
+function erhebungsHinweis(quelle: WrappedQuellen[keyof WrappedQuellen], name: string): string | null {
+  if (quelle.lage !== 'teilweise') {
+    return null;
+  }
+  const prozent = Math.round(quelle.abdeckung * 100);
+  const seit = quelle.seit?.slice(0, 10) ?? null;
+  return seit
+    ? `${name} wird erst seit dem ${seit} gemessen - die Zahl deckt ${prozent} % des Zeitraums ab.`
+    : `${name} wurde nur fuer ${prozent} % des Zeitraums gemessen.`;
 }
 
 /**
@@ -317,6 +351,9 @@ const VOICE_TOTAL: WrappedStory = {
     if (fehlt) {
       return fehlt;
     }
+    // Steht hier ein Satz, deckt die Quelle nur einen Teil des Zeitraums ab -
+    // und dann gehoert er auf die Folie, nicht in eine Diagnose fuers Team.
+    const erhebung = erhebungsHinweis(kontext.quellen.voice, 'Die Sprachzeit');
     const gesamt = stunden(kontext.zahlen.voiceSeconds);
     if (gesamt < 1) {
       return entfaellt('nichts_passiert', 'Im Sprachkanal kam keine volle Stunde zusammen.');
@@ -330,6 +367,7 @@ const VOICE_TOTAL: WrappedStory = {
     const tage = Math.floor(gesamt / 24);
     return {
       art: 'folie',
+      erhebung,
       templateKey: 'HERO_NUMBER',
       daten: {
         wert: zahl(gesamt),
@@ -356,6 +394,9 @@ const VOICE_RECORD: WrappedStory = {
     if (fehlt) {
       return fehlt;
     }
+    // Steht hier ein Satz, deckt die Quelle nur einen Teil des Zeitraums ab -
+    // und dann gehoert er auf die Folie, nicht in eine Diagnose fuers Team.
+    const erhebung = erhebungsHinweis(kontext.quellen.voice, 'Die Sprachzeit');
     const bester = kontext.zahlen.besterVoiceTag;
     if (!bester || bester.voiceSeconds <= 0) {
       return entfaellt('nichts_passiert', 'Es gab keinen Tag mit Sprachzeit.');
@@ -379,6 +420,7 @@ const VOICE_RECORD: WrappedStory = {
     }
     return {
       art: 'folie',
+      erhebung,
       templateKey: 'HERO_NUMBER',
       daten: {
         wert: zahl(stunden(bester.voiceSeconds)),
@@ -406,11 +448,15 @@ const MESSAGES: WrappedStory = {
     if (fehlt) {
       return fehlt;
     }
+    // Steht hier ein Satz, deckt die Quelle nur einen Teil des Zeitraums ab -
+    // und dann gehoert er auf die Folie, nicht in eine Diagnose fuers Team.
+    const erhebung = erhebungsHinweis(kontext.quellen.messages, 'Die Nachrichtenzahl');
     if (kontext.zahlen.messages < 100) {
       return entfaellt('nichts_passiert', 'Es kamen weniger als 100 Nachrichten zusammen.');
     }
     return {
       art: 'folie',
+      erhebung,
       templateKey: 'HERO_NUMBER',
       daten: { wert: zahl(kontext.zahlen.messages), label: 'Nachrichten', zusatz: null },
       vorschlag: { ueberschrift: 'Geschrieben', text: '' },
@@ -642,6 +688,9 @@ const MONTH_OVERVIEW: WrappedStory = {
     if (fehlt) {
       return fehlt;
     }
+    // Steht hier ein Satz, deckt die Quelle nur einen Teil des Zeitraums ab -
+    // und dann gehoert er auf die Folie, nicht in eine Diagnose fuers Team.
+    const erhebung = erhebungsHinweis(kontext.quellen.voice, 'Die Sprachzeit');
     const monate = kontext.monate;
     if (!monate || monate.length !== 12) {
       return entfaellt('nicht_erhoben', 'Der Monatsverlauf liess sich nicht ermitteln.');
@@ -661,6 +710,7 @@ const MONTH_OVERVIEW: WrappedStory = {
     const bester = monate.reduce((beste, monat) => (monat.voiceSeconds > beste.voiceSeconds ? monat : beste));
     return {
       art: 'folie',
+      erhebung,
       templateKey: 'MONTH_OVERVIEW',
       daten: {
         kategorie: 'Voice über das Jahr',
@@ -692,12 +742,16 @@ const YEAR_NUMBERS: WrappedStory = {
     if (fehlt) {
       return fehlt;
     }
+    // Steht hier ein Satz, deckt die Quelle nur einen Teil des Zeitraums ab -
+    // und dann gehoert er auf die Folie, nicht in eine Diagnose fuers Team.
+    const erhebung = erhebungsHinweis(kontext.quellen.voice, 'Die Sprachzeit');
     const gesamt = stunden(kontext.zahlen.voiceSeconds);
     if (gesamt < 24 || kontext.zahlen.aktiveMitglieder === 0) {
       return entfaellt('nichts_passiert', 'Für eine Jahresbilanz kam zu wenig zusammen.');
     }
     return {
       art: 'folie',
+      erhebung,
       templateKey: 'TWO_STAT',
       daten: {
         links: { wert: zahl(gesamt), label: 'Voice-Stunden' },

@@ -46,6 +46,14 @@ export const WRAPPED_PERMISSIONS = {
   editionFinalize: 'wrapped.edition.finalize',
   /** Eine eingefrorene Ausgabe wieder aufmachen. */
   editionUnlock: 'wrapped.edition.unlock',
+  /**
+   * Eine Ausgabe endgueltig loeschen.
+   *
+   * Eigener Schluessel und nicht `editionUnlock` mitbenutzt: Aufmachen ist
+   * umkehrbar, Loeschen nicht. Wer Folien wieder bearbeiten darf, soll nicht
+   * deshalb schon einen ganzen Rueckblick wegwerfen koennen.
+   */
+  editionDelete: 'wrapped.edition.delete',
   /** Die fertigen Bilder herunterladen. */
   export: 'wrapped.export',
   /** Community Moments pflegen. */
@@ -224,6 +232,13 @@ export const wrappedModule: ModuleDefinition = registerModule({
       label: 'Ausgabe entsperren',
       description:
         'Eine eingefrorene Ausgabe wieder bearbeitbar machen. Ändert rückwirkend, was bereits veröffentlicht wurde.',
+      module: WRAPPED_MODULE_ID,
+    },
+    {
+      key: WRAPPED_PERMISSIONS.editionDelete,
+      label: 'Ausgabe löschen',
+      description:
+        'Eine Ausgabe samt ihren Folien endgültig entfernen. Nicht umkehrbar - die erhobenen Zahlen sind danach weg.',
       module: WRAPPED_MODULE_ID,
     },
     {

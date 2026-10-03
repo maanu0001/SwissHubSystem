@@ -205,6 +205,32 @@ export const ausgabeEntsperrenAction = defineAction(
   },
 );
 
+/**
+ * Eine Ausgabe endgueltig loeschen.
+ *
+ * Eigene Berechtigung - nicht die des Entsperrens: Aufmachen ist umkehrbar,
+ * Loeschen nicht. Dass der Knopf eine Rueckfrage hat, ist Hoeflichkeit; dass
+ * ohne `editionDelete` nichts passiert, ist die Absicherung.
+ *
+ * Kein `neuLaden(editionId)` fuer die Detailseite: die gibt es danach nicht
+ * mehr, und ein Pfad, der auf 404 laeuft, braucht keine Auffrischung.
+ */
+export const ausgabeLoeschenAction = defineAction(
+  {
+    name: 'wrapped.ausgabe.loeschen',
+    module: wrapped.WRAPPED_MODULE_ID,
+    permission: wrapped.WRAPPED_PERMISSIONS.editionDelete,
+    schema: z.object({ editionId: z.string().min(1) }),
+    rateLimit: 'wrappedStudio',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await wrapped.loescheAusgabe(input.editionId, wrappedHandelnder(ctx));
+    neuLaden();
+    return { ok: true };
+  },
+);
+
 export const ausgabeVeroeffentlichtAction = defineAction(
   {
     name: 'wrapped.ausgabe.veroeffentlicht',

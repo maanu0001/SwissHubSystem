@@ -195,11 +195,44 @@ function Kopfzeile({ titel, klein }: { titel: string; klein: boolean }): React.J
   );
 }
 
-function Fusszeile({ host, klein }: { host: string; klein: boolean }): React.JSX.Element {
+function Fusszeile({
+  host,
+  klein,
+  erhebung,
+}: {
+  host: string;
+  klein: boolean;
+  erhebung?: string | null;
+}): React.JSX.Element {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <div style={{ display: 'flex', fontSize: klein ? 24 : 28, letterSpacing: 4, color: LEISE }}>{host}</div>
-      <div style={{ display: 'flex', width: 64, height: 5, background: ROT }} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: klein ? 14 : 18 }}>
+      {/*
+        Der Erhebungshinweis - klein, aber auf dem Bild.
+        
+        Gedaempft und in einer Zeile ueber dem Absender: er soll die Folie
+        nicht beherrschen, aber mitgehen, wenn sie geteilt wird. Eine
+        Fussnote, die nur im Editor steht, waere genau das, was hier nicht
+        gemeint ist.
+      */}
+      {erhebung ? (
+        <div
+          style={{
+            display: 'flex',
+            fontSize: klein ? 22 : 26,
+            lineHeight: 1.3,
+            color: GEDAEMPFT,
+            maxWidth: '100%',
+          }}
+        >
+          {kuerze(erhebung, 140)}
+        </div>
+      ) : null}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', fontSize: klein ? 24 : 28, letterSpacing: 4, color: LEISE }}>
+          {host}
+        </div>
+        <div style={{ display: 'flex', width: 64, height: 5, background: ROT }} />
+      </div>
     </div>
   );
 }
@@ -251,6 +284,16 @@ export interface FolienEingabe {
   templateKey: WrappedVorlage;
   daten: unknown;
   editorial: { ueberschrift: string; text: string };
+  /**
+   * Woran die Zahl haengt, wenn die Quelle nur einen Teil des Zeitraums
+   * abdeckt - erhoben, nicht geschrieben.
+   *
+   * Steht hier ein Satz, wird er gezeichnet. Nicht als Fussnote in einem
+   * Dashboard, sondern **auf dem Bild**, das hinausgeht: eine Zahl ueber die
+   * halbe Strecke, dargestellt wie eine ueber die ganze, laesst sich nicht
+   * mehr zurueckholen.
+   */
+  erhebung?: string | null;
   /**
    * Das Bild eines Community Moments - als `data:`-URI.
    *
@@ -780,7 +823,7 @@ export function zeichneAusgabeFolie({
       <Kulisse variante={variante} breite={mass.breite} hoehe={mass.hoehe} />
       <Kopfzeile titel={titel} klein={klein} />
       <Rumpf folie={folie} innen={innen} klein={klein} />
-      <Fusszeile host={host} klein={klein} />
+      <Fusszeile host={host} klein={klein} erhebung={folie.erhebung} />
     </div>
   );
 }

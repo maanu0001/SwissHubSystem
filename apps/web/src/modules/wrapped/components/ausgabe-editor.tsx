@@ -41,6 +41,8 @@ export interface EditorFolie {
   enabled: boolean;
   daten: unknown;
   editorial: { ueberschrift: string; text: string };
+  /** Der Erhebungshinweis - `null`, wenn die Quelle den Zeitraum voll abdeckt. */
+  erhebung: string | null;
 }
 
 export interface EditorAusgabe {
@@ -395,6 +397,9 @@ function Vorschau({
             templateKey: folie.templateKey as never,
             daten: folie.daten,
             editorial: folie.editorial,
+            // Auch in der Vorschau: wer den Hinweis erst auf dem fertigen PNG
+            // sieht, hat die Folie schon freigegeben.
+            erhebung: folie.erhebung,
           },
           format,
           variante,

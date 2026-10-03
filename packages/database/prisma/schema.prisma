@@ -7296,6 +7296,18 @@ model WrappedSlide {
   /// Ueberschrift und Begleittext. Frei bearbeitbar.
   editorialData Json
 
+  /// Woran die Zahl haengt, wenn sie nicht den ganzen Zeitraum abdeckt.
+  ///
+  /// «Die Sprachzeit wird erst seit dem 2026-07-01 gemessen - die Zahl deckt
+  /// 50 % des Zeitraums ab.» Steht hier etwas, gehoert es **auf** die Folie.
+  /// Vorher liess eine solche Quelle die Folie ganz entfallen; aus
+  /// «unvollstaendig» wurde «nicht vorhanden», und das ist nicht ehrlicher,
+  /// sondern nur leerer.
+  ///
+  /// Erhoben und nicht geschrieben: der Satz entsteht aus `WrappedEdition.sources`
+  /// und ist ueber kein Textfeld erreichbar.
+  coverageNote String?
+
   /// Wie bemerkenswert diese Folie war, als die Ausgabe entstand.
   ///
   /// Mitgeschrieben, damit die Reihenfolge nachvollziehbar bleibt: sonst

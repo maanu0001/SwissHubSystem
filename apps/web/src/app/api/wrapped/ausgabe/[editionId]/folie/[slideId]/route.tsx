@@ -80,6 +80,7 @@ export async function GET(
         templateKey: folie.templateKey,
         daten: folie.daten,
         editorial: folie.editorial,
+        erhebung: folie.erhebung,
         bildQuelle,
       },
       format: format as AusgabeFormat,

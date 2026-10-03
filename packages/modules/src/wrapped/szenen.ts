@@ -259,6 +259,71 @@ export function baueGeschichte(daten: WrappedDaten, einstellungen: SzenenEinstel
     .map((szene) => szene.key);
 }
 
+/** Wie eine Quelle in einem Hinweis heisst. */
+const QUELLEN_NAMEN: Record<keyof WrappedDaten['quellen'], string> = {
+  voice: 'Sprachzeit',
+  messages: 'Nachrichten',
+  level: 'Level',
+  clips: 'Clips',
+  events: 'Termine',
+  tournaments: 'Turniere',
+  games: 'Spiele',
+};
+
+/**
+ * Welche Quellen nur einen Teil des Zeitraums abdecken.
+ *
+ * ## Warum das sichtbar sein muss
+ *
+ * `baueGeschichte` laesst eine Szene laufen, sobald die Quelle **irgendwas**
+ * gemessen hat - und das ist richtig: wer im Juli angefangen hat zu messen,
+ * soll seine halbe Jahresbilanz sehen und nicht einen leeren Rueckblick.
+ *
+ * Falsch war nur, es nicht zu sagen. «2846 Minuten im Voice» liest sich wie
+ * ein Jahr, auch wenn es ein halbes ist. Diese Liste ist die Grundlage fuer
+ * den Satz, der es klarstellt - einer fuer die ganze Geschichte, nicht einer
+ * je Szene: vierzehn Fussnoten liest niemand.
+ *
+ * Leer heisst: alles, was gezeigt wird, deckt den ganzen Zeitraum ab.
+ */
+export function erhebungsLuecken(
+  daten: WrappedDaten,
+): Array<{ quelle: string; name: string; seit: string | null; prozent: number }> {
+  const luecken: Array<{ quelle: string; name: string; seit: string | null; prozent: number }> = [];
+  for (const [schluessel, lage] of Object.entries(daten.quellen)) {
+    if (lage.lage !== 'teilweise') {
+      continue;
+    }
+    luecken.push({
+      quelle: schluessel,
+      name: QUELLEN_NAMEN[schluessel as keyof WrappedDaten['quellen']] ?? schluessel,
+      seit: lage.seit?.slice(0, 10) ?? null,
+      prozent: Math.round(lage.abdeckung * 100),
+    });
+  }
+  return luecken;
+}
+
+/**
+ * Der Satz dazu - oder `null`, wenn nichts fehlt.
+ *
+ * Eine Zeile, weil sie in einer Story-Oberflaeche steht und dort kein Platz
+ * fuer einen Absatz ist. Mehrere Quellen werden aufgezaehlt und nicht
+ * zusammengefasst: «teilweise erhoben» allein liesse offen, was gemeint ist.
+ */
+export function erhebungsSatz(daten: WrappedDaten): string | null {
+  const luecken = erhebungsLuecken(daten);
+  if (luecken.length === 0) {
+    return null;
+  }
+  const teile = luecken.map((eintrag) =>
+    eintrag.seit
+      ? `${eintrag.name} seit ${eintrag.seit} (${eintrag.prozent} %)`
+      : `${eintrag.name} (${eintrag.prozent} %)`,
+  );
+  return `Teilweise erhoben: ${teile.join(', ')}.`;
+}
+
 /**
  * Was eine Person bekaeme - Szene fuer Szene, mit Begruendung.
  *

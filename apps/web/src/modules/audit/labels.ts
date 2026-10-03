@@ -437,6 +437,7 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   WRAPPED_EDITION_REGENERATED: 'Wrapped-Ausgabe neu erhoben',
   WRAPPED_EDITION_FINALIZED: 'Wrapped-Ausgabe eingefroren',
   WRAPPED_EDITION_UNLOCKED: 'Wrapped-Ausgabe entsperrt',
+  WRAPPED_EDITION_DELETED: 'Wrapped-Ausgabe gelöscht',
   WRAPPED_EDITION_PUBLISHED: 'Wrapped-Ausgabe als veröffentlicht markiert',
   WRAPPED_SLIDE_ENABLED: 'Folie eingeschaltet',
   WRAPPED_SLIDE_DISABLED: 'Folie ausgeschaltet',

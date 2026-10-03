@@ -4,9 +4,11 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { CalendarRange, Loader2, Plus } from 'lucide-react';
+import { CalendarRange, Loader2, Plus, Trash2 } from 'lucide-react';
 import { systemRoutes } from '@swisshub/shared';
-import { ausgabeErzeugenAction } from '@/modules/wrapped/ausgabe-aktionen';
+import { ConfirmationDialog } from '@/components/shared/confirmation-dialog';
+import { Input } from '@/components/ui/input';
+import { ausgabeErzeugenAction, ausgabeLoeschenAction } from '@/modules/wrapped/ausgabe-aktionen';
 
 /**
  * Eine Ausgabe von Hand erzeugen.
@@ -156,7 +158,97 @@ const STATUS_FARBE: Record<string, string> = {
   ARCHIVED: 'border-border text-muted-foreground',
 };
 
-export function AusgabenListe({ ausgaben }: { ausgaben: AusgabeZeile[] }): React.JSX.Element {
+/**
+ * Eine Ausgabe loeschen - mit Rueckfrage und getippter Bestaetigung.
+ *
+ * Der Zeitraum muss abgeschrieben werden. Das ist bewusst unbequem: hier
+ * verschwinden erhobene Zahlen, und zwar endgueltig. Ein «Wirklich?» allein
+ * wird geklickt, ohne gelesen zu werden - ein Feld, in das man `2026-09`
+ * tippt, nicht.
+ */
+function LoeschKnopf({
+  ausgabe,
+  csrfToken,
+}: {
+  ausgabe: AusgabeZeile;
+  csrfToken: string;
+}): React.JSX.Element {
+  const router = useRouter();
+  const [offen, setOffen] = useState(false);
+  const [bestaetigung, setBestaetigung] = useState('');
+
+  const loeschen = async (): Promise<void> => {
+    const antwort = await ausgabeLoeschenAction({ csrfToken, editionId: ausgabe.id });
+    if (!antwort.ok) {
+      toast.error(antwort.error?.message ?? 'Das hat nicht geklappt.');
+      // Werfen, damit der Dialog offen bleibt und die Eingabe erhalten.
+      throw new Error('Loeschen fehlgeschlagen');
+    }
+    toast.success(`«${ausgabe.titel}» ist gelöscht.`);
+    setBestaetigung('');
+    router.refresh();
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOffen(true)}
+        aria-label={`${ausgabe.titel} löschen`}
+        title="Diese Ausgabe endgültig löschen"
+        className="absolute right-2 top-2 z-10 grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Trash2 className="size-4" aria-hidden="true" />
+      </button>
+
+      <ConfirmationDialog
+        open={offen}
+        onOpenChange={(wert) => {
+          setOffen(wert);
+          if (!wert) {
+            setBestaetigung('');
+          }
+        }}
+        title="Ausgabe löschen?"
+        description={
+          <>
+            «{ausgabe.titel}» verschwindet mit {ausgabe.folien} {ausgabe.folien === 1 ? 'Folie' : 'Folien'}{' '}
+            und den darin erhobenen Zahlen. Das lässt sich nicht rückgängig machen. Community Moments bleiben
+            erhalten - die gehören der Momentverwaltung.
+          </>
+        }
+        confirmLabel="Endgültig löschen"
+        destructive
+        confirmDisabled={bestaetigung.trim() !== ausgabe.periodKey}
+        onConfirm={loeschen}
+      >
+        <label className="block space-y-1.5 text-sm">
+          <span className="text-muted-foreground">
+            Tippe <span className="font-mono font-semibold text-foreground">{ausgabe.periodKey}</span>, um es
+            zu bestätigen.
+          </span>
+          <Input
+            value={bestaetigung}
+            onChange={(ereignis) => setBestaetigung(ereignis.target.value)}
+            placeholder={ausgabe.periodKey}
+            autoComplete="off"
+          />
+        </label>
+      </ConfirmationDialog>
+    </>
+  );
+}
+
+export function AusgabenListe({
+  ausgaben,
+  csrfToken,
+  darfLoeschen,
+}: {
+  ausgaben: AusgabeZeile[];
+  csrfToken: string;
+  /** Ohne `editionDelete` gibt es den Knopf nicht - abgewiesen wird serverseitig. */
+  darfLoeschen: boolean;
+}): React.JSX.Element {
   if (ausgaben.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
@@ -169,7 +261,8 @@ export function AusgabenListe({ ausgaben }: { ausgaben: AusgabeZeile[] }): React
   return (
     <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {ausgaben.map((ausgabe) => (
-        <li key={ausgabe.id} className="min-w-0">
+        <li key={ausgabe.id} className="relative min-w-0">
+          {darfLoeschen ? <LoeschKnopf ausgabe={ausgabe} csrfToken={csrfToken} /> : null}
           <Link
             href={systemRoutes.wrappedAusgabe(ausgabe.id)}
             className="flex h-full flex-col gap-2 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary-bright/60"
@@ -180,7 +273,7 @@ export function AusgabenListe({ ausgaben }: { ausgaben: AusgabeZeile[] }): React
                 {ARTEN.find((eintrag) => eintrag.wert === ausgabe.type)?.label ?? ausgabe.type}
               </span>
               <span
-                className={`ml-auto shrink-0 rounded-full border px-2 py-0.5 text-[0.65rem] ${
+                className={`ml-auto mr-8 shrink-0 rounded-full border px-2 py-0.5 text-[0.65rem] ${
                   STATUS_FARBE[ausgabe.status] ?? STATUS_FARBE.DRAFT
                 }`}
               >

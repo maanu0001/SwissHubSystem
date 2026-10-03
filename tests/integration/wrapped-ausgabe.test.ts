@@ -565,6 +565,195 @@ describeWithDatabase('Wrapped-Ausgaben', () => {
     await expect(wrapped.loescheMoment(moment.id, AKTEUR)).resolves.toBeUndefined();
   });
 
+  // --- Teilweise erhobene Zeitraeume ---------------------------------------
+
+  /** Die Messung beginnt mitten im August - knapp die Haelfte des Monats. */
+  async function messungErstAbMitteAugust(): Promise<void> {
+    await prisma.analyticsTracking.updateMany({
+      where: { guildId: GUILD },
+      data: { voiceSince: new Date('2026-08-17T00:00:00Z') },
+    });
+  }
+
+  it('zeigt die Zahl auch bei halb erhobenem Zeitraum - mit Hinweis', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    await messungErstAbMitteAugust();
+
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    const ansicht = await wrapped.ladeAusgabe(ergebnis.editionId);
+    const folie = ansicht?.folien.find((eintrag) => eintrag.storyKey === 'voice_total');
+
+    /*
+     * Vorher entfiel diese Folie. Wer im August angefangen hat zu messen,
+     * bekam **keine** Sprachzeit - obwohl die halbe Strecke gemessen wurde
+     * und die Zahlen stimmen. Aus «unvollstaendig» wurde «nicht vorhanden»,
+     * und das ist nicht ehrlicher, sondern nur leerer.
+     */
+    expect(folie).toBeDefined();
+    // Und sie sagt, woran sie haengt - mit Datum und Anteil, nicht mit
+    // «teilweise».
+    expect(folie?.erhebung).toContain('2026-08-17');
+    expect(folie?.erhebung).toMatch(/\d+ %/u);
+  });
+
+  it('haengt keinen Hinweis an eine Folie, die den ganzen Zeitraum abdeckt', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    const ansicht = await wrapped.ladeAusgabe(ergebnis.editionId);
+    const folie = ansicht?.folien.find((eintrag) => eintrag.storyKey === 'voice_total');
+
+    // Ein Hinweis, der immer dasteht, sagt nichts mehr.
+    expect(folie?.erhebung).toBeNull();
+  });
+
+  it('nimmt den Hinweis weg, sobald die Quelle den Zeitraum voll abdeckt', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    await messungErstAbMitteAugust();
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+
+    /*
+     * Der Hinweis beschreibt die Datenlage, nicht die Folie - also darf er
+     * beim naechsten Durchgang nicht von der alten Folie uebernommen werden.
+     * Hier wird korrigiert, seit wann gemessen wurde (das kommt vor: die
+     * Marke wurde zu spaet gesetzt), und danach ist der Satz falsch.
+     */
+    await prisma.analyticsTracking.updateMany({
+      where: { guildId: GUILD },
+      data: { voiceSince: new Date('2025-01-01T00:00:00Z') },
+    });
+    /*
+     * Ohne `jetzt`: `regeneriereAusgabe` nimmt die echte Uhr, und der August
+     * 2026 liegt in der Vergangenheit - ein Zeitraum, der laeuft, wuerde
+     * ohnehin abgelehnt.
+     */
+    await wrapped.regeneriereAusgabe(ergebnis.editionId, { akteur: AKTEUR });
+
+    const ansicht = await wrapped.ladeAusgabe(ergebnis.editionId);
+    expect(ansicht?.folien.find((eintrag) => eintrag.storyKey === 'voice_total')?.erhebung).toBeNull();
+  });
+
+  it('laesst eine Folie weiterhin weg, wenn gar nicht gemessen wurde', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    /*
+     * Gemessen wird erst ab Oktober - der August ist eine Luecke, kein
+     * Teilstueck. (Eine **fehlende** Markierung heisst dagegen «von Anfang
+     * an gemessen»; das ist der Normalfall eines Servers, der schon lief,
+     * bevor es die Marke gab.)
+     */
+    await prisma.analyticsTracking.updateMany({
+      where: { guildId: GUILD },
+      data: { voiceSince: new Date('2026-10-01T00:00:00Z') },
+    });
+
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    const ansicht = await wrapped.ladeAusgabe(ergebnis.editionId);
+
+    /*
+     * Die Gegenprobe zur Lockerung. «Teilweise» heisst «zeigen und
+     * kennzeichnen», «fehlt» heisst weiterhin «weglassen»: eine Zahl ohne
+     * Messung waere erfunden, und keine Kennzeichnung macht sie wahr.
+     */
+    expect(ansicht?.folien.some((eintrag) => eintrag.storyKey === 'voice_total')).toBe(false);
+    expect(ansicht?.gruende.some((grund) => grund.lage === 'nicht_erhoben')).toBe(true);
+  });
+
+  // --- Eine Ausgabe loeschen ----------------------------------------------
+
+  it('loescht eine Ausgabe samt ihren Folien', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    expect(await prisma.wrappedSlide.count({ where: { editionId: ergebnis.editionId } })).toBeGreaterThan(0);
+
+    await wrapped.loescheAusgabe(ergebnis.editionId, AKTEUR);
+
+    expect(await prisma.wrappedEdition.count({ where: { id: ergebnis.editionId } })).toBe(0);
+    // Die Folien haengen mit `Cascade` daran - sonst blieben Waisen stehen,
+    // die niemand mehr findet und niemand mehr aufraeumt.
+    expect(await prisma.wrappedSlide.count({ where: { editionId: ergebnis.editionId } })).toBe(0);
+  });
+
+  it('laesst den Community Moment stehen, der in der Ausgabe stand', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    const moment = await wrapped.erstelleMoment(
+      GUILD,
+      {
+        title: 'GameNight',
+        description: null,
+        happenedOn: '2026-08-09',
+        includeMonthly: true,
+        includeYearly: false,
+        priority: 0,
+      },
+      AKTEUR,
+    );
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    const vorher = await wrapped.ladeAusgabe(ergebnis.editionId);
+    expect(vorher?.folien.some((folie) => folie.momentId === moment.id)).toBe(true);
+
+    await wrapped.loescheAusgabe(ergebnis.editionId, AKTEUR);
+
+    /*
+     * Die wichtigste Zusage des Loeschens. Eine Folie **zeigt** auf einen
+     * Moment, sie besitzt ihn nicht: das Bild gehoert der Momentverwaltung und
+     * kann in mehreren Ausgaben vorkommen. Mitzuloeschen hiesse, aus «diesen
+     * Rueckblick wegwerfen» ein «dieses Bild ueberall wegwerfen» zu machen.
+     */
+    expect(await prisma.wrappedMoment.count({ where: { id: moment.id } })).toBe(1);
+  });
+
+  it('haelt das Loeschen in der Pruefspur fest', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    const folien = await prisma.wrappedSlide.count({ where: { editionId: ergebnis.editionId } });
+
+    await wrapped.loescheAusgabe(ergebnis.editionId, AKTEUR);
+
+    const eintrag = await prisma.auditLog.findFirstOrThrow({
+      where: { action: 'WRAPPED_EDITION_DELETED' },
+    });
+    // Nach dem Loeschen ist die Zeile weg - was es gab, steht nur noch hier.
+    expect(eintrag.targetLabel).toBe('2026-08');
+    expect((eintrag.metadata as { folien?: unknown }).folien).toBe(folien);
+    expect(eintrag.actorDiscordId).toBe(AKTEUR.discordId);
+  });
+
+  it('loescht nichts, was es nicht gibt', async () => {
+    await expect(wrapped.loescheAusgabe('gibt-es-nicht', AKTEUR)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(await prisma.auditLog.count({ where: { action: 'WRAPPED_EDITION_DELETED' } })).toBe(0);
+  });
+
+  it('loescht denselben Zeitraum nur einmal', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+
+    await wrapped.loescheAusgabe(ergebnis.editionId, AKTEUR);
+    // Der zweite Versuch findet nichts mehr - und schreibt deshalb auch
+    // keinen zweiten Protokolleintrag.
+    await expect(wrapped.loescheAusgabe(ergebnis.editionId, AKTEUR)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(await prisma.auditLog.count({ where: { action: 'WRAPPED_EDITION_DELETED' } })).toBe(1);
+  });
+
+  it('gibt den Zeitraum nach dem Loeschen wieder frei', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    const erste = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    await wrapped.loescheAusgabe(erste.editionId, AKTEUR);
+
+    /*
+     * Der Riegel `@@unique([guildId, type, periodKey])` ist der Grund, weshalb
+     * es zweimal denselben Monat nicht geben kann. Nach dem Loeschen muss er
+     * wieder offen sein - sonst waere ein versehentlich geloeschter August
+     * fuer immer verloren.
+     */
+    const zweite = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    expect(zweite.editionId).not.toBe(erste.editionId);
+    expect(zweite.folien).toBeGreaterThan(0);
+  });
+
   // --- Der bestehende Rueckblick bleibt unberuehrt -------------------------------
 
   it('laesst die Kampagnen des persoenlichen Rueckblicks unangetastet', async () => {

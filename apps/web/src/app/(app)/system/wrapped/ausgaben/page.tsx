@@ -91,6 +91,8 @@ export default async function WrappedAusgabenPage(): Promise<React.JSX.Element> 
           generatedAt: zeile.generatedAt,
           failureReason: zeile.failureReason,
         }))}
+        csrfToken={csrfTokenFor(context)}
+        darfLoeschen={can(context, wrapped.WRAPPED_PERMISSIONS.editionDelete)}
       />
     </div>
   );

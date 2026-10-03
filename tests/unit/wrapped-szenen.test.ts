@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   WRAPPED_SZENEN,
   baueGeschichte,
+  erhebungsLuecken,
+  erhebungsSatz,
   pruefeAbdeckung,
   type SzenenEinstellung,
 } from '@swisshub/modules/wrapped/szenen';
@@ -253,5 +255,70 @@ describe('Textvorlagen', () => {
   it('begrenzt die Länge', () => {
     expect(pruefeVorlage('x'.repeat(281)).gueltig).toBe(false);
     expect(pruefeVorlage('x'.repeat(280)).gueltig).toBe(true);
+  });
+});
+
+/**
+ * Teil-Daten im persoenlichen Rueckblick - benutzt und benannt.
+ *
+ * `baueGeschichte` laesst eine Szene laufen, sobald die Quelle **irgendwas**
+ * gemessen hat, und das ist richtig: wer im Juli angefangen hat zu messen,
+ * soll seine halbe Jahresbilanz sehen und nicht einen leeren Rueckblick.
+ *
+ * Falsch war nur, es nicht zu sagen. «2846 Minuten im Voice» liest sich wie
+ * ein Jahr, auch wenn es ein halbes ist.
+ */
+describe('Teilweise erhobene Quellen', () => {
+  const halb = { lage: 'teilweise' as const, seit: '2026-07-01T00:00:00.000Z', abdeckung: 0.5 };
+
+  function mitLuecke(): WrappedDaten {
+    return { ...persona('allrounder'), quellen: { ...alleQuellen, voice: halb } };
+  }
+
+  it('laesst die Szene laufen, statt sie wegzulassen', () => {
+    // Die Grundentscheidung: lieber eine gekennzeichnete Zahl als keine.
+    expect(baueGeschichte(mitLuecke(), standard)).toContain('voice_total');
+  });
+
+  it('nennt Quelle, Datum und Anteil', () => {
+    const luecken = erhebungsLuecken(mitLuecke());
+    expect(luecken).toHaveLength(1);
+    expect(luecken[0]).toMatchObject({ quelle: 'voice', name: 'Sprachzeit', prozent: 50 });
+    expect(luecken[0]?.seit).toBe('2026-07-01');
+  });
+
+  it('schweigt, wenn alles vollstaendig erhoben ist', () => {
+    // Ein Hinweis, der immer dasteht, sagt nichts mehr.
+    expect(erhebungsSatz(persona('allrounder'))).toBeNull();
+    expect(erhebungsLuecken(persona('allrounder'))).toEqual([]);
+  });
+
+  it('zaehlt mehrere Luecken einzeln auf', () => {
+    const daten: WrappedDaten = {
+      ...persona('allrounder'),
+      quellen: { ...alleQuellen, voice: halb, messages: { ...halb, abdeckung: 0.25 } },
+    };
+    const satz = erhebungsSatz(daten);
+    /*
+     * «Teilweise erhoben» allein liesse offen, was gemeint ist - und
+     * ausgerechnet das waere die Auskunft, die jemand sucht.
+     */
+    expect(satz).toContain('Sprachzeit');
+    expect(satz).toContain('Nachrichten');
+    expect(satz).toContain('50 %');
+    expect(satz).toContain('25 %');
+  });
+
+  it('nennt eine fehlende Quelle nicht als Luecke', () => {
+    /*
+     * «Fehlt» heisst weiterhin: die Szene entfaellt ganz. Sie als Luecke zu
+     * nennen hiesse, auf etwas hinzuweisen, das gar nicht gezeigt wird.
+     */
+    const daten: WrappedDaten = {
+      ...persona('allrounder'),
+      quellen: { ...alleQuellen, clips: { lage: 'fehlt', seit: null, abdeckung: 0 } },
+    };
+    expect(erhebungsLuecken(daten)).toEqual([]);
+    expect(baueGeschichte(daten, standard)).not.toContain('clips');
   });
 });

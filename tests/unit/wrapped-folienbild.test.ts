@@ -75,3 +75,65 @@ describe('Die zeichnenden Routen', () => {
     expect(quelle(datei)).toMatch(/momentBildDatenUri\([^)]*\)[\s\S]{0,200}?\.catch\(/u);
   });
 });
+
+/**
+ * Der Erhebungshinweis - gezeichnet, nicht nur gespeichert.
+ *
+ * ## Warum das ein Bildtest ist und kein Quelltest
+ *
+ * Weil die Zusage lautet: der Satz geht **mit dem Bild** hinaus. Eine Zahl
+ * ueber die halbe Strecke, dargestellt wie eine ueber die ganze, laesst sich
+ * nach dem Posten nicht mehr zurueckholen - und ein Hinweis, der nur im
+ * Editor stand, hat dann niemandem geholfen.
+ *
+ * `ImageResponse` rastert hier wirklich: zwei Folien, die sich nur im Hinweis
+ * unterscheiden, muessen verschiedene Bytes ergeben. Taete der Zeichner
+ * nichts mit dem Feld, waeren sie gleich - und dieser Test rot.
+ */
+const { ImageResponse } = await import('next/og');
+const { zeichneAusgabeFolie, AUSGABE_MASSE } =
+  await import('../../apps/web/src/modules/wrapped/ausgabe-folie');
+
+async function bytes(erhebung: string | null): Promise<Uint8Array> {
+  const mass = AUSGABE_MASSE.story;
+  const antwort = new ImageResponse(
+    zeichneAusgabeFolie({
+      folie: {
+        templateKey: 'HERO_NUMBER',
+        daten: { wert: '2 846', label: 'Voice-Stunden', zusatz: null },
+        editorial: { ueberschrift: 'Im Voice', text: '' },
+        erhebung,
+      },
+      format: 'story',
+      variante: 'raster',
+      titel: 'SwissHub Wrapped August 2026',
+      host: 'swisshub.ch',
+    }),
+    { width: mass.breite, height: mass.hoehe },
+  );
+  return new Uint8Array(await antwort.arrayBuffer());
+}
+
+describe('Der Erhebungshinweis auf der Folie', () => {
+  it('veraendert das Bild - der Satz wird wirklich gezeichnet', async () => {
+    const ohne = await bytes(null);
+    const mit = await bytes('Die Sprachzeit wird erst seit dem 2026-08-17 gemessen - 50 % des Zeitraums.');
+
+    // Beides echte PNGs, damit ein Fehlschlag nicht als Unterschied durchgeht.
+    expect([...ohne.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect([...mit.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+
+    expect(mit.byteLength).not.toBe(ohne.byteLength);
+  }, 60000);
+
+  it('zeichnet ohne Hinweis dasselbe Bild wie zuvor', async () => {
+    /*
+     * Die Gegenprobe. Der neue Fusszeilen-Aufbau darf die Folie ohne Hinweis
+     * nicht veraendern - sonst waere jede bestehende Folie unmerklich anders,
+     * und ein Karussell aus alten und neuen Bildern paesste nicht zusammen.
+     */
+    const einmal = await bytes(null);
+    const nochmal = await bytes(null);
+    expect(nochmal.byteLength).toBe(einmal.byteLength);
+  }, 60000);
+});

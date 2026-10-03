@@ -268,6 +268,14 @@ async function fuelleAusgabe(
           enabled: alt?.enabled ?? true,
           snapshotData: folie.daten as Prisma.InputJsonValue,
           editorialData: (alt?.editorial ?? folie.vorschlag) as Prisma.InputJsonValue,
+          /*
+           * Der Erhebungshinweis kommt aus dem Durchgang und wird bewusst
+           * **nicht** von der alten Folie uebernommen: er beschreibt die
+           * Datenlage, und die kann sich zwischen zwei Durchgaengen geaendert
+           * haben. Ein stehengelassener Hinweis waere falsch, sobald die
+           * Quelle den Zeitraum inzwischen voll abdeckt.
+           */
+          coverageNote: folie.erhebung ?? null,
           score: folie.score,
           momentId: folie.momentId ?? alt?.momentId ?? null,
         },
@@ -502,6 +510,78 @@ export async function finalisiereAusgabe(editionId: string, akteur: AusgabeAkteu
   });
 }
 
+/**
+ * Eine Ausgabe endgueltig loeschen.
+ *
+ * ## Warum loeschen und nicht archivieren
+ *
+ * Archivieren gibt es schon - das ist der Status `ARCHIVED`, und er ist der
+ * richtige Weg fuer «vorbei, aber aufbewahren». Was fehlte, ist das andere:
+ * ein Probelauf vom Testen, eine Ausgabe mit kaputten Zahlen, ein Zeitraum,
+ * den es nie gegeben haben sollte. Die blieben bisher fuer immer in der
+ * Liste, und eine Liste, in der die Haelfte nicht gilt, liest irgendwann
+ * niemand mehr.
+ *
+ * ## Was dabei verschwindet - und was nicht
+ *
+ * Die Ausgabe und ihre Folien. Die Folien haengen mit `onDelete: Cascade` an
+ * der Ausgabe, und in ihnen stehen die erhobenen Zahlen; sie sind damit weg,
+ * und darum ist dies eine eigene Berechtigung.
+ *
+ * **Nicht** verschwinden die Community Moments. Eine Folie zeigt auf einen
+ * Moment (`momentId`, `onDelete: SetNull`), aber sie besitzt ihn nicht: das
+ * Bild gehoert der Momentverwaltung und kann in mehreren Ausgaben vorkommen.
+ * Es mitzuloeschen hiesse, aus «diesen Rueckblick wegwerfen» ein «dieses Bild
+ * ueberall wegwerfen» zu machen - ein Datenverlust, den niemand bestellt hat.
+ *
+ * Die Pruefspur bleibt ebenfalls: dort steht hinterher, dass es diese Ausgabe
+ * gab und wer sie entfernt hat. Sonst waere eine geloeschte Ausgabe nicht von
+ * einer unterscheidbar, die nie erzeugt wurde.
+ */
+export async function loescheAusgabe(editionId: string, akteur: AusgabeAkteur): Promise<void> {
+  const edition = await prisma.wrappedEdition.findUnique({
+    where: { id: editionId },
+    select: {
+      periodKey: true,
+      type: true,
+      status: true,
+      _count: { select: { slides: true } },
+    },
+  });
+  if (!edition) {
+    throw new AppError('NOT_FOUND', { userMessage: 'Diese Ausgabe gibt es nicht.' });
+  }
+
+  /*
+   * Erst der Schnitt, dann die Spur - wie bei jeder anderen Handlung in
+   * dieser Datei.
+   *
+   * `recordAudit` fuehrt seine eigene Transaktion mit einer Sperre ueber die
+   * Prueflogkette; sie liesse sich hier nicht mitbenutzen. Zeitraum und
+   * Folienzahl sind deshalb **vorher** gelesen - nach dem Loeschen gibt es
+   * die Zeile nicht mehr, aus der sie zu lesen waeren.
+   *
+   * Zwei gleichzeitige Klicks ergeben genau einen Eintrag: der zweite
+   * `delete` findet nichts und wirft, und davor steht der Lesezugriff, der
+   * dann schon `null` ergibt.
+   */
+  await prisma.wrappedEdition.delete({ where: { id: editionId } });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.WRAPPED_EDITION_DELETED,
+    module: WRAPPED_MODULE_ID,
+    actorDiscordId: akteur.discordId,
+    actorUsername: akteur.username ?? null,
+    targetLabel: edition.periodKey,
+    metadata: {
+      editionId,
+      art: edition.type,
+      status: edition.status,
+      folien: edition._count.slides,
+    },
+  });
+}
+
 /** Wieder zum Entwurf machen - ausdrueckliche Handlung, eigene Berechtigung. */
 export async function entsperreAusgabe(editionId: string, akteur: AusgabeAkteur): Promise<void> {
   const edition = await prisma.wrappedEdition.findUnique({
@@ -584,6 +664,8 @@ export interface AusgabeFolie {
   editorial: { ueberschrift: string; text: string };
   score: number;
   momentId: string | null;
+  /** Der Erhebungshinweis - `null`, wenn die Quelle den Zeitraum voll abdeckt. */
+  erhebung: string | null;
 }
 
 export interface AusgabeAnsicht {
@@ -662,6 +744,7 @@ export async function ladeAusgabe(editionId: string): Promise<AusgabeAnsicht | n
       editorial: editorial.success ? editorial.data : { ueberschrift: '', text: '' },
       score: folie.score,
       momentId: folie.momentId,
+      erhebung: folie.coverageNote,
     });
   }
 

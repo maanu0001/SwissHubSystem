@@ -72,6 +72,7 @@ export default async function WrappedAusgabePage({
             enabled: folie.enabled,
             daten: folie.daten,
             editorial: folie.editorial,
+            erhebung: folie.erhebung,
           })),
           gruende: ausgabe.gruende,
         }}
