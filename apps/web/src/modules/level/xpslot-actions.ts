@@ -162,6 +162,30 @@ export const designSpeichernAction = defineAction(
   },
 );
 
+/**
+ * Das Embed von `/xp-slot`.
+ *
+ * Dieselbe Berechtigung wie jede andere Slot-Einstellung. Ausdruecklich
+ * **nicht** die Befehlsverwaltung: ob `/xp-slot` laeuft und wer ihn benutzen
+ * darf, entscheidet weiterhin die zentrale Command- und Rollenverwaltung.
+ * Hier geht es nur um Text und Aussehen.
+ */
+export const befehlSpeichernAction = defineAction(
+  {
+    name: 'level.xpslot.befehl',
+    module: MODULE_ID,
+    permission: P.xpslotManage,
+    schema: S.befehlSchema,
+    rateLimit: 'slotAdmin',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await S.speichereBefehl(input, { discordId: ctx.user.discordId, username: ctx.user.username });
+    revalidiereVerwaltung();
+    return { ok: true };
+  },
+);
+
 export const feedSpeichernAction = defineAction(
   {
     name: 'level.xpslot.feed',

@@ -102,6 +102,7 @@ export default async function WorkspaceUebersichtPage(): Promise<React.JSX.Eleme
           <ProjektFormular
             csrfToken={csrfToken}
             roles={discordOptionen.roles}
+            ereignisse={workspace.WORKSPACE_EREIGNISSE}
             channels={discordOptionen.channels}
           />
         ) : null}

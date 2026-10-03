@@ -615,3 +615,88 @@ describe('Feste Walzengeometrie', () => {
     expect(css).toMatch(/--slot-zelle:\s*clamp\([^)]*min\([^)]*vh/u);
   });
 });
+
+/**
+ * Die Nachricht von `/xp-slot` ist einstellbar.
+ *
+ * Geprueft wird hier das Strukturelle: dass der Befehl keine eigene Kopie des
+ * Textes mehr hat, dass die Vorschau in der Verwaltung dieselbe
+ * Rueckfallregel rechnet wie der Bot, und dass die Adresse des Knopfs
+ * nirgends eintippbar ist. Die Wirkung selbst - welcher Text am Ende
+ * herauskommt - steht in `tests/integration/xpslot-befehl-embed.test.ts`.
+ */
+describe('/xp-slot Nachricht einstellbar', () => {
+  const VERWALTUNG = 'apps/web/src/modules/level/xpslot/components/verwaltung.tsx';
+
+  it('liest den Text bei jedem Aufruf aus der Einstellung', () => {
+    const quelle = ohneKommentare(lies(BEFEHL));
+    expect(quelle).toContain('level.xpslot.befehlsEmbed()');
+    // Kein Zwischenspeicher im Modul des Befehls: wer den Text aendert, soll
+    // ihn beim naechsten Aufruf sehen und keinen Neustart brauchen.
+    expect(quelle).not.toMatch(/const\s+\w*[Cc]ache\w*\s*=/u);
+  });
+
+  it('nimmt die Felder aus dem Embed und nicht aus festem Text', () => {
+    const quelle = ohneKommentare(lies(BEFEHL));
+    for (const feld of ['embed.titel', 'embed.beschreibung', 'embed.farbe', 'embed.knopf', 'embed.adresse']) {
+      expect(quelle).toContain(feld);
+    }
+    // Die alte feste Farbe ist weg - sonst waere die Einstellung eine
+    // Einstellung, die nichts tut.
+    expect(quelle).not.toMatch(/const FARBE\s*=/u);
+  });
+
+  it('faellt beim Lesefehler auf die Vorgaben zurueck', () => {
+    const quelle = ohneKommentare(lies(BEFEHL));
+    expect(quelle).toContain('.catch(() => null)');
+    expect(quelle).toContain('BEFEHL_VORGABEN');
+  });
+
+  it('hat Vorgaben für jedes gestaltbare Feld', () => {
+    const V = level.xpslot.BEFEHL_VORGABEN;
+    for (const wert of [V.titel, V.beschreibung, V.farbe, V.knopf, V.fusszeile]) {
+      expect(typeof wert).toBe('string');
+      expect(wert.trim()).not.toBe('');
+    }
+    expect(V.farbe).toMatch(/^#[0-9a-f]{6}$/iu);
+  });
+
+  it('macht die Adresse des Knopfs nicht einstellbar', () => {
+    const schema = lies('packages/database/prisma/schema.prisma');
+    const block = schema.slice(schema.indexOf('model XpSlotConfig {'));
+    const ende = block.indexOf('\n}');
+    // Kein `commandUrl`, kein `commandLink`: die Adresse kommt aus `appUrl`.
+    expect(block.slice(0, ende)).not.toMatch(/command(Url|Link)/u);
+    expect(Object.keys(level.xpslot.befehlSchema.shape)).not.toContain('adresse');
+  });
+
+  it('zeigt eine Vorschau mit derselben Rückfallregel wie der Bot', () => {
+    const quelle = lies(VERWALTUNG);
+    const kasten = quelle.slice(quelle.indexOf('function BefehlsKasten('));
+    expect(kasten).toContain('Vorschau');
+    // Dieselbe Regel wie in `befehlsEmbed`: leeres Feld heisst Vorgabe, und
+    // zwar je Feld einzeln.
+    expect(kasten).toContain('werte.titel.trim() || VORGABEN.titel');
+    expect(kasten).toContain('werte.beschreibung.trim() || VORGABEN.beschreibung');
+    expect(kasten).toContain('werte.knopf.trim() || VORGABEN.knopf');
+    // Und eine kaputte Farbe ergibt auch in der Vorschau die Vorgabe.
+    expect(kasten).toMatch(/\/\^#\[0-9a-f\]\{6\}\$\/iu\.test/u);
+  });
+
+  it('nennt in der Verwaltung den Ort der Befehlsrechte statt eigener', () => {
+    const quelle = lies(VERWALTUNG);
+    const kasten = quelle.slice(quelle.indexOf('function BefehlsKasten('));
+    expect(kasten).toContain('Befehlsverwaltung');
+    // Keine zweite Rollenverwaltung in diesem Kasten.
+    expect(kasten).not.toMatch(/roleId|rollen/iu);
+  });
+
+  it('speichert über eine Action mit der Verwaltungsberechtigung', () => {
+    const quelle = lies(ACTIONS);
+    const stelle = quelle.indexOf("name: 'level.xpslot.befehl'");
+    expect(stelle).toBeGreaterThan(-1);
+    const block = quelle.slice(stelle, stelle + 400);
+    expect(block).toContain('permission: P.xpslotManage');
+    expect(block).toContain("freshness: 'critical'");
+  });
+});

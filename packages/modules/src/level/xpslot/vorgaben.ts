@@ -255,3 +255,28 @@ export const KNOPF_STILE = [
 ] as const;
 
 export const KNOPF_STIL_KEYS: readonly string[] = KNOPF_STILE.map((eintrag) => eintrag.key);
+
+/**
+ * Die Vorgaben fuer das Embed von `/xp-slot`.
+ *
+ * ## Warum sie hier stehen und nicht in der Datenbank
+ *
+ * Weil eine Konfigurationszeile, die beim Anlegen mit dem Vorgabetext gefuellt
+ * wird, eine Kopie ist - und Kopien veralten. Wer den Vorgabetext spaeter
+ * verbessert, erreicht damit keine einzige bestehende Installation. In der
+ * Datenbank steht darum `null`, solange niemand etwas eigenes geschrieben hat,
+ * und `null` heisst: das hier.
+ *
+ * ## Warum keine Adresse dabei ist
+ *
+ * Der Knopf fuehrt immer auf `/level/xp-slot`, gebaut mit `appUrl`. Eine
+ * Adresse zum Eintippen waere auf dem naechsten Server falsch, und niemand
+ * wuerde merken, dass der Knopf ins Leere zeigt.
+ */
+export const BEFEHL_VORGABEN = {
+  titel: 'XP-Slot',
+  beschreibung: 'Fünf Walzen, zehn Linien. Gespielt wird mit dine XP i de WebApp.',
+  farbe: '#83060a',
+  knopf: 'XP-Slot öffne',
+  fusszeile: 'Spiel bewusst mit dine XP.',
+} as const;

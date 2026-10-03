@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ChannelSelect } from '@/modules/configuration/components/channel-select';
 import { RoleSelect } from '@/modules/configuration/components/role-select';
@@ -53,6 +54,7 @@ export function ProjektFormular({
   projekt,
   roles = [],
   channels = [],
+  ereignisse,
 }: {
   csrfToken: string;
   projekt?: Pick<
@@ -69,11 +71,17 @@ export function ProjektFormular({
     | 'visibility'
     | 'visibleRoleIds'
     | 'discordChannelId'
+    | 'discordUpdates'
+    | 'discordEvents'
+    | 'discordFehlerAt'
+    | 'discordFehlerText'
   >;
   /** Fuer die Gruppenauswahl - dieselben Optionen wie in den Moduleinstellungen. */
   roles?: RoleOption[];
   /** Fuer den Projektkanal. */
   channels?: ChannelOption[];
+  /** Der Katalog der meldbaren Ereignisse - aus dem Modul, nicht hier erfunden. */
+  ereignisse: ReadonlyArray<{ key: string; label: string; gruppe: string; vorgabe: boolean }>;
 }): React.JSX.Element {
   const router = useRouter();
   const [offen, setOffen] = useState(false);
@@ -99,6 +107,15 @@ export function ProjektFormular({
   const [sichtbarkeit, setSichtbarkeit] = useState<Sichtbarkeit>(projekt?.visibility ?? 'TEAM');
   const [gruppen, setGruppen] = useState<string[]>([...(projekt?.visibleRoleIds ?? [])]);
   const [kanal, setKanal] = useState(projekt?.discordChannelId ?? '');
+  const [meldungenAn, setMeldungenAn] = useState(projekt?.discordUpdates ?? true);
+  /*
+   * Beim Anlegen steht die Vorgabe des Katalogs - dieselbe, die der Server
+   * setzt, wenn gar nichts mitkommt. Sonst saehe man hier nichts angehakt und
+   * bekaeme trotzdem Meldungen.
+   */
+  const [gewaehlteEreignisse, setGewaehlteEreignisse] = useState<string[]>(
+    projekt ? [...projekt.discordEvents] : ereignisse.filter((e) => e.vorgabe).map((e) => e.key),
+  );
 
   const speichern = (): void => {
     if (titel.trim() === '') {
@@ -125,6 +142,8 @@ export function ProjektFormular({
         // leert der Server sie ohnehin.
         sichtbarFuerRollen: sichtbarkeit === 'SELECTED_GROUPS' ? gruppen : [],
         discordChannelId: kanal || null,
+        discordUpdates: meldungenAn,
+        discordEvents: gewaehlteEreignisse,
       } as const;
 
       const antwort = projekt
@@ -362,9 +381,60 @@ export function ProjektFormular({
                 placeholder="Kein Kanal"
               />
               <p className="text-xs text-muted-foreground">
-                Neue und erledigte Aufgaben sowie erreichte Meilensteine gehen als Embed dorthin. Ohne Kanal
-                passiert nichts.
+                Ausgewählte Ereignisse gehen als Embed dorthin. Ohne Kanal passiert nichts.
               </p>
+
+              {projekt?.discordFehlerAt ? (
+                /*
+                  Der letzte Fehlschlag steht hier und nicht nur im Serverlog.
+
+                  Ein geloeschter Kanal faellt sonst erst auf, wenn jemand
+                  fragt, warum nichts mehr kommt. Er verschwindet von selbst,
+                  sobald wieder eine Meldung durchgeht.
+                */
+                <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
+                  Die letzte Meldung kam nicht durch: {projekt.discordFehlerText ?? 'unbekannter Fehler'}
+                </p>
+              ) : null}
+
+              <label className="flex items-center gap-2 text-sm">
+                <Switch aria-label="Discord-Updates" checked={meldungenAn} onCheckedChange={setMeldungenAn} />
+                Discord-Updates senden
+              </label>
+
+              {meldungenAn && kanal ? (
+                <fieldset className="space-y-2 rounded-md border border-border p-3">
+                  <legend className="px-1 text-xs font-medium text-muted-foreground">
+                    Welche Ereignisse
+                  </legend>
+                  {[...new Set(ereignisse.map((eintrag) => eintrag.gruppe))].map((gruppe) => (
+                    <div key={gruppe} className="space-y-1">
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{gruppe}</p>
+                      <div className="grid gap-1 sm:grid-cols-2">
+                        {ereignisse
+                          .filter((eintrag) => eintrag.gruppe === gruppe)
+                          .map((eintrag) => (
+                            <label key={eintrag.key} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                className="size-4 accent-primary"
+                                checked={gewaehlteEreignisse.includes(eintrag.key)}
+                                onChange={(ereignis) =>
+                                  setGewaehlteEreignisse((vorher) =>
+                                    ereignis.target.checked
+                                      ? [...vorher, eintrag.key]
+                                      : vorher.filter((key) => key !== eintrag.key),
+                                  )
+                                }
+                              />
+                              {eintrag.label}
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+                  ))}
+                </fieldset>
+              ) : null}
             </div>
           </div>
         </div>

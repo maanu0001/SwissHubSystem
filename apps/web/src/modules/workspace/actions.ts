@@ -173,6 +173,8 @@ export const workspaceProjektErstellenAction = defineAction(
       sichtbarkeit: z.enum(['TEAM', 'SELECTED_GROUPS', 'PRIVATE']).optional(),
       sichtbarFuerRollen: z.array(kennungSchema).max(25).optional(),
       discordChannelId: kennungSchema.nullable().optional(),
+      discordUpdates: z.boolean().optional(),
+      discordEvents: z.array(z.string().max(40)).max(40).optional(),
     }),
     rateLimit: 'workspaceSchreiben',
   },
@@ -213,6 +215,19 @@ export const workspaceProjektAendernAction = defineAction(
       sichtbarkeit: z.enum(['TEAM', 'SELECTED_GROUPS', 'PRIVATE']).optional(),
       sichtbarFuerRollen: z.array(kennungSchema).max(25).optional(),
       discordChannelId: kennungSchema.nullable().optional(),
+      /*
+       * Die Kanalmeldungen gehoeren zum Projekt, nicht in eine eigene Aktion.
+       *
+       * Wer das Projekt bearbeiten darf, stellt auch seine Meldungen ein -
+       * das prueft `pruefeProjektzugriff` unten mit derselben Berechtigung wie
+       * fuer Titel und Frist. Eine zweite Aktion mit einer zweiten
+       * Berechtigung waere eine zweite Stelle, an der man es falsch machen kann.
+       *
+       * Unbekannte Schluessel wirft `sortiereEreignisse` im Modul weg; hier
+       * steht nur eine Laengengrenze, damit niemand ein Megabyte schickt.
+       */
+      discordUpdates: z.boolean().optional(),
+      discordEvents: z.array(z.string().max(40)).max(40).optional(),
     }),
     rateLimit: 'workspaceSchreiben',
   },

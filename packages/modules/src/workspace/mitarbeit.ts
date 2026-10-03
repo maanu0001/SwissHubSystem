@@ -5,6 +5,7 @@ import type {
   WorkspaceComment,
   WorkspaceLink,
 } from '@swisshub/database';
+import { meldeImProjektkanal } from './kanalmeldung';
 import { AppError, sanitizeText } from '@swisshub/shared';
 import { MAX_UPLOAD_BYTES, storeLogoUpload } from '../branding/storage';
 import { meldeEreignis } from '../automation/emit';
@@ -103,6 +104,22 @@ export async function schreibeKommentar(
     actorDiscordId: autorDiscordId,
     projectId: aufgabe.projectId,
     taskId,
+  });
+
+  /*
+   * Der Kommentar geht auch in den Projektkanal - wenn das Projekt es will.
+   *
+   * Nur der Anfang: ein Kanal ist kein zweiter Kommentarverlauf. Wer mehr
+   * lesen will, klickt auf den Knopf. Standardmaessig ist diese Art
+   * abgeschaltet, denn ein Projekt mit lebhafter Diskussion fuellte den Kanal
+   * sonst mit Halbsaetzen.
+   */
+  await meldeImProjektkanal(aufgabe.projectId, {
+    ereignis: 'task.comment',
+    titel: aufgabe.title,
+    beschreibung: rumpf.slice(0, 300),
+    pfad: `/workspace/aufgaben/${taskId}`,
+    akteurDiscordId: autorDiscordId,
   });
 
   for (const discordId of erwaehnt) {

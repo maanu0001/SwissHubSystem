@@ -19,12 +19,17 @@ const log = createLogger('bot:commands:xpslot');
  * eigener Wiederholungssperre - und der erste wuerde es nicht merken, wenn
  * der zweite daneben XP ausgibt.
  *
- * ## Woher die Adresse kommt
+ * ## Woher Text und Adresse kommen
  *
- * Aus `appUrl` - derselben zentralen Stelle, die jede andere Adresse in
- * diesem System baut. Es steht hier kein Hostname im Code: auf dem naechsten
- * Server waere er falsch, und niemand wuerde merken, dass der Knopf ins
- * Leere fuehrt.
+ * Der **Text** aus der XP-Slot-Verwaltung: Titel, Beschreibung, Farbe,
+ * Knopfbeschriftung, Fusszeile und Bilder sind dort einstellbar, und hier
+ * steht keine Kopie davon. Was nicht eingestellt ist, kommt aus
+ * `BEFEHL_VORGABEN`; ein leeres Embed gibt es nicht.
+ *
+ * Die **Adresse** aus `appUrl` - derselben zentralen Stelle, die jede andere
+ * Adresse in diesem System baut, und ausdruecklich nicht aus der Konfiguration.
+ * Ein Feld zum Eintippen waere auf dem naechsten Server falsch, und niemand
+ * wuerde merken, dass der Knopf ins Leere fuehrt.
  *
  * ## Wie der Befehl geschaltet wird
  *
@@ -59,9 +64,6 @@ export const XPSLOT_COMMAND_NAMES: ReadonlySet<string> = new Set<string>(
   XPSLOT_COMMAND_DEFINITIONS.map((eintrag) => eintrag.name),
 );
 
-/** Dasselbe Rot wie in den uebrigen Embeds des Level-Systems. */
-const FARBE = 0x83060a;
-
 export async function handleXpSlotCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!XPSLOT_COMMAND_NAMES.has(interaction.commandName)) {
     return;
@@ -89,8 +91,27 @@ export async function handleXpSlotCommand(interaction: ChatInputCommandInteracti
     }
 
     const ansicht = await level.xpslot.slotAnsicht(konfiguration);
-    const adresse = appUrl('/level/xp-slot');
     const w = konfiguration.wirksam;
+
+    /*
+     * Die gespeicherte Nachricht - bei jedem Aufruf frisch gelesen.
+     *
+     * Kein Zwischenspeicher und kein Neustart noetig: wer den Text im
+     * Dashboard aendert, sieht ihn beim naechsten `/xp-slot`. Faellt das Lesen
+     * aus, liefert `befehlsEmbed` die Vorgaben - der Befehl ist eine
+     * Einladung und darf daran nicht scheitern.
+     */
+    const nachricht = await level.xpslot.befehlsEmbed().catch(() => null);
+    const embed = nachricht ?? {
+      titel: level.xpslot.BEFEHL_VORGABEN.titel,
+      beschreibung: level.xpslot.BEFEHL_VORGABEN.beschreibung,
+      farbe: level.xpslot.farbzahl(level.xpslot.BEFEHL_VORGABEN.farbe),
+      knopf: level.xpslot.BEFEHL_VORGABEN.knopf,
+      fusszeile: level.xpslot.BEFEHL_VORGABEN.fusszeile,
+      thumbnailUrl: null,
+      bildUrl: null,
+      adresse: appUrl('/level/xp-slot'),
+    };
 
     /*
      * Die Zahlen im Embed kommen aus der Konfiguration, nicht aus dem Text.
@@ -101,14 +122,16 @@ export async function handleXpSlotCommand(interaction: ChatInputCommandInteracti
     await interaction.editReply({
       embeds: [
         {
-          color: FARBE,
-          title: 'XP-Slot',
+          color: embed.farbe,
+          title: embed.titel,
           description: [
-            `Fünf Walzen, ${ansicht.linien.length} Linien. Gespielt wird mit dine XP i de WebApp.`,
+            embed.beschreibung,
             ansicht.eventName ? `**Grad laufend:** ${ansicht.eventName}` : null,
           ]
             .filter(Boolean)
             .join('\n'),
+          ...(embed.thumbnailUrl ? { thumbnail: { url: embed.thumbnailUrl } } : {}),
+          ...(embed.bildUrl ? { image: { url: embed.bildUrl } } : {}),
           fields: [
             { name: 'Einsätz', value: `${ansicht.einsaetze.join(', ')} XP`, inline: true },
             {
@@ -127,7 +150,7 @@ export async function handleXpSlotCommand(interaction: ChatInputCommandInteracti
               inline: true,
             },
           ],
-          footer: { text: 'Spiel bewusst mit dine XP.' },
+          ...(embed.fusszeile ? { footer: { text: embed.fusszeile } } : {}),
         },
       ],
       components: [
@@ -140,8 +163,8 @@ export async function handleXpSlotCommand(interaction: ChatInputCommandInteracti
               // loest hier nichts aus. Alles andere waere ein zweiter
               // Spielablauf auf Discord.
               style: 5,
-              label: 'XP-Slot öffne',
-              url: adresse,
+              label: embed.knopf,
+              url: embed.adresse,
             },
           ],
         },

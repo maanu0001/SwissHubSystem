@@ -247,3 +247,66 @@ describe('Workspace - Sicherheit', () => {
     expect(workspaceTeil).not.toMatch(/linkedModuleId\s+String\s+@relation/u);
   });
 });
+
+/**
+ * Die Discord-Meldungen eines Projekts - die strukturellen Zusagen.
+ *
+ * Die Wirkung steht in `tests/integration/workspace-kanalereignisse.test.ts`.
+ * Hier steht, was sich nur als Abwesenheit zeigen laesst: dass es keine
+ * zweite Discord-Konfiguration gibt, dass eine gescheiterte Meldung nichts
+ * umwirft, und dass die Auswahl der Ereignisse nicht am Formular haengt.
+ */
+describe('Workspace - Projektmeldungen', () => {
+  const MELDUNG = lies('packages/modules/src/workspace/kanalmeldung.ts');
+
+  it('haengt die Einstellung an das bestehende Projekt', () => {
+    const schema = readFileSync(join(process.cwd(), 'packages/database/prisma/schema.prisma'), 'utf8');
+    const projekt = schema.slice(schema.indexOf('model WorkspaceProject'));
+    const block = projekt.slice(0, projekt.indexOf('\n}'));
+    /*
+     * Drei Felder an der Projektzeile und keine eigene Tabelle: der Kanal war
+     * schon dort, und eine zweite Konfigurationsablage waere eine zweite
+     * Wahrheit darueber, wohin ein Projekt meldet.
+     */
+    expect(block).toContain('discordChannelId');
+    expect(block).toContain('discordUpdates');
+    expect(block).toContain('discordEvents');
+    expect(schema).not.toMatch(/model Workspace\w*Discord\w*\s*\{/u);
+  });
+
+  it('nimmt die Ereignisarten aus dem Katalog und nicht aus dem Formular', () => {
+    const projekte = lies('packages/modules/src/workspace/projekte.ts');
+    // `sortiereEreignisse` verwirft Unbekanntes: was gespeichert wird, steht
+    // im Katalog, auch wenn das Formular etwas anderes schickt.
+    expect(projekte).toContain('sortiereEreignisse(');
+    expect(projekte).toContain('vorgabeEreignisse()');
+    expect(MELDUNG).toContain('istEreignis(meldung.ereignis)');
+  });
+
+  it('prueft Kanal, Hauptschalter und Art an einer Stelle', () => {
+    expect(MELDUNG).toContain('!projekt?.discordChannelId || !projekt.discordUpdates');
+    expect(MELDUNG).toContain('projekt.discordEvents.includes(meldung.ereignis)');
+  });
+
+  it('wirft nichts um, wenn Discord nicht erreichbar ist', () => {
+    /*
+     * Die Aufgabe ist beim Senden schon gespeichert. Eine Ausnahme hier
+     * wuerde die Handlung scheitern lassen, die laengst gelungen ist - und
+     * der Benutzer saehe einen Fehler fuer etwas, das funktioniert hat.
+     */
+    const rumpf = MELDUNG.slice(MELDUNG.indexOf('export async function meldeImProjektkanal'));
+    expect(rumpf).not.toMatch(/^\s*throw /mu);
+    expect(rumpf).toContain('discordFehlerAt');
+    // Auch das Vermerken des Fehlers darf nichts umwerfen.
+    expect(rumpf).toContain('.catch(() => undefined)');
+  });
+
+  it('pingt niemanden, egal was im Formular stand', () => {
+    expect(MELDUNG).toContain('allowedMentions: { parse: [] }');
+  });
+
+  it('baut die Adresse des Knopfs zentral', () => {
+    expect(MELDUNG).toContain('appUrl(meldung.pfad)');
+    expect(MELDUNG).not.toMatch(/https?:\/\/[a-z]/u);
+  });
+});

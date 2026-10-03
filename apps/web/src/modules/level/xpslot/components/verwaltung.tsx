@@ -35,7 +35,9 @@ import { Switch } from '@/components/ui/switch';
 import { ConfirmationDialog } from '@/components/shared/confirmation-dialog';
 import { cn } from '@/lib/utils';
 import { istEigenesBild, quelle, STANDARD_KLAENGE, symbolBild } from '../adressen';
+
 import {
+  befehlSpeichernAction,
   designSpeichernAction,
   eventAktivierenAction,
   eventBeendenAction,
@@ -110,6 +112,18 @@ export interface VerwaltungProps {
   verlauf: Verlauf;
   klangSlots: ReadonlyArray<{ key: string; label: string; gruppe: string }>;
   testfaelle: ReadonlyArray<{ key: string; label: string }>;
+  /** Das Embed von `/xp-slot` - leere Felder heissen «Vorgabe». */
+  befehl: Awaited<ReturnType<typeof level.xpslot.befehlsEinstellungen>>;
+  /*
+   * Die Vorgaben desselben Embeds.
+   *
+   * Von der Seite durchgereicht und nicht hier importiert: `level` ist in
+   * dieser Clientkomponente ein reiner Typ, und ein Wertimport zoege die
+   * Modulschicht samt Datenbankanbindung in das Browserbuendel. Abschreiben
+   * waere die Alternative gewesen - und eine zweite Textfassung ist nach der
+   * ersten Verbesserung falsch.
+   */
+  vorgaben: typeof level.xpslot.BEFEHL_VORGABEN;
   darfFreispiele: boolean;
 }
 
@@ -1960,7 +1974,13 @@ const ART_LABEL: Record<string, string> = {
 // Einstellungen (Status, Feed, Testmodus)
 // ---------------------------------------------------------------------------
 
-function EinstellungenTab({ csrfToken, konfiguration, testfaelle }: VerwaltungProps): React.JSX.Element {
+function EinstellungenTab({
+  csrfToken,
+  konfiguration,
+  testfaelle,
+  befehl,
+  vorgaben,
+}: VerwaltungProps): React.JSX.Element {
   const { laeuft, fuehreAus } = useSpeichern();
   const c = konfiguration.config;
   const [status, setStatus] = useState(c.status);
@@ -1979,6 +1999,8 @@ function EinstellungenTab({ csrfToken, konfiguration, testfaelle }: VerwaltungPr
 
   return (
     <div className="space-y-4">
+      <BefehlsKasten csrfToken={csrfToken} start={befehl} vorgaben={vorgaben} />
+
       <Kasten titel="Status" hinweis="Der Status gilt zusätzlich zum Modulstatus des Level-Systems.">
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
@@ -2174,5 +2196,206 @@ function EinstellungenTab({ csrfToken, konfiguration, testfaelle }: VerwaltungPr
         ) : null}
       </Kasten>
     </div>
+  );
+}
+
+/**
+ * Die Discord-Nachricht von `/xp-slot`.
+ *
+ * ## Was hier nicht steht
+ *
+ * Kein Schalter fuer den Befehl selbst und keine Rollenliste. Ob `/xp-slot`
+ * laeuft und wer ihn benutzen darf, entscheidet die zentrale
+ * Befehlsverwaltung - ein zweiter Riegel hier waere eine zweite Wahrheit, und
+ * man wuerde erst nach langem Suchen merken, welche der beiden gerade gilt.
+ *
+ * ## Warum die Felder leer bleiben duerfen
+ *
+ * Leer heisst «Vorgabe», nicht «nichts». Das steht an jedem Feld als
+ * Platzhalter, und die Vorschau zeigt es: wer den Titel loescht, sieht sofort
+ * wieder «XP-Slot» darin stehen. So braucht es keinen Zuruecksetzen-Knopf.
+ */
+function BefehlsKasten({
+  csrfToken,
+  start,
+  vorgaben: VORGABEN,
+}: {
+  csrfToken: string;
+  start: VerwaltungProps['befehl'];
+  vorgaben: VerwaltungProps['vorgaben'];
+}): React.JSX.Element {
+  const { laeuft, fuehreAus } = useSpeichern();
+  const [werte, setWerte] = useState(start);
+
+  const setze = (teil: Partial<typeof start>): void => setWerte((v) => ({ ...v, ...teil }));
+
+  // Was der Bot daraus machen wuerde - dieselbe Rueckfallregel wie dort.
+  const zeige = {
+    titel: werte.titel.trim() || VORGABEN.titel,
+    beschreibung: werte.beschreibung.trim() || VORGABEN.beschreibung,
+    farbe: /^#[0-9a-f]{6}$/iu.test(werte.farbe.trim()) ? werte.farbe.trim() : VORGABEN.farbe,
+    knopf: werte.knopf.trim() || VORGABEN.knopf,
+    fusszeile: werte.fusszeile.trim() || VORGABEN.fusszeile,
+  };
+
+  return (
+    <Kasten
+      titel="Discord /xp-slot Nachricht"
+      hinweis="Inhalt und Aussehen des Embeds. Ob der Befehl läuft und wer ihn nutzen darf, steht in der Befehlsverwaltung."
+    >
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 text-sm">
+            <Switch
+              aria-label="Eigene Nachricht verwenden"
+              checked={werte.aktiv}
+              onCheckedChange={(wert) => setze({ aktiv: wert })}
+            />
+            Eigene Nachricht verwenden
+          </label>
+
+          <div>
+            <Label className="text-xs">Titel</Label>
+            <Input
+              className="mt-1"
+              aria-label="Titel des Embeds"
+              value={werte.titel}
+              placeholder={VORGABEN.titel}
+              onChange={(ereignis) => setze({ titel: ereignis.target.value })}
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs">Beschreibung</Label>
+            <textarea
+              className="mt-1 min-h-[5rem] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              aria-label="Beschreibung des Embeds"
+              value={werte.beschreibung}
+              placeholder={VORGABEN.beschreibung}
+              onChange={(ereignis) => setze({ beschreibung: ereignis.target.value })}
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="text-xs">Farbe</Label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  aria-label="Farbe des Embeds"
+                  className="h-10 w-12 cursor-pointer rounded border border-input bg-background"
+                  value={zeige.farbe}
+                  onChange={(ereignis) => setze({ farbe: ereignis.target.value })}
+                />
+                <Input
+                  aria-label="Farbe als Hexwert"
+                  value={werte.farbe}
+                  placeholder={VORGABEN.farbe}
+                  onChange={(ereignis) => setze({ farbe: ereignis.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Knopfbeschriftung</Label>
+              <Input
+                className="mt-1"
+                aria-label="Knopfbeschriftung"
+                value={werte.knopf}
+                placeholder={VORGABEN.knopf}
+                onChange={(ereignis) => setze({ knopf: ereignis.target.value })}
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs">Fusszeile</Label>
+            <Input
+              className="mt-1"
+              aria-label="Fusszeile des Embeds"
+              value={werte.fusszeile}
+              placeholder={VORGABEN.fusszeile}
+              onChange={(ereignis) => setze({ fusszeile: ereignis.target.value })}
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="text-xs">Thumbnail (https)</Label>
+              <Input
+                className="mt-1"
+                aria-label="Thumbnail-Adresse"
+                value={werte.thumbnailUrl}
+                placeholder="https://..."
+                onChange={(ereignis) => setze({ thumbnailUrl: ereignis.target.value })}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Grosses Bild (https)</Label>
+              <Input
+                className="mt-1"
+                aria-label="Adresse des grossen Bildes"
+                value={werte.bildUrl}
+                placeholder="https://..."
+                onChange={(ereignis) => setze({ bildUrl: ereignis.target.value })}
+              />
+            </div>
+          </div>
+
+          <Button
+            size="sm"
+            disabled={laeuft}
+            onClick={() =>
+              void fuehreAus(() => befehlSpeichernAction({ csrfToken, ...werte }), 'Gespeichert.')
+            }
+          >
+            <Save aria-hidden="true" />
+            Speichern
+          </Button>
+        </div>
+
+        {/*
+          Die Vorschau.
+
+          Nachgebaut, nicht gerendert: ein echtes Discord-Embed laesst sich
+          hier nicht einbetten. Nachgebaut ist die Form - Farbstreifen links,
+          Titel, Text, Bilder, Fusszeile, Knopf darunter - und zwar aus
+          denselben Werten, die der Bot nimmt. Was hier steht, kommt dort an.
+        */}
+        <div>
+          <Label className="text-xs">Vorschau</Label>
+          <div className="mt-1 rounded-lg bg-[#313338] p-3">
+            <div className="rounded border-l-4 bg-[#2b2d31] p-3" style={{ borderLeftColor: zeige.farbe }}>
+              <div className="flex gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-[#f2f3f5]">{zeige.titel}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-[#dbdee1]">{zeige.beschreibung}</p>
+                </div>
+                {werte.thumbnailUrl.trim() ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={werte.thumbnailUrl.trim()}
+                    alt=""
+                    className="size-20 shrink-0 rounded object-cover"
+                  />
+                ) : null}
+              </div>
+              {werte.bildUrl.trim() ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={werte.bildUrl.trim()} alt="" className="mt-2 w-full rounded object-cover" />
+              ) : null}
+              <p className="mt-2 text-[11px] text-[#949ba4]">{zeige.fusszeile}</p>
+            </div>
+            <div className="mt-2">
+              <span className="inline-flex items-center gap-1.5 rounded bg-[#4e5058] px-3 py-1.5 text-sm font-medium text-white">
+                {zeige.knopf}
+              </span>
+            </div>
+            <p className="mt-2 text-[11px] text-[#949ba4]">
+              Der Knopf führt immer zum XP-Slot dieser Installation.
+            </p>
+          </div>
+        </div>
+      </div>
+    </Kasten>
   );
 }

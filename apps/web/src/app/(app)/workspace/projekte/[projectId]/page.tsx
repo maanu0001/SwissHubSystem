@@ -145,6 +145,7 @@ export default async function WorkspaceProjektPage({
                 csrfToken={csrfToken}
                 projekt={ansicht.projekt}
                 roles={discordOptionen.roles}
+                ereignisse={workspace.WORKSPACE_EREIGNISSE}
                 channels={discordOptionen.channels}
               />
             ) : null}

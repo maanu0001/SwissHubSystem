@@ -29,6 +29,7 @@ export * from './regeln';
 export * from './auswertung';
 export * from './rtp';
 export * from './vorgaben';
+export * from './befehl';
 export * from './konfiguration';
 export * from './limits';
 export * from './freispiele';

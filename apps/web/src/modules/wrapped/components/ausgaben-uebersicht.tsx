@@ -212,9 +212,9 @@ function LoeschKnopf({
         title="Ausgabe löschen?"
         description={
           <>
-            «{ausgabe.titel}» verschwindet mit {ausgabe.folien} {ausgabe.folien === 1 ? 'Folie' : 'Folien'}{' '}
-            und den darin erhobenen Zahlen. Das lässt sich nicht rückgängig machen. Community Moments bleiben
-            erhalten - die gehören der Momentverwaltung.
+            «{ausgabe.titel}» verschwindet mit {ausgabe.folien} {ausgabe.folien === 1 ? 'Folie' : 'Folien'},
+            den darin erhobenen Zahlen und den daraus erzeugten Exportdaten. Das lässt sich nicht rückgängig
+            machen. Community Moments bleiben erhalten - die gehören der Momentverwaltung.
           </>
         }
         confirmLabel="Endgültig löschen"

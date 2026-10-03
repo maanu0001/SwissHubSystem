@@ -298,7 +298,8 @@ export async function aendereMeilenstein(
    */
   if (eingabe.erledigt === true && !vorher.erledigt) {
     await meldeImProjektkanal(vorher.projectId, {
-      titel: `Meilenstein erreicht: ${nachher.title}`,
+      ereignis: 'milestone.done',
+      titel: nachher.title,
       pfad: `/workspace/projekte/${vorher.projectId}`,
     });
   }

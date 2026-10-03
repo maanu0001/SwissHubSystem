@@ -10329,6 +10329,31 @@ model WorkspaceProject {
    */
   discordChannelId String?
 
+  /**
+   * Der Hauptschalter fuer die Kanalmeldungen.
+   * Getrennt vom Kanal, damit man die Meldungen voruebergehend abstellen kann,
+   * ohne Kanal und Auswahl zu verlieren - und sie mit einem Klick wieder
+   * anstellen kann. Ohne Kanal passiert ohnehin nichts.
+   */
+  discordUpdates Boolean @default(true)
+
+  /**
+   * Welche Ereignisse in den Kanal gehen - Schluessel aus `WORKSPACE_EREIGNISSE`.
+   * Eine Liste und keine zwoelf Spalten: ein neues Ereignis soll keine
+   * Migration brauchen. Ein Schluessel, den der Code nicht kennt, wird beim
+   * Lesen verworfen; so ist ein Rueckbau nicht gleich ein Fehlerfall.
+   * Leer heisst: nichts. Die Vorgabe setzt das Modul beim Anlegen.
+   */
+  discordEvents String[] @default([])
+
+  /**
+   * Der letzte Fehlschlag beim Senden - damit er nicht nur im Serverprotokoll
+   * steht. Ein Kanal, den jemand geloescht hat, faellt sonst erst auf, wenn
+   * jemand fragt, warum nichts mehr kommt.
+   */
+  discordFehlerAt   DateTime?
+  discordFehlerText String?
+
   /// Gesetzt heisst archiviert. Ein Zeitpunkt statt eines Schalters, weil die
   /// Frage «seit wann» im Archiv regelmaessig gestellt wird.
   archivedAt          DateTime?
@@ -10788,6 +10813,24 @@ model XpSlotConfig {
   /// Das aktive Sound-Paket.
   activeSoundPackId String?
   activeSoundPack   XpSlotSoundPack? @relation(fields: [activeSoundPackId], references: [id])
+
+  /**
+   * Das Embed von `/xp-slot`.
+   * Nur Inhalt und Aussehen. Ob der Befehl ueberhaupt laeuft und wer ihn
+   * benutzen darf, entscheidet weiterhin die zentrale Command- und
+   * Rollenverwaltung - hier steht kein zweiter Riegel daneben.
+   * `null` heisst jeweils: die Vorgabe aus `vorgaben.ts`. Damit bleibt eine
+   * nie angefasste Konfiguration leer, statt eine Kopie der Vorgaben zu sein,
+   * die beim naechsten Textfeinschliff stehen bliebe.
+   */
+  commandEnabled      Boolean @default(true)
+  commandTitle        String?
+  commandDescription  String?
+  commandColor        String?
+  commandButtonLabel  String?
+  commandFooter       String?
+  commandThumbnailUrl String?
+  commandImageUrl     String?
 
   /// Der Discord-Feed fuer grosse Gewinne.
   feedChannelId String?

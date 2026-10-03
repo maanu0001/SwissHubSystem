@@ -25,7 +25,7 @@ export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
   const S = level.xpslot;
 
   const konfiguration = await S.leseKonfiguration();
-  const [pakete, events, kennzahlen, verlauf, freispielZeilen] = await Promise.all([
+  const [pakete, events, kennzahlen, verlauf, freispielZeilen, befehl] = await Promise.all([
     S.pakete(konfiguration.wirksam.soundPackId),
     S.eventListe(),
     S.kennzahlen('alles'),
@@ -42,6 +42,7 @@ export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
       orderBy: [{ expiresAt: 'asc' }, { createdAt: 'asc' }],
       take: 200,
     }),
+    S.befehlsEinstellungen(),
   ]);
 
   return (
@@ -65,6 +66,8 @@ export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
         verlauf={verlauf}
         klangSlots={S.KLANG_SLOTS}
         testfaelle={S.TESTFAELLE.map((fall) => ({ key: fall, label: S.TESTFALL_LABEL[fall] }))}
+        befehl={befehl}
+        vorgaben={S.BEFEHL_VORGABEN}
         darfFreispiele={can(context, level.LEVEL_PERMISSIONS.xpslotFreespinsManage)}
       />
     </>

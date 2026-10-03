@@ -8,6 +8,8 @@ import type {
   WorkspaceVisibility,
 } from '@swisshub/database';
 import { TEXT_CHANNEL_TYPES, discord } from '@swisshub/discord';
+import { sortiereEreignisse, vorgabeEreignisse } from './ereignisse';
+import { meldeImProjektkanal } from './kanalmeldung';
 import { AppError, normalisiereFarbe, sanitizeText } from '@swisshub/shared';
 import { WORKSPACE_MODULE_ID } from './config';
 import { AKTIVE_PROJEKT_STATUS, fortschritt, normalisiereTags, type Fortschritt } from './typen';
@@ -57,6 +59,10 @@ export interface ProjektEingabe {
   sichtbarFuerRollen?: readonly string[];
   /** Der Kanal fuer die Ereignisse dieses Projekts - `null` heisst keine. */
   discordChannelId?: string | null;
+  /** Der Hauptschalter fuer die Kanalmeldungen. */
+  discordUpdates?: boolean;
+  /** Welche Ereignisarten gemeldet werden - Schluessel aus `WORKSPACE_EREIGNISSE`. */
+  discordEvents?: readonly string[];
 }
 
 /** Was die Oberfläche von einem Projekt braucht. */
@@ -183,6 +189,13 @@ export async function erstelleProjekt(
         visibility: sicht.sichtbarkeit,
         visibleRoleIds: sicht.rollen,
         discordChannelId: kanal,
+        discordUpdates: eingabe.discordUpdates ?? true,
+        // Ohne eigene Auswahl die Vorgabe des Katalogs - ein Projekt mit
+        // Kanal und leerer Liste meldete sonst gar nichts, und niemand
+        // wuesste warum.
+        discordEvents: eingabe.discordEvents
+          ? sortiereEreignisse(eingabe.discordEvents)
+          : vorgabeEreignisse(),
         createdByDiscordId: akteurDiscordId,
       },
     });
@@ -257,6 +270,12 @@ export async function aendereProjekt(
   if (eingabe.discordChannelId !== undefined) {
     daten.discordChannelId = await pruefeKanal(eingabe.discordChannelId);
   }
+  if (eingabe.discordUpdates !== undefined) {
+    daten.discordUpdates = eingabe.discordUpdates;
+  }
+  if (eingabe.discordEvents !== undefined) {
+    daten.discordEvents = sortiereEreignisse(eingabe.discordEvents);
+  }
 
   const nachher = await prisma.workspaceProject.update({ where: { id: projectId }, data: daten });
 
@@ -267,6 +286,21 @@ export async function aendereProjekt(
       actorDiscordId: akteurDiscordId,
       projectId,
       detail: `${vorher.status} → ${eingabe.status}`,
+    });
+    /*
+     * «Abgeschlossen» ist eine eigene Art.
+     *
+     * Ein Projekt wechselt oefter zwischen geplant, aktiv und pausiert; das
+     * ist Planung. Abgeschlossen ist das Ende - die eine Statusmeldung, die
+     * auch jemand lesen will, der dem Projekt sonst nicht folgt. Darum steht
+     * sie in der Vorgabe und die uebrigen Wechsel nicht.
+     */
+    await meldeImProjektkanal(projectId, {
+      ereignis: eingabe.status === 'COMPLETED' ? 'project.done' : 'project.status',
+      titel: nachher.title,
+      felder: [{ name: 'Status', value: `${vorher.status} → ${eingabe.status}` }],
+      pfad: `/workspace/projekte/${projectId}`,
+      akteurDiscordId: akteurDiscordId,
     });
   }
   if (eingabe.dueAt !== undefined && eingabe.dueAt?.getTime() !== vorher.dueAt?.getTime()) {

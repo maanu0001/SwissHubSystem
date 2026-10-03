@@ -2,6 +2,7 @@ export * from './config';
 export * from './typen';
 export * from './verlauf';
 export * from './sichtbarkeit';
+export * from './ereignisse';
 export * from './kanalmeldung';
 export * from './projekte';
 export * from './aufgaben';

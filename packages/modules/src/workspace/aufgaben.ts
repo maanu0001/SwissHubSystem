@@ -169,13 +169,15 @@ export async function erstelleAufgabe(
   // In den Kanal des Projekts, falls einer eingetragen ist - und ohne den
   // Vorgang abzubrechen, wenn Discord gerade nicht mitspielt.
   await meldeImProjektkanal(aufgabe.projectId, {
-    titel: `Neue Aufgabe: ${aufgabe.title}`,
+    ereignis: 'task.created',
+    titel: aufgabe.title,
     felder: [
       { name: 'Priorität', value: aufgabe.priority },
-      ...(aufgabe.dueAt ? [{ name: 'Fällig', value: aufgabe.dueAt.toISOString().slice(0, 10) }] : []),
-      ...(zustaendige.length > 0 ? [{ name: 'Zuständig', value: `${zustaendige.length}` }] : []),
+      ...(aufgabe.dueAt ? [{ name: 'Fällig', value: tagesdatum(aufgabe.dueAt) }] : []),
+      ...(zustaendige.length > 0 ? [{ name: 'Zuständig', value: erwaehnungen(zustaendige) }] : []),
     ],
     pfad: `/workspace/aufgaben/${aufgabe.id}`,
+    akteurDiscordId: akteurDiscordId,
   });
 
   return aufgabe;
@@ -328,17 +330,32 @@ export async function setzeStatus(
   }
 
   /*
-   * Erledigt und blockiert gehen in den Kanal, die uebrigen Wechsel nicht.
+   * Welcher Wechsel welche Meldung ist.
    *
-   * «Offen → In Arbeit» ist der Alltag; dafuer eine Nachricht zu schicken
-   * hiesse, den Kanal mit dem Board zu verwechseln. Erledigt ist ein Ergebnis,
-   * blockiert ein Hilferuf - beides will man lesen, ohne das Board zu oeffnen.
+   * Frueher gingen nur «erledigt» und «blockiert» in den Kanal, weil «offen →
+   * in Arbeit» der Alltag ist und ein Kanal, der den Alltag meldet, zum Board
+   * wird. Jetzt entscheidet das Projekt selbst: jede Art steht einzeln in der
+   * Auswahl, und die Vorgabe sind weiterhin nur die beiden. Hier wird nur noch
+   * benannt, was geschehen ist.
    */
-  if (erledigt || status === 'BLOCKED') {
+  const ereignis = erledigt
+    ? 'task.done'
+    : status === 'BLOCKED'
+      ? 'task.blocked'
+      : vorher.status === 'DONE'
+        ? 'task.reopened'
+        : status === 'IN_PROGRESS'
+          ? 'task.started'
+          : null;
+
+  if (ereignis) {
     await meldeImProjektkanal(vorher.projectId, {
-      titel: erledigt ? `Erledigt: ${nachher.title}` : `Blockiert: ${nachher.title}`,
-      ...(erledigt ? {} : { beschreibung: 'Die Aufgabe kommt nicht weiter.' }),
+      ereignis,
+      titel: nachher.title,
+      ...(status === 'BLOCKED' ? { beschreibung: 'Die Aufgabe kommt nicht weiter.' } : {}),
+      felder: [{ name: 'Status', value: `${vorher.status} → ${status}` }],
       pfad: `/workspace/aufgaben/${taskId}`,
+      akteurDiscordId: akteurDiscordId,
     });
   }
 
@@ -426,6 +443,19 @@ export async function setzeZustaendige(
     metadata: { taskId, neue, entfernt: weg },
   });
   await meldeZuweisungen(aufgabe, neue, akteurDiscordId);
+  await meldeImProjektkanal(aufgabe.projectId, {
+    ereignis: 'task.assigned',
+    titel: aufgabe.title,
+    felder: [
+      {
+        name: 'Verantwortlich',
+        value: gewuenscht.length === 0 ? 'niemand' : erwaehnungen(gewuenscht),
+      },
+      ...(weg.length > 0 ? [{ name: 'Entfernt', value: erwaehnungen(weg) }] : []),
+    ],
+    pfad: `/workspace/aufgaben/${taskId}`,
+    akteurDiscordId: akteurDiscordId,
+  });
 }
 
 /** Frist setzen oder entfernen. Leert den Erinnerungsmerker - siehe Kopf. */
@@ -469,7 +499,46 @@ export async function setzeFrist(
     metadata: { taskId, vorher: vorher.dueAt?.toISOString() ?? null, nachher: dueAt?.toISOString() ?? null },
   });
 
+  /*
+   * Drei Arten statt einer: gesetzt, verschoben, entfernt.
+   *
+   * «Frist geaendert» fuer alle drei waere im Kanal die unnuetzeste Meldung
+   * ueberhaupt - man muesste jedes Mal klicken, um zu sehen, ob die Aufgabe
+   * jetzt frueher oder gar nicht mehr faellig ist. Steht der alte Wert dabei,
+   * eruebrigt sich das Klicken.
+   */
+  const fristEreignis = !dueAt ? 'due.cleared' : vorher.dueAt ? 'due.changed' : 'due.set';
+  await meldeImProjektkanal(vorher.projectId, {
+    ereignis: fristEreignis,
+    titel: vorher.title,
+    felder: [
+      ...(vorher.dueAt ? [{ name: 'Bisher', value: tagesdatum(vorher.dueAt) }] : []),
+      { name: dueAt ? 'Neu fällig' : 'Frist', value: dueAt ? tagesdatum(dueAt) : 'entfernt' },
+    ],
+    pfad: `/workspace/aufgaben/${taskId}`,
+    akteurDiscordId: akteurDiscordId,
+  });
+
   return nachher;
+}
+
+/** Ein Datum als Tag - die Uhrzeit interessiert bei einer Frist nicht. */
+function tagesdatum(wert: Date): string {
+  return wert.toISOString().slice(0, 10);
+}
+
+/**
+ * Kennungen als Erwaehnungen.
+ *
+ * `<@id>` zeigt in Discord den Namen - ohne dass wir ihn hier nachschlagen
+ * und ohne dass er veraltet, wenn jemand ihn aendert. Gepingt wird trotzdem
+ * niemand: das verhindert `allowedMentions` in der Kanalmeldung.
+ */
+function erwaehnungen(discordIds: readonly string[]): string {
+  return discordIds
+    .slice(0, 10)
+    .map((discordId) => `<@${discordId}>`)
+    .join(', ');
 }
 
 /**

@@ -95,6 +95,7 @@ export default async function WorkspaceProjektePage({
           <ProjektFormular
             csrfToken={csrfTokenFor(context)}
             roles={discordOptionen.roles}
+            ereignisse={workspace.WORKSPACE_EREIGNISSE}
             channels={discordOptionen.channels}
           />
         ) : null}

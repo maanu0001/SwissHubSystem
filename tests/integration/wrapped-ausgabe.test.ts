@@ -718,6 +718,90 @@ describeWithDatabase('Wrapped-Ausgaben', () => {
     expect(eintrag.actorDiscordId).toBe(AKTEUR.discordId);
   });
 
+  it('loescht auch eine eingefrorene Ausgabe', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    await wrapped.finalisiereAusgabe(ergebnis.editionId, AKTEUR);
+    expect(
+      (await prisma.wrappedEdition.findUniqueOrThrow({ where: { id: ergebnis.editionId } })).status,
+    ).toBe('FINALIZED');
+
+    /*
+     * Einfrieren und Loeschen sind zwei Handlungen, nicht zwei Stufen
+     * derselben. Eine eingefrorene Ausgabe ist gegen **Aenderung** geschuetzt
+     * - gegen stilles Nachrechnen, nicht gegen eine ausdrueckliche
+     * Entscheidung mit eigener Berechtigung. Waere sie unloeschbar, haette ein
+     * Probelauf, den jemand versehentlich eingefroren hat, Bestand fuer immer.
+     */
+    await wrapped.loescheAusgabe(ergebnis.editionId, AKTEUR);
+
+    expect(await prisma.wrappedEdition.count({ where: { id: ergebnis.editionId } })).toBe(0);
+    const eintrag = await prisma.auditLog.findFirstOrThrow({
+      where: { action: 'WRAPPED_EDITION_DELETED' },
+    });
+    // Der Zustand vor dem Schnitt steht in der Pruefspur - sonst waere
+    // hinterher nicht erkennbar, dass hier etwas Festgeschriebenes wegfiel.
+    expect((eintrag.metadata as { status?: unknown }).status).toBe('FINALIZED');
+  });
+
+  it('nimmt der Ausgabe auch die gespeicherten Folienstaende', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    const ergebnis = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    const gespeichert = await prisma.wrappedSlide.findMany({
+      where: { editionId: ergebnis.editionId },
+      select: { snapshotData: true },
+    });
+    expect(gespeichert.length).toBeGreaterThan(0);
+    expect(gespeichert.every((folie) => folie.snapshotData !== null)).toBe(true);
+
+    await wrapped.loescheAusgabe(ergebnis.editionId, AKTEUR);
+
+    /*
+     * Die erhobenen Zahlen stehen in `snapshotData` je Folie, und daraus
+     * entstehen die Bilder und die Social-Exporte. Mit den Folien ist damit
+     * auch die Grundlage jedes Exports weg - es gibt keine zweite Ablage,
+     * aus der sich die Ausgabe hinterher noch zeichnen liesse.
+     */
+    expect(await wrapped.ladeAusgabe(ergebnis.editionId)).toBeNull();
+    expect(await prisma.wrappedSlide.count({ where: { editionId: ergebnis.editionId } })).toBe(0);
+    // Und keine Waise irgendwo sonst in der Tabelle.
+    expect(await prisma.wrappedSlide.count({})).toBe(0);
+  });
+
+  it('laesst einen Moment stehen, der noch in einer zweiten Ausgabe steckt', async () => {
+    await tageswerte('2026-08', { voiceSeconds: 7200, messages: 500 });
+    await tageswerte('2026-09', { voiceSeconds: 7200, messages: 500 });
+    const moment = await wrapped.erstelleMoment(
+      GUILD,
+      {
+        title: 'LAN im Herbst',
+        description: null,
+        happenedOn: '2026-08-09',
+        includeMonthly: true,
+        includeYearly: true,
+        priority: 0,
+      },
+      AKTEUR,
+    );
+    const august_ = await wrapped.erzeugeAusgabe(GUILD, august(), { jetzt: NACH_AUGUST });
+    /*
+     * Derselbe Moment in zwei Ausgaben: `includeYearly` setzt ihn auch in
+     * den Jahresrueckblick. Das ist der Fall, auf den es ankommt - ein
+     * Anhang, der **nicht** ausschliesslich zu dieser einen Ausgabe gehoert.
+     */
+    const jahr = await wrapped.erzeugeAusgabe(GUILD, wrapped.periodeVon('YEARLY', '2026')!, {
+      jetzt: new Date('2027-01-02T12:00:00Z'),
+    });
+
+    await wrapped.loescheAusgabe(august_.editionId, AKTEUR);
+
+    expect(await prisma.wrappedMoment.count({ where: { id: moment.id } })).toBe(1);
+    // Und die andere Ausgabe zeigt weiterhin darauf.
+    const uebrig = await wrapped.ladeAusgabe(jahr.editionId);
+    expect(uebrig).not.toBeNull();
+    expect(await prisma.wrappedSlide.count({ where: { editionId: jahr.editionId } })).toBeGreaterThan(0);
+  });
+
   it('loescht nichts, was es nicht gibt', async () => {
     await expect(wrapped.loescheAusgabe('gibt-es-nicht', AKTEUR)).rejects.toMatchObject({
       code: 'NOT_FOUND',
