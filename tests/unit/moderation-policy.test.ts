@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { evaluateModerationPolicy, moderationLevelOf } from '@swisshub/permissions';
 import type { GuildMember, GuildRole } from '@swisshub/discord';
@@ -208,5 +210,84 @@ describe('Abstimmung und Moderationsstufe', () => {
     });
 
     expect(entscheidung.allowed).toBe(true);
+  });
+});
+
+/**
+ * `/note` und `/user` - die Zusagen, die im Quelltext stehen müssen.
+ *
+ * Was die beiden Befehle tun, spielt `tests/integration/moderation-commands`
+ * durch. Hier stehen die Eigenschaften, die man an einem Durchlauf nicht
+ * sieht: dass es **einen** Weg hinaus gibt, dass keine Kennung im Code
+ * festgeschrieben ist, und dass die Befehle überhaupt registriert werden - ein
+ * Befehl, der nicht in `ALL_COMMANDS` steht, existiert auf Discord nicht.
+ */
+describe('Moderationsbefehle: der Quelltext', () => {
+  const DATEI = 'apps/bot/src/commands/moderation-commands.ts';
+
+  const quelle = (datei: string): string => readFileSync(join(process.cwd(), datei), 'utf8');
+  const ohneKommentare = (text: string): string =>
+    text.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/^\s*\/\/.*$/gmu, '');
+
+  it('hat genau einen Weg hinaus', () => {
+    /*
+     * Jede Antwort muss `allowedMentions: { parse: [] }` tragen. Acht
+     * `editReply`-Aufrufe sind acht Gelegenheiten, es zu vergessen - und die
+     * eine, die vergessen wird, ist die auf dem seltenen Pfad («keine
+     * Notizen»). Genau das war hier schon einmal der Fall.
+     *
+     * Deshalb: genau ein `editReply` in der ganzen Datei, in `antworte`.
+     */
+    const rumpf = ohneKommentare(quelle(DATEI));
+    const aufrufe = [...rumpf.matchAll(/interaction\.editReply\(/gu)];
+    expect(aufrufe, 'mehr als ein Antwortweg').toHaveLength(1);
+    expect(rumpf).toContain('allowedMentions: { parse: [] }');
+  });
+
+  it('antwortet nur ephemer', () => {
+    const rumpf = ohneKommentare(quelle(DATEI));
+    expect(rumpf).toContain('flags: MessageFlags.Ephemeral');
+    // Kein zweites `deferReply` ohne Flag und keine öffentliche Antwort.
+    expect([...rumpf.matchAll(/deferReply\(/gu)]).toHaveLength(1);
+    expect(rumpf).not.toContain('interaction.followUp');
+    expect(rumpf).not.toContain('interaction.reply(');
+    expect(rumpf).not.toContain('.channel?.send');
+  });
+
+  it('schreibt keine Discord-Kennung und keinen Rollennamen fest', () => {
+    /*
+     * Wer `/note` darf, entscheidet «Server → Berechtigungen». Eine Kennung
+     * oder ein Rollenname im Code wäre die Rückkehr zum alten Bot - und die
+     * eine Stelle, die beim Serverumbau niemand findet.
+     */
+    const rumpf = ohneKommentare(quelle(DATEI));
+    expect(rumpf).not.toMatch(/['"`]\d{17,20}['"`]/u);
+    expect(rumpf).not.toMatch(/roleIds\.includes\(/u);
+    // Entschieden wird über die zentrale Engine.
+    expect(rumpf).toContain('MEMBER_PERMISSIONS');
+    expect(rumpf).toContain('members.darfSehen(');
+  });
+
+  it('hält keine eigene Notizdatenbank', () => {
+    /*
+     * Die WebApp-Datenbank ist die Wahrheit. Eine Notiz, die über Discord
+     * entsteht und in einer zweiten Tabelle landet, fehlt im Member Center -
+     * und die Folge wäre eine Moderation, die nicht weiss, was über jemanden
+     * vermerkt ist.
+     *
+     * Gelesen wird deshalb über `members.listMemberNotes`, und `prisma` steht
+     * in dieser Datei nur für Dinge, für die es keine Modulfunktion gibt
+     * (Nickname, Massnahmenzahl, ob es ein Konto gibt) - nie für `memberNote`.
+     */
+    const rumpf = ohneKommentare(quelle(DATEI));
+    expect(rumpf).toContain('members.listMemberNotes(');
+    expect(rumpf).not.toContain('prisma.memberNote');
+  });
+
+  it('ist in der Befehlsregistrierung eingetragen', () => {
+    const register = ohneKommentare(quelle('apps/bot/src/commands/register.ts'));
+    expect(register).toContain('MODERATION_COMMAND_DEFINITIONS');
+    expect(register).toContain('MODERATION_COMMAND_NAMES');
+    expect(register).toContain('handleModerationCommand');
   });
 });

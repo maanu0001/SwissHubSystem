@@ -16,6 +16,11 @@ import {
 } from './spielwahl-commands';
 import { EMOJI_COMMAND_DEFINITIONS, EMOJI_COMMAND_NAMES, handleEmojiCommand } from './emoji-commands';
 import {
+  MODERATION_COMMAND_DEFINITIONS,
+  MODERATION_COMMAND_NAMES,
+  handleModerationCommand,
+} from './moderation-commands';
+import {
   AUTOMATION_COMMAND_DEFINITIONS,
   AUTOMATION_COMMAND_NAMES,
   handleAutomationAutocomplete,
@@ -32,6 +37,7 @@ const ALL_COMMANDS = [
   ...AUTOMATION_COMMAND_DEFINITIONS,
   ...SPIELWAHL_COMMAND_DEFINITIONS,
   ...EMOJI_COMMAND_DEFINITIONS,
+  ...MODERATION_COMMAND_DEFINITIONS,
 ];
 
 /**
@@ -116,6 +122,10 @@ export function registerCommandHandler(client: Client): void {
     }
     if (EMOJI_COMMAND_NAMES.has(interaction.commandName as 'emoji_add')) {
       void handleEmojiCommand(interaction);
+      return;
+    }
+    if (MODERATION_COMMAND_NAMES.has(interaction.commandName as 'note')) {
+      void handleModerationCommand(interaction);
       return;
     }
     void handleJailCommand(interaction);
