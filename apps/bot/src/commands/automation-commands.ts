@@ -30,6 +30,24 @@ const log = createLogger('bot:commands:automation');
  * eine Automation soll gerade einem Team ohne Dashboard-Zugang einen
  * einzelnen Knopf geben duerfen.
  *
+ * ## Die Option `user`
+ *
+ * Eine Automation kann «schick dieser Person eine Direktnachricht» tun -
+ * aber «diese Person» stand bisher nur in einem Ereignis. Ein Lauf von Hand
+ * hatte nur den **Auslöser**, nie ein Ziel, und damit liess sich niemandem
+ * ausser sich selbst etwas schicken. Genau das brauchte die Systemeinladung.
+ *
+ * `user` setzt deshalb `subjectId` am Lauf. Es ist kein erfundenes Ereignis:
+ * der Lauf trägt weiterhin `trigger: 'discord'`, und `event.type` bleibt
+ * leer. Was greift, ist alles, was ohnehin auf das betroffene Mitglied
+ * schaut - `nachricht.direkt`, die Bedingungen `rolle`/`istBot`/`webappKonto`
+ * und die Platzhalter `{{user.…}}`.
+ *
+ * Die Berechtigung ändert sich dadurch **nicht**: wer die Automation starten
+ * darf, entscheiden weiterhin die freigegebenen Rollen an ihr. Wer sie starten
+ * darf, darf sie für jeden starten - was sie tun darf, steht in der Automation
+ * und nicht in dieser Option.
+ *
  * ## Die Vorschlagsliste ist keine Sicherheitsgrenze
  *
  * Discord schickt den getippten Wert, auch wenn er nie vorgeschlagen wurde.
@@ -55,6 +73,12 @@ export const AUTOMATION_COMMAND_DEFINITIONS = [
         type: ApplicationCommandOptionType.String,
         required: true,
         autocomplete: true,
+      },
+      {
+        name: 'user',
+        description: 'Für wän? (optional - sunscht gältet d Automation für dich)',
+        type: ApplicationCommandOptionType.User,
+        required: false,
       },
       {
         name: 'probelauf',
@@ -150,6 +174,21 @@ export async function handleAutomationCommand(interaction: ChatInputCommandInter
     }
 
     const id = interaction.options.getString('name', true);
+    /*
+     * Für wen der Lauf gilt.
+     *
+     * Ohne Angabe ist niemand betroffen - und das ist der bisherige Zustand,
+     * nicht eine stille Annahme: wer `/automation` ohne `user` tippt, startet
+     * eine Automation, die aus sich heraus weiss, was sie tut. Eine Vorgabe
+     * auf den Aufrufer wäre eine Überraschung, sobald die Automation eine
+     * Direktnachricht an «das betroffene Mitglied» enthält.
+     *
+     * Die Kennung geht als `subjectId` hinein, nicht als erfundenes
+     * Ereignis: damit greifen `nachricht.direkt` mit «betroffenes Mitglied»,
+     * die Bedingungen `rolle`, `istBot` und `webappKonto`, und die
+     * Platzhalter unter `{{user.…}}`.
+     */
+    const ziel = interaction.options.getUser('user');
     const probelauf = interaction.options.getBoolean('probelauf') ?? false;
     const rollen = rollenVon(interaction);
 
@@ -187,6 +226,7 @@ export async function handleAutomationCommand(interaction: ChatInputCommandInter
       gateway: discord,
       dryRun: probelauf,
       actorId: interaction.user.id,
+      subjectId: ziel?.id ?? null,
     });
 
     if (!probelauf) {
@@ -201,6 +241,14 @@ export async function handleAutomationCommand(interaction: ChatInputCommandInter
           runId: ergebnis.runId,
           status: ergebnis.status,
           quelle: DISCORD_QUELLE,
+          /*
+           * Wen es betraf, steht im Protokoll.
+           *
+           * Eine Automation, die jemandem privat schreibt, ist eine Handlung
+           * an einer Person - und eine Prüfspur, die nur «gestartet» sagt,
+           * beantwortet die Frage «wer hat dem geschrieben» nicht.
+           */
+          ...(ziel ? { zielDiscordId: ziel.id } : {}),
         },
       }).catch((error: unknown) => log.warn('Prüfspur nicht geschrieben', { error }));
     }

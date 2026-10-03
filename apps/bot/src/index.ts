@@ -15,6 +15,7 @@ import { ensureBootstrapRoles } from '@swisshub/permissions';
 import {
   backfillModuleViewPermissions,
   analytics,
+  automation,
   getGuildConfig,
   importGuildFromEnvironment,
   jail,
@@ -341,6 +342,29 @@ async function main(): Promise<void> {
       await synchronisiereEinladungenBeimStart(guildId).catch((error: unknown) =>
         log.warn('Einladungen konnten beim Start nicht abgeglichen werden', { error }),
       );
+
+      /*
+       * Die Systemautomationen abgleichen.
+       *
+       * Sie gehören SwissHub und nicht der Gilde: niemand legt die
+       * Systemeinladung von Hand an, sie ist einfach da. Der Abgleich läuft
+       * beim Start, weil die Vorlagen hier im Code stehen - eine neue Fassung
+       * kommt also mit einem Neustart und nicht mit einer Migration.
+       *
+       * Angelegt wird sie **abgeschaltet** und mit leerer Rollenliste. Das
+       * ist Absicht: der Bot entscheidet nicht, wer eine Direktnachricht
+       * auslösen darf. Was die Gilde eingestellt hat - eingeschaltet oder
+       * nicht, welche Rollen - bleibt bei jedem weiteren Start unberührt.
+       *
+       * Mit eigenem Auffangnetz, wie die Abgleiche darüber: eine fehlende
+       * Systemautomation ist ein fehlendes Angebot, kein Grund, den Bot nicht
+       * zu starten.
+       */
+      await automation
+        .stelleSystemautomationenSicher(guildId)
+        .catch((error: unknown) =>
+          log.warn('Systemautomationen konnten beim Start nicht abgeglichen werden', { error }),
+        );
 
       // Beim Start einmal synchronisieren, damit Rollen- und Channel-Auswahl
       // im Dashboard sofort aktuell sind.

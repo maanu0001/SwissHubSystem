@@ -226,3 +226,135 @@ function minuten(hhmm: string): number {
   const [stunde, minute] = hhmm.split(':');
   return Number(stunde) * 60 + Number(minute);
 }
+
+// --- Abklingzeit ------------------------------------------------------------
+
+export const abklingConfigSchema = z.object({
+  minuten: z
+    .number()
+    .int()
+    .min(1)
+    .max(60 * 24 * 30),
+  /** Je Mitglied oder für die ganze Automation. */
+  bezug: z.enum(['mitglied', 'automation']).default('mitglied'),
+});
+
+/**
+ * «Nicht öfter als» - die Bedingung, die eine Automation höflich macht.
+ *
+ * ## Warum das keine Ratengrenze ist
+ *
+ * `maxRunsPerMinute` schützt den Server: zu viele Läufe in kurzer Zeit werden
+ * verworfen, egal wen sie betreffen. Diese Bedingung schützt **das Mitglied**:
+ * «dieser Person höchstens einmal pro Woche schreiben». Das ist eine fachliche
+ * Frage, und sie gehört deshalb dorthin, wo fachliche Fragen stehen - in die
+ * Bedingungen, sichtbar und einstellbar, nicht in eine Grenze im Hintergrund.
+ *
+ * Ohne sie wäre eine Systemeinladung ein Werkzeug, mit dem jemand versehentlich
+ * zehnmal dieselbe Direktnachricht schickt.
+ *
+ * ## Woran gemessen wird
+ *
+ * An den **tatsächlichen Läufen** dieser Automation (`AutomationRun`), nicht
+ * an einem eigenen Zähler. Ein zweiter Zähler wäre ein zweiter Ort, an dem
+ * dasselbe steht - und der, der nach einem Neustart nicht mehr stimmt.
+ *
+ * Gezählt werden nur Läufe mit Status `SUCCESS`. Ein übersprungener oder
+ * gescheiterter Lauf hat niemandem geschrieben und darf die Abklingzeit nicht
+ * starten - sonst sperrt sich die Bedingung selbst aus, und zwar genau dann,
+ * wenn gerade etwas nicht geklappt hat.
+ *
+ * Probeläufe zählen nicht (`dryRun: false`) - ein Probelauf wirkt nicht, also
+ * soll er auch nicht blockieren.
+ *
+ * ## Warum sie lesend ist
+ *
+ * Wie jede Bedingung hier: der Probelauf prüft Bedingungen echt und lässt nur
+ * Aktionen aus. Eine Bedingung, die beim Prüfen etwas vermerkt, machte ihn
+ * gefährlich.
+ */
+registerCondition({
+  id: 'abklingzeit',
+  label: 'Nicht öfter als',
+  description:
+    'Trifft zu, wenn diese Automation für dieses Mitglied in der angegebenen Zeit noch nicht gelaufen ist.',
+  group: 'Zeit',
+  configSchema: abklingConfigSchema,
+  fields: [
+    {
+      key: 'minuten',
+      label: 'Abstand',
+      description: 'Frühestens so viele Minuten nach dem letzten Lauf wieder.',
+      type: 'number',
+      required: true,
+      min: 1,
+      max: 60 * 24 * 30,
+      unit: 'Minuten',
+      default: 60 * 24 * 7,
+    },
+    {
+      key: 'bezug',
+      label: 'Gilt je',
+      type: 'select',
+      options: [
+        { value: 'mitglied', label: 'Betroffenes Mitglied' },
+        { value: 'automation', label: 'Die ganze Automation' },
+      ],
+      default: 'mitglied',
+    },
+  ],
+  async evaluate(config, context) {
+    const { minuten, bezug } = config as z.infer<typeof abklingConfigSchema>;
+    const seit = new Date(context.now.getTime() - minuten * 60_000);
+
+    if (bezug === 'mitglied') {
+      const subjekt = context.event.subjectId;
+      if (!subjekt) {
+        /*
+         * Kein Mitglied, also keine Abklingzeit je Mitglied.
+         *
+         * `true` und nicht `false`: die Bedingung fragt «ist der Abstand
+         * eingehalten», und ohne Mitglied gibt es keinen Abstand zu verletzen.
+         * `false` hiesse, eine Automation ohne Betroffenen liefe nie - und das
+         * wäre eine Sperre, die niemand eingestellt hat.
+         */
+        return true;
+      }
+      const letzte = await zaehleLaeufe(context.automationId, seit, subjekt);
+      return letzte === 0;
+    }
+
+    const letzte = await zaehleLaeufe(context.automationId, seit, null);
+    return letzte === 0;
+  },
+});
+
+/**
+ * Wie viele wirksame Läufe es seit `seit` gab.
+ *
+ * Mit `subjekt` nur die, die dieses Mitglied betrafen. Die Kennung steht im
+ * festgehaltenen Kontext des Laufs (`context.event.subjectId`), weil
+ * `AutomationRun` keine eigene Spalte dafür hat - eine Spalte dafür wäre eine
+ * Migration für eine Frage, die sich so beantworten lässt.
+ */
+async function zaehleLaeufe(automationId: string, seit: Date, subjekt: string | null): Promise<number> {
+  const { prisma } = await import('@swisshub/database');
+  const laeufe = await prisma.automationRun.findMany({
+    where: {
+      automationId,
+      dryRun: false,
+      status: 'SUCCESS',
+      createdAt: { gte: seit },
+    },
+    select: { context: true },
+    take: 200,
+  });
+
+  if (!subjekt) {
+    return laeufe.length;
+  }
+  return laeufe.filter((lauf) => {
+    const gespeichert = lauf.context as { event?: { subjectId?: unknown } } | null;
+    return gespeichert?.event?.subjectId === subjekt;
+  }).length;
+}

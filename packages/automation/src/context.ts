@@ -1,3 +1,5 @@
+import { appUrl } from '@swisshub/config';
+import { branding } from '@swisshub/config/client';
 import type { DiscordGateway } from '@swisshub/discord';
 import { LIMITS } from './contract';
 
@@ -9,6 +11,29 @@ import { LIMITS } from './contract';
  * Discord-Ereignis auswerten können, aber nicht die Umgebungsvariablen des
  * Prozesses lesen und keine beliebige Tabelle abfragen (§44).
  */
+/**
+ * Eine Person, wie eine Vorlage sie sieht.
+ *
+ * Bewusst knapp. Was hier nicht steht, ist einer Automation nicht zugänglich -
+ * und es steht nichts darin, was nicht ohnehin jedes Mitglied im Server sieht:
+ * Kennung, Anzeigename, Erwähnung, Bot-Kennzeichen, Beitrittsdatum.
+ *
+ * **Keine Rollen, keine E-Mail, kein Konto.** Rollen prüft man mit der
+ * Bedingung `rolle`; sie in einen Platzhalter zu schreiben hiesse, eine
+ * Rollenliste in eine Nachricht setzen zu können, die vielleicht in einem
+ * öffentlichen Kanal landet.
+ */
+export interface AufgeloestePerson {
+  id: string;
+  /** Der Name, den der Server zeigt - Nickname, sonst globaler Name. */
+  name: string;
+  /** `<@id>` - damit Discord den Namen auflöst. */
+  mention: string;
+  istBot: boolean;
+  /** ISO-Datum des Serverbeitritts, oder `null`. */
+  beigetretenAm: string | null;
+}
+
 export interface AutomationContext {
   runId: string;
   automationId: string;
@@ -34,12 +59,145 @@ export interface AutomationContext {
   /** Zeitpunkt des Laufs. Für Zeitbedingungen und `{{now}}`. */
   now: Date;
   /**
+   * Das betroffene Mitglied, **serverseitig aufgelöst**.
+   *
+   * ## Warum aufgelöst und nicht nachgeschlagen
+   *
+   * `{{user.name}}` soll in einer Nachricht stehen können, ohne dass die
+   * Vorlage weiss, aus welchem Ereignis die Nutzdaten kommen. Vorher gab es
+   * dafür nur `{{payload.displayName}}` - und das steht nur in den Nutzdaten
+   * **dieses einen** Ereignistyps. Eine Vorlage, die bei `member.joined`
+   * funktioniert und bei `level.up` eine leere Stelle zeigt, ist eine Vorlage,
+   * die man zweimal baut.
+   *
+   * Aufgelöst wird **einmal je Lauf**, in `starte`, über den Discord-Zugang -
+   * nicht beim Lesen des Platzhalters: `leseWert` ist synchron, und ein
+   * Platzhalter in einer Schleife würde sonst zu einer Abfrage je
+   * Vorkommen. Siehe `loeseUmfeldAuf`.
+   *
+   * `null`, wenn das Ereignis niemanden betrifft oder die Person den Server
+   * verlassen hat. Ein Platzhalter darauf wird dann zur leeren Zeichenkette
+   * und als fehlend gemeldet - wie jeder andere unbekannte Pfad.
+   */
+  user: AufgeloestePerson | null;
+  /** Wer den Lauf ausgelöst hat - dieselbe Form, dieselbe Auflösung. */
+  invoker: AufgeloestePerson | null;
+  /** Die Gilde. Mehr als Kennung und Name gibt es hier nicht zu wissen. */
+  guild: { id: string; name: string | null };
+  /**
+   * Feste Angaben über SwissHub selbst.
+   *
+   * Aus der Konfiguration, nie aus einer Eingabe: `{{system.loginUrl}}` ist
+   * genau die Adresse, auf die auch die Anwendung verweist. Eine Automation
+   * kann damit einen Einladungslink schreiben, ohne dass jemand eine Adresse
+   * in ein Textfeld tippt - und damit ohne die Möglichkeit, dass dort
+   * irgendwann eine fremde steht.
+   */
+  system: { name: string; appUrl: string; loginUrl: string };
+  /**
    * Ereignisse, die dieser Lauf ausgelöst hat.
    *
    * Der Executor zählt mit; über `LIMITS.maxEmittedEvents` hinaus wird
    * abgebrochen (§16).
    */
   emitted: number;
+}
+
+/**
+ * Die vier neuen Wurzeln mit ihren Vorgaben.
+ *
+ * Jeder Ort, an dem ein `AutomationContext` entsteht, ruft dies - der
+ * Ausführer, der Verteiler, die Fortsetzung eines wartenden Laufs. Vier
+ * Stellen, die vier Felder von Hand setzen, wären vier Gelegenheiten, eines zu
+ * vergessen, und das vergessene wäre in einer Nachricht eine leere Stelle.
+ *
+ * `user` und `invoker` beginnen als `null`: wer dahintersteckt, weiss erst
+ * `loeseUmfeldAuf`, und das braucht den Discord-Zugang.
+ *
+ * `system` dagegen steht sofort fest. Es kommt aus der Konfiguration und nicht
+ * aus einer Eingabe - das ist der ganze Punkt: eine Automation schreibt damit
+ * einen Einladungslink, ohne dass irgendwo eine Adresse in ein Textfeld
+ * getippt wird.
+ */
+export function leeresUmfeld(
+  guildId: string,
+): Pick<AutomationContext, 'user' | 'invoker' | 'guild' | 'system'> {
+  return {
+    user: null,
+    invoker: null,
+    guild: { id: guildId, name: null },
+    system: {
+      name: branding.name,
+      appUrl: appUrl('/'),
+      loginUrl: appUrl('/login'),
+    },
+  };
+}
+
+/**
+ * Eine Person für die Platzhalter auflösen.
+ *
+ * Über denselben Discord-Zugang, den auch die Bedingungen `rolle` und `istBot`
+ * benutzen. Wer den Server verlassen hat, ergibt `null` - und ein Platzhalter
+ * darauf wird zur leeren Zeichenkette und gemeldet. Das ist richtiger, als
+ * einen Namen zu erfinden.
+ */
+async function loesePerson(
+  gateway: DiscordGateway,
+  discordId: string | null,
+): Promise<AufgeloestePerson | null> {
+  if (!discordId) {
+    return null;
+  }
+  const mitglied = await gateway.members.get(discordId);
+  if (!mitglied) {
+    return null;
+  }
+  return {
+    id: mitglied.discordId,
+    name: mitglied.displayName,
+    mention: `<@${mitglied.discordId}>`,
+    istBot: mitglied.isBot,
+    beigetretenAm: mitglied.joinedAt ? mitglied.joinedAt.toISOString() : null,
+  };
+}
+
+/**
+ * `user`, `invoker` und `guild` einmal je Lauf auflösen.
+ *
+ * ## Warum einmal und nicht beim Lesen
+ *
+ * `leseWert` ist synchron, und das soll es bleiben: ein Platzhalter in einer
+ * Nachricht darf keine Netzanfrage sein. Eine Vorlage mit zehn
+ * `{{user.name}}` wäre sonst zehn Abfragen, und eine Bedingung, die in einer
+ * Gruppe mehrfach geprüft wird, noch einmal so viele.
+ *
+ * ## Warum höchstens zwei Abfragen
+ *
+ * Sind `subjectId` und `actorId` dieselbe Person - der häufige Fall, wenn
+ * jemand etwas über sich auslöst -, wird einmal gefragt und das Ergebnis
+ * geteilt.
+ *
+ * Fehler werden verschluckt. Ein Lauf soll nicht daran scheitern, dass
+ * Discord gerade nicht antwortet; die Platzhalter bleiben dann leer und
+ * erscheinen als fehlend.
+ */
+export async function loeseUmfeldAuf(context: AutomationContext): Promise<void> {
+  try {
+    const subjekt = context.event.subjectId;
+    const akteur = context.event.actorId;
+
+    context.user = await loesePerson(context.gateway, subjekt);
+    context.invoker =
+      akteur && akteur === subjekt ? context.user : await loesePerson(context.gateway, akteur);
+
+    const gilde = await context.gateway.guild.get();
+    if (gilde.name) {
+      context.guild = { id: context.guildId, name: gilde.name };
+    }
+  } catch {
+    // Siehe oben: leere Platzhalter statt eines abgebrochenen Laufs.
+  }
 }
 
 // --- Variablenauflösung -----------------------------------------------------
@@ -51,7 +209,30 @@ export interface AutomationContext {
  * nicht. Eine Sperrliste müsste jede künftige Gefahr vorwegnehmen; eine
  * Freigabeliste muss nur das Erlaubte kennen.
  */
-const ERLAUBTE_WURZELN = new Set(['payload', 'event', 'steps', 'guildId', 'now', 'runId']);
+const ERLAUBTE_WURZELN = new Set([
+  'payload',
+  'event',
+  'steps',
+  'guildId',
+  'now',
+  'runId',
+  /*
+   * Die vier neuen Wurzeln.
+   *
+   * Sie stehen hier und nicht in einer Sonderbehandlung, weil sie genau
+   * dieselben Regeln bekommen sollen wie `payload`: ein Pfad, kein Ausdruck,
+   * kein `__proto__`, und was ins Leere zeigt, wird zur leeren Zeichenkette
+   * und gemeldet.
+   *
+   * Aufgelöst werden sie **vor** den Schritten, serverseitig, einmal je Lauf -
+   * siehe `AutomationContext.user`. Eine Vorlage kann sie also lesen, aber
+   * nicht beeinflussen.
+   */
+  'user',
+  'invoker',
+  'guild',
+  'system',
+]);
 
 /**
  * Ein Pfad besteht aus Namen und Zahlen, getrennt durch Punkte.
@@ -95,6 +276,10 @@ export function leseWert(context: AutomationContext, pfad: string): unknown {
     guildId: context.guildId,
     runId: context.runId,
     now: context.now,
+    user: context.user,
+    invoker: context.invoker,
+    guild: context.guild,
+    system: context.system,
   };
 
   for (const teil of teile) {

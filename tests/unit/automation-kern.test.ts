@@ -4,6 +4,7 @@ import {
   einstieg,
   flache,
   istInterneAdresse,
+  leeresUmfeld,
   naechsterTermin,
   registerAction,
   registerCondition,
@@ -61,6 +62,13 @@ function kontext(zusatz: Partial<AutomationContext> = {}): AutomationContext {
     steps: {},
     now: new Date('2026-08-28T18:00:00Z'),
     emitted: 0,
+    /*
+     * Die vier aufgeloesten Wurzeln - mit ihren Vorgaben, wie sie der
+     * Ausfuehrer setzt. `leeresUmfeld` statt von Hand geschriebener Werte:
+     * sonst pruefte dieser Test seine eigene Nachbildung und nicht das, was
+     * produktiv im Kontext steht.
+     */
+    ...leeresUmfeld('900000000000000001'),
     ...zusatz,
   };
 }

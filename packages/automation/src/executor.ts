@@ -6,7 +6,7 @@ import { createLogger } from '@swisshub/logger';
 import { LIMITS } from './contract';
 import { publish } from './bus';
 import type { AutomationContext } from './context';
-import { renderConfig } from './context';
+import { leeresUmfeld, loeseUmfeldAuf, renderConfig } from './context';
 import { werteBaumAus, type ConditionNode } from './conditions';
 import { getAction } from './registry';
 import { flache, einstieg, stepsSchema, type FlacherSchritt, type StepNode } from './steps';
@@ -62,6 +62,27 @@ export interface StartEingabe {
   dryRun?: boolean;
   /** Wer ihn von Hand ausgelöst hat. */
   actorId?: string | null;
+  /**
+   * Wen der Lauf betrifft, wenn kein Ereignis dahintersteht.
+   *
+   * ## Warum das gebraucht wird
+   *
+   * Ein ereignisgetriebener Lauf weiss aus dem Ereignis, um wen es geht -
+   * `event.subjectId`. Ein Lauf, den jemand von Hand startet, weiss es
+   * nicht: `/automation` und der Knopf im Dashboard hatten bisher nur den
+   * **Auslöser** (`actorId`). Eine Automation, die «schick dieser Person
+   * eine Direktnachricht» tut, konnte damit nur dem Auslöser schreiben.
+   *
+   * Genau das war die Lücke für eine Systemeinladung: man will jemand
+   * **anderem** den WebApp-Link schicken.
+   *
+   * Es ist kein Ereignis und tut auch nicht so: der Lauf trägt weiterhin
+   * `trigger: 'manual'` oder `'discord'`, und `event.type` bleibt leer. Nur
+   * `subjectId` ist gesetzt - und damit greifen `nachricht.direkt` mit
+   * «betroffenes Mitglied», die Bedingungen `rolle`/`istBot` und die
+   * Platzhalter unter `user`.
+   */
+  subjectId?: string | null;
   gateway?: DiscordGateway;
 }
 
@@ -116,7 +137,7 @@ function baueKontext(
       id: eingabe.event?.id ?? null,
       type: eingabe.event?.type ?? null,
       actorId: eingabe.event?.actorId ?? eingabe.actorId ?? null,
-      subjectId: eingabe.event?.subjectId ?? null,
+      subjectId: eingabe.event?.subjectId ?? eingabe.subjectId ?? null,
       entityId: eingabe.event?.entityId ?? null,
       occurredAt: eingabe.event?.occurredAt ?? jetzt,
     },
@@ -124,6 +145,14 @@ function baueKontext(
     steps: {},
     now: jetzt,
     emitted: 0,
+    /*
+     * `user`, `invoker`, `guild` und `system` mit ihren Vorgaben.
+     *
+     * Aufgeloest wird spaeter und asynchron (`loeseUmfeldAuf`) - diese
+     * Funktion ist synchron, weil sie auch fuer den vorlaeufigen Kontext
+     * gebraucht wird, mit dem der Gleichzeitigkeitsschluessel gerechnet wird.
+     */
+    ...leeresUmfeld(eingabe.guildId),
   };
 }
 
@@ -249,7 +278,26 @@ export async function starte(eingabe: StartEingabe): Promise<LaufErgebnis> {
         idempotencyKey: idempotenz,
         concurrencyKey: schluessel,
         dryRun: eingabe.dryRun ?? false,
-        context: (eingabe.event?.payload ?? {}) as Prisma.InputJsonValue,
+        /*
+         * Die Nutzdaten **und** das Ereignisgerippe.
+         *
+         * Hier stand nur `payload`. Nach einem Warteschritt liest
+         * `setzeFort` den Kontext aus dieser Spalte wieder zusammen - und
+         * fand dort `event.subjectId` nicht, weil es nie hineingeschrieben
+         * wurde. Die Fortsetzung schrieb dann an niemanden.
+         *
+         * Nur das Gerippe, keine zweite Kopie der Nutzdaten: `payload`
+         * bleibt, wo es war.
+         */
+        context: {
+          payload: eingabe.event?.payload ?? {},
+          event: {
+            actorId: eingabe.event?.actorId ?? eingabe.actorId ?? null,
+            subjectId: eingabe.event?.subjectId ?? eingabe.subjectId ?? null,
+            entityId: eingabe.event?.entityId ?? null,
+            occurredAt: (eingabe.event?.occurredAt ?? jetzt).toISOString(),
+          },
+        } as Prisma.InputJsonValue,
         startedAt: jetzt,
       },
     });
@@ -263,6 +311,19 @@ export async function starte(eingabe: StartEingabe): Promise<LaufErgebnis> {
   }
 
   const context = baueKontext(eingabe, lauf.id, gateway, jetzt);
+
+  /*
+   * `user`, `invoker` und `guild` auflösen - **vor** den Bedingungen.
+   *
+   * Eine Bedingung darf `{{user.name}}` vergleichen können, nicht nur eine
+   * Nachricht es anzeigen. Stünde die Auflösung danach, wäre dieselbe
+   * Variable in einer Bedingung leer und in der Nachricht gefüllt - ein
+   * Unterschied, den niemand erklären kann.
+   *
+   * Höchstens zwei Discord-Abfragen je Lauf, serverseitig, und Fehler werden
+   * verschluckt: siehe `loeseUmfeldAuf`.
+   */
+  await loeseUmfeldAuf(context);
 
   // --- Bedingungen --------------------------------------------------------
   const auswertung = await werteBaumAus((bedingungenRoh ?? null) as ConditionNode | null, context);
@@ -835,7 +896,18 @@ export async function setzeFort(
     steps: gespeichert.steps ?? {},
     now: jetzt,
     emitted: 0,
+    ...leeresUmfeld(lauf.guildId),
   };
+
+  /*
+   * Auch ein fortgesetzter Lauf braucht die Platzhalter.
+   *
+   * Nach einem Warteschritt laufen die folgenden Schritte in einem neuen
+   * Prozessaufruf. Ohne diese Zeile waere `{{user.name}}` vor dem Warten
+   * gefuellt und danach leer - und der Unterschied faellt erst in der
+   * zweiten Nachricht auf.
+   */
+  await loeseUmfeldAuf(context);
 
   // `cursor` trägt die Stellung, an der der Lauf angehalten hat. `-1` heisst
   // «hinter dem letzten Schritt» - dann bleibt nur noch der Abschluss.

@@ -441,6 +441,7 @@ export async function stelleSystemautomationSicher(
         conditions: (conditions ?? Prisma.JsonNull) as Prisma.InputJsonValue,
         steps: steps as Prisma.InputJsonValue,
         concurrency: eingabe.concurrency ?? 'ALLOW',
+        concurrencyKey: eingabe.concurrencyKey ?? null,
         maxRunsPerMinute: eingabe.maxRunsPerMinute ?? 60,
         enabled: false,
       },
@@ -449,9 +450,31 @@ export async function stelleSystemautomationSicher(
     return automation;
   }
 
+  /*
+   * Was SwissHub vorgibt und was der Gilde gehört.
+   *
+   * Vorgegeben sind Name, Beschreibung, Trigger**art**, Bedingungen und
+   * Schritte - sie kommen aus der Vorlage und werden abgeglichen. Die
+   * Trigger-**Konfiguration** gehört der Gilde: dort stehen die Werte, die
+   * ein Teammitglied ausfüllt (welche Rollen, welcher Kanal). Sie wird beim
+   * Anlegen gesetzt und danach nie wieder angefasst.
+   *
+   * Das ist nicht Bequemlichkeit, sondern der Grund, warum der Vergleich
+   * hier überhaupt steht: wäre `triggerConfig` mit im Vergleich, würde eine
+   * ausgefüllte Rollenliste bei jedem Start als «verändert» gelten - und
+   * das `update` würde sie mit der leeren Vorlage überschreiben. Jeder
+   * Neustart hätte die Einstellung der Gilde gelöscht.
+   *
+   * Die Bedingungen waren umgekehrt gar nicht im Vergleich: eine Vorlage,
+   * die ihre Schritte behält und nur eine Bedingung dazubekommt, wäre
+   * lautlos nie angekommen.
+   */
   const unveraendert =
     JSON.stringify(vorhanden.steps) === JSON.stringify(steps) &&
-    JSON.stringify(vorhanden.triggerConfig) === JSON.stringify(eingabe.triggerConfig);
+    JSON.stringify(vorhanden.conditions ?? null) === JSON.stringify(conditions ?? null) &&
+    vorhanden.name === eingabe.name &&
+    vorhanden.description === (eingabe.description ?? null) &&
+    vorhanden.triggerType === eingabe.triggerType;
   if (unveraendert) {
     return vorhanden;
   }
@@ -462,7 +485,6 @@ export async function stelleSystemautomationSicher(
       name: eingabe.name,
       description: eingabe.description ?? null,
       triggerType: eingabe.triggerType,
-      triggerConfig: eingabe.triggerConfig as Prisma.InputJsonValue,
       conditions: (conditions ?? Prisma.JsonNull) as Prisma.InputJsonValue,
       steps: steps as Prisma.InputJsonValue,
       version: { increment: 1 },

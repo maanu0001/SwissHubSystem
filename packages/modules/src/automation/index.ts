@@ -7,13 +7,17 @@
  * wird.
  *
  * Die Reihenfolge ist keine Zufälligkeit: Vorlagen prüfen beim Auflisten, ob
- * es ihre Bausteine gibt. Werden sie vor den Aktionen geladen, wäre die
- * Vorlagenliste beim ersten Aufruf leer.
+ * es ihre Bausteine gibt. Werden sie vor den Aktionen **und Bedingungen**
+ * geladen, wäre die Vorlagenliste beim ersten Aufruf leer - und zwar
+ * stillschweigend, weil `vorlageVollstaendig` eine unbekannte Bedingung wie
+ * ein abgeschaltetes Modul behandelt.
  */
 import './events';
 import './actions';
+import './conditions';
 import './templates';
 
 export * from './config';
+export * from './system';
 export * from './emit';
 export * from './notify';

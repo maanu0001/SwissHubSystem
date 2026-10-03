@@ -10,6 +10,7 @@ import { createLogger } from '@swisshub/logger';
 import { beanspruche, holeUnverarbeitete } from './bus';
 import { LIMITS, type EventEnvelope } from './contract';
 import type { AutomationContext } from './context';
+import { leeresUmfeld } from './context';
 import { starte, setzeFort, type StartEingabe } from './executor';
 import { getTrigger } from './registry';
 import { beanspruchFaellige, meldeJobFehler, planeJob, schliesseJobAb } from './scheduler';
@@ -63,6 +64,7 @@ function matchKontext(
     steps: {},
     now: jetzt,
     emitted: 0,
+    ...leeresUmfeld(ereignis.guildId),
   };
 }
 

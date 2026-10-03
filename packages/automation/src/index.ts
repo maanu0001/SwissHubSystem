@@ -52,7 +52,16 @@ export {
   type ValidationIssue,
 } from './registry';
 
-export { render, renderConfig, type AutomationContext } from './context';
+export {
+  istErlaubterPfad,
+  leeresUmfeld,
+  leseWert,
+  loeseUmfeldAuf,
+  render,
+  renderConfig,
+  type AufgeloestePerson,
+  type AutomationContext,
+} from './context';
 
 export {
   OPERATOR_LABEL,
