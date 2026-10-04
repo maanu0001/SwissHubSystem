@@ -25,9 +25,27 @@
  * Bewegung will, will spielen und nicht zusehen.
  */
 
+/*
+ * Die Buehne ist ein eigener Rendering-Bereich.
+ *
+ * ## Warum `contain` und `isolation`
+ *
+ * Ohne das darf der Browser annehmen, eine Aenderung in den Walzen koenne
+ * Auswirkungen nach draussen haben - auf das HUD, die Seitenleiste, die
+ * Navigation. Er prueft es dann, Bild fuer Bild. `contain: layout` sagt ihm,
+ * dass das Innere das Aeussere nicht vermessen kann, und `isolation: isolate`
+ * schliesst die Mischung mit dem Hintergrund der Seite ab. Damit bleibt die
+ * Ungueltigkeit beim Drehen dort, wo gedreht wird.
+ *
+ * Bewusst **kein** `contain: paint` hier: der Zaehler eines Grossgewinns und
+ * die Funken duerfen ueber den Rand hinausleuchten, und `paint` wuerde
+ * zusaetzlich einen Containing Block fuer feste Positionen erzeugen.
+ */
 .slot-buehne {
   position: relative;
   overflow: hidden;
+  contain: layout;
+  isolation: isolate;
   border-radius: 1.25rem;
   border: 1px solid hsl(var(--primary) / 0.3);
   background:
@@ -148,11 +166,25 @@
   justify-content: center;
   gap: var(--slot-spalt);
   padding: var(--slot-spalt);
+  /*
+   * Das Raster vermisst sich nicht aus seinem Inhalt - die Zellgroesse kommt
+   * aus `--slot-zelle`, und die steht vor dem Spin fest. `contain: layout`
+   * macht das dem Browser bekannt.
+   */
+  contain: layout;
 }
 
 .slot-walze {
   position: relative;
   overflow: hidden;
+  /*
+   * `strict` fuer das Walzenfenster: feste Groesse, eigenes Layout, eigener
+   * Paint. Das Fenster schneidet seinen Inhalt ohnehin ab - damit ist
+   * `paint` hier nicht nur erlaubt, sondern die Wahrheit, und der Browser
+   * muss beim Drehen nichts darueber hinaus fuer ungueltig erklaeren. Der
+   * Sweat-Schein liegt deshalb auf dem Fenster selbst und nicht in ihm.
+   */
+  contain: strict;
   width: var(--slot-zelle);
   /* Drei sichtbare Zellen. Nicht mehr, nicht weniger, nie etwas anderes. */
   height: calc(var(--slot-zelle) * 3);
@@ -192,6 +224,7 @@
 .slot-haftend {
   position: absolute;
   inset: 0;
+  z-index: 3;
   pointer-events: none;
 }
 
@@ -217,19 +250,15 @@
 }
 
 /*
- * `will-change` nur dort, wo sich wirklich etwas bewegt.
+ * `will-change` steht nur noch auf den fuenf Baendern.
  *
- * Hier stand es auf **jedem** `.slot-zelle__bild` - mit dem Kommentar, auf dem
- * Band waeren das fuenfzehn unnoetige Ebenen. Genau das war der Zustand: im
- * Lauf traegt jede Walze sechs Fuellzellen, also lagen dreissig Bilder mit
- * eigener Compositor-Ebene auf der Buehne, jedes zusaetzlich mit einem
- * Weichzeichner. Jetzt gilt es nur fuer die Zellen, die tatsaechlich
- * skaliert werden: die Treffer und die geklebten Wilds.
+ * Erst stand es auf **jedem** `.slot-zelle__bild` - dreissig Ebenen im Lauf.
+ * Dann nur noch auf Treffern und geklebten Wilds, also bis zu fuenfzehn.
+ * Jetzt auf keiner Zelle mehr: eine `transform`-Animation wird ohnehin fuer
+ * ihre Dauer befoerdert, `will-change` zieht die Befoerderung nur **vorher**
+ * - und bezahlt sie die ganze Zeit. Gemessen waren 18 bis 45 Compositor-
+ * Ebenen auf der Buehne; die fuenf, die sich bewegen, sind die Baender.
  */
-.slot-zelle--treffer .slot-zelle__bild,
-.slot-zelle--klebt .slot-zelle__bild {
-  will-change: transform;
-}
 
 /* Ein Symbol ohne Bild: der Name in grosser Schrift. Besser als ein Loch. */
 .slot-zelle__text {
@@ -243,6 +272,24 @@
 .slot-zelle--glow .slot-zelle__bild,
 .slot-zelle--glow .slot-zelle__text {
   filter: drop-shadow(0 0 10px hsl(var(--primary-bright) / 0.75));
+}
+
+/*
+ * Aber nicht auf dem laufenden Band.
+ *
+ * Ein `drop-shadow` ist ein Filter, und ein Filter auf dem Inhalt einer
+ * bewegten Ebene heisst: neu rastern, Bild fuer Bild. Gemessen waren das
+ * zusammen mit dem Bandweichzeichner 208 bis 385 Bildpaints und bis zu
+ * 352 ms Paint je Spin - auf dem iPad im Querformat der Engpass.
+ *
+ * Verloren geht dabei nichts, was jemand sieht: die Fuellsymbole rauschen mit
+ * ueber tausend Pixeln je Sekunde durch, und ein Leuchten um ein Symbol, das
+ * man nicht erkennt, ist Rechenzeit ohne Aussage. Im Stillstand - dort, wo
+ * das Leuchten die Aussage ist - bleibt es vollstaendig.
+ */
+.slot-band .slot-zelle--glow .slot-zelle__bild,
+.slot-band .slot-zelle--glow .slot-zelle__text {
+  filter: none;
 }
 
 /*
@@ -260,17 +307,87 @@
 }
 
 /*
- * Die Unschaerfe liegt auf dem Band und nicht auf jedem Bild darin.
+ * Welche der beiden Lagen man sieht.
  *
- * Vorher war es ein `filter` je Zelle - dreissig Filter auf dreissig Ebenen,
- * jedes Bild einzeln weichgezeichnet. Ein Filter auf dem Band ist dieselbe
- * Aussage mit einer Ebene: das Band ist ohnehin das, was sich bewegt, und es
- * enthaelt nichts, was scharf bleiben soll. Die haftenden Wilds liegen in
- * einer eigenen Lage darueber und bleiben deshalb scharf.
+ * ## Warum das hier steht und nicht in React
+ *
+ * Vorher hing im Baum entweder das Band **oder** der Stand, je nach Zustand.
+ * Der Wechsel kostete, was ein Wechsel im Baum immer kostet: sechs Bilder
+ * abbauen, drei aufbauen, fuenfmal je Spin, dazu beim Anlaufen dasselbe
+ * rueckwaerts. In der Messung waren das rund zweihundert Bildpaints je Spin
+ * - mehr als die Bewegung selbst.
+ *
+ * Jetzt stehen beide Lagen dauerhaft, und umgeschaltet wird mit
+ * `visibility`. Das ist bewusst `visibility` und nicht `display`: `display`
+ * nimmt das Element aus dem Layout und baut es beim Zurueckkommen neu auf -
+ * derselbe Fehler, nur in CSS. `visibility: hidden` laesst Groesse und
+ * Position stehen und malt nur nichts.
+ *
+ * Das Band haelt zusaetzlich seine Animation an. Eine unsichtbare Animation
+ * waere sonst eine Ebene, die der Compositor weiter Bild fuer Bild
+ * verschiebt, ohne dass es jemand sieht.
+ */
+.slot-walze--stopp .slot-band {
+  visibility: hidden;
+  animation-play-state: paused;
+}
+
+.slot-walze:not(.slot-walze--stopp) .slot-stand {
+  visibility: hidden;
+}
+
+/*
+ * Der Eindruck von Geschwindigkeit - ohne Filter auf dem Bewegten.
+ *
+ * ## Die Geschichte dieser drei Zeilen
+ *
+ * Zuerst stand `filter: blur(0.7px)` auf **jedem** Symbolbild: dreissig
+ * Filter auf dreissig Ebenen. Dann einmal auf dem Band: eine Ebene, ein
+ * Filter - richtig gegen die Ebenenzahl, falsch gegen die Paintzeit. Denn
+ * ein Filter auf einer Ebene, die sich bewegt, muss in **jedem** Bild neu
+ * gerastert werden; die Animation faellt damit aus dem Compositor zurueck
+ * auf den Hauptfaden. Gemessen: 239 bis 645 Paints und 136 bis 352 ms
+ * Paintzeit je Spin, 274 bis 288 Stilneuberechnungen - bei einer Animation,
+ * die rein aus `transform` besteht und davon keine einzige braeuchte.
+ *
+ * Jetzt traegt das Band nur noch `opacity` - eine Compositor-Eigenschaft,
+ * die nichts neu rastert. Den Smear macht eine **stehende** Lage auf dem
+ * Walzenfenster: zwei weiche Verlaeufe oben und unten plus eine feine
+ * waagrechte Streifung. Sie bewegt sich nicht, also wird sie einmal
+ * gezeichnet und danach nur noch mitkomponiert - und sie liegt ueber dem
+ * Band, dreht also optisch mit, was dort durchlaeuft.
  */
 .slot-band {
-  filter: blur(0.7px);
   opacity: 0.92;
+}
+
+/*
+ * Die stehende Schlierenlage - nur solange die Walze laeuft.
+ *
+ * `:not(.slot-walze--stopp)` statt einer zweiten Klasse: der Zustand steht
+ * schon im Baum, und eine zweite Klasse fuer dieselbe Aussage laeuft
+ * irgendwann auseinander.
+ */
+.slot-walze:not(.slot-walze--stopp)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      hsl(0 0% 100% / 0.045) 0px,
+      hsl(0 0% 100% / 0) 2px,
+      hsl(0 0% 100% / 0) 4px
+    ),
+    linear-gradient(
+      180deg,
+      hsl(240 10% 4% / 0.55) 0%,
+      hsl(240 10% 4% / 0) 22%,
+      hsl(240 10% 4% / 0) 78%,
+      hsl(240 10% 4% / 0.55) 100%
+    );
 }
 
 /*
@@ -367,21 +484,52 @@
  * dass hier wirklich noch ein Bonussymbol fehlte. Nichts hier veraendert, was
  * danach stehen bleibt.
  */
+/*
+ * Das Pulsieren liegt auf der Deckkraft, nicht auf dem Schatten.
+ *
+ * ## Warum
+ *
+ * Hier wurde `box-shadow` animiert, und ein Schatten ist eine **gemalte**
+ * Eigenschaft: jeder Zwischenwert ist ein neuer Paint, und zwar genau auf der
+ * Walze, die gerade laeuft. Animiert wird jetzt nur noch `opacity` auf einer
+ * eigenen Lage - das rechnet der Compositor, ohne etwas neu zu zeichnen.
+ *
+ * ## Was sich dadurch minimal verschiebt
+ *
+ * Das Walzenfenster schneidet seine Kinder ab (`overflow: hidden`), ein
+ * aeusserer Schein auf der Lage wuerde also wegfallen. Darum teilt sich der
+ * Sweat jetzt in zwei: der **aeussere** Schein steht fest auf der Walze - er
+ * atmete vorher zwischen 0,5 und 0,95 Deckkraft, jetzt steht er bei 0,75 -,
+ * und der **innere** Ring atmet auf der Lage darueber. Die Walze ist also
+ * gleich deutlich erleuchtet, und das Atmen, das man wahrnimmt, ist weiter
+ * da; nur der Halo ausserhalb pulsiert nicht mehr mit.
+ */
 .slot-walze--sweat {
+  box-shadow:
+    inset 0 0 0 1px hsl(0 0% 100% / 0.05),
+    inset 0 18px 24px -18px hsl(0 0% 0% / 0.9),
+    inset 0 -18px 24px -18px hsl(0 0% 0% / 0.9),
+    0 0 34px -5px hsl(var(--primary-bright) / 0.75);
+}
+
+.slot-walze--sweat::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px hsl(var(--primary-bright) / 0.9);
   animation: slot-sweat 0.9s ease-in-out infinite;
 }
 
 @keyframes slot-sweat {
   0%,
   100% {
-    box-shadow:
-      inset 0 0 0 1px hsl(var(--primary-bright) / 0.35),
-      0 0 18px -6px hsl(var(--primary-bright) / 0.5);
+    opacity: 0.3;
   }
   50% {
-    box-shadow:
-      inset 0 0 0 2px hsl(var(--primary-bright) / 0.9),
-      0 0 46px -4px hsl(var(--primary-bright) / 0.95);
+    opacity: 1;
   }
 }
 
@@ -815,7 +963,7 @@
   .slot-buehne--gross,
   .slot-buehne--mega,
   .slot-buehne--jackpot,
-  .slot-walze--sweat,
+  .slot-walze--sweat::after,
   .slot-knopf--puls::after,
   .slot-frei-schild {
     animation: none;
@@ -1717,6 +1865,42 @@
   background: linear-gradient(180deg, hsl(240 10% 22%), hsl(240 12% 14%));
   box-shadow: 0 10px 26px -14px hsl(240 60% 2%);
   animation: none;
+}
+
+/* --- Ruhe im Spin -------------------------------------------------------- */
+
+/*
+ * Waehrend die Walzen laufen, atmet im Hintergrund nichts.
+ *
+ * ## Warum
+ *
+ * Es laufen sonst drei Dinge gleichzeitig, die alle den Compositor
+ * beschaeftigen: das Atmen des Hintergrunds auf einer Ebene, die anderthalb
+ * mal so gross ist wie die Buehne, der Puls am Spinknopf und das Blinken des
+ * Freispielschilds. Keines davon sagt etwas, waehrend die Walzen das Wort
+ * haben - und genau in diesen 1,5 Sekunden ist jedes Bild knapp.
+ *
+ * ## Warum pausiert und nicht abgeschaltet
+ *
+ * `animation-play-state: paused` haelt den erreichten Zwischenwert. Der
+ * Hintergrund steht also dort, wo er gerade war, und atmet nach dem Spin
+ * weiter - kein Sprung auf einen Anfangswert, kein sichtbares Umschalten.
+ * Wer hinsieht, merkt es nicht; wer die Bildrate messt, schon.
+ */
+.slot-buehne--dreht .slot-buehne__puls,
+.slot-buehne--dreht .slot-frei-schild {
+  animation-play-state: paused;
+}
+
+/*
+ * Und der Puls am Knopf, solange er «Stop» heisst.
+ *
+ * Der Knopf steht ausserhalb der Buehne, also greift die Regel darueber
+ * nicht. `slot-spin--stop` traegt er genau dann, wenn die Walzen laufen und
+ * ein zweiter Klick sie anhalten wuerde - derselbe Moment.
+ */
+.slot-spin--stop.slot-knopf--puls::after {
+  animation-play-state: paused;
 }
 
 /* --- Schwaechere Geraete ------------------------------------------------- */

@@ -33,6 +33,18 @@ const REGISTER = 'apps/bot/src/commands/register.ts';
 const SPIEL = 'apps/web/src/modules/level/xpslot/components/spiel.tsx';
 const KLANG = 'apps/web/src/modules/level/xpslot/components/klang.ts';
 const WALZEN = 'apps/web/src/modules/level/xpslot/components/walzen.tsx';
+/*
+ * Der reine Walzenbaum - seit dem Schnitt eine eigene Datei.
+ *
+ * `walzen.tsx` fasst den Browser an (`window`, `ResizeObserver`,
+ * `getBoundingClientRect`), `walzenbild.tsx` nicht. Erst dadurch laesst sich
+ * der Walzenaufbau im Test wirklich **rendern** statt lesen - siehe
+ * `xpslot-walzenaufbau.test.ts`. Die Zusagen hier sind unveraendert; sie
+ * stehen nur in der Datei, in der der Code jetzt liegt.
+ */
+const WALZENBILD = 'apps/web/src/modules/level/xpslot/components/walzenbild.tsx';
+/** Beide Haelften zusammen - die Zusagen laufen ueber Messung **und** Baum. */
+const WALZEN_GANZ = [WALZEN, WALZENBILD];
 const CSS = 'apps/web/src/modules/level/xpslot/xpslot.css';
 /*
  * Eine Ebene hoeher als die uebrigen Slot-Dateien, und das mit Absicht:
@@ -189,7 +201,7 @@ describe('Die Oberfläche entscheidet nichts', () => {
   });
 
   it('zeigt während des Laufs Füllsymbole und nicht das Ergebnis', () => {
-    const quelle = ohneKommentare(lies(WALZEN));
+    const quelle = WALZEN_GANZ.map((pfad) => ohneKommentare(lies(pfad))).join('\n');
     expect(quelle).toContain('fuellung(');
     expect(quelle).toContain('laeuft');
   });
@@ -831,7 +843,7 @@ describe('Der Sprung - der zweite Klick auf Spin', () => {
 
 describe('Die XP je Gewinnlinie', () => {
   const spiel = ohneKommentare(lies(SPIEL));
-  const walzen = ohneKommentare(lies(WALZEN));
+  const walzen = WALZEN_GANZ.map((pfad) => ohneKommentare(lies(pfad))).join('\n');
 
   it('gibt der gezeigten Linie ihren eigenen Wert mit', () => {
     expect(spiel).toContain('linienGewinn={linienGewinn}');

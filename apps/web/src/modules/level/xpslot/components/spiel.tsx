@@ -20,6 +20,7 @@ import type { level } from '@swisshub/modules';
 import { formatSwissNumber } from '@swisshub/shared';
 import { cn } from '@/lib/utils';
 import { Partikel, Walzen } from './walzen';
+import { symbolBild } from '../adressen';
 import { Hochzaehlen, SlotOverlay } from './meldung';
 import { Infotafel } from './infotafel';
 import { Leiter } from './leiter';
@@ -306,6 +307,41 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
    * Symbol sie dort zeichnen soll. Die Rolle kommt aus der Ansicht - es gibt
    * keine zweite Liste, in der «wild» als Zeichenkette steht.
    */
+  /*
+   * Die Symbolbilder liegen fertig dekodiert bereit, bevor jemand dreht.
+   *
+   * ## Warum nicht einfach «der Browser laedt sie ja»
+   *
+   * Weil Laden und Dekodieren zwei Dinge sind. Ein `<img>` holt die Datei,
+   * sobald es im Baum steht - dekodiert wird sie aber erst, wenn sie
+   * gezeichnet werden soll. Im Lauf wechseln die Fuellsymbole, und ein
+   * Symbol, das zum ersten Mal sichtbar wird, wird in genau diesem Bild
+   * dekodiert. Auf einem Telefon ist das der Ruck, den niemand erklaeren
+   * kann: er haengt nicht am Spin, sondern daran, welches Symbol zuerst
+   * vorbeikommt.
+   *
+   * `decode()` nimmt diese Arbeit vorweg, einmal, bei stehender Buehne. Die
+   * mitgelieferten Symbole sind kleine SVG-Dateien von rund einem Kilobyte;
+   * hochgeladene koennen groesser sein, und genau fuer die lohnt es sich.
+   *
+   * Fehler sind hier belanglos: ein Bild, das sich nicht vorab dekodieren
+   * laesst, wird spaeter dekodiert - also genau so, wie es vorher immer war.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.Image !== 'function') {
+      return;
+    }
+    for (const symbol of ansicht.symbole) {
+      const adresse = symbolBild(symbol);
+      if (!adresse) {
+        continue;
+      }
+      const bild = new window.Image();
+      bild.src = adresse;
+      void bild.decode?.().catch(() => undefined);
+    }
+  }, [ansicht.symbole]);
+
   const wildKey = useMemo(
     () => ansicht.symbole.find((symbol) => symbol.rolle === 'WILD')?.key ?? null,
     [ansicht.symbole],
@@ -966,6 +1002,14 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       <div
         className={cn(
           'slot-buehne',
+          /*
+            Solange eine Walze laeuft, ruhen die Nebenanimationen.
+
+            Die Klasse haengt an genau dem Zustand, der die Walzen dreht -
+            nicht an einem eigenen Zeitgeber, der daneben laufen und
+            auseinanderfallen koennte.
+          */
+          laufend.some(Boolean) && 'slot-buehne--dreht',
           imFreispiel && 'slot-buehne--frei',
           stufe === 'gross' && 'slot-buehne--gross',
           stufe === 'mega' && 'slot-buehne--mega',

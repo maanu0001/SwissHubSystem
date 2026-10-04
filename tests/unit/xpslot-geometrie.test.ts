@@ -23,13 +23,24 @@ const ohneKommentare = (text: string): string =>
   text.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/^\s*\/\/.*$/gmu, '');
 
 const WALZEN = 'apps/web/src/modules/level/xpslot/components/walzen.tsx';
+/*
+ * Der Baum steht seit dem Schnitt in einer eigenen Datei.
+ *
+ * `walzen.tsx` fasst den Browser an - `window`, `ResizeObserver`,
+ * `getBoundingClientRect` -, `walzenbild.tsx` nicht. Erst damit laesst sich
+ * der Walzenaufbau im Test **rendern** statt nur lesen
+ * (`xpslot-walzenaufbau.test.ts`). Die Zusagen hier sind unveraendert, sie
+ * stehen nur jetzt in der Datei, in der der Code wirklich liegt.
+ */
+const WALZENBILD = 'apps/web/src/modules/level/xpslot/components/walzenbild.tsx';
 const CSS = 'apps/web/src/modules/level/xpslot/xpslot.css';
 const SPIEL = 'apps/web/src/modules/level/xpslot/components/spiel.tsx';
 const RAD = 'apps/web/src/modules/level/xpslot/components/rad.tsx';
 const SCHEMA = 'packages/database/prisma/schema.prisma';
 
 describe('Gewinnlinien', () => {
-  const quelle = ohneKommentare(lies(WALZEN));
+  /** Messung und Baum zusammen gelesen - die Zusage laeuft ueber beide. */
+  const quelle = ohneKommentare(lies(WALZEN)) + ohneKommentare(lies(WALZENBILD));
 
   it('rechnet aus gemessenen Zellmitten und nicht aus Bruchteilen', () => {
     /*
@@ -137,23 +148,53 @@ describe('Spin-Gefühl', () => {
     expect(css).toContain('animation: slot-stopp 0.26s');
   });
 
-  it('macht das laufende Band unscharf und den Rest nicht', () => {
+  it('verwischt das laufende Band, ohne es zu filtern', () => {
     /*
-     * Die Unschaerfe liegt auf dem Band selbst und nicht mehr auf jedem Bild
-     * darin.
+     * ## Dieselbe Zusage, der dritte Weg
      *
-     * Die Zusage ist dieselbe - das laufende Band ist unscharf, Rahmen und
-     * haftende Wilds bleiben scharf -, der Weg ist ein anderer: ein Filter
-     * auf einer Ebene statt dreissig Filter auf dreissig Ebenen. Gemessen
-     * waren das dreissig Compositor-Ebenen auf der Buehne; siehe
-     * `tests/unit/xpslot-leistung.test.ts`.
+     * Die Zusage ist von Anfang an dieselbe: **das laufende Band wirkt
+     * verwischt, Rahmen und haftende Wilds bleiben scharf.** Ein Symbol, das
+     * mit ueber tausend Pixeln je Sekunde durchrauscht und trotzdem scharf
+     * steht, sieht nach Diaschau aus.
+     *
+     * Der Weg dorthin hat sich zweimal geaendert:
+     *
+     *  1. `filter: blur(0.7px)` auf **jedem** Symbolbild - dreissig Filter
+     *     auf dreissig Ebenen.
+     *  2. Derselbe Filter einmal auf dem Band - eine Ebene, ein Filter.
+     *     Richtig gegen die Ebenenzahl, falsch gegen die Paintzeit: ein
+     *     Filter auf einer Ebene, die sich bewegt, wird in **jedem** Bild
+     *     neu gerastert, und die Animation faellt damit aus dem Compositor
+     *     zurueck auf den Hauptfaden. Gemessen waren das 239 bis 645 Paints
+     *     und 136 bis 352 ms Paintzeit je Spin.
+     *  3. Jetzt: gar kein Filter auf dem Bewegten. Das Band traegt nur
+     *     `opacity` - eine Compositor-Eigenschaft, die nichts neu rastert -,
+     *     und den Smear macht eine **stehende** Lage auf dem Walzenfenster:
+     *     zwei weiche Verlaeufe oben und unten plus eine feine waagrechte
+     *     Streifung. Sie bewegt sich nicht, wird also einmal gezeichnet und
+     *     danach nur mitkomponiert, und sie liegt ueber dem Band, dreht also
+     *     optisch mit, was dort durchlaeuft.
+     *
+     * Siehe `tests/unit/xpslot-leistung.test.ts` fuer die Messung.
      */
-    expect(css).toMatch(/\.slot-band \{[^}]*filter: blur/u);
-    expect(css).not.toMatch(/\.slot-band \.slot-zelle__bild/u);
+    // Die stehende Schlierenlage - nur solange die Walze laeuft.
+    const schlieren = css.slice(css.indexOf('.slot-walze:not(.slot-walze--stopp)::before {'));
+    const block = schlieren.slice(0, schlieren.indexOf('}'));
+    expect(block).toContain('repeating-linear-gradient');
+    expect(block).toContain('linear-gradient');
+    expect(block).toContain('pointer-events: none');
+
+    // Und das Band selbst traegt nur noch die Durchsicht.
+    expect(css).toMatch(/\.slot-band \{[^}]*opacity: 0\.92/u);
+    expect(css).not.toMatch(/\.slot-band \{[^}]*filter: blur/u);
+    expect(css).not.toMatch(/\.slot-band \.slot-zelle__bild \{/u);
     expect(css).not.toMatch(/\.slot-walze \{[^}]*filter: blur/u);
-    // Die haftende Lage liegt daneben und nicht darin - sonst waere sie mit
-    // weichgezeichnet.
+
+    // Die haftende Lage liegt daneben und nicht darin - sonst liefe sie mit.
     expect(css).not.toMatch(/\.slot-band[^{]*\.slot-haftend/u);
+    // Und sie liegt **ueber** der Schlierenlage, damit das festsitzende Wild
+    // scharf bleibt: das ist die Aussage, die die Unschaerfe ueberhaupt hat.
+    expect(css).toMatch(/\.slot-haftend \{[^}]*z-index: 3/u);
   });
 });
 

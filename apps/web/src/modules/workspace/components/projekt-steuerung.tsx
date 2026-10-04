@@ -75,6 +75,23 @@ export function Mitgliederverwaltung({
   const router = useRouter();
   const [laeuft, starte] = useTransition();
   const [suche, setSuche] = useState('');
+  /**
+   * Die Rolle, mit der die naechste Person dazukommt.
+   *
+   * ## Warum vor der Auswahl und nicht danach
+   *
+   * Hier kam jede neue Person als «Unterstuetzung» herein, und wer eine
+   * zweite Projektleitung wollte, stufte sie danach um - zwei Schritte und
+   * zwei Eintraege im Verlauf fuer eine Entscheidung, die man beim Klicken
+   * schon getroffen hat. Jetzt steht die Rolle oben, gilt fuer die naechsten
+   * Klicks und bleibt stehen: wer drei Unterstuetzungen dazunimmt, waehlt
+   * einmal und klickt dreimal.
+   *
+   * «Unterstuetzung» ist die Vorgabe, weil es der haeufigere Fall ist und
+   * weil eine versehentliche Leitung mehr Rechte im Projekt bedeutet als
+   * eine versehentliche Unterstuetzung.
+   */
+  const [neueRolle, setNeueRolle] = useState<WorkspaceMemberRole>('MEMBER');
 
   /*
    * Der Stand liegt lokal, damit die Liste sofort stimmt.
@@ -147,7 +164,10 @@ export function Mitgliederverwaltung({
       return;
     }
     const name = nachKennung.get(discordId)?.name ?? 'Die Person';
-    speichere([...stand, { discordId, rolle: 'MEMBER' }], `${name} ist jetzt beteiligt.`);
+    speichere(
+      [...stand, { discordId, rolle: neueRolle }],
+      `${name} ist jetzt beteiligt - als ${ROLLE_LABEL[neueRolle]}.`,
+    );
   };
 
   const entfernen = (discordId: string): void => {
@@ -238,6 +258,28 @@ export function Mitgliederverwaltung({
       {/* --- Wer dazukommen kann --- */}
       <div className="space-y-2 border-t border-border pt-3">
         <p className="text-xs font-medium">Beteiligte hinzufügen</p>
+
+        {/*
+          Erst die Rolle, dann die Person.
+
+          Die Reihenfolge ist Absicht: die Rolle gilt fuer jeden folgenden
+          Klick, und wer sie oben sieht, bevor er in die Liste greift, waehlt
+          nicht versehentlich falsch.
+        */}
+        <div className="space-y-1">
+          <label htmlFor="ws-neue-rolle" className="text-[11px] text-muted-foreground">
+            Rolle für neue Beteiligte
+          </label>
+          <Select value={neueRolle} onValueChange={(wert): void => setNeueRolle(wert as WorkspaceMemberRole)}>
+            <SelectTrigger id="ws-neue-rolle" className="h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="MEMBER">{ROLLE_LABEL.MEMBER}</SelectItem>
+              <SelectItem value="LEAD">{ROLLE_LABEL.LEAD}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         {team.length >= SUCHE_AB ? (
           <div className="relative">

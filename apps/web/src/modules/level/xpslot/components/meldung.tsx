@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { formatSwissNumber } from '@swisshub/shared';
 import { cn } from '@/lib/utils';
 import { Partikel } from './walzen';
@@ -148,15 +148,28 @@ export function SlotOverlay({
  * gar keines an. Ein Intervall zaehlte dort weiter und waere beim Zurueckkommen
  * mitten im Sprung.
  *
+ * ## Warum die Zahl ins DOM geschrieben wird und nicht in den Zustand
+ *
+ * Weil ein `setState` je Bild ein Rendern je Bild ist. Bei 650 ms sind das
+ * rund vierzig Durchlaeufe durch React - fuer eine Ziffernfolge, die sich
+ * aendert. Geschrieben wird darum direkt der Textinhalt; React rendert diese
+ * Komponente genau einmal, naemlich wenn das Ziel wechselt. Das ist
+ * derselbe Grundsatz, der fuer die Walzen gilt: Spielzustand in React,
+ * Bewegung im DOM.
+ *
  * Bei `prefers-reduced-motion` steht die Endzahl sofort da. Wer weniger
  * Bewegung will, will das Ergebnis und nicht die Vorfuehrung.
  */
 export function Hochzaehlen({ ziel, ruhig }: { ziel: number; ruhig: boolean }): React.JSX.Element {
-  const [wert, setWert] = useState(ruhig ? ziel : 0);
+  const feld = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
+    const element = feld.current;
+    if (!element) {
+      return undefined;
+    }
     if (ruhig) {
-      setWert(ziel);
+      element.textContent = formatSwissNumber(ziel);
       return undefined;
     }
     const dauer = 650;
@@ -165,7 +178,7 @@ export function Hochzaehlen({ ziel, ruhig }: { ziel: number; ruhig: boolean }): 
     const schritt = (jetzt: number): void => {
       const p = Math.min(1, (jetzt - start) / dauer);
       // Weich auslaufen: schnell los, ruhig an die Endzahl heran.
-      setWert(Math.round(ziel * (1 - Math.pow(1 - p, 3))));
+      element.textContent = formatSwissNumber(Math.round(ziel * (1 - Math.pow(1 - p, 3))));
       if (p < 1) {
         bild = requestAnimationFrame(schritt);
       }
@@ -174,5 +187,9 @@ export function Hochzaehlen({ ziel, ruhig }: { ziel: number; ruhig: boolean }): 
     return () => cancelAnimationFrame(bild);
   }, [ruhig, ziel]);
 
-  return <>{formatSwissNumber(wert)}</>;
+  /*
+   * Der Anfangswert steht im Markup, damit auf dem Server und vor dem ersten
+   * Bild dasselbe dort steht - sonst waere es ein Hydrationsunterschied.
+   */
+  return <span ref={feld}>{formatSwissNumber(ruhig ? ziel : 0)}</span>;
 }

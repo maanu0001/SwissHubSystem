@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { klangQuelle, STANDARD_KLAENGE } from '../adressen';
 import type { KlangEinstellungen, KlangEintrag, SchleifenOptionen, Tonausgabe } from './tonausgabe';
+import { baueTonmotor, type Tonmotor } from './tonmotor';
 
 /*
  * Der Vertrag steht in `tonausgabe.ts` und wird von hier weitergegeben.
@@ -70,6 +71,24 @@ export type { KlangEinstellungen, KlangEintrag, SchleifenOptionen, Tonausgabe };
  * **fest** und nicht zufaellig: die fuenf Stopps eines Spins klingen jedes
  * Mal gleich, nur untereinander verschieden. Die grossen Momente - Jackpot,
  * Mega, Bonus - bleiben unberuehrt; die sollen jedes Mal identisch sitzen.
+ *
+ * ## Welchen Weg der Ton nimmt
+ *
+ * Zwei Wege, und der erste ist der Normalfall:
+ *
+ *  1. **Web Audio** ({@link baueTonmotor}). Jede Datei liegt als
+ *     `AudioBuffer` im Speicher, ein Klang ist ein Knoten, eine Blende ist
+ *     eine Rampe auf dem Audiofaden. Warum das auf iPhone und iPad der
+ *     Unterschied ist, steht in `tonmotor.ts`; die kurze Fassung: beim
+ *     Medienelement liegt bei **jedem** Walzenstopp ein Stueck Arbeit im
+ *     Hauptfaden, und die Blenden tickten vierzig Mal je Sekunde mitten im
+ *     Walzenlauf.
+ *  2. **Medienelemente**, der Stimmenpool unten in dieser Datei. Er bleibt
+ *     vollstaendig und greift, wenn der Browser kein Web Audio kennt oder
+ *     eine einzelne Datei sich nicht dekodieren laesst.
+ *
+ * Nach draussen ist beides dasselbe: {@link Tonausgabe} kennt den Weg nicht,
+ * und `klangereignisse.ts` sagt weiterhin nur, welcher Slot klingen soll.
  *
  * ## Warum Schleifen ein- und ausgeblendet werden
  *
@@ -227,6 +246,14 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
    * ueberhaupt erlaubt ist, und das ist eine Frage an den Zustand.
    */
   const freigegebenRef = useRef(false);
+  /**
+   * Der Web-Audio-Motor - einmal gebaut, oder `null` ohne Web Audio.
+   *
+   * `undefined` heisst «noch nicht versucht». Gebaut wird im Effekt und
+   * nicht beim Rendern: ein `AudioContext` ist eine Nebenwirkung, und auf
+   * dem Server gibt es ihn gar nicht.
+   */
+  const motorRef = useRef<Tonmotor | null | undefined>(undefined);
   /** Je Slot ein Stimmenpool. Stimme 0 traegt auch die Schleifen. */
   const elemente = useRef(new Map<string, HTMLAudioElement[]>());
   const laufend = useRef(new Set<string>());
@@ -433,6 +460,29 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
     const reihe = [...nachSlot.keys()].sort(
       (links, rechts) => Number(MUSIK_SLOTS.has(links)) - Number(MUSIK_SLOTS.has(rechts)),
     );
+
+    motorRef.current ??= baueTonmotor();
+    const motor = motorRef.current;
+
+    /*
+     * Mit Motor wird **nur** ueber den Motor vorgeladen.
+     *
+     * Beides gleichzeitig waere derselbe Megabyte-Satz zweimal im Netz. Ein
+     * Medienelement entsteht darum erst dann, wenn ein Slot wirklich keinen
+     * Puffer bekommen hat - und holt die Datei dann aus dem Zwischenspeicher
+     * des Browsers, weil der Motor sie schon einmal geholt hat.
+     */
+    if (motor) {
+      for (const slot of reihe) {
+        const eintrag = nachSlot.get(slot);
+        const adresse = eintrag ? klangQuelle(slot, eintrag.dateiname) : null;
+        if (adresse) {
+          motor.lade(slot, adresse);
+        }
+      }
+      return;
+    }
+
     for (const slot of reihe) {
       hole(slot);
     }
@@ -447,13 +497,21 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
    * mitten in der Ueberblendung auf den Endwert.
    */
   useEffect(() => {
+    const motor = motorRef.current;
     for (const slot of laufend.current) {
+      const eintrag = nachSlot.get(slot);
+      if (!eintrag) {
+        continue;
+      }
+      if (motor?.hat(slot)) {
+        motor.setzeSchleifenLaut(slot, lautstaerkeVon(eintrag));
+        continue;
+      }
       if (blenden.current.has(slot)) {
         continue;
       }
       const element = elemente.current.get(slot)?.[0];
-      const eintrag = nachSlot.get(slot);
-      if (element && eintrag) {
+      if (element) {
         element.volume = lautstaerkeVon(eintrag);
       }
     }
@@ -479,6 +537,8 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
       elemente.current.clear();
       laufend.current.clear();
       zaehler.current.clear();
+      motorRef.current?.beende();
+      motorRef.current = undefined;
     },
     [],
   );
@@ -502,8 +562,7 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
         return;
       }
       const eintrag = nachSlot.get(slot);
-      const pool = hole(slot);
-      if (!pool || !eintrag) {
+      if (!eintrag) {
         return;
       }
       const laut = lautstaerkeVon(eintrag);
@@ -514,8 +573,33 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
       const nummer = zaehler.current.get(slot) ?? 0;
       zaehler.current.set(slot, nummer + 1);
 
+      const abweichung = VARIATION.has(slot)
+        ? (ABWEICHUNG[nummer % ABWEICHUNG.length] ?? OHNE_ABWEICHUNG)
+        : OHNE_ABWEICHUNG;
+
       /*
-       * Die Stimmenwahl, in dieser Reihenfolge:
+       * Der Web-Audio-Weg - und zwar **vor** allem anderen.
+       *
+       * Hier stand die Stimmenwahl zuerst, und der Motorzweig danach. Damit
+       * lief bei jedem Klang trotzdem `hole(slot)`, ein `find` ueber den
+       * Pool und womoeglich ein `new Audio(...)` - also genau die Arbeit im
+       * Hauptfaden, die die Umstellung loswerden sollte. Der Kommentar sagte
+       * schon «bevor eine Stimme gewaehlt wird»; der Code tat das Gegenteil,
+       * und ein Test hat es gefunden.
+       *
+       * Ein Puffer braucht keinen Stimmenpool: jeder Klang bekommt seinen
+       * eigenen Knoten, fuenf Walzenstopps sind fuenf Knoten, und keiner
+       * schneidet den anderen ab. Die Abweichung geht als Zahl mit; ein
+       * Resampler im Hauptfaden entsteht dabei nicht.
+       */
+      const motor = motorRef.current;
+      if (motor?.hat(slot)) {
+        motor.spiele(slot, begrenzt(laut * abweichung.laut), abweichung.rate);
+        return;
+      }
+
+      /*
+       * Der Rueckfallweg mit der Stimmenwahl, in dieser Reihenfolge:
        *
        *  1. eine freie Stimme - der Normalfall, und der guenstigste;
        *  2. eine neue, solange der Pool Platz hat - das ist der Walzenstopp,
@@ -525,6 +609,10 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
        *     gleichzeitigen Stimmen desselben Klangs hoert das ohnehin
        *     niemand mehr heraus.
        */
+      const pool = hole(slot);
+      if (!pool) {
+        return;
+      }
       let element = pool.find((stimme) => stimme.paused || stimme.ended) ?? null;
       if (!element && pool.length < POOL_STIMMEN) {
         element = baue(slot);
@@ -537,9 +625,6 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
         return;
       }
 
-      const abweichung = VARIATION.has(slot)
-        ? (ABWEICHUNG[nummer % ABWEICHUNG.length] ?? OHNE_ABWEICHUNG)
-        : OHNE_ABWEICHUNG;
       try {
         element.loop = false;
         element.playbackRate = abweichung.rate;
@@ -559,12 +644,34 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
         return;
       }
       const eintrag = nachSlot.get(slot);
-      const element = hole(slot)?.[0];
-      if (!element || !eintrag) {
+      if (!eintrag) {
         return;
       }
       const laut = lautstaerkeVon(eintrag);
       if (laut <= 0) {
+        return;
+      }
+
+      /*
+       * Der Web-Audio-Weg.
+       *
+       * Die Blendenzeit geht als Zahl mit, und damit ist der Hauptfaden
+       * fertig: die Rampe rechnet der Audiofaden. Genau hier lag der
+       * Zeitgeber, der vierzig Mal je Sekunde mitten im Walzenlauf tickte -
+       * der `reel_loop` blendet bei **jedem** Spin ein und aus.
+       *
+       * Das «laeuft schon auf diesem Wert» prueft der Motor selbst; ohne das
+       * begaenne jedes Rendern eine neue Rampe.
+       */
+      const motor = motorRef.current;
+      if (motor?.hat(slot)) {
+        laufend.current.add(slot);
+        motor.starteSchleife(slot, laut, optionen?.sofort ? 0 : (BLENDE_MS[slot] ?? BLENDE_VORGABE));
+        return;
+      }
+
+      const element = hole(slot)?.[0];
+      if (!element) {
         return;
       }
       try {
@@ -614,6 +721,13 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
 
   const stoppeSchleife = useCallback(
     (slot: string, optionen?: SchleifenOptionen) => {
+      const motor = motorRef.current;
+      if (motor?.hat(slot)) {
+        laufend.current.delete(slot);
+        motor.stoppeSchleife(slot, optionen?.sofort ? 0 : (BLENDE_MS[slot] ?? BLENDE_VORGABE));
+        return;
+      }
+
       const element = elemente.current.get(slot)?.[0];
       const lief = laufend.current.has(slot);
       laufend.current.delete(slot);
@@ -649,6 +763,17 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
     // Erst die Referenz - sie gilt in derselben Funktion weiter -, dann der
     // Zustand fuer die Effekte.
     freigegebenRef.current = true;
+    /*
+     * Und den Audiokontext wecken - aus **diesem** Aufruf heraus.
+     *
+     * Safari laesst `resume()` nur innerhalb der Behandlung einer echten
+     * Geste zu. `freigeben()` laeuft aus dem Klick auf Spin oder auf den
+     * Tonschalter; ein `resume()` einen Tick spaeter, etwa aus einem Effekt,
+     * waere ausserhalb der Geste und wuerde abgewiesen - der Slot waere auf
+     * dem iPhone stumm.
+     */
+    motorRef.current ??= baueTonmotor();
+    motorRef.current?.wecke();
     setFreigegeben(true);
   }, []);
 

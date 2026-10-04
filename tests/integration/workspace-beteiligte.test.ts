@@ -330,6 +330,92 @@ describeWithDatabase('Workspace: Beteiligte', () => {
     expect(block).not.toContain('visibleRoleIds');
   });
 
+  it('erlaubt mehrere Projektleitungen', async () => {
+    /*
+     * Ausdruecklich erlaubt: ein Projekt kann zwei Personen haben, die es
+     * fuehren. Eine Pruefung, die beim Zweiten abbricht, waere eine Regel,
+     * die niemand verlangt hat - und sie faellt erst auf, wenn jemand sie
+     * braucht.
+     */
+    const projectId = await projekt();
+    await workspace.setzeMitglieder(projectId, ANNA, [
+      { discordId: ANNA, rolle: 'LEAD' },
+      { discordId: BEN, rolle: 'LEAD' },
+      { discordId: CARLA, rolle: 'MEMBER' },
+    ]);
+
+    const liste = await beteiligte(projectId);
+    expect(liste.filter((eintrag) => eintrag.rolle === 'LEAD').map((eintrag) => eintrag.discordId)).toEqual([
+      ANNA,
+      BEN,
+    ]);
+    expect(liste.filter((eintrag) => eintrag.rolle === 'MEMBER')).toHaveLength(1);
+  });
+
+  it('nimmt jemanden direkt mit der gewaehlten Rolle auf', async () => {
+    /*
+     * ## Warum das eine eigene Zusage ist
+     *
+     * In der Oberflaeche kam jede neue Person als «Unterstuetzung» herein und
+     * musste danach umgestuft werden - zwei Schritte fuer eine Entscheidung,
+     * die man beim Hinzufuegen schon getroffen hat. Die Rolle steht jetzt
+     * ueber der Liste und gilt fuer den naechsten Klick.
+     *
+     * Hier wird geprueft, dass der Dienst das auch kann: eine Person kommt
+     * **als** Projektleitung herein, nicht erst danach.
+     */
+    const projectId = await projekt();
+    await workspace.setzeMitglieder(projectId, ANNA, [
+      { discordId: ANNA, rolle: 'LEAD' },
+      { discordId: BEN, rolle: 'LEAD' },
+    ]);
+    expect(await beteiligte(projectId)).toEqual([
+      { discordId: ANNA, rolle: 'LEAD' },
+      { discordId: BEN, rolle: 'LEAD' },
+    ]);
+  });
+
+  it('stellt die Rolle in der Oberflaeche vor das Hinzufuegen', () => {
+    /*
+     * Das Panel ist eine Client-Komponente mit Formularzustand; sie laesst
+     * sich hier nicht bedienen. Nachgesehen wird darum das eine, was die
+     * Zusage ausmacht: dass das Hinzufuegen die **gewaehlte** Rolle nimmt und
+     * nicht eine feste Vorgabe.
+     */
+    const quelle = readFileSync('apps/web/src/modules/workspace/components/projekt-steuerung.tsx', 'utf8');
+    expect(quelle).toContain('const [neueRolle, setNeueRolle]');
+    expect(quelle).toContain('ws-neue-rolle');
+    expect(quelle).toContain('{ discordId, rolle: neueRolle }');
+    // Die alte Form: jede neue Person kam fest als Unterstuetzung herein.
+    expect(quelle).not.toMatch(/\{ discordId, rolle: 'MEMBER' \}/u);
+  });
+
+  it('kennt bei zuständigen Personen gar keine Rolle', () => {
+    /*
+     * ## Warum das ein Test ist
+     *
+     * Weil «alle Beteiligten sind verantwortlich» eine Aussage ueber das
+     * Datenmodell ist und nicht ueber die Oberflaeche. Gaebe es eine
+     * Rollenspalte an der Aufgabe, waere sie irgendwann gefuellt - und dann
+     * gibt es Besitzer und Helfer, obwohl es die nicht geben soll.
+     *
+     * Projektrollen bleiben davon unberuehrt: dort gibt es Projektleitung
+     * und Unterstuetzung, und das ist eine andere Tabelle.
+     */
+    const schema = readFileSync('packages/database/prisma/schema.prisma', 'utf8');
+    const anfang = schema.indexOf('model WorkspaceTaskAssignee');
+    expect(anfang).toBeGreaterThan(-1);
+    const block = schema.slice(anfang, schema.indexOf('\n}', anfang));
+    expect(block).not.toMatch(/\brolle\b/u);
+    expect(block).not.toMatch(/\brole\b/iu);
+
+    // Und der Dienst nimmt nur Kennungen - keine Paare mit Rolle.
+    const dienst = readFileSync('packages/modules/src/workspace/aufgaben.ts', 'utf8');
+    expect(dienst).toMatch(
+      /export async function setzeZustaendige\(\s*taskId: string,\s*\w+: string,\s*\w+: readonly string\[\]/u,
+    );
+  });
+
   it('macht die anlegende Person zur ersten zuständigen Person', async () => {
     const id = await projekt();
     const aufgabe = await workspace.erstelleAufgabe(GUILD, BEN, {
