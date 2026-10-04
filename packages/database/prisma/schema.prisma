@@ -10975,10 +10975,86 @@ model XpSlotFreespinPackage {
   revokedByDiscordId String?
   revokedAt          DateTime?
 
+  /// Wann die Startmeldung gezeigt wurde - `null` heisst «noch nicht».
+  ///
+  /// Ein Geschenk soll man **einmal** erfahren und nicht bei jedem Oeffnen
+  /// des Slots. Der Zeitpunkt steht hier und nicht im Browser: wer das Spiel
+  /// auf dem Telefon oeffnet, hat die Meldung dann schon gesehen, und das
+  /// ist richtig so - sie gehoert zum Geschenk, nicht zum Geraet.
+  introSeenAt DateTime?
+  /// Wann die Abschlussmeldung gezeigt wurde. Dieselbe Begruendung.
+  outroSeenAt DateTime?
+  /// Was mit **diesem** Paket gewonnen wurde.
+  ///
+  /// Nicht die Slothistorie: gefragt ist «was haben mir diese zehn
+  /// Freispiele gebracht», und das ist eine Summe ueber genau die Spins, die
+  /// aus diesem Paket kamen. Sie wird serverseitig bei jedem Freispiel
+  /// hochgezaehlt - im Browser aufzusummieren hiesse, einer Zahl zu glauben,
+  /// die ein Neuladen zuruecksetzt.
+  packageWin Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   spins XpSlotSpin[]
+
+  @@index([discordId, status])
+  @@index([status, expiresAt])
+}
+
+/// Der Zustand eines geschenkten Bonusspiels.
+enum XpSlotBonusGrantStatus {
+  /// Vergeben, aber noch nicht gestartet - der User hat den Slot noch nicht
+  /// geoeffnet oder den Knopf noch nicht gedrueckt.
+  PENDING
+  /// Der User hat den Bonus gestartet; es laeuft die Bonusrunde daran.
+  STARTED
+  /// Die Bonusrunde ist durch - gewonnen oder verloren.
+  FINISHED
+  REVOKED
+  EXPIRED
+}
+
+/// Ein vom Team geschenktes Bonusspiel.
+///
+/// ## Warum das kein Freispielpaket ist
+///
+/// Weil ein Bonusspiel etwas anderes ist als Freispiele. Es beginnt mit der
+/// Risikoleiter: acht Freispiele nehmen oder auf zwoelf gamblen, bei Gewinn
+/// auf sechzehn weiter, bei Verlust nichts. Ein Freispielpaket hat diese
+/// Entscheidung nicht - es sind einfach n Spins.
+///
+/// ## Warum es keine zweite Bonuslogik gibt
+///
+/// Diese Zeile ist nur der **Anlass**. Beim Start entsteht daraus eine
+/// gewoehnliche `XpSlotBonusRound` auf `LADDER_1`, und von da an laeuft alles
+/// durch denselben Code wie ein durch Scatter ausgeloester Bonus: dieselbe
+/// Leiter, dieselben Chancen, dieselben Sticky Wilds, dieselbe Auszahlung.
+/// Ein geschenkter Bonus, der sich anders verhaelt, waere ein zweites Spiel.
+model XpSlotBonusGrant {
+  id        String @id @default(cuid())
+  discordId String
+
+  /// Der Einsatz, mit dem die Freispiele dieser Runde rechnen.
+  bet    Int
+  reason String?
+
+  status    XpSlotBonusGrantStatus @default(PENDING)
+  expiresAt DateTime?
+
+  /// Wann die Startmeldung gezeigt wurde.
+  introSeenAt DateTime?
+  startedAt   DateTime?
+
+  grantedByDiscordId String?
+  revokedByDiscordId String?
+  revokedAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Die Runde, die daraus entstanden ist - eine je Geschenk.
+  round XpSlotBonusRound?
 
   @@index([discordId, status])
   @@index([status, expiresAt])
@@ -11044,9 +11120,26 @@ model XpSlotBonusRound {
   id        String @id @default(cuid())
   discordId String
 
-  /// Der Spin, der sie ausgeloest hat.
-  triggerSpinId String     @unique
-  triggerSpin   XpSlotSpin @relation("TriggerSpin", fields: [triggerSpinId], references: [id], onDelete: Cascade)
+  /// Der Spin, der sie ausgeloest hat - `null` bei einem Geschenk.
+  ///
+  /// Optional, seit das Team ein Bonusspiel verschenken kann: ein
+  /// geschenkter Bonus hat keinen ausloesenden Spin, und einen zu erfinden
+  /// hiesse, einen Spin in die Historie zu schreiben, den niemand gedreht
+  /// hat. Genau eines von beiden ist gesetzt - `triggerSpinId` oder
+  /// `grantId`.
+  triggerSpinId String?     @unique
+  triggerSpin   XpSlotSpin? @relation("TriggerSpin", fields: [triggerSpinId], references: [id], onDelete: Cascade)
+
+  /// Das Geschenk, aus dem sie entstand - `null` bei einem echten Ausloeser.
+  grantId String?           @unique
+  grant   XpSlotBonusGrant? @relation(fields: [grantId], references: [id], onDelete: SetNull)
+
+  /// Wann die Abschlussmeldung gezeigt wurde.
+  ///
+  /// Damit sie nach einem Neuladen noch kommt, aber nur einmal: wer die
+  /// letzte Runde auf dem Telefon beendet und danach am Rechner oeffnet,
+  /// soll erfahren, was dabei herauskam.
+  outroSeenAt DateTime?
 
   stage XpSlotBonusStage @default(LADDER_1)
 

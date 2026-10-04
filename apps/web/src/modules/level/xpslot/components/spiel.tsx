@@ -10,6 +10,7 @@ import {
   Plus,
   RotateCcw,
   Sparkles,
+  Square,
   Volume2,
   VolumeX,
   Zap,
@@ -19,16 +20,26 @@ import type { level } from '@swisshub/modules';
 import { formatSwissNumber } from '@swisshub/shared';
 import { cn } from '@/lib/utils';
 import { Partikel, Walzen } from './walzen';
+import { Hochzaehlen, SlotOverlay } from './meldung';
 import { Infotafel } from './infotafel';
 import { Leiter } from './leiter';
 import { Rad } from './rad';
 import { useTon, useWenigerBewegung } from './klang';
-import { bonusNehmenAction, bonusRiskierenAction, meinStandAction, spinAction } from '../../xpslot-actions';
+import { useKlangEreignisse } from './klangereignisse';
+import {
+  bonusGeschenkStartenAction,
+  bonusNehmenAction,
+  bonusRiskierenAction,
+  meinStandAction,
+  meldungGesehenAction,
+  spinAction,
+} from '../../xpslot-actions';
 import '../xpslot.css';
 
 type Ansicht = Awaited<ReturnType<typeof level.xpslot.slotAnsicht>>;
 type Spieler = Awaited<ReturnType<typeof level.xpslot.spielerAnsicht>>;
 type Ergebnis = Awaited<ReturnType<typeof level.xpslot.dreheSpin>>;
+type Meldungen = Spieler['meldungen'];
 
 /**
  * Das Spiel.
@@ -94,16 +105,6 @@ const ZEITEN = {
   ergebnis: 170,
 };
 
-/** Welcher Klang zu welcher Gewinnstufe gehoert. */
-const STUFEN_KLANG: Record<string, string> = {
-  keine: 'no_win',
-  klein: 'win_small',
-  normal: 'win_normal',
-  gross: 'win_big',
-  mega: 'win_mega',
-  jackpot: 'jackpot',
-};
-
 const warte = (ms: number): Promise<void> =>
   new Promise((aufloesen) => {
     setTimeout(aufloesen, ms);
@@ -119,6 +120,7 @@ export interface SpielProps {
 
 export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React.JSX.Element {
   const ton = useTon(ansicht.klaenge);
+  const melde = useKlangEreignisse(ton);
   const wenigerBewegung = useWenigerBewegung();
 
   const [spieler, setSpieler] = useState<Spieler>(start);
@@ -141,13 +143,82 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
    * erst uebernommen, wenn das Rad steht, damit die Zahl im HUD nicht vor
    * dem Rad die Antwort verraet.
    */
+  /*
+   * Die grossen Meldungen.
+   *
+   * Sie kommen vom Server und werden dort vermerkt, wenn sie gesehen sind -
+   * nicht im `localStorage`. Der Unterschied zaehlt: ein geschenktes
+   * Bonusspiel soll man einmal angekuendigt bekommen, und zwar auf jedem
+   * Geraet einmal insgesamt und nicht einmal je Browser. Ein Neuladen
+   * mitten im Overlay darf die Ankuendigung nicht verschlucken.
+   *
+   * Es gibt vier davon, und sie liegen in **einem** Zustand: so kann nie
+   * mehr als eine gleichzeitig auf dem Bildschirm stehen, und die
+   * Reihenfolge ist entschieden statt zufaellig.
+   */
+  const [meldungen, setMeldungen] = useState<Meldungen>(start.meldungen);
+  /** Der Ausgang des Rads - er steht, bis jemand wegklickt. */
+  const [radAusgang, setRadAusgang] = useState<{ gewonnen: boolean; freispiele: number } | null>(null);
   const [radAn, setRadAn] = useState(false);
   const [radErgebnis, setRadErgebnis] = useState<'gewonnen' | 'verloren' | null>(null);
   const radFolge = useRef<Spieler['bonus']>(null);
+  /** Die Abschlusswerte, falls das Rad die Runde beendet hat. */
+  const radEnde = useRef<Meldungen['bonusEnde']>(null);
 
   const laeuftRef = useRef(false);
   const abbrechenRef = useRef(false);
   const lebtRef = useRef(true);
+
+  /*
+   * Der Sprung - der zweite Klick auf den Spin-Knopf.
+   *
+   * ## Was er ist und was er nicht ist
+   *
+   * Er verkuerzt die **Inszenierung** und sonst nichts. Das Ergebnis steht
+   * in dem Moment, in dem der Server geantwortet hat; der zweite Klick zeigt
+   * es nur sofort. Er dreht nicht, er bucht nicht, er fragt nicht nach - ein
+   * zweiter Spin aus einem Skip-Klick waere ein Einsatz, den niemand
+   * gesetzt hat.
+   *
+   * ## Wie
+   *
+   * `uebersprungenRef` ist die Absicht, `sprungRef` der Hebel: jedes Warten
+   * innerhalb eines Spins hinterlegt dort seinen Abbruch. Ein Klick zieht
+   * ihn, das laufende Warten endet sofort, und der Ablauf findet an der
+   * naechsten Stelle `uebersprungenRef` gesetzt vor und faellt in den
+   * kurzen Zweig. Kein zweiter Zustandsautomat, kein paralleler Ablauf.
+   */
+  const sprungRef = useRef<(() => void) | null>(null);
+  const uebersprungenRef = useRef(false);
+
+  /** Ein Warten, das der zweite Klick beenden kann. */
+  const warteOderSpringe = useCallback(
+    (ms: number): Promise<void> =>
+      new Promise((aufloesen) => {
+        if (uebersprungenRef.current) {
+          aufloesen();
+          return;
+        }
+        const uhr = setTimeout(() => {
+          sprungRef.current = null;
+          aufloesen();
+        }, ms);
+        sprungRef.current = () => {
+          clearTimeout(uhr);
+          sprungRef.current = null;
+          aufloesen();
+        };
+      }),
+    [],
+  );
+
+  const ueberspringen = useCallback(() => {
+    if (!laeuftRef.current || uebersprungenRef.current) {
+      return;
+    }
+    uebersprungenRef.current = true;
+    sprungRef.current?.();
+  }, []);
 
   useEffect(() => {
     lebtRef.current = true;
@@ -193,10 +264,10 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       if (wert === undefined || wert === einsatz) {
         return;
       }
-      ton.spiele('ui_button');
+      melde({ art: 'uiClick' });
       setEinsatz(wert);
     },
-    [ansicht.einsaetze, einsatz, ton],
+    [ansicht.einsaetze, einsatz, melde],
   );
 
   /*
@@ -218,21 +289,18 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
   const festerEinsatz = spieler.bonus?.stufe === 'SPINS' ? spieler.bonus.einsatz : spieler.freispielEinsatz;
   const wirksamerEinsatz = festerEinsatz ?? einsatz;
 
-  // Die Freispielmusik laeuft, solange Freispiele laufen - und nur dann.
+  /*
+   * Die Grundstimmung: Freispielmusik, solange Freispiele laufen.
+   *
+   * Der Wechsel ist eine Ueberblendung und kein Schnitt - das steckt im
+   * Ereignis, nicht hier. Diese Zeilen sagen nur, **welche** Stimmung gilt.
+   */
   useEffect(() => {
     if (!ton.freigegeben) {
       return;
     }
-    if (imFreispiel) {
-      ton.stoppeSchleife('musik');
-      ton.starteSchleife('freespin_loop');
-    } else {
-      ton.stoppeSchleife('freespin_loop');
-      if (ton.einstellungen.musikAn) {
-        ton.starteSchleife('musik');
-      }
-    }
-  }, [imFreispiel, ton]);
+    melde({ art: 'stimmung', freispiel: imFreispiel });
+  }, [imFreispiel, melde, ton.freigegeben]);
 
   const trefferZellen = useMemo(
     () =>
@@ -251,15 +319,24 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     return ergebnis.treffer.find((treffer) => treffer.linie === sichtbareLinie)?.zellen ?? null;
   }, [ergebnis, sichtbareLinie]);
 
+  /** Was genau die gerade gezeigte Linie wert ist - fuer das Schild an ihr. */
+  const linienGewinn = useMemo(() => {
+    if (sichtbareLinie === null || !ergebnis) {
+      return null;
+    }
+    return ergebnis.treffer.find((treffer) => treffer.linie === sichtbareLinie)?.gewinn ?? null;
+  }, [ergebnis, sichtbareLinie]);
+
   /** Ein Spin, vollstaendig: Anfrage, Inszenierung, Fortschreibung. */
   const dreheEinmal = useCallback(async (): Promise<{ weiter: boolean; grund: string | null }> => {
     ton.freigeben();
+    uebersprungenRef.current = false;
+    sprungRef.current = null;
     setErgebnis(null);
     setSichtbareLinie(null);
     setLeiterVerloren(false);
     setLaufend(Array.from({ length: ansicht.walzen }, () => true));
-    ton.spiele('spin_start');
-    ton.starteSchleife('reel_loop');
+    melde({ art: 'spinStarted' });
 
     const begonnen = Date.now();
     const antwort = await spinAction({
@@ -272,7 +349,7 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     });
 
     if (!antwort.ok) {
-      ton.stoppeSchleife('reel_loop');
+      melde({ art: 'spinAborted' });
       setLaufend(Array.from({ length: ansicht.walzen }, () => false));
       return { weiter: false, grund: antwort.error.message };
     }
@@ -281,8 +358,10 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     const grund = schnell ? ZEITEN.schnellGrund : ZEITEN.grund;
     const staffel = ZEITEN.staffel;
 
-    // Mindestlaufzeit: der Server ist schneller als das Auge.
-    await warte(Math.max(0, grund - (Date.now() - begonnen)));
+    // Mindestlaufzeit: der Server ist schneller als das Auge. Der zweite
+    // Klick verkuerzt sie - am Ergebnis aendert er nichts, das steht hier
+    // schon fertig in `spin`.
+    await warteOderSpringe(Math.max(0, grund - (Date.now() - begonnen)));
     if (!lebtRef.current) {
       return { weiter: false, grund: null };
     }
@@ -291,53 +370,95 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     /*
      * Die Stopps.
      *
-     * Drei Faelle, und sie unterscheiden sich nur in der Zeit - nie im
+     * Vier Faelle, und sie unterscheiden sich nur in der Zeit - nie im
      * Ergebnis: das steht fertig in `spin`.
      *
-     *  1. **Quick Spin ohne Sweat**: alle fuenf halten im selben Bild, ein
-     *     Stoppklang.
-     *  2. **Quick Spin mit Sweat**: die Walzen vor der entscheidenden halten
+     *  1. **Sprung**: alle noch laufenden Walzen halten im selben Bild.
+     *  2. **Quick Spin ohne Sweat**: alle fuenf halten im selben Bild.
+     *  3. **Quick Spin mit Sweat**: die Walzen vor der entscheidenden halten
      *     gemeinsam, dann dreht die letzte weiter.
-     *  3. **Normal**: einzeln von links nach rechts, mit Zuschlag auf den
+     *  4. **Normal**: einzeln von links nach rechts, mit Zuschlag auf den
      *     Sweat-Walzen.
+     *
+     * Was alle vier gemeinsam haben: **jede** Walze meldet ihren eigenen
+     * Stopp. Vorher gab es im Quick Spin einen Klang fuer fuenf Walzen, und
+     * das war an der Buehne zu hoeren - fuenf Dinge rasten ein, eines macht
+     * ein Geraeusch.
      */
     const sweatAb = spin.sweatAbWalze;
     const sweatSpielt = sweatAb !== null && !wenigerBewegung;
 
-    const haltAlle = (von: number): void => {
-      setLaufend((vorher) => vorher.map((wert, index) => (index >= von ? false : wert)));
+    /** Walzen 0 bis `bis` - 1 halten; alles ab `bis` dreht weiter. */
+    const haltBis = (bis: number): void => {
+      setLaufend((vorher) => vorher.map((wert, index) => (index < bis ? false : wert)));
+    };
+    const haltAlles = (): void => {
+      setLaufend(Array.from({ length: ansicht.walzen }, () => false));
+    };
+    const meldeStopps = (von: number, bis: number): void => {
+      for (let walze = von; walze < bis; walze += 1) {
+        melde({ art: 'reelStopped', walze });
+      }
     };
 
-    if (schnell && !sweatSpielt) {
-      haltAlle(0);
-      ton.spiele('reel_stop');
+    if (uebersprungenRef.current) {
+      haltAlles();
+      melde({ art: 'spinSkipped', walzen: ansicht.walzen });
+    } else if (schnell && !sweatSpielt) {
+      haltAlles();
+      meldeStopps(0, ansicht.walzen);
     } else if (schnell && sweatAb !== null) {
+      /*
+       * Quick Spin mit Sweat.
+       *
+       * Hier hielten vorher **alle** Walzen - auch die entscheidende -, und
+       * danach lief der Sweat-Klang ueber ein stehendes Bild. Jetzt haelt
+       * nur, was vor der entscheidenden Walze liegt; die dreht weiter, und
+       * genau das ist der Moment, den niemand verkuerzt haben will.
+       */
       if (sweatAb > 0) {
-        haltAlle(0);
-        ton.spiele('reel_stop');
+        haltBis(sweatAb);
+        meldeStopps(0, sweatAb);
       }
-      ton.spiele('bonus_sweat');
-      await warte(ZEITEN.schnellSweat);
+      melde({ art: 'bonusSweatStarted' });
+      await warteOderSpringe(ZEITEN.schnellSweat);
       if (!lebtRef.current) {
         return { weiter: false, grund: null };
       }
-      setLaufend(Array.from({ length: ansicht.walzen }, () => false));
-      ton.spiele('reel_stop');
+      haltAlles();
+      meldeStopps(sweatAb, ansicht.walzen);
     } else {
       for (let walze = 0; walze < ansicht.walzen; walze += 1) {
         const sweat = sweatSpielt && sweatAb !== null && walze >= sweatAb;
         if (sweat && walze === sweatAb) {
-          ton.spiele('bonus_sweat');
+          melde({ art: 'bonusSweatStarted' });
         }
-        await warte(staffel + (sweat ? ZEITEN.sweat : 0));
+        await warteOderSpringe(staffel + (sweat ? ZEITEN.sweat : 0));
         if (!lebtRef.current) {
           return { weiter: false, grund: null };
         }
+        if (uebersprungenRef.current) {
+          // Mitten in der Staffel gesprungen: der Rest kommt in einem Bild -
+          // und jede davon betroffene Walze bekommt ihren Stoppklang.
+          haltAlles();
+          melde({ art: 'spinSkipped', walzen: ansicht.walzen - walze });
+          break;
+        }
         setLaufend((vorher) => vorher.map((wert, index) => (index === walze ? false : wert)));
-        ton.spiele('reel_stop');
+        melde({ art: 'reelStopped', walze });
       }
     }
-    ton.stoppeSchleife('reel_loop');
+    melde({ art: 'reelsFinished' });
+
+    /*
+     * Der Sprung ist hier verbraucht.
+     *
+     * Was er abkuerzen sollte, ist vorbei: die Walzen stehen. Die
+     * Gewinnlinien danach laufen wieder normal - sie sind nicht das Warten,
+     * das jemand ueberspringen wollte, sondern das, worauf er gewartet hat.
+     */
+    uebersprungenRef.current = false;
+    sprungRef.current = null;
 
     setErgebnis(spin);
 
@@ -354,18 +475,22 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     }
 
     /*
-     * Ein ausgeloester Bonus ersetzt den Gewinnklang, er kommt nicht dazu.
+     * Was jetzt klingt - und was nicht.
      *
-     * Vorher spielten beide: «kein Gewinn» und darueber der Bonusklang - das
-     * waren zwei Aussagen zur selben Zeit, und die wichtigere ging unter.
+     * Kommen mehrere Linien einzeln, klingt **jede** einzeln, und der
+     * Gesamtklang entfaellt: sonst waeren es fuenf Klaenge fuer vier Linien,
+     * und der erste wuerde die Reihe verderben. Ein ausgeloester Bonus
+     * ersetzt den Gewinnklang, er kommt nicht dazu - vorher spielten beide,
+     * und die wichtigere Aussage ging unter.
      */
+    const einzelneLinien = spin.treffer.length > 1 && !schnell && !wenigerBewegung;
     if (spin.bonusAusgeloest) {
-      ton.spiele(spin.art === 'BONUS_ROUND' ? 'retrigger' : 'bonus_trigger');
-    } else {
-      ton.spiele(STUFEN_KLANG[spin.stufe] ?? 'no_win');
+      melde({ art: 'bonusTriggered', retrigger: spin.art === 'BONUS_ROUND' });
+    } else if (!einzelneLinien) {
+      melde({ art: 'spinResult', stufe: spin.stufe });
     }
     if (spin.premiumTage > 0) {
-      ton.spiele('premium_win');
+      melde({ art: 'premiumWin' });
     }
 
     // Den eigenen Stand fortschreiben - ohne die Seite neu zu laden.
@@ -385,17 +510,34 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       },
     }));
 
-    // Die Linien einzeln zeigen, dann alle zusammen. Nicht bei Quick Spin
-    // und nicht bei weniger Bewegung - dort steht das Ergebnis sofort.
-    if (spin.treffer.length > 1 && !schnell && !wenigerBewegung) {
+    /*
+     * Schliesst dieser Spin eine Bonusrunde ab, gehoert das Overlay dazu.
+     *
+     * Die Zahlen stehen in derselben Antwort - serverseitig gezaehlt, ueber
+     * die ganze Runde. Die Oberflaeche summiert nichts: sie zeigt, was in der
+     * Zeile steht, und braucht dafuer keine zweite Abfrage.
+     */
+    if (spin.bonusEnde) {
+      melde({ art: 'bonusFinished', gewonnen: !spin.bonusEnde.verloren });
+      setMeldungen((vorher) => ({ ...vorher, bonusEnde: spin.bonusEnde }));
+    }
+
+    /*
+     * Die Linien einzeln zeigen, jede mit ihrem eigenen Klang und ihrem
+     * eigenen XP-Schild. Nicht bei Quick Spin und nicht bei weniger
+     * Bewegung - dort steht das Ergebnis sofort.
+     */
+    if (einzelneLinien) {
       for (const treffer of spin.treffer) {
         setSichtbareLinie(treffer.linie);
+        melde({ art: 'winLineShown', stufe: treffer.stufe });
         await warte(ZEITEN.linie);
         if (!lebtRef.current) {
           return { weiter: false, grund: null };
         }
       }
       setSichtbareLinie(null);
+      melde({ art: 'allLinesFinished' });
     } else if (spin.treffer.length === 1) {
       setSichtbareLinie(spin.treffer[0]!.linie);
     }
@@ -415,7 +557,7 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       spin.stufe === 'mega';
 
     return { weiter: !halt, grund: null };
-  }, [ansicht.walzen, csrfToken, schnell, ton, wenigerBewegung, wirksamerEinsatz]);
+  }, [ansicht.walzen, csrfToken, melde, schnell, ton, warteOderSpringe, wenigerBewegung, wirksamerEinsatz]);
 
   const spin = useCallback(async () => {
     if (laeuftRef.current) {
@@ -493,7 +635,7 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       setBeschaeftigt(true);
 
       if (!riskieren) {
-        ton.spiele('ui_button');
+        melde({ art: 'uiClick' });
         try {
           const antwort = await bonusNehmenAction({ csrfToken, rundeId: runde.id });
           if (!antwort.ok) {
@@ -501,9 +643,9 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
             return;
           }
           const neu = antwort.data.bonus;
-          ton.spiele('bonus_reveal');
+          melde({ art: 'bonusRevealed' });
           if (neu.stufe === 'SPINS') {
-            ton.spiele('freespin_start');
+            melde({ art: 'freespinsStarted' });
             toast.success(`${neu.offen} Freispiele - viel Glück.`);
           }
           setSpieler((vorher) => ({
@@ -519,16 +661,15 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       // Das Rad erscheint und dreht frei - noch ohne Ergebnis.
       setRadErgebnis(null);
       radFolge.current = null;
+      radEnde.current = null;
       setRadAn(true);
-      ton.spiele('gamble_start');
-      ton.starteSchleife('gamble_spin');
-      ton.spiele('gamble_tension');
+      melde({ art: 'gambleStarted' });
 
       try {
         const antwort = await bonusRiskierenAction({ csrfToken, rundeId: runde.id });
         if (!antwort.ok) {
           toast.error(antwort.error.message);
-          ton.stoppeSchleife('gamble_spin');
+          ton.stoppeSchleife('gamble_spin', { sofort: true });
           setRadAn(false);
           setBeschaeftigt(false);
           return;
@@ -536,30 +677,49 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
         // Ab hier steht das Ergebnis fest. Das Rad faehrt darauf aus; der
         // Zustand folgt in `radFertig`.
         radFolge.current = antwort.data.bonus;
+        radEnde.current = antwort.data.ende;
         setRadErgebnis(antwort.data.gewonnen ? 'gewonnen' : 'verloren');
       } catch (fehler) {
-        ton.stoppeSchleife('gamble_spin');
+        ton.stoppeSchleife('gamble_spin', { sofort: true });
         setRadAn(false);
         setBeschaeftigt(false);
         throw fehler;
       }
     },
-    [beschaeftigt, csrfToken, spieler.bonus, ton],
+    [beschaeftigt, csrfToken, melde, spieler.bonus, ton],
   );
 
-  /** Das Rad steht - jetzt gilt, was der Server gesagt hat. */
+  /**
+   * Das Rad steht - jetzt gilt, was der Server gesagt hat.
+   *
+   * Das Ergebnis bekommt ein eigenes Overlay und keinen Toast. Ein Toast am
+   * Bildschirmrand ist die Form fuer «gespeichert» und nicht fuer «zwoelf
+   * Freispiele» oder «der Bonus ist weg»: beides ist der Moment, auf den die
+   * ganze Drehung hingelaufen ist.
+   */
   const radFertig = useCallback(() => {
-    ton.stoppeSchleife('gamble_spin');
     const neu = radFolge.current;
     const gewonnen = radErgebnis === 'gewonnen';
-    ton.spiele(gewonnen ? 'gamble_win' : 'gamble_lose');
+    melde({ art: 'gambleLanded', gewonnen });
     setLeiterVerloren(!gewonnen);
-    if (neu?.stufe === 'SPINS') {
-      ton.spiele('freespin_start');
-      toast.success(`${neu.offen} Freispiele - viel Glück.`);
+    if (gewonnen && neu?.stufe === 'SPINS') {
+      melde({ art: 'freespinsStarted' });
     }
-    if (!gewonnen) {
-      toast.error('Das Risiko ist nicht aufgegangen - die Bonusrunde ist weg.');
+    /*
+     * Eine Meldung, nicht zwei.
+     *
+     * Hat das Rad die Runde beendet - das ist der verlorene Fall -, dann ist
+     * der Abschluss die Nachricht, und der Ausgang des Rads steht schon auf
+     * dem Rad selbst. Zwei Overlays hintereinander fuer dasselbe Ereignis
+     * waeren keine Feier, sondern zweimal Wegklicken.
+     */
+    const ende = radEnde.current;
+    radEnde.current = null;
+    if (ende) {
+      melde({ art: 'bonusFinished', gewonnen: !ende.verloren });
+      setMeldungen((vorher) => ({ ...vorher, bonusEnde: ende }));
+    } else {
+      setRadAusgang({ gewonnen, freispiele: neu?.stufe === 'SPINS' ? neu.offen : 0 });
     }
     setSpieler((vorher) => ({
       ...vorher,
@@ -569,7 +729,63 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     setRadErgebnis(null);
     radFolge.current = null;
     setBeschaeftigt(false);
-  }, [radErgebnis, ton]);
+  }, [melde, radErgebnis]);
+
+  /**
+   * Eine Meldung wegklicken - und das dem Server sagen.
+   *
+   * Beides gehoert zusammen: wer nur den Zustand hier leert, sieht dieselbe
+   * Ankuendigung beim naechsten Laden wieder, und wer nur den Server
+   * benachrichtigt, sieht sie bis zum Neuladen weiter. Der Vermerk laeuft
+   * ohne `await`: dass das Overlay weggeht, haengt nicht an einer Antwort -
+   * und wenn der Vermerk fehlschlaegt, kommt die Meldung noch einmal, was
+   * die harmlosere Richtung des Fehlers ist.
+   */
+  const schliesseMeldung = useCallback(
+    (art: 'freispiel-intro' | 'freispiel-ende' | 'bonus-intro' | 'bonus-ende', id: string) => {
+      melde({ art: 'uiClick' });
+      setMeldungen((vorher) => ({
+        freispielIntro: art === 'freispiel-intro' ? null : vorher.freispielIntro,
+        freispielEnde: art === 'freispiel-ende' ? null : vorher.freispielEnde,
+        bonusIntro: art === 'bonus-intro' ? null : vorher.bonusIntro,
+        bonusEnde: art === 'bonus-ende' ? null : vorher.bonusEnde,
+      }));
+      void meldungGesehenAction({ csrfToken, art, id });
+    },
+    [csrfToken, melde],
+  );
+
+  /**
+   * «Bonus starten» aus der Ankuendigung.
+   *
+   * Der Server legt daraus eine gewoehnliche Bonusrunde auf der ersten
+   * Leiterstufe an - dieselbe, die ein Scatter-Treffer erzeugt. Es gibt keine
+   * zweite Bonuslogik fuer Geschenke, und genau deshalb gilt ab hier alles,
+   * was fuer jede Bonusrunde gilt: nehmen oder riskieren, acht Freispiele
+   * oder zwoelf, und bei Pech ist alles weg.
+   */
+  const starteGeschenk = useCallback(
+    async (grantId: string) => {
+      melde({ art: 'uiClick' });
+      const antwort = await bonusGeschenkStartenAction({ csrfToken, grantId });
+      if (!antwort.ok) {
+        /*
+         * Die Ankuendigung bleibt stehen.
+         *
+         * Haette sie der Klick schon weggenommen, waere das Geschenk nach
+         * einem Fehler nicht mehr erreichbar - ohne Neuladen gaebe es keinen
+         * zweiten Knopf. Ein Overlay, das nach einem Fehler noch da ist, ist
+         * die harmlosere Richtung.
+         */
+        toast.error(antwort.error.message);
+        return;
+      }
+      setMeldungen((vorher) => ({ ...vorher, bonusIntro: null }));
+      melde({ art: 'bonusRevealed' });
+      setSpieler((vorher) => ({ ...vorher, bonus: antwort.data.bonus }));
+    },
+    [csrfToken, melde],
+  );
 
   /** Den Stand neu holen - nach einem Fehler oder einer Sperre. */
   const standAktualisieren = useCallback(async () => {
@@ -583,12 +799,21 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
   // stimmen - die Rundensumme steht erst dann fest.
   useEffect(() => {
     if (spieler.bonus === null && !beschaeftigt && ergebnis?.art === 'BONUS_ROUND') {
-      ton.spiele('freespin_end');
+      // Nur der Stand - der Abschlussklang haengt am Abschluss selbst und
+      // nicht an diesem Effekt, der auch bei einem Rendern mehr anschlaegt.
       void standAktualisieren();
     }
-  }, [beschaeftigt, ergebnis?.art, spieler.bonus, standAktualisieren, ton]);
+  }, [beschaeftigt, ergebnis?.art, spieler.bonus, standAktualisieren]);
 
   const stufe = ergebnis && !laufend.some(Boolean) ? ergebnis.stufe : 'keine';
+  /*
+   * Kann der zweite Klick jetzt etwas abkuerzen?
+   *
+   * Genau dann, wenn noch eine Walze dreht. Das deckt auch den Sweat ab: dort
+   * stehen vier und eine laeuft, und das ist der Moment, in dem jemand am
+   * ehesten nicht mehr warten will.
+   */
+  const springbar = laufend.some(Boolean);
   const entscheidung = spieler.bonus?.stufe === 'LADDER_1' || spieler.bonus?.stufe === 'LADDER_2';
 
   if (!ansicht.spielbar) {
@@ -701,6 +926,8 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
             reihen={ansicht.reihen}
             walzen={ansicht.walzen}
             linie={linienPfad}
+            linienGewinn={linienGewinn}
+            linienDauerMs={ZEITEN.linie}
           />
         </div>
 
@@ -736,6 +963,101 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
           <Partikel anzahl={stufe === 'jackpot' ? 18 : 12} />
         ) : null}
       </div>
+
+      {/*
+        Die grossen Meldungen.
+
+        Eine zur Zeit, in einer festen Reihenfolge: was eben passiert ist,
+        steht vor dem, was als naechstes kommt. Wer eine Bonusrunde beendet
+        und gleichzeitig ein neues Geschenk offen hat, soll erst den Abschluss
+        sehen - sonst wird aus zwei Momenten einer, und der erste geht
+        verloren.
+      */}
+      {radAusgang ? (
+        <SlotOverlay
+          stimmung={radAusgang.gewonnen ? 'gewinn' : 'verlust'}
+          augenbraue="Risiko"
+          titel={radAusgang.gewonnen ? 'Gewonnen' : 'Verloren'}
+          gross={
+            radAusgang.gewonnen ? `${formatSwissNumber(radAusgang.freispiele)} Freispiele` : 'Bonus beendet'
+          }
+          zeilen={
+            radAusgang.gewonnen
+              ? ['Die Freispiele laufen mit festem Einsatz - viel Glück.']
+              : ['Das Risiko ist nicht aufgegangen - die Bonusrunde ist weg.']
+          }
+          knopf={radAusgang.gewonnen ? 'Los geht’s' : 'Schade'}
+          ruhig={wenigerBewegung}
+          aufSchliessen={() => {
+            melde({ art: 'uiClick' });
+            setRadAusgang(null);
+          }}
+        />
+      ) : meldungen.bonusEnde ? (
+        <SlotOverlay
+          stimmung={meldungen.bonusEnde.verloren ? 'verlust' : 'gewinn'}
+          augenbraue={meldungen.bonusEnde.geschenkt ? 'Geschenktes Bonusspiel' : 'Bonusrunde'}
+          titel={meldungen.bonusEnde.verloren ? 'Bonus verloren' : 'Bonus abgeschlossen'}
+          zahl={{
+            wert: meldungen.bonusEnde.gewinn,
+            einheit: 'XP',
+            vorzeichen: !meldungen.bonusEnde.verloren,
+          }}
+          zeilen={[
+            meldungen.bonusEnde.verloren
+              ? 'Das Risiko ist nicht aufgegangen - die Bonusrunde ist weg.'
+              : `${formatSwissNumber(meldungen.bonusEnde.gespielt)} Freispiele gespielt zu ${formatSwissNumber(meldungen.bonusEnde.einsatz)} XP.`,
+            meldungen.bonusEnde.retriggers > 0 ? `${meldungen.bonusEnde.retriggers}× verlängert.` : '',
+          ].filter((zeile) => zeile.length > 0)}
+          knopf="Weiter"
+          ruhig={wenigerBewegung}
+          aufSchliessen={() => schliesseMeldung('bonus-ende', meldungen.bonusEnde!.rundeId)}
+        />
+      ) : meldungen.freispielEnde ? (
+        <SlotOverlay
+          stimmung="gewinn"
+          augenbraue="Geschenkte Freispiele"
+          titel="Freispiele abgeschlossen"
+          zahl={{ wert: meldungen.freispielEnde.gewinn, einheit: 'XP' }}
+          zeilen={[
+            `Du hast mit deinen Freispielen insgesamt ${formatSwissNumber(meldungen.freispielEnde.gewinn)} XP gewonnen.`,
+            `${formatSwissNumber(meldungen.freispielEnde.gespielt)} Freispiele zu ${formatSwissNumber(meldungen.freispielEnde.einsatz)} XP.`,
+            'Ab jetzt werden deine Einsätze wieder von deinen XP abgezogen.',
+          ]}
+          knopf="Weiter spielen"
+          ruhig={wenigerBewegung}
+          aufSchliessen={() => schliesseMeldung('freispiel-ende', meldungen.freispielEnde!.paketId)}
+        />
+      ) : meldungen.bonusIntro ? (
+        <SlotOverlay
+          stimmung="geschenk"
+          augenbraue="Geschenk vom Team"
+          titel="Du hast ein Bonus-Spiel erhalten!"
+          gross={`${formatSwissNumber(meldungen.bonusIntro.freispiele)} Freispiele`}
+          zeilen={[
+            `${formatSwissNumber(meldungen.bonusIntro.freispiele)} Freispiele mit ${formatSwissNumber(meldungen.bonusIntro.einsatz)} XP Einsatz.`,
+            'Du kannst sie nehmen - oder riskieren und um mehr spielen. Geht das Risiko schief, ist der Bonus weg.',
+            meldungen.bonusIntro.grund ? `Grund: ${meldungen.bonusIntro.grund}` : '',
+          ].filter((zeile) => zeile.length > 0)}
+          knopf="Bonus starten"
+          ruhig={wenigerBewegung}
+          aufSchliessen={() => void starteGeschenk(meldungen.bonusIntro!.grantId)}
+        />
+      ) : meldungen.freispielIntro ? (
+        <SlotOverlay
+          stimmung="geschenk"
+          augenbraue="Geschenk vom Team"
+          titel={`Du hast ${formatSwissNumber(meldungen.freispielIntro.anzahl)} Freispiele erhalten!`}
+          gross={`${formatSwissNumber(meldungen.freispielIntro.anzahl)} Freispiele`}
+          zeilen={[
+            `${formatSwissNumber(meldungen.freispielIntro.anzahl)} Freispiele mit ${formatSwissNumber(meldungen.freispielIntro.einsatz)} XP Einsatz.`,
+            meldungen.freispielIntro.grund ? `Grund: ${meldungen.freispielIntro.grund}` : '',
+          ].filter((zeile) => zeile.length > 0)}
+          knopf="Los geht’s"
+          ruhig={wenigerBewegung}
+          aufSchliessen={() => schliesseMeldung('freispiel-intro', meldungen.freispielIntro!.paketId)}
+        />
+      ) : null}
 
       {/* --- Das Risiko-Rad, solange es dreht --- */}
       {radAn && spieler.bonus?.wahl ? (
@@ -805,23 +1127,44 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
           </button>
         </div>
 
+        {/*
+          Der Spin-Knopf - und waehrend der Walzen der Stop-Knopf.
+
+          Ein Knopf, zwei Rollen, so wie an jedem Automaten: der zweite Klick
+          bringt das Ergebnis sofort. Dass er dabei anders heisst und anders
+          aussieht, ist nicht Kosmetik - ein Knopf, der «Spin» sagt und etwas
+          anderes tut, ist eine Luege, und jemand wuerde darauf klicken, um
+          einen zweiten Spin zu bekommen.
+
+          Gesperrt bleibt er trotzdem, solange etwas laeuft, das man nicht
+          ueberspringen kann: die Gewinnlinien, das Rad, eine Entscheidung.
+        */}
         <button
           type="button"
           className={cn(
             'slot-spin',
             beschaeftigt && 'slot-spin--laeuft',
+            springbar && 'slot-spin--stop',
             ansicht.design.knopfStil === 'puls' && 'slot-knopf--puls',
             ansicht.design.knopfStil === 'ring' && 'slot-knopf--ring',
           )}
-          disabled={beschaeftigt || entscheidung || spieler.gesperrt !== null}
-          onClick={() => void spin()}
+          disabled={(beschaeftigt && !springbar) || entscheidung || spieler.gesperrt !== null}
+          onClick={() => {
+            if (springbar) {
+              ueberspringen();
+              return;
+            }
+            void spin();
+          }}
         >
-          {beschaeftigt ? (
+          {springbar ? (
+            <Square aria-hidden="true" className="size-5" />
+          ) : beschaeftigt ? (
             <Sparkles aria-hidden="true" className="size-5 animate-pulse" />
           ) : (
             <Play aria-hidden="true" className="size-5" />
           )}
-          {imFreispiel ? 'Freispiel' : 'Spin'}
+          {springbar ? 'Stop' : imFreispiel ? 'Freispiel' : 'Spin'}
         </button>
 
         {autoRest > 0 ? (
@@ -861,7 +1204,7 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
           aria-label="Quick Spin"
           aria-pressed={schnell}
           onClick={() => {
-            ton.spiele('ui_button');
+            melde({ art: 'uiClick' });
             setzeSchnell(!schnell);
           }}
         >
@@ -1045,42 +1388,6 @@ function HudFeld({
   );
 }
 
-/**
- * Eine Zahl, die hochzaehlt.
- *
- * Ueber `requestAnimationFrame` und nicht ueber einen Intervall: der Browser
- * entscheidet, wann ein Bild faellig ist, und bei einem Hintergrundtab faellt
- * gar keines an. Ein Intervall zaehlte dort weiter und waere beim Zurueckkommen
- * mitten im Sprung.
- *
- * Bei `prefers-reduced-motion` steht die Endzahl sofort da. Wer weniger
- * Bewegung will, will das Ergebnis und nicht die Vorfuehrung.
- */
-function Hochzaehlen({ ziel, ruhig }: { ziel: number; ruhig: boolean }): React.JSX.Element {
-  const [wert, setWert] = useState(ruhig ? ziel : 0);
-
-  useEffect(() => {
-    if (ruhig) {
-      setWert(ziel);
-      return undefined;
-    }
-    const dauer = 650;
-    const start = performance.now();
-    let bild = 0;
-    const schritt = (jetzt: number): void => {
-      const p = Math.min(1, (jetzt - start) / dauer);
-      // Weich auslaufen: schnell los, ruhig an die Endzahl heran.
-      setWert(Math.round(ziel * (1 - Math.pow(1 - p, 3))));
-      if (p < 1) {
-        bild = requestAnimationFrame(schritt);
-      }
-    };
-    bild = requestAnimationFrame(schritt);
-    return () => cancelAnimationFrame(bild);
-  }, [ruhig, ziel]);
-
-  return <>{formatSwissNumber(wert)}</>;
-}
 /**
  * Das Spielfeld vor dem ersten Spin.
  *

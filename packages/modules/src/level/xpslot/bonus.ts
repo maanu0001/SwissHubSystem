@@ -4,6 +4,7 @@ import { secureRandom, type RandomSource } from '../../zufall';
 import { BASISPUNKTE } from './regeln';
 import { leseKonfiguration, type SlotKonfiguration } from './konfiguration';
 import { bonusStand, type BonusStand } from './spin';
+import { bonusAbschluss, istDurch, schliesseGeschenkAb, type BonusAbschluss } from './geschenke';
 
 /**
  * Die Bonusrunde und ihre Risikoleiter.
@@ -67,7 +68,10 @@ function stufenwerte(
  * Danach beginnt der Freispielmodus: `remaining` ist gesetzt, und jeder
  * weitere Spin dieser Person geht als Freispiel durch `dreheSpin`.
  */
-export async function nimmFreispiele(discordId: string, rundeId: string): Promise<{ bonus: BonusStand }> {
+export async function nimmFreispiele(
+  discordId: string,
+  rundeId: string,
+): Promise<{ bonus: BonusStand; ende: BonusAbschluss | null }> {
   const konfiguration = await leseKonfiguration();
   const runde = await holeRunde(discordId, rundeId);
   if (runde.stage !== 'LADDER_1' && runde.stage !== 'LADDER_2') {
@@ -89,7 +93,20 @@ export async function nimmFreispiele(discordId: string, rundeId: string): Promis
     },
   });
 
-  return { bonus: bonusStand(aktualisiert, konfiguration) };
+  /*
+   * «Nehmen» kann die Runde schon beenden.
+   *
+   * Dann nämlich, wenn auf dieser Stufe null Freispiele stehen - eine
+   * Konfiguration, in der die Leiter auf nichts hinausläuft. Der Abschluss
+   * gehört dann in dieselbe Antwort; sonst wartet die Oberfläche auf einen
+   * Spin, der nie kommt.
+   */
+  await schliesseGeschenkAb(prisma, aktualisiert);
+
+  return {
+    bonus: bonusStand(aktualisiert, konfiguration),
+    ende: istDurch(aktualisiert) ? bonusAbschluss(aktualisiert) : null,
+  };
 }
 
 /**
@@ -104,7 +121,7 @@ export async function riskiere(
   discordId: string,
   rundeId: string,
   random: RandomSource = secureRandom,
-): Promise<{ bonus: BonusStand; gewonnen: boolean }> {
+): Promise<{ bonus: BonusStand; gewonnen: boolean; ende: BonusAbschluss | null }> {
   const konfiguration = await leseKonfiguration();
   const runde = await holeRunde(discordId, rundeId);
   if (runde.stage !== 'LADDER_1' && runde.stage !== 'LADDER_2') {
@@ -150,7 +167,21 @@ export async function riskiere(
     },
   });
 
-  return { bonus: bonusStand(aktualisiert, konfiguration), gewonnen };
+  /*
+   * Verloren heisst: die Runde ist durch - mit null.
+   *
+   * Auch das ist ein Abschluss, und er braucht seine Meldung. «Bonus
+   * verloren, 0 XP» ist die ehrlichere Antwort als ein Overlay, das nur bei
+   * Gewinn kommt - und das Gegenstueck zur Entscheidung, die jemand gerade
+   * getroffen hat.
+   */
+  await schliesseGeschenkAb(prisma, aktualisiert);
+
+  return {
+    bonus: bonusStand(aktualisiert, konfiguration),
+    gewonnen,
+    ende: istDurch(aktualisiert) ? bonusAbschluss(aktualisiert) : null,
+  };
 }
 
 /** Die bisherigen Leitereintraege - als Liste, auch wenn noch keine da ist. */

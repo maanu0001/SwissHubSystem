@@ -1213,29 +1213,36 @@
     0 18px 40px -18px hsl(0 0% 0% / 0.9),
     inset 0 0 30px -8px hsl(0 0% 0% / 0.8);
   /*
-   * Das Ausfahren.
+   * Hier steht **kein** Uebergang und **keine** Animation.
    *
-   * Eine lange, stark abflachende Kurve: das Rad dreht schnell los und
-   * kriecht die letzten Grad. Genau dort entsteht die Spannung - und genau
-   * dort laeuft auch der Spannungsklang aus.
+   * Beides stand einmal da - eine Animation auf `rotate` fuer den freien
+   * Lauf und ein Uebergang auf `transform` fuer das Ausfahren -, und beides
+   * zusammen war der Grund, weshalb das Rad nicht auf seinem Feld landete:
+   * sichtbar war die Summe zweier Drehungen, und beim Wegfall der Animation
+   * sprang es um deren Winkel. Die Drehung kommt jetzt Bild fuer Bild aus
+   * `rad.tsx`; hier bleibt nur der Hinweis an den Browser, dass sich diese
+   * Eigenschaft bewegt.
    */
-  transition-property: transform;
-  transition-timing-function: cubic-bezier(0.12, 0.72, 0.06, 1);
   will-change: transform;
 }
 
-/* Solange kein Ergebnis da ist, dreht das Rad frei - ohne Uebergang. */
-.slot-rad__scheibe--laeuft {
-  animation: slot-rad-frei 1.1s linear infinite;
-}
-
-@keyframes slot-rad-frei {
-  from {
-    rotate: 0deg;
-  }
-  to {
-    rotate: 360deg;
-  }
+/*
+ * Das Einrasten: ein Lichtwechsel, keine Bewegung.
+ *
+ * Das Rad steht genau auf seinem Feld - es darf jetzt nicht mehr zucken.
+ * Dass es steht, sagt der Rahmen, und der laesst den Zeiger ueber dem
+ * getroffenen Feld eindeutig werden.
+ */
+.slot-rad__scheibe--steht {
+  border-color: hsl(var(--primary-bright) / 0.65);
+  box-shadow:
+    0 0 0 6px hsl(240 7% 8%),
+    0 0 40px -6px hsl(var(--primary-bright) / 0.55),
+    0 18px 40px -18px hsl(0 0% 0% / 0.9),
+    inset 0 0 30px -8px hsl(0 0% 0% / 0.8);
+  transition:
+    border-color 220ms ease-out,
+    box-shadow 220ms ease-out;
 }
 
 .slot-rad__zeiger {
@@ -1272,13 +1279,349 @@
   /*
    * Weniger Bewegung heisst hier: das Rad dreht nicht, es zeigt. Die
    * Entscheidung bleibt dieselbe, und das Ergebnis steht sofort da - es war
-   * ohnehin vom ersten Bild an entschieden.
+   * ohnehin vom ersten Bild an entschieden. Entschieden wird das in
+   * `rad.tsx`, weil dort die Drehung entsteht; hier bleibt nur der
+   * Lichtwechsel ohne Uebergang.
    */
-  .slot-rad__scheibe {
-    transition-duration: 1ms !important;
+  .slot-rad__scheibe--steht {
+    transition: none;
+  }
+}
+
+/*
+  Das XP-Schild einer einzelnen Gewinnlinie.
+
+  ## Warum absolut und nicht im Fluss
+
+  Weil es an der Linie haengt und nicht an einer Zeile. Die Position kommt aus
+  der gemessenen Geometrie - dieselbe Messung, aus der der Pfad entsteht -,
+  und `left`/`top` stehen deshalb am Element und nicht hier.
+
+  ## Warum es von allein wieder verschwindet
+
+  Weil es eine Zwischenmeldung ist: «diese Linie war 250 XP wert». Die Summe
+  steht darunter in der Gewinnzeile und bleibt; das Schild soll die naechste
+  Linie nicht zustellen. Die Dauer kommt vom Element - sie ist dieselbe Zahl,
+  mit der die Oberflaeche die Linien weiterschaltet.
+*/
+.slot-linien-schild {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 0.125rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--primary-bright) / 0.55);
+  background: hsl(240 30% 6% / 0.82);
+  color: hsl(var(--primary-bright));
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-shadow: 0 0 10px hsl(var(--primary-bright) / 0.55);
+  box-shadow:
+    0 0 0 1px hsl(240 30% 4% / 0.6),
+    0 6px 18px hsl(240 40% 2% / 0.5);
+  animation-name: slot-schild-auf;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+
+@keyframes slot-schild-auf {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -60%) scale(0.82);
+  }
+  16% {
+    opacity: 1;
+    transform: translate(-50%, -100%) scale(1);
+  }
+  74% {
+    opacity: 1;
+    transform: translate(-50%, -100%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -135%) scale(0.95);
+  }
+}
+
+.slot-linien-schild--unten {
+  animation-name: slot-schild-ab;
+}
+
+@keyframes slot-schild-ab {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -40%) scale(0.82);
+  }
+  16% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  74% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 35%) scale(0.95);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * Weniger Bewegung heisst hier: das Schild steht still da, solange die
+   * Linie steht. Die Aussage bleibt - nur das Auf- und Abfahren faellt weg.
+   */
+  .slot-linien-schild,
+  .slot-linien-schild--unten {
+    animation: none;
+    opacity: 1;
+    transform: translate(-50%, -100%);
   }
 
-  .slot-rad__scheibe--laeuft {
-    animation: none;
+  .slot-linien-schild--unten {
+    transform: translate(-50%, 0);
   }
+}
+
+/*
+  Die grossen Meldungen: Geschenke, Abschluesse, der Ausgang des Rads.
+
+  ## Warum sie den Bildschirm nehmen
+
+  Weil sie etwas sagen, das man nicht uebersehen darf, und weil es ein Moment
+  sein soll. Ein Hinweis am Rand waere hoeflicher und genau deshalb falsch:
+  «du hast ein Bonusspiel geschenkt bekommen» ist keine Randnotiz.
+
+  ## Warum der Schleier ein Knopf ist
+
+  Weil ein `div`, das auf Klicks reagiert, fuer eine Tastatur nicht existiert.
+  Ein `button` ohne Beschriftung waere stumm, also hat er eine - und er liegt
+  aus der Tabreihenfolge heraus, damit die erste Taste auf dem Knopf landet,
+  der die Meldung wirklich wegnimmt.
+*/
+.slot-meldung {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+
+.slot-meldung__schleier {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  cursor: default;
+  background: hsl(240 40% 3% / 0.78);
+  backdrop-filter: blur(3px);
+  animation: slot-meldung-schleier 260ms ease-out both;
+}
+
+@keyframes slot-meldung-schleier {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.slot-meldung__karte {
+  position: relative;
+  overflow: hidden;
+  width: min(30rem, 100%);
+  padding: 2rem 1.5rem 1.5rem;
+  border-radius: 1.25rem;
+  border: 1px solid hsl(var(--primary-bright) / 0.45);
+  background:
+    radial-gradient(120% 90% at 50% 0%, hsl(var(--primary-bright) / 0.16), transparent 65%),
+    linear-gradient(180deg, hsl(240 24% 11%), hsl(240 30% 6%));
+  box-shadow:
+    0 0 0 1px hsl(240 30% 3% / 0.8),
+    0 0 60px -12px hsl(var(--primary-bright) / 0.45),
+    0 30px 70px -30px hsl(240 60% 2%);
+  text-align: center;
+  animation: slot-meldung-auf 420ms cubic-bezier(0.17, 0.89, 0.32, 1.28) both;
+}
+
+@keyframes slot-meldung-auf {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/*
+  Die drei Stimmungen.
+
+  Gewinn und Geschenk leuchten, Verlust nicht. Das ist der ganze Unterschied -
+  und er genuegt: dieselbe Form, dieselbe Bewegung, anderes Licht. Ein
+  verlorener Bonus braucht keine eigene Choreografie, er braucht nur die
+  Abwesenheit von Feier.
+*/
+.slot-meldung__karte--gewinn {
+  border-color: hsl(var(--primary-bright) / 0.6);
+}
+
+.slot-meldung__karte--geschenk {
+  border-color: hsl(42 95% 60% / 0.6);
+  background:
+    radial-gradient(120% 90% at 50% 0%, hsl(42 95% 60% / 0.18), transparent 65%),
+    linear-gradient(180deg, hsl(240 24% 11%), hsl(240 30% 6%));
+  box-shadow:
+    0 0 0 1px hsl(240 30% 3% / 0.8),
+    0 0 60px -12px hsl(42 95% 60% / 0.42),
+    0 30px 70px -30px hsl(240 60% 2%);
+}
+
+.slot-meldung__karte--verlust {
+  border-color: hsl(0 0% 100% / 0.14);
+  background: linear-gradient(180deg, hsl(240 14% 12%), hsl(240 18% 7%));
+  box-shadow:
+    0 0 0 1px hsl(240 30% 3% / 0.8),
+    0 24px 60px -30px hsl(240 60% 2%);
+}
+
+.slot-meldung__augenbraue {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: hsl(var(--muted-foreground));
+}
+
+.slot-meldung__titel {
+  margin-top: 0.35rem;
+  font-size: clamp(1.4rem, 7vw, 2rem);
+  font-weight: 900;
+  line-height: 1.05;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: hsl(var(--foreground));
+  text-shadow: 0 0 24px hsl(var(--primary-bright) / 0.4);
+}
+
+.slot-meldung__karte--geschenk .slot-meldung__titel {
+  color: hsl(42 95% 66%);
+  text-shadow: 0 0 24px hsl(42 95% 60% / 0.5);
+}
+
+.slot-meldung__karte--verlust .slot-meldung__titel {
+  color: hsl(var(--muted-foreground));
+  text-shadow: none;
+}
+
+.slot-meldung__zahl,
+.slot-meldung__gross {
+  margin-top: 0.5rem;
+  font-size: clamp(1.8rem, 9vw, 2.75rem);
+  font-weight: 900;
+  line-height: 1;
+  color: hsl(var(--primary-bright));
+  text-shadow: 0 0 30px hsl(var(--primary-bright) / 0.55);
+  animation: slot-meldung-zahl 520ms cubic-bezier(0.17, 0.89, 0.32, 1.28) both;
+  animation-delay: 120ms;
+}
+
+.slot-meldung__karte--geschenk :is(.slot-meldung__zahl, .slot-meldung__gross) {
+  color: hsl(42 95% 66%);
+  text-shadow: 0 0 30px hsl(42 95% 60% / 0.55);
+}
+
+.slot-meldung__karte--verlust :is(.slot-meldung__zahl, .slot-meldung__gross) {
+  color: hsl(var(--foreground) / 0.72);
+  text-shadow: none;
+}
+
+@keyframes slot-meldung-zahl {
+  from {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.slot-meldung__text {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: hsl(var(--muted-foreground));
+}
+
+.slot-meldung__knopf {
+  position: relative;
+  margin-top: 1.25rem;
+  width: 100%;
+  padding: 0.7rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid hsl(var(--primary-bright) / 0.55);
+  background: linear-gradient(180deg, hsl(var(--primary-bright) / 0.28), hsl(var(--primary-bright) / 0.1));
+  color: hsl(var(--foreground));
+  font-size: 0.92rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition:
+    transform 120ms ease-out,
+    filter 120ms ease-out;
+}
+
+.slot-meldung__knopf:hover {
+  filter: brightness(1.14);
+}
+
+.slot-meldung__knopf:active {
+  transform: translateY(1px);
+}
+
+.slot-meldung__karte--geschenk .slot-meldung__knopf {
+  border-color: hsl(42 95% 60% / 0.6);
+  background: linear-gradient(180deg, hsl(42 95% 60% / 0.3), hsl(42 95% 60% / 0.12));
+}
+
+.slot-meldung__karte--verlust .slot-meldung__knopf {
+  border-color: hsl(0 0% 100% / 0.18);
+  background: hsl(240 10% 16%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * Die Meldung bleibt, die Vorfuehrung geht. Sie ist der Inhalt und nicht
+   * die Bewegung - wer weniger Bewegung will, soll sie trotzdem lesen.
+   */
+  .slot-meldung__schleier,
+  .slot-meldung__karte,
+  .slot-meldung__zahl,
+  .slot-meldung__gross {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/*
+  Der Spin-Knopf in seiner zweiten Rolle: Stop.
+
+  Ruhiger als im Spin-Zustand - er fordert nicht, er steht bereit. Der Puls
+  gehoert dem Knopf, der zum Drehen auffordert; dieser hier soll nur
+  erkennbar ein anderer sein.
+*/
+.slot-spin--stop {
+  border-color: hsl(0 0% 100% / 0.22);
+  background: linear-gradient(180deg, hsl(240 10% 22%), hsl(240 12% 14%));
+  box-shadow: 0 10px 26px -14px hsl(240 60% 2%);
+  animation: none;
 }

@@ -291,9 +291,21 @@ export function Mitgliederverwaltung({
           </ul>
         )}
 
+        {/*
+          Was die Liste ist - und was sie nicht ist.
+
+          «Beteiligte» heisst: wer an diesem Projekt arbeitet. Es ist keine
+          Berechtigungsliste; wer das Projekt sehen darf, steht in der
+          Sichtbarkeit weiter unten und wird hier nicht angefasst. Die eine
+          Ausnahme ist «privat»: dort **ist** die Beteiligtenliste die
+          Zugangsliste, weil ein privates Projekt sonst niemanden hätte, der
+          es öffnen kann. Das steht hier, weil der Unterschied sonst erst
+          auffällt, wenn jemand versehentlich Zugang verteilt hat.
+        */}
         <p className="text-[11px] text-muted-foreground">
-          Angeboten werden die, die den Workspace öffnen dürfen. Beteiligte sehen das Projekt auch, wenn es
-          auf «privat» steht.
+          Angeboten werden die, die den Workspace öffnen dürfen. Diese Liste sagt, <em>wer mitarbeitet</em> -
+          nicht, wer das Projekt sehen darf; das steht in der Sichtbarkeit. Nur bei «privat» ist beides
+          dasselbe: dort sehen genau die Beteiligten das Projekt.
         </p>
       </div>
     </div>

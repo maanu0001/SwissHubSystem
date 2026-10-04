@@ -188,7 +188,7 @@ async function einstellungen(selbstvergabeAktiv = true): Promise<void> {
 async function gruppeMit(
   name: string,
   exklusiv: boolean,
-  rollen: Array<{ id: string; selfRemovable?: boolean; frei?: boolean }>,
+  rollen: Array<{ id: string; selfRemovable?: boolean; frei?: boolean; text?: string }>,
 ): Promise<string> {
   const id = await serverrollen.erstelleKategorie({ name, exklusiv });
   for (const [index, rolle] of rollen.entries()) {
@@ -199,6 +199,7 @@ async function gruppeMit(
         sortOrder: index,
         selfAssignable: rolle.frei ?? true,
         selfRemovable: rolle.selfRemovable ?? true,
+        beschreibung: rolle.text ?? null,
       },
     });
   }
@@ -606,5 +607,123 @@ describeWithDatabase('Serverrollen: Dropdown und Exklusivgruppen', () => {
     expect((await prisma.serverRoleCategory.findUniqueOrThrow({ where: { id: gruppe } })).embedAktiv).toBe(
       false,
     );
+  });
+
+  /*
+   * Das Embed selbst - nicht das Menue darunter.
+   *
+   * Gefordert ist, dass im Embed **alle** Rollen der Gruppe stehen, jede als
+   * echte Rollen-Mention mit ihrer Beschreibung darunter, und dass das Menue
+   * nur die enthaelt, die man sich selbst geben kann. Das sind zwei
+   * verschiedene Listen, und genau darin lag der Mangel: vorher war die
+   * Liste im Embed dieselbe wie die im Menue - wer eine Rolle nur vom Team
+   * bekommt, stand nirgends.
+   */
+  it('nennt im Embed jede Rolle der Gruppe als Mention mit ihrer Beschreibung', async () => {
+    const welt = attrappe([]);
+    setDiscordGateway(welt.gateway as never);
+    const gruppe = await gruppeMit('Spiele', false, [
+      { id: VALORANT, text: 'Für Valorant-Abende' },
+      // Nicht freigegeben - steht trotzdem im Embed.
+      { id: CS2, frei: false, text: 'Vergibt das Team' },
+      // Gesperrt wegen kritischer Rechte - steht trotzdem im Embed.
+      { id: GEFAEHRLICH },
+    ]);
+
+    const nachricht = await serverrollen.baueGruppenNachricht(gruppe);
+    const text = nachricht.embeds?.[0]?.description ?? '';
+
+    for (const rolle of [VALORANT, CS2, GEFAEHRLICH]) {
+      expect(text, rolle).toContain(`<@&${rolle}>`);
+    }
+    // Die Beschreibung steht unter ihrer Rolle und nicht irgendwo.
+    expect(text).toContain(`<@&${VALORANT}>\nFür Valorant-Abende`);
+    expect(text).toContain(`<@&${CS2}>\nVergibt das Team`);
+    // Eine Rolle ohne Beschreibung bekommt keine leere Zeile angehängt.
+    expect(text).not.toMatch(/<@&\d+>\n\n\n/u);
+  });
+
+  it('erwähnt im Embed niemanden, obwohl Mentions darin stehen', async () => {
+    /*
+     * Der Unterschied zwischen «sieht aus wie eine Rolle» und «pingt eine
+     * Rolle». Eine Nachricht mit fünf Rollen-Mentions, die auch pingt, weckt
+     * den halben Server - und zwar jedes Mal, wenn jemand die Reihenfolge
+     * ändert und das Embed neu geschrieben wird.
+     */
+    const welt = attrappe([]);
+    setDiscordGateway(welt.gateway as never);
+    const gruppe = await gruppeMit('Spiele', false, [{ id: VALORANT }, { id: CS2 }]);
+
+    const nachricht = await serverrollen.baueGruppenNachricht(gruppe);
+    expect(nachricht.allowedMentions).toEqual({ parse: [] });
+  });
+
+  it('lässt das Menü ganz weg, wenn keine Rolle selbst vergebbar ist', async () => {
+    /*
+     * Kein leeres und kein abgeschaltetes Menü: **keines**. Ein Dropdown, in
+     * dem nichts steht, ist eine Einladung zu einem Klick ins Leere; ein
+     * abgeschaltetes ist ein sichtbarer Defekt. Die Liste der Rollen bleibt
+     * trotzdem im Embed - sie ist die Information, um die es geht.
+     */
+    const welt = attrappe([]);
+    setDiscordGateway(welt.gateway as never);
+    const gruppe = await gruppeMit('Teamrollen', false, [
+      { id: VALORANT, frei: false, text: 'Auf Anfrage' },
+      { id: CS2, frei: false },
+    ]);
+
+    const nachricht = await serverrollen.baueGruppenNachricht(gruppe);
+    expect(nachricht.components).toBeUndefined();
+    const text = nachricht.embeds?.[0]?.description ?? '';
+    expect(text).toContain(`<@&${VALORANT}>`);
+    expect(text).toContain(`<@&${CS2}>`);
+    expect(text).toContain('nichts zu wählen');
+  });
+
+  it('nimmt nur die vergebbaren Rollen ins Menü, zeigt aber alle im Embed', async () => {
+    const welt = attrappe([]);
+    setDiscordGateway(welt.gateway as never);
+    const gruppe = await gruppeMit('Spiele', false, [
+      { id: VALORANT },
+      { id: CS2, frei: false },
+      { id: UEBER_DEM_BOT },
+    ]);
+
+    const alle = await serverrollen.gruppenRollen(gruppe);
+    expect(alle.map((rolle) => rolle.discordRoleId)).toEqual([VALORANT, CS2, UEBER_DEM_BOT]);
+    expect(alle.map((rolle) => rolle.vergebbar)).toEqual([true, false, false]);
+
+    const menue = (await serverrollen.baueGruppenNachricht(gruppe)).components?.[0]?.components[0] as {
+      options: Array<{ value: string }>;
+    };
+    expect(menue.options.map((option) => option.value)).toEqual([VALORANT]);
+  });
+
+  it('schreibt die bestehende Nachricht um, wenn sich eine Beschreibung ändert', async () => {
+    /*
+     * Keine zweite Nachricht. Wer eine Beschreibung tippt, soll nicht
+     * nebenbei den Kanal zumüllen - und der Link, den jemand gesetzt hat,
+     * soll weiter auf dieselbe Nachricht zeigen.
+     */
+    const welt = attrappe([]);
+    setDiscordGateway(welt.gateway as never);
+    const gruppe = await gruppeMit('Spiele', false, [{ id: VALORANT, text: 'Alt' }]);
+    await serverrollen.speichereEmbedEinstellungen(gruppe, { channelId: KANAL });
+    await serverrollen.sendeGruppenEmbed(gruppe, AKTEUR);
+
+    const erste = (await serverrollen.embedStand(gruppe)).messageId;
+    expect(erste).not.toBeNull();
+
+    await prisma.serverRoleMeta.updateMany({
+      where: { categoryId: gruppe, discordRoleId: VALORANT },
+      data: { beschreibung: 'Neu' },
+    });
+    await serverrollen.sendeGruppenEmbed(gruppe, AKTEUR);
+
+    expect((await serverrollen.embedStand(gruppe)).messageId).toBe(erste);
+    // Bearbeitet, nicht neu gesendet - und mit dem neuen Text darin.
+    expect(welt.gesendet).toHaveLength(1);
+    expect(welt.bearbeitet).toHaveLength(1);
+    expect(JSON.stringify(welt.bearbeitet.at(-1))).toContain('Neu');
   });
 });

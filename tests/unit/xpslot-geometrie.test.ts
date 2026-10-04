@@ -179,13 +179,17 @@ describe('Risiko-Rad', () => {
 
   it('bleibt auf seinem Ergebnis stehen, bevor es abgibt', () => {
     /*
-     * Zwei Uhren statt einer.
+     * Erst stehen, dann abgeben.
      *
      * Vorher setzte derselbe Rueckruf `steht` und rief `aufEnde` - und
      * `aufEnde` nimmt das Rad aus dem Baum. Das Ergebnis war damit nie
      * gezeichnet: das Rad verschwand in dem Moment, in dem es stehen blieb,
      * und wer hinsah, bekam nur noch eine Meldung. Der Browser-Smoke hat
      * genau das gefunden.
+     *
+     * Das Stehen kommt jetzt aus dem letzten Bild der Drehung selbst und
+     * nicht mehr aus einer zweiten Uhr - deshalb wird hier das Bild
+     * abgeraeumt und nicht ein Zeitgeber. Die Haltezeit bleibt dieselbe.
      */
     expect(quelle).toContain('RAD_HALTEN_MS');
     expect(quelle).toContain('RAD_DAUER_MS + RAD_HALTEN_MS');
@@ -193,9 +197,48 @@ describe('Risiko-Rad', () => {
     const ende = quelle.indexOf('aufEnde();');
     expect(stopp).toBeGreaterThan(-1);
     expect(ende).toBeGreaterThan(stopp);
-    // Und beide Uhren werden wieder abgeraeumt.
-    expect(quelle).toContain('clearTimeout(uhrStopp)');
+    // Und beides wird wieder abgeraeumt.
+    expect(quelle).toContain('cancelAnimationFrame(bild)');
     expect(quelle).toContain('clearTimeout(uhrEnde)');
+  });
+
+  it('dreht aus einer einzigen Drehung und landet genau auf dem Feld', () => {
+    /*
+     * Der Fehler, den dieser Test festhaelt.
+     *
+     * Die Bewegung bestand aus zwei Teilen, die nichts voneinander wussten:
+     * einer CSS-Animation auf `rotate` fuer den freien Lauf und einem
+     * Uebergang auf `transform` fuer das Ausfahren. Sichtbar war deren
+     * **Summe**. Waehrend des Ausfahrens addierte die Animation einen Winkel,
+     * den niemand kannte; als die Klasse fiel, sprang das Rad um diesen
+     * Betrag - und landete nicht auf seinem Feld, sondern irgendwo daneben.
+     *
+     * Jetzt gibt es einen Winkel, der Bild fuer Bild geschrieben wird. Das
+     * letzte Bild setzt ihn genau auf das Ziel; nichts rastet nachtraeglich
+     * ein.
+     */
+    expect(quelle).toContain('requestAnimationFrame');
+    expect(quelle).toContain('zeichne(fahrt.von + fahrt.strecke)');
+    // Keine zweite Drehquelle: weder eine Animation noch ein Uebergang.
+    const css = lies('apps/web/src/modules/level/xpslot/xpslot.css');
+    const rad = css.slice(css.indexOf('.slot-rad__scheibe {'));
+    const block = rad.slice(0, rad.indexOf('}'));
+    expect(block).not.toContain('transition-property');
+    expect(block).not.toContain('animation');
+    expect(css).not.toContain('slot-rad-frei');
+  });
+
+  it('beschleunigt und bremst, statt mit vollem Tempo loszugehen', () => {
+    /*
+     * Gefordert sind «sauberer Beschleunigung», «mehrere Rotationen» und
+     * «kontrollierter Verzoegerung». Alle drei stehen als Rechnung im Code:
+     * der Anlauf als Integral einer S-Kurve, das Ausfahren als flache
+     * Potenzkurve, und die Strecke als mindestens zwei ganze Umdrehungen.
+     */
+    expect(quelle).toContain('function anlaufWeg');
+    expect(quelle).toContain('ANLAUF_MS');
+    expect(quelle).toContain('AUSFAHRT_GRAD');
+    expect(quelle).toMatch(/Math\.max\(2, Math\.round/u);
   });
 });
 

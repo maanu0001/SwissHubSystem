@@ -25,7 +25,7 @@ export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
   const S = level.xpslot;
 
   const konfiguration = await S.leseKonfiguration();
-  const [pakete, kennzahlen, verlauf, freispielZeilen, befehl] = await Promise.all([
+  const [pakete, kennzahlen, verlauf, freispielZeilen, bonusGeschenke, befehl] = await Promise.all([
     S.pakete(konfiguration.wirksam.soundPackId),
     S.kennzahlen('alles'),
     S.verlauf({ seite: 1, proSeite: 40 }),
@@ -41,6 +41,9 @@ export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
       orderBy: [{ expiresAt: 'asc' }, { createdAt: 'asc' }],
       take: 200,
     }),
+    // Dieselbe Begruendung wie eine Zeile hoeher: eine Abfrage fuer die
+    // ganze Tabelle, nicht eine je Person.
+    S.bonusGeschenke(),
     S.befehlsEinstellungen(),
   ]);
 
@@ -63,6 +66,7 @@ export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
       ...kennzahlen.aktivste.map((eintrag) => eintrag.discordId),
       ...verlauf.eintraege.map((eintrag) => eintrag.discordId),
       ...freispielZeilen.map((zeile) => zeile.discordId),
+      ...bonusGeschenke.map((zeile) => zeile.discordId),
     ]),
   ];
   const [personen, slugs] = await Promise.all([loadPersonen(kennungen), profile.slugsVon(kennungen)]);
@@ -95,6 +99,7 @@ export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
         rtp={S.rtpVon(konfiguration)}
         pakete={pakete}
         freispiele={freispielZeilen.map(S.alsPaket)}
+        bonusGeschenke={bonusGeschenke}
         kennzahlen={kennzahlen}
         verlauf={verlauf}
         klangSlots={S.KLANG_SLOTS}

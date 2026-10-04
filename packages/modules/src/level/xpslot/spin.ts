@@ -13,6 +13,13 @@ import { gewinnstufe, werteAus, type Auswertung, type Gewinnstufe } from './ausw
 import { leseKonfiguration, istSpielbar, type SlotKonfiguration } from './konfiguration';
 import { pruefeGrenzen, schreibeStand, type GrenzStand } from './limits';
 import { naechstesPaket, verbraucheFreispiel } from './freispiele';
+import {
+  bonusAbschluss,
+  istDurch,
+  schliesseGeschenkAb,
+  zaehleAufPaket,
+  type BonusAbschluss,
+} from './geschenke';
 import { dreheWalzen, ZELLEN } from './regeln';
 
 const log = createLogger('level:xpslot:spin');
@@ -55,6 +62,32 @@ const log = createLogger('level:xpslot:spin');
  * nirgends vor.
  */
 
+/**
+ * Ein Treffer mit seiner **eigenen** Gewinnstufe.
+ *
+ * Die Stufe eines Spins sagt, wie gross der Gewinn insgesamt war; sie taugt
+ * nicht fuer die einzelne Linie. Vier Linien koennen zusammen ein «Big Win»
+ * sein und einzeln vier kleine Treffer - und wenn jede Linie einzeln gezeigt
+ * und einzeln geklungen wird, muss jede ihre eigene Stufe haben.
+ *
+ * Gerechnet wird sie hier und nicht in der Oberflaeche, weil die Schwellen
+ * zur Konfiguration gehoeren: der Browser muesste sie sonst mitbekommen und
+ * dieselbe Rechnung ein zweites Mal halten. Zwei Rechnungen fuer dieselbe
+ * Frage gehen irgendwann auseinander.
+ */
+export type TrefferAnzeige = Auswertung['treffer'][number] & { stufe: Gewinnstufe };
+
+function trefferMitStufe(
+  treffer: Auswertung['treffer'],
+  einsatz: number,
+  schwellen: { gross: number; mega: number },
+): TrefferAnzeige[] {
+  return treffer.map((eintrag) => ({
+    ...eintrag,
+    stufe: gewinnstufe(eintrag.gewinn, einsatz, schwellen, eintrag.jackpot),
+  }));
+}
+
 /** Was die Oberflaeche nach einem Spin braucht. */
 export interface SpinErgebnis {
   spinId: string;
@@ -63,7 +96,7 @@ export interface SpinErgebnis {
   art: XpSlotSpinKind;
   einsatz: number;
   grid: string[];
-  treffer: Auswertung['treffer'];
+  treffer: TrefferAnzeige[];
   gewinn: number;
   /** Netto fuer die Person: Gewinn minus Einsatz. */
   netto: number;
@@ -80,6 +113,14 @@ export interface SpinErgebnis {
   xpNachher: number;
   /** Die laufende Bonusrunde, falls es eine gibt. */
   bonus: BonusStand | null;
+  /**
+   * Die Abschlusswerte - nur in dem Spin, der die Bonusrunde beendet.
+   *
+   * `null` in jedem anderen Spin. Die Oberflaeche zeigt daran ihr
+   * Abschluss-Overlay und braucht dafuer keine eigene Summe: diese Zahlen
+   * stehen in der Zeile und sind in diesem Moment endgueltig.
+   */
+  bonusEnde: BonusAbschluss | null;
   /** Offene Freispiele nach diesem Spin. */
   freispieleOffen: number;
   freispielEinsatz: number | null;
@@ -375,10 +416,28 @@ async function spinInTransaktion(
     },
   });
 
+  /*
+   * Der Gewinn zaehlt auf sein Paket.
+   *
+   * In derselben Transaktion wie der Spin: eine Summe, die nachtraeglich
+   * gebildet wird, kann einen Spin verpassen - und «was haben mir diese zehn
+   * Freispiele gebracht» soll stimmen, nicht ungefaehr stimmen.
+   */
+  if (art === 'FREESPIN_PACKAGE' && paket) {
+    await zaehleAufPaket(tx, paket, auswertung.gewinn);
+  }
+
   // --- Bonusrunde fortschreiben -------------------------------------------
   let laufende = runde;
   if (art === 'BONUS_ROUND' && runde) {
     laufende = await schreibeBonusrundeFort(tx, runde, grid, auswertung, konfiguration, jetzt);
+    /*
+     * War es der letzte Freispielspin, ist auch das Geschenk durch.
+     *
+     * Ohne diesen Schritt stuende es auf «gestartet», und das naechste
+     * Geschenk waere blockiert von einer Runde, die laengst vorbei ist.
+     */
+    await schliesseGeschenkAb(tx, laufende);
   } else if (auswertung.bonusAusgeloest) {
     laufende = await tx.xpSlotBonusRound.create({
       data: {
@@ -413,7 +472,10 @@ async function spinInTransaktion(
       art,
       einsatz,
       grid,
-      treffer: auswertung.treffer,
+      treffer: trefferMitStufe(auswertung.treffer, einsatz, {
+        gross: w.tierGross,
+        mega: w.tierMega,
+      }),
       gewinn: auswertung.gewinn,
       netto: auswertung.gewinn - (art === 'PAID' ? einsatz : 0),
       gedeckelt: auswertung.gedeckelt,
@@ -432,6 +494,14 @@ async function spinInTransaktion(
       xpVorher,
       xpNachher,
       bonus: laufende ? bonusStand(laufende, konfiguration) : null,
+      /*
+       * Der Abschluss - genau in dem Spin, der die Runde beendet.
+       *
+       * Damit braucht die Oberflaeche keine zweite Abfrage und keine eigene
+       * Summe: sie bekommt die Zahlen, die in der Zeile stehen, in dem
+       * Moment, in dem sie endgueltig sind.
+       */
+      bonusEnde: art === 'BONUS_ROUND' && laufende && istDurch(laufende) ? bonusAbschluss(laufende) : null,
       freispieleOffen: offen.anzahl,
       freispielEinsatz: offen.einsatz,
       stand: grenzen.stand,
@@ -572,7 +642,10 @@ async function nachbereitetesErgebnis(
     art: spin.kind,
     einsatz: spin.bet,
     grid: spin.grid,
-    treffer: auswertung.treffer,
+    treffer: trefferMitStufe(auswertung.treffer, spin.bet, {
+      gross: w.tierGross,
+      mega: w.tierMega,
+    }),
     gewinn: spin.grossWin,
     netto: spin.netWin,
     gedeckelt: spin.capped,
@@ -586,6 +659,14 @@ async function nachbereitetesErgebnis(
     xpVorher: spin.xpBefore,
     xpNachher: spin.xpAfter,
     bonus: runde ? bonusStand(runde, konfiguration) : null,
+    /*
+     * Bei einer Wiederholung kein Abschluss.
+     *
+     * Der zweite Aufruf mit demselben Schluessel ist derselbe Spin, nicht
+     * ein zweiter - und das Abschluss-Overlay ist schon gelaufen. Es
+     * nochmals zu schicken hiesse, dieselbe Feier zweimal zu zeigen.
+     */
+    bonusEnde: null,
     freispieleOffen: offen.anzahl,
     freispielEinsatz: offen.einsatz,
     stand: grenzen.stand,

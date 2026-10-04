@@ -367,6 +367,8 @@ export type {
   XpRaffleRefund,
   XpRaffleRefundReason,
   XpRaffleStatus,
+  XpSlotBonusGrant,
+  XpSlotBonusGrantStatus,
   XpSlotBonusRound,
   XpSlotBonusStage,
   XpSlotConfig,

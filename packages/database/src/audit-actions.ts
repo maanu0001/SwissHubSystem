@@ -606,6 +606,17 @@ export const AUDIT_ACTIONS = {
   XP_SLOT_FREESPINS_GRANTED: 'XP_SLOT_FREESPINS_GRANTED',
   XP_SLOT_FREESPINS_REVOKED: 'XP_SLOT_FREESPINS_REVOKED',
   XP_SLOT_FREESPINS_UPDATED: 'XP_SLOT_FREESPINS_UPDATED',
+
+  /*
+   * Ein geschenktes Bonusspiel.
+   *
+   * Eigene Eintraege neben den Freispielen, weil es etwas anderes ist: ein
+   * Bonusspiel traegt die Risikoleiter, und wer eines verschenkt, verschenkt
+   * eine Entscheidung mit offenem Ausgang - bis zu sechzehn Freispiele oder
+   * keines.
+   */
+  XP_SLOT_BONUS_GRANTED: 'XP_SLOT_BONUS_GRANTED',
+  XP_SLOT_BONUS_REVOKED: 'XP_SLOT_BONUS_REVOKED',
   XP_SLOT_PREMIUM_CONFIG_UPDATED: 'XP_SLOT_PREMIUM_CONFIG_UPDATED',
   XP_SLOT_PREMIUM_GRANTED: 'XP_SLOT_PREMIUM_GRANTED',
 

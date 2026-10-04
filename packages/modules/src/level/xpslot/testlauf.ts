@@ -174,7 +174,15 @@ export async function testlauf(
       art: 'TEST',
       einsatz: eingabe.einsatz,
       grid,
-      treffer: auswertung.treffer,
+      treffer: auswertung.treffer.map((eintrag) => ({
+        ...eintrag,
+        stufe: gewinnstufe(
+          eintrag.gewinn,
+          eingabe.einsatz,
+          { gross: w.tierGross, mega: w.tierMega },
+          eintrag.jackpot,
+        ),
+      })),
       gewinn: auswertung.gewinn,
       netto: 0,
       gedeckelt: auswertung.gedeckelt,
@@ -193,6 +201,8 @@ export async function testlauf(
       xpVorher: 0,
       xpNachher: 0,
       bonus: null,
+      // Der Testmodus beruehrt keine Bonusrunde - also auch keinen Abschluss.
+      bonusEnde: null,
       freispieleOffen: 0,
       freispielEinsatz: null,
       stand: {

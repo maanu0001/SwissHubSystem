@@ -317,15 +317,20 @@ export function createJobRunner(
        * nach, was nachzuholen ist - deshalb genuegen fuenf Minuten.
        *
        * Es waren drei: das Beenden abgelaufener Events ist weggefallen, weil
-       * es den Eventmodus nicht mehr gibt.
+       * es den Eventmodus nicht mehr gibt - und ein drittes ist dazugekommen,
+       * die abgelaufenen Bonusgeschenke. Dort gilt dasselbe: ein abgelaufenes
+       * Geschenk laesst sich ohnehin nicht starten, dieser Lauf bringt nur
+       * den Stand in Ordnung.
        */
       intervalMs: 5 * 60 * 1000,
       async run() {
         const abgelaufen = await level.xpslot.markiereAbgelaufene();
+        const geschenke = await level.xpslot.markiereAbgelaufeneGeschenke();
         const premium = await level.xpslot.holeVorgemerkteNach();
-        if (abgelaufen > 0 || premium.gebucht > 0) {
+        if (abgelaufen > 0 || geschenke > 0 || premium.gebucht > 0) {
           log.info('XP-Slot gepflegt', {
             freispielpakete: abgelaufen,
+            bonusgeschenke: geschenke,
             premiumGebucht: premium.gebucht,
             premiumOffen: premium.offen,
           });

@@ -112,38 +112,56 @@ describe('Klangsatz', () => {
 describe('Klänge zur richtigen Zeit', () => {
   const quelle = ohneKommentare(lies(SPIEL));
 
-  it('spielt den Gewinnklang erst nach dem letzten Einrasten', () => {
-    // Zuerst der Stopp, dann die Pause, dann das Ergebnis - in dieser
-    // Reihenfolge im Quelltext, weil es eine Reihenfolge in der Zeit ist.
-    const stopp = quelle.indexOf("ton.stoppeSchleife('reel_loop')");
+  /*
+   * Wo die Klaenge inzwischen stehen.
+   *
+   * Im Spielablauf stand einmal `ton.spiele('reel_stop')` zwischen zwei
+   * `await warte(...)`. Das war die Ursache eines echten Mangels: ob daraus
+   * ein Klang oder fuenf wurden, hing daran, wie oft diese Zeile zufaellig
+   * durchlaufen wurde - und im Quick Spin war es einer fuer fuenf Walzen.
+   *
+   * Jetzt meldet die Oberflaeche **Ereignisse**, und `klangereignisse.ts`
+   * sagt, wie die klingen. Die Reihenfolge in der Zeit wird deshalb hier an
+   * den Ereignissen geprueft, und welcher Klang dazu gehoert, in
+   * `tests/unit/xpslot-klang.test.ts` - dort abzaehlbar, ohne Browser.
+   */
+  it('meldet das Ergebnis erst nach dem letzten Einrasten', () => {
+    const stopp = quelle.indexOf("melde({ art: 'reelsFinished' })");
     const pause = quelle.indexOf('await warte(ZEITEN.ergebnis)');
-    const gewinn = quelle.indexOf('STUFEN_KLANG[spin.stufe]');
+    const gewinn = quelle.indexOf("melde({ art: 'spinResult'");
     expect(stopp).toBeGreaterThan(-1);
     expect(pause).toBeGreaterThan(stopp);
     expect(gewinn).toBeGreaterThan(pause);
   });
 
-  it('ersetzt den Gewinnklang bei einem Bonus, statt beide zu spielen', () => {
+  it('ersetzt den Gewinnklang bei einem Bonus, statt beide zu melden', () => {
     expect(quelle).toMatch(
-      /if \(spin\.bonusAusgeloest\) \{[\s\S]*?ton\.spiele\(spin\.art === 'BONUS_ROUND' \? 'retrigger' : 'bonus_trigger'\);[\s\S]*?\} else \{[\s\S]*?STUFEN_KLANG/u,
+      /if \(spin\.bonusAusgeloest\) \{[\s\S]*?melde\(\{ art: 'bonusTriggered', retrigger: spin\.art === 'BONUS_ROUND' \}\);[\s\S]*?\} else if \(!einzelneLinien\) \{[\s\S]*?melde\(\{ art: 'spinResult'/u,
     );
   });
 
   it('hält bei Quick Spin alle Walzen zusammen an - ausser beim Sweat', () => {
     expect(quelle).toContain('if (schnell && !sweatSpielt)');
-    expect(quelle).toContain('haltAlle(0)');
-    // Die Ausnahme steht als eigener Zweig da und nicht als Zufall.
+    expect(quelle).toContain('haltAlles()');
+    // Die Ausnahme steht als eigener Zweig da und nicht als Zufall - und
+    // dort haelt nur, was **vor** der entscheidenden Walze liegt.
     expect(quelle).toContain('} else if (schnell && sweatAb !== null) {');
-    expect(quelle).toContain("ton.spiele('bonus_sweat')");
+    expect(quelle).toContain('haltBis(sweatAb)');
+    expect(quelle).toContain("melde({ art: 'bonusSweatStarted' })");
   });
 
-  it('startet und beendet die Radklänge zusammen mit dem Rad', () => {
-    expect(quelle).toContain("ton.starteSchleife('gamble_spin')");
-    expect(quelle).toContain("ton.spiele('gamble_tension')");
-    expect(quelle).toContain("ton.stoppeSchleife('gamble_spin')");
+  it('meldet die Radklänge zusammen mit dem Rad', () => {
+    expect(quelle).toContain("melde({ art: 'gambleStarted' })");
     // Gewonnen oder verloren entscheidet der Server; der Klang folgt dem
-    // Ergebnis und nicht umgekehrt.
-    expect(quelle).toContain("ton.spiele(gewonnen ? 'gamble_win' : 'gamble_lose')");
+    // Ergebnis und nicht umgekehrt - und er kommt, wenn das Rad steht.
+    expect(quelle).toContain("melde({ art: 'gambleLanded', gewonnen })");
+    const ereignisse = ohneKommentare(
+      lies('apps/web/src/modules/level/xpslot/components/klangereignisse.ts'),
+    );
+    expect(ereignisse).toContain("ton.starteSchleife('gamble_spin')");
+    expect(ereignisse).toContain("ton.spiele('gamble_tension')");
+    expect(ereignisse).toContain("ton.stoppeSchleife('gamble_spin', { sofort: true })");
+    expect(ereignisse).toContain("ton.spiele(ereignis.gewonnen ? 'gamble_win' : 'gamble_lose')");
   });
 
   it('zeigt der Verwaltung den Wartungsmodus', () => {

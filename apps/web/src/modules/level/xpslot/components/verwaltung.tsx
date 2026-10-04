@@ -39,6 +39,8 @@ import {
   befehlSpeichernAction,
   designSpeichernAction,
   feedSpeichernAction,
+  bonusGeschenkEntziehenAction,
+  bonusSchenkenAction,
   freispieleEntziehenAction,
   freispieleFristAction,
   freispieleGewaehrenAction,
@@ -76,6 +78,7 @@ type Uebersicht = Awaited<ReturnType<typeof level.xpslot.leseKonfiguration>>;
 type Rtp = ReturnType<typeof level.xpslot.rtpVon>;
 type Pakete = Awaited<ReturnType<typeof level.xpslot.pakete>>;
 type Freispiele = Awaited<ReturnType<typeof level.xpslot.offeneFreispiele>>['pakete'];
+type BonusGeschenke = Awaited<ReturnType<typeof level.xpslot.bonusGeschenke>>;
 type Kennzahlen = Awaited<ReturnType<typeof level.xpslot.kennzahlen>>;
 type Verlauf = Awaited<ReturnType<typeof level.xpslot.verlauf>>;
 type Testergebnis = Awaited<ReturnType<typeof level.xpslot.testlauf>>['ergebnis'];
@@ -102,6 +105,7 @@ export interface VerwaltungProps {
   rtp: Rtp;
   pakete: Pakete;
   freispiele: Freispiele;
+  bonusGeschenke: BonusGeschenke;
   /**
    * Die Namen hinter den Kennungen - serverseitig aufgeloest.
    *
@@ -1208,6 +1212,7 @@ function FreespinsTab({
   csrfToken,
   konfiguration,
   freispiele,
+  bonusGeschenke,
   namen,
   darfFreispiele,
 }: VerwaltungProps): React.JSX.Element {
@@ -1220,13 +1225,19 @@ function FreespinsTab({
     laeuftAb: '',
     grund: '',
   });
+  const [bonus, setBonus] = useState({
+    discordId: '',
+    einsatz: konfiguration.wirksam.einsaetze[0] ?? 10,
+    laeuftAb: '',
+    grund: '',
+  });
 
   if (!darfFreispiele) {
     return (
       <Kasten titel="Freespins">
         <p className="text-xs text-muted-foreground">
-          Freispiele zu gewähren braucht die Berechtigung «XP-Slot-Freispiele vergeben». Ein Freispiel hat
-          echten XP-Wert, deshalb steht sie getrennt.
+          Freispiele und Bonusspiele zu verschenken braucht die Berechtigung «XP-Slot-Freispiele vergeben».
+          Beides hat echten XP-Wert, deshalb steht sie getrennt.
         </p>
       </Kasten>
     );
@@ -1376,6 +1387,160 @@ function FreespinsTab({
                           )
                         }
                       />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Kasten>
+
+      {/*
+        Ein ganzes Bonusspiel verschenken.
+
+        Der Unterschied zu Freispielen ist nicht die Menge, sondern die Art:
+        Freispiele laufen einfach ab, ein Bonusspiel beginnt mit der
+        Entscheidung - nehmen oder riskieren. Es ist dieselbe Bonusrunde, die
+        ein Scatter-Treffer ausloest, und sie kann an der Leiter auch komplett
+        verloren gehen. Darum steht das hier als eigener Kasten und nicht als
+        Zahl im Formular darueber.
+      */}
+      <Kasten
+        titel="Bonusspiel verschenken"
+        hinweis="Ein geschenktes Bonusspiel startet den gewöhnlichen Bonusablauf: Freispiele nehmen oder riskieren. Mehr als ein offenes Geschenk je Person geht nicht."
+      >
+        <div className="grid gap-3 sm:grid-cols-5">
+          <div className="sm:col-span-2">
+            <Label className="text-xs">Discord-Kennung</Label>
+            <Input
+              className="mt-1"
+              placeholder="123456789012345678"
+              value={bonus.discordId}
+              onChange={(ereignis) => setBonus((v) => ({ ...v, discordId: ereignis.target.value.trim() }))}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Einsatz</Label>
+            <select
+              className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={String(bonus.einsatz)}
+              onChange={(ereignis) => setBonus((v) => ({ ...v, einsatz: Number(ereignis.target.value) }))}
+            >
+              {konfiguration.wirksam.einsaetze.map((wert) => (
+                <option key={wert} value={wert}>
+                  {wert} XP
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label className="text-xs">Läuft ab (optional)</Label>
+            <Input
+              type="date"
+              className="mt-1"
+              value={bonus.laeuftAb}
+              onChange={(ereignis) => setBonus((v) => ({ ...v, laeuftAb: ereignis.target.value }))}
+            />
+          </div>
+          <div className="flex items-end">
+            <Button
+              className="w-full"
+              disabled={laeuft || bonus.discordId.length < 17}
+              onClick={() =>
+                void fuehreAus(
+                  () =>
+                    bonusSchenkenAction({
+                      csrfToken,
+                      discordId: bonus.discordId,
+                      einsatz: bonus.einsatz,
+                      laeuftAb: bonus.laeuftAb ? new Date(bonus.laeuftAb) : null,
+                      grund: bonus.grund.trim() || null,
+                    }),
+                  'Bonusspiel geschenkt.',
+                )
+              }
+            >
+              <Gift aria-hidden="true" />
+              Verschenken
+            </Button>
+          </div>
+          <div className="sm:col-span-5">
+            <Label className="text-xs">Grund (steht in der Ankündigung und im Protokoll)</Label>
+            <Input
+              className="mt-1"
+              placeholder="Community Event"
+              value={bonus.grund}
+              onChange={(ereignis) => setBonus((v) => ({ ...v, grund: ereignis.target.value }))}
+            />
+          </div>
+        </div>
+      </Kasten>
+
+      <Kasten
+        titel="Offene Bonusgeschenke"
+        hinweis={`${bonusGeschenke.length} ${bonusGeschenke.length === 1 ? 'Geschenk ist' : 'Geschenke sind'} angekündigt oder laufen gerade.`}
+      >
+        {bonusGeschenke.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Gerade ist kein Bonusspiel verschenkt.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th className="p-2 text-left font-medium">Person</th>
+                  <th className="p-2 text-left font-medium">Stand</th>
+                  <th className="p-2 text-right font-medium">Einsatz</th>
+                  <th className="p-2 text-left font-medium">Läuft ab</th>
+                  <th className="p-2 text-left font-medium">Grund</th>
+                  <th className="p-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {bonusGeschenke.map((geschenk) => (
+                  <tr key={geschenk.id} className="border-t border-border">
+                    <td className="p-2">
+                      <PersonZelle eintrag={nachKennung.get(geschenk.discordId)} />
+                    </td>
+                    <td className="p-2">
+                      {geschenk.laufend ? (
+                        <span className="font-medium text-warning">läuft gerade</span>
+                      ) : (
+                        <span className="text-muted-foreground">angekündigt</span>
+                      )}
+                    </td>
+                    <td className="p-2 text-right tabular-nums">{geschenk.einsatz} XP</td>
+                    <td className="p-2 text-muted-foreground">
+                      {geschenk.laeuftAb ? geschenk.laeuftAb.toISOString().slice(0, 10) : '–'}
+                    </td>
+                    <td className="p-2 text-muted-foreground">{geschenk.grund ?? '–'}</td>
+                    <td className="p-2 text-right">
+                      {/*
+                        Ein laufendes Bonusspiel laesst sich nicht entziehen:
+                        die Freispiele sind dann eine gewoehnliche Bonusrunde,
+                        und die mitten im Lauf wegzunehmen hiesse, jemandem
+                        einen gebuchten Gewinn abzuschneiden.
+                      */}
+                      {geschenk.laufend ? (
+                        <span className="text-muted-foreground">–</span>
+                      ) : (
+                        <RueckfrageKnopf
+                          titel="Bonusgeschenk entziehen?"
+                          beschreibung="Die Ankündigung verschwindet, bevor die Person sie gesehen hat. Ein bereits gestartetes Bonusspiel lässt sich nicht mehr entziehen."
+                          bestaetigen="Entziehen"
+                          kind={
+                            <Button size="sm" variant="ghost">
+                              <Trash2 aria-hidden="true" />
+                            </Button>
+                          }
+                          onBestaetigt={() =>
+                            void fuehreAus(
+                              () => bonusGeschenkEntziehenAction({ csrfToken, grantId: geschenk.id }),
+                              'Bonusgeschenk entzogen.',
+                            )
+                          }
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}

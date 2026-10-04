@@ -358,14 +358,20 @@ describe('Quick Spin', () => {
      */
     const quelle = ohneKommentare(lies(SPIEL));
     expect(quelle).not.toContain('schnellStaffel');
-    expect(quelle).toContain('haltAlle(0)');
+    expect(quelle).toContain('haltAlles()');
 
     /*
      * Die eine Ausnahme bleibt der Bonus Sweat: steht der Bonus noch offen,
      * darf die entscheidende Walze laenger laufen - auch im Quick Spin.
+     *
+     * Und zwar **nur** sie: `haltBis(sweatAb)` haelt die Walzen davor und
+     * laesst den Rest drehen. Hier stand einmal `haltAlle(0)`, was alle fuenf
+     * anhielt - danach lief der Sweat-Klang ueber ein stehendes Bild, und der
+     * Moment, auf den es ankommt, war keiner mehr.
      */
     expect(quelle).toContain('schnellSweat');
     expect(quelle).toContain('sweatAb');
+    expect(quelle).toContain('haltBis(sweatAb)');
   });
 
   it('merkt sich die Einstellung im Browser', () => {
@@ -761,5 +767,178 @@ describe('/xp-slot Nachricht einstellbar', () => {
     const block = quelle.slice(stelle, stelle + 400);
     expect(block).toContain('permission: P.xpslotManage');
     expect(block).toContain("freshness: 'critical'");
+  });
+});
+
+describe('Der Sprung - der zweite Klick auf Spin', () => {
+  const quelle = ohneKommentare(lies(SPIEL));
+
+  it('löst niemals einen zweiten Spin aus', () => {
+    /*
+     * Die wichtigste Zusage dieses Knopfes, und die einzige, deren Verletzung
+     * echtes Geld kostet: ein zweiter Klick waehrend der Drehung darf keinen
+     * Einsatz buchen. Darum gibt es im ganzen Spiel genau **einen** Aufruf
+     * der Spin-Action, und der Sprung fasst ihn nicht an - er zieht einen
+     * Zeitgeber vorzeitig ab und sonst nichts.
+     */
+    expect([...quelle.matchAll(/await spinAction\(/gu)]).toHaveLength(1);
+
+    const anfang = quelle.indexOf('const ueberspringen = useCallback');
+    expect(anfang).toBeGreaterThan(-1);
+    const block = quelle.slice(anfang, quelle.indexOf('}, []);', anfang));
+    expect(block).toContain('uebersprungenRef.current = true');
+    expect(block).toContain('sprungRef.current?.()');
+    expect(block).not.toContain('spinAction');
+    expect(block).not.toContain('dreheEinmal');
+    expect(block).not.toContain('setSpieler');
+  });
+
+  it('springt nur, solange wirklich etwas läuft', () => {
+    // Ohne diesen Riegel wuerde ein Klick nach dem Spin die naechste
+    // Inszenierung ueberspringen, bevor sie begonnen hat.
+    expect(quelle).toContain('if (!laeuftRef.current || uebersprungenRef.current)');
+    expect(quelle).toContain('const springbar = laufend.some(Boolean)');
+  });
+
+  it('beschriftet den Knopf nach dem, was er tut', () => {
+    // «Spin» auf einem Knopf, der abbricht, waere eine Luege - und jemand
+    // wuerde darauf klicken, um einen zweiten Spin zu bekommen.
+    expect(quelle).toContain("springbar ? 'Stop' : imFreispiel ? 'Freispiel' : 'Spin'");
+    expect(quelle).toContain('disabled={(beschaeftigt && !springbar)');
+  });
+
+  it('gibt den Sprung nach den Walzen wieder frei', () => {
+    /*
+     * Was er abkuerzen sollte, ist dann vorbei. Die Gewinnlinien danach
+     * laufen normal - sie sind nicht das Warten, das jemand ueberspringen
+     * wollte, sondern das, worauf er gewartet hat.
+     */
+    const stopps = quelle.indexOf("melde({ art: 'reelsFinished' })");
+    const frei = quelle.indexOf('uebersprungenRef.current = false', stopps);
+    const linien = quelle.indexOf("melde({ art: 'winLineShown'");
+    expect(stopps).toBeGreaterThan(-1);
+    expect(frei).toBeGreaterThan(stopps);
+    expect(linien).toBeGreaterThan(frei);
+  });
+
+  it('hält jede Walze einzeln an und meldet jeden Stopp', () => {
+    expect(quelle).toContain("melde({ art: 'reelStopped', walze })");
+    expect(quelle).toContain("melde({ art: 'spinSkipped', walzen: ansicht.walzen })");
+    // Beim Sprung mitten in der Staffel nur die, die noch liefen.
+    expect(quelle).toContain("melde({ art: 'spinSkipped', walzen: ansicht.walzen - walze })");
+  });
+});
+
+describe('Die XP je Gewinnlinie', () => {
+  const spiel = ohneKommentare(lies(SPIEL));
+  const walzen = ohneKommentare(lies(WALZEN));
+
+  it('gibt der gezeigten Linie ihren eigenen Wert mit', () => {
+    expect(spiel).toContain('linienGewinn={linienGewinn}');
+    expect(spiel).toContain('linienDauerMs={ZEITEN.linie}');
+    // Der Wert kommt aus dem Treffer und nicht aus der Gesamtsumme.
+    expect(spiel).toContain('.find((treffer) => treffer.linie === sichtbareLinie)?.gewinn');
+  });
+
+  it('setzt das Schild aus der gemessenen Geometrie an die Linie', () => {
+    expect(walzen).toContain('function LinienSchild');
+    // Dieselben Punkte wie der Pfad - sonst stuende es daneben.
+    expect(walzen).toContain('zellen.map((index) => mitten[index])');
+    expect(walzen).toContain('slot-linien-schild');
+    // Und es weicht nach unten aus, wenn oben kein Platz ist.
+    expect(walzen).toContain('nachUnten');
+  });
+
+  it('lässt das Schild wieder verschwinden', () => {
+    // «Nicht permanent»: die Dauer kommt vom Element, damit sie dieselbe ist
+    // wie die Zeit, die eine Linie steht.
+    expect(walzen).toContain('animationDuration: `${dauerMs}ms`');
+    const css = lies(CSS);
+    expect(css).toContain('@keyframes slot-schild-auf');
+    expect(css).toContain('@keyframes slot-schild-ab');
+  });
+
+  it('spielt je Linie einen Klang und keinen für die Summe', () => {
+    const einzeln = spiel.indexOf('const einzelneLinien =');
+    expect(einzeln).toBeGreaterThan(-1);
+    expect(spiel).toContain("} else if (!einzelneLinien) {\n      melde({ art: 'spinResult'");
+    expect(spiel).toContain("melde({ art: 'winLineShown', stufe: treffer.stufe })");
+  });
+
+  it('nimmt die Stufe je Linie vom Server und rechnet sie nicht selbst', () => {
+    /*
+     * Die Schwellen fuer «gross» und «mega» gehoeren zur Konfiguration. Sie
+     * im Browser noch einmal auszurechnen waere dieselbe Frage an zwei
+     * Stellen - und die gehen irgendwann auseinander.
+     */
+    expect(spiel).toContain('treffer.stufe');
+    expect(spiel).not.toContain('gewinnstufe(');
+    const spin = ohneKommentare(lies('packages/modules/src/level/xpslot/spin.ts'));
+    expect(spin).toContain('function trefferMitStufe');
+  });
+});
+
+describe('Die grossen Meldungen', () => {
+  const spiel = ohneKommentare(lies(SPIEL));
+  const meldung = ohneKommentare(lies('apps/web/src/modules/level/xpslot/components/meldung.tsx'));
+
+  it('zeigt Geschenk, Abschluss und Radausgang über dieselbe Komponente', () => {
+    // Fuenf Momente, eine Form: sonst hat dasselbe Spiel fuenf Handschriften.
+    expect(meldung).toContain('export function SlotOverlay');
+    expect([...spiel.matchAll(/<SlotOverlay/gu)].length).toBe(5);
+  });
+
+  it('vermerkt jede Meldung serverseitig als gesehen', () => {
+    /*
+     * Nicht im `localStorage`: ein geschenktes Bonusspiel soll einmal
+     * angekuendigt werden - einmal insgesamt und nicht einmal je Browser.
+     */
+    expect(spiel).toContain('meldungGesehenAction({ csrfToken, art, id })');
+    expect(spiel).not.toMatch(/localStorage[^\n]*meldung/iu);
+    for (const art of ['freispiel-intro', 'freispiel-ende', 'bonus-intro', 'bonus-ende']) {
+      expect(spiel, art).toContain(`'${art}'`);
+    }
+  });
+
+  it('startet aus der Bonusankündigung die gewöhnliche Bonusrunde', () => {
+    expect(spiel).toContain('bonusGeschenkStartenAction({ csrfToken, grantId })');
+    expect(spiel).toContain('knopf="Bonus starten"');
+  });
+
+  it('nimmt die Abschlusszahlen aus der Antwort und summiert nichts selbst', () => {
+    expect(spiel).toContain('if (spin.bonusEnde) {');
+    expect(spiel).toContain('bonusEnde: spin.bonusEnde');
+    expect(spiel).toContain('meldungen.bonusEnde.gewinn');
+    // Keine eigene Rundensumme im Browser.
+    expect(spiel).not.toMatch(/bonusSumme|rundenGewinn\s*\+=/u);
+  });
+
+  it('zeigt höchstens eine Meldung gleichzeitig', () => {
+    // Eine Kette aus `? :` und keine fuenf unabhaengigen Bedingungen: zwei
+    // Overlays uebereinander sind keine Feier.
+    expect(spiel).toContain('{radAusgang ? (');
+    expect(spiel).toContain(') : meldungen.bonusEnde ? (');
+    expect(spiel).toContain(') : meldungen.freispielEnde ? (');
+    expect(spiel).toContain(') : meldungen.bonusIntro ? (');
+    expect(spiel).toContain(') : meldungen.freispielIntro ? (');
+  });
+
+  it('ist kein Browser-Alert', () => {
+    const css = lies(CSS);
+    expect(css).toContain('.slot-meldung__karte');
+    expect(css).toContain('@keyframes slot-meldung-auf');
+    expect(css).toContain('@keyframes slot-meldung-zahl');
+    // Verdunkelter Hintergrund, Glanz, Hochzaehlen, ein Knopf.
+    expect(css).toContain('.slot-meldung__schleier');
+    expect(meldung).toContain('<Hochzaehlen');
+    expect(meldung).toContain('slot-meldung__knopf');
+    // Und mit der Tastatur bedienbar.
+    expect(meldung).toContain("ereignis.key === 'Escape'");
+  });
+
+  it('feiert einen Verlust nicht', () => {
+    expect(meldung).toContain("stimmung !== 'verlust' && !ruhig ? <Partikel");
+    const css = lies(CSS);
+    expect(css).toContain('.slot-meldung__karte--verlust');
   });
 });

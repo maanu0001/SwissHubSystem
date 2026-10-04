@@ -462,6 +462,8 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   XP_SLOT_EVENT_ACTIVATED: 'XP-Slot: Eventmodus aktiviert',
   XP_SLOT_EVENT_DEACTIVATED: 'XP-Slot: Eventmodus beendet',
   XP_SLOT_FREESPINS_GRANTED: 'XP-Slot: Freispiele gewährt',
+  XP_SLOT_BONUS_GRANTED: 'Bonusspiel geschenkt',
+  XP_SLOT_BONUS_REVOKED: 'Bonusgeschenk entzogen',
   XP_SLOT_FREESPINS_REVOKED: 'XP-Slot: Freispiele entzogen',
   XP_SLOT_FREESPINS_UPDATED: 'XP-Slot: Freispielpaket geändert',
   XP_SLOT_PREMIUM_CONFIG_UPDATED: 'XP-Slot: Premium-Gewinne geändert',

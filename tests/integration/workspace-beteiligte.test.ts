@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeAll, beforeEach, expect, it } from 'vitest';
 import { describeWithDatabase, pushSchema, useTestSchema } from '../helpers/database';
 
@@ -212,5 +213,157 @@ describeWithDatabase('Workspace: Beteiligte', () => {
     // Luecke, durch die der Titel jeder privaten Aufgabe zu lesen waere.
     expect(await workspace.ladeAufgaben(GUILD, nur(BEN))).toHaveLength(1);
     expect(await workspace.ladeAufgaben(GUILD, nur(CARLA))).toHaveLength(0);
+  });
+
+  /*
+   * Beteiligte und Sichtbarkeit sind zwei Dinge.
+   *
+   * Das ist die Zusage, die am leichtesten lautlos kaputtgeht: eine Zeile in
+   * `setzeMitglieder`, die «damit es funktioniert» die Sichtbarkeit mitzieht,
+   * und schon weitet jedes Hinzufuegen den Zugriff auf ein Projekt aus, das
+   * ausdruecklich nicht fuer alle gedacht war. Darum steht hier nicht nur,
+   * was passiert, sondern auch, was **nicht** passiert.
+   */
+  it('ändert beim Hinzufügen und Entfernen die Sichtbarkeit nicht', async () => {
+    for (const sichtbarkeit of ['TEAM', 'PRIVATE'] as const) {
+      await leeren();
+      const id = await projekt(sichtbarkeit);
+      const vorher = await prisma.workspaceProject.findUniqueOrThrow({
+        where: { id },
+        select: { visibility: true, visibleRoleIds: true },
+      });
+
+      await workspace.setzeMitglieder(id, ANNA, [
+        { discordId: ANNA, rolle: 'LEAD' },
+        { discordId: BEN, rolle: 'MEMBER' },
+      ]);
+      await workspace.setzeMitglieder(id, ANNA, [{ discordId: ANNA, rolle: 'LEAD' }]);
+
+      const nachher = await prisma.workspaceProject.findUniqueOrThrow({
+        where: { id },
+        select: { visibility: true, visibleRoleIds: true },
+      });
+      expect(nachher.visibility, sichtbarkeit).toBe(vorher.visibility);
+      expect(nachher.visibleRoleIds, sichtbarkeit).toEqual(vorher.visibleRoleIds);
+    }
+  });
+
+  it('lässt die freigegebenen Rollen eines Gruppenprojekts unberührt', async () => {
+    /*
+     * `SELECTED_GROUPS` ist der Fall, in dem es am meisten weh taete: dort
+     * steht eine Liste von Rollen, und wer sie beim Beteiligen verliert,
+     * sperrt eine ganze Gruppe aus, ohne es zu merken.
+     */
+    const angelegt = await workspace.erstelleProjekt(GUILD, ANNA, {
+      titel: 'Gruppenprojekt',
+      sichtbarkeit: 'SELECTED_GROUPS',
+      sichtbarFuerRollen: ['200000000000000001', '200000000000000002'],
+    });
+
+    await workspace.setzeMitglieder(angelegt.id, ANNA, [
+      { discordId: ANNA, rolle: 'LEAD' },
+      { discordId: CARLA, rolle: 'MEMBER' },
+    ]);
+
+    const zeile = await prisma.workspaceProject.findUniqueOrThrow({
+      where: { id: angelegt.id },
+      select: { visibility: true, visibleRoleIds: true },
+    });
+    expect(zeile.visibility).toBe('SELECTED_GROUPS');
+    expect([...zeile.visibleRoleIds].sort()).toEqual(['200000000000000001', '200000000000000002']);
+  });
+
+  it('schreibt in setzeMitglieder keine Sichtbarkeit', async () => {
+    /*
+     * Dasselbe am Quelltext, und zwar mit Absicht doppelt: der Test oben
+     * faellt erst auf, wenn jemand eine bestimmte Sichtbarkeit setzt. Dieser
+     * hier faellt auf, sobald die Funktion das Feld ueberhaupt anfasst - auch
+     * wenn sie denselben Wert hineinschreibt und damit zufaellig gruen
+     * bleibt.
+     */
+    const quelle = readFileSync('packages/modules/src/workspace/projekte.ts', 'utf8');
+    const anfang = quelle.indexOf('export async function setzeMitglieder');
+    expect(anfang).toBeGreaterThan(-1);
+    const naechste = quelle.indexOf('\nexport ', anfang + 10);
+    const block = quelle
+      .slice(anfang, naechste === -1 ? undefined : naechste)
+      .replace(/\/\*[\s\S]*?\*\//gu, '')
+      .replace(/^\s*\/\/.*$/gmu, '');
+    expect(block).not.toContain('visibility');
+    expect(block).not.toContain('visibleRoleIds');
+  });
+
+  it('macht die anlegende Person zur ersten zuständigen Person', async () => {
+    const id = await projekt();
+    const aufgabe = await workspace.erstelleAufgabe(GUILD, BEN, {
+      titel: 'Plakate drucken',
+      projectId: id,
+    });
+
+    const zustaendige = await prisma.workspaceTaskAssignee.findMany({
+      where: { taskId: aufgabe.id },
+      select: { discordId: true },
+    });
+    expect(zustaendige.map((zeile) => zeile.discordId)).toEqual([BEN]);
+  });
+
+  it('nimmt zuständige Personen dazu, heraus - und sich selbst heraus', async () => {
+    const id = await projekt();
+    const aufgabe = await workspace.erstelleAufgabe(GUILD, BEN, {
+      titel: 'Plakate drucken',
+      projectId: id,
+    });
+
+    await workspace.setzeZustaendige(aufgabe.id, BEN, [BEN, CARLA]);
+    const zuZweit = await prisma.workspaceTaskAssignee.findMany({
+      where: { taskId: aufgabe.id },
+      select: { discordId: true },
+      orderBy: { discordId: 'asc' },
+    });
+    expect(zuZweit.map((zeile) => zeile.discordId)).toEqual([BEN, CARLA]);
+
+    // Und sich selbst wieder heraus - die Aufgabe bleibt, sie gehoert jetzt Carla.
+    await workspace.setzeZustaendige(aufgabe.id, BEN, [CARLA]);
+    const alleine = await prisma.workspaceTaskAssignee.findMany({
+      where: { taskId: aufgabe.id },
+      select: { discordId: true },
+    });
+    expect(alleine.map((zeile) => zeile.discordId)).toEqual([CARLA]);
+  });
+
+  it('macht aus derselben zuständigen Person keine zwei Zeilen', async () => {
+    const id = await projekt();
+    const aufgabe = await workspace.erstelleAufgabe(GUILD, BEN, {
+      titel: 'Plakate drucken',
+      projectId: id,
+      zustaendige: [CARLA, CARLA, ' ' + CARLA + ' '],
+    });
+    const zeilen = await prisma.workspaceTaskAssignee.findMany({ where: { taskId: aufgabe.id } });
+    expect(zeilen).toHaveLength(1);
+  });
+
+  it('zeigt die Aufgabe in «Meine Aufgaben», solange man zuständig ist', async () => {
+    const id = await projekt();
+    const aufgabe = await workspace.erstelleAufgabe(GUILD, BEN, {
+      titel: 'Plakate drucken',
+      projectId: id,
+      zustaendige: [BEN],
+    });
+
+    const meine = async (wer: string): Promise<string[]> =>
+      (await workspace.ladeAufgaben(GUILD, ALLES, { zustaendig: wer })).map((eintrag) => eintrag.aufgabe.id);
+
+    expect(await meine(BEN)).toContain(aufgabe.id);
+    expect(await meine(CARLA)).not.toContain(aufgabe.id);
+
+    // Dazu: jetzt steht sie bei beiden.
+    await workspace.setzeZustaendige(aufgabe.id, BEN, [BEN, CARLA]);
+    expect(await meine(BEN)).toContain(aufgabe.id);
+    expect(await meine(CARLA)).toContain(aufgabe.id);
+
+    // Heraus: und bei Ben nicht mehr.
+    await workspace.setzeZustaendige(aufgabe.id, BEN, [CARLA]);
+    expect(await meine(BEN)).not.toContain(aufgabe.id);
+    expect(await meine(CARLA)).toContain(aufgabe.id);
   });
 });

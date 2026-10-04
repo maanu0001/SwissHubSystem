@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatSwissNumber } from '@swisshub/shared';
 import { symbolBild } from '../adressen';
 import { cn } from '@/lib/utils';
 
@@ -56,6 +57,17 @@ export interface WalzenProps {
   walzen: number;
   /** Die Zellen der hervorgehobenen Gewinnlinie - oder nichts. */
   linie?: readonly number[] | null;
+  /**
+   * Was genau **diese** Linie wert ist, in XP.
+   *
+   * Steht ein Wert da, erscheint ein Schild an der Linie. Das ist der
+   * Unterschied zwischen «vier Linien haben zusammen 1'500 XP gebracht» und
+   * «diese Linie hier war 250 XP wert»: die Summe steht unter der Buehne, die
+   * einzelne Zahl gehoert an die Linie, die man gerade sieht.
+   */
+  linienGewinn?: number | null;
+  /** Wie lange eine Linie gezeigt wird - das Schild blendet darin ein und aus. */
+  linienDauerMs?: number;
 }
 
 /** Ein zufaelliges Fuellsymbol - nur fuer das laufende Band. */
@@ -74,6 +86,8 @@ export function Walzen({
   reihen,
   walzen,
   linie = null,
+  linienGewinn = null,
+  linienDauerMs = 520,
 }: WalzenProps): React.JSX.Element {
   const nachKey = useMemo(() => new Map(symbole.map((eintrag) => [eintrag.key, eintrag])), [symbole]);
   const trefferSet = useMemo(() => new Set(treffer), [treffer]);
@@ -156,6 +170,19 @@ export function Walzen({
       */}
       {linie && linie.length > 1 && mitten.length > 0 && kasten !== null ? (
         <Gewinnlinie zellen={linie} mitten={mitten} kasten={kasten} />
+      ) : null}
+
+      {/* Und das Schild mit dem XP-Wert genau dieser Linie. */}
+      {linie && linienGewinn !== null && linienGewinn > 0 && mitten.length > 0 && kasten !== null ? (
+        <LinienSchild
+          key={`${linie.join('-')}:${linienGewinn}`}
+          zellen={linie}
+          mitten={mitten}
+          kasten={kasten}
+          reihen={reihen}
+          gewinn={linienGewinn}
+          dauerMs={linienDauerMs}
+        />
       ) : null}
     </div>
   );
@@ -385,6 +412,69 @@ export function Gewinnlinie({
     >
       <path d={`M ${punkte.map((punkt) => `${punkt.x.toFixed(1)},${punkt.y.toFixed(1)}`).join(' L ')}`} />
     </svg>
+  );
+}
+
+/**
+ * Das XP-Schild einer einzelnen Gewinnlinie.
+ *
+ * ## Wo es steht
+ *
+ * Ueber dem hoechsten Punkt der Linie, waagrecht in deren Mitte - und zwar
+ * aus denselben gemessenen Punkten, aus denen der Pfad entsteht. Deshalb
+ * sitzt es auf jedem Geraet an der Linie und nicht irgendwo in der Naehe.
+ *
+ * Reicht der Platz oben nicht - bei einer Linie, die in der obersten Reihe
+ * verlaeuft -, klappt es nach unten. Ein Schild, das halb aus der Buehne
+ * ragt, waere schlimmer als eines, das eine Zeile tiefer steht; und ueber den
+ * Symbolen der Linie selbst darf es nicht liegen, sonst verdeckt es genau
+ * das, was es erklaert.
+ *
+ * ## Warum die Dauer von aussen kommt
+ *
+ * Weil sie dieselbe sein muss wie die Zeit, die eine Linie gezeigt wird.
+ * Stuende sie im Stylesheet, waeren es zwei Zahlen fuer einen Takt - und die
+ * laufen auseinander, sobald jemand eine davon aendert.
+ */
+function LinienSchild({
+  zellen,
+  mitten,
+  kasten,
+  reihen,
+  gewinn,
+  dauerMs,
+}: {
+  zellen: readonly number[];
+  mitten: readonly Mitte[];
+  kasten: Kasten;
+  reihen: number;
+  gewinn: number;
+  dauerMs: number;
+}): React.JSX.Element | null {
+  const punkte = zellen.map((index) => mitten[index]).filter((punkt): punkt is Mitte => punkt !== undefined);
+  if (punkte.length === 0 || kasten.breite <= 0 || kasten.hoehe <= 0) {
+    return null;
+  }
+
+  const zelle = kasten.hoehe / Math.max(1, reihen);
+  const mitteX = punkte.reduce((summe, punkt) => summe + punkt.x, 0) / punkte.length;
+  const oben = Math.min(...punkte.map((punkt) => punkt.y)) - zelle * 0.5 - 4;
+  const unten = Math.max(...punkte.map((punkt) => punkt.y)) + zelle * 0.5 + 4;
+  // Unter 26 Pixeln ragt das Schild oben heraus - dann nach unten.
+  const nachUnten = oben < 26;
+
+  return (
+    <span
+      className={cn('slot-linien-schild', nachUnten && 'slot-linien-schild--unten')}
+      style={{
+        left: `${Math.max(44, Math.min(kasten.breite - 44, mitteX)).toFixed(1)}px`,
+        top: `${(nachUnten ? unten : oben).toFixed(1)}px`,
+        animationDuration: `${dauerMs}ms`,
+      }}
+      aria-hidden="true"
+    >
+      +{formatSwissNumber(gewinn)} XP
+    </span>
   );
 }
 

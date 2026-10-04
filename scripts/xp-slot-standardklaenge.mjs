@@ -364,31 +364,69 @@ toene.spin_start = (() => {
   });
 })();
 
-/*
- * Der Walzenlauf laeuft in einer Schleife.
+/**
+ * Der Walzenlauf.
  *
- * Deshalb muss der letzte Abtastwert zum ersten passen, sonst klackt es bei
- * jedem Umlauf. Die Laenge ist darum ein ganzes Vielfaches der Grundfrequenz,
- * und es gibt keine Huellkurve - eine Schleife mit Ausklang waere ein
- * Pulsieren.
+ * ## Warum der alte ersetzt wurde
  *
- * Neu darin: ein leises Rattern im Takt der durchlaufenden Symbole. Ein
- * reiner Dauerton klingt nach Motor, ein Rattern nach Walze.
+ * Er war ein Schnarren: 0,16 Sekunden Schleife, ein Grundton bei 150 Hertz
+ * und darueber fast so viel Rauschen wie Ton, moduliert mit 25 Hertz. Zwei
+ * Dinge daran waren falsch. Erstens das Mischungsverhaeltnis - wenn Rauschen
+ * die Hauptstimme ist, klingt es duenn und hell, und nach zwanzig Spins ist
+ * das der Grund, den Ton abzuschalten. Zweitens die Laenge: 0,16 Sekunden
+ * sind 6,25 Umlaeufe in der Sekunde, und das hoert das Ohr nicht als Lauf,
+ * sondern als eigenen tiefen Brummton obendrauf.
+ *
+ * ## Woraus der neue besteht
+ *
+ * Drei Lagen, und keine davon ist Rauschen als Hauptstimme:
+ *
+ *  1. **Das Laufwerk** - ein tiefer Grundton bei 75 Hertz mit zwei
+ *     Teiltoenen darueber. Er traegt das Gewicht; eine Walze ist ein Ding
+ *     mit Masse, und das hoert man unten.
+ *  2. **Die Symbole** - eine Folge weicher Blips, 25 in der Sekunde, jeder
+ *     mit eigener Huellkurve. Das ist das Mechanische daran: man hoert
+ *     einzelne Dinge vorbeiziehen und nicht einen Teppich.
+ *  3. **Die Luft** - ein sehr leiser, tief gefilterter Rauschanteil. Er
+ *     verbindet die Blips, ohne selbst hervorzutreten.
+ *
+ * ## Warum die Laenge genau so ist
+ *
+ * Gebaut werden 0,48 Sekunden, uebrig bleiben 0,44 - die Blende von 0,04
+ * wird am Ende in den Anfang gezogen. Beide Werte sind mit Absicht ganze
+ * Vielfache aller beteiligten Perioden: 0,44 sind 33 Umlaeufe des
+ * Grundtons, 11 Blips, 220 Schwingungen des unteren und 330 des oberen
+ * Blipanteils und genau eine Atembewegung; die Blende sind 3 Umlaeufe und
+ * ein Blip. Nur deshalb passt das Ende nach dem Schnitt noch zum Anfang.
+ * Eine Schleife, die nicht passt, tickt bei jedem Umlauf, und bei einem
+ * Klang, der dreissig Sekunden laeuft, zaehlt man diese Ticks mit.
  */
 toene.reel_loop = (() => {
-  const grund = 150;
-  const dauer = 24 / grund; // 0,16 s - ganzzahlig in der Grundperiode
+  const grund = 75;
+  const blips = 25; // je Sekunde
+  const blende = 0.04; // 3 Perioden des Grundtons, ein Blip
+  const dauer = 0.44; // die Schleife selbst
   const r = rauschen(7);
-  const rohes = puffer(dauer, (t) => {
-    const ratter = Math.pow(1 - ((t * 25) % 1), 2.2);
+
+  const laufwerk = puffer(dauer + blende, (t) => {
+    // Die Atmung macht aus einer stehenden Flaeche einen Lauf.
+    const atem = 0.84 + 0.16 * sinus(t, 1 / dauer);
     return (
-      sinus(t, grund) * 0.4 +
-      sinus(t, grund * 2) * 0.16 +
-      sinus(t, grund * 3.01) * 0.07 +
-      r() * 0.45 * (0.5 + ratter * 0.5)
+      (sinus(t, grund) * 0.5 + sinus(t, grund * 2) * 0.22 + dreieck(t, grund * 3) * 0.06) * atem
     );
   });
-  return schliesse(skaliere(tiefpass(hochpass(rohes, 90), 2600), 0.13), 0.015);
+
+  const symbole = puffer(dauer + blende, (t) => {
+    const p = (t * blips) % 1;
+    // Kurz, aber nicht hart: ein Exponent statt einer Kante.
+    const anschlag = Math.exp(-p * 11);
+    return (sinus(t, 500) * 0.7 + sinus(t, 750) * 0.3) * anschlag * 0.3;
+  });
+
+  const luft = skaliere(tiefpass(puffer(dauer + blende, () => r()), 900), 0.11);
+
+  const gemischt = mische(laufwerk, symbole, luft).map((wert) => saettige(wert, 1.1));
+  return schliesse(skaliere(tiefpass(hochpass(gemischt, 45), 3200), 0.5), blende);
 })();
 
 toene.reel_stop = (() => {
@@ -617,6 +655,129 @@ toene.gamble_lose = (() => {
   return raum(roh, { zeit: 0.1, anteil: 0.26, zahl: 4 });
 })();
 
+// --- Pegel ---------------------------------------------------------------
+
+/**
+ * Die Zielpegel, in dBFS.
+ *
+ * ## Warum das sein muss
+ *
+ * Der Satz war vor dieser Tabelle um vierundzwanzig Dezibel auseinander: der
+ * Walzenstopp lag bei -34, der Jackpot bei -16. Das sind nicht zwei
+ * Lautstaerken, das sind zwei Welten - wer die Regler so stellt, dass er den
+ * Walzenstopp hoert, erschrickt beim ersten Jackpot; wer sie nach dem Jackpot
+ * stellt, hoert vier von fuenf Walzen nicht. Und weil jeder Ton hier einzeln
+ * aus Teiltoenen und Huellkurven entsteht, war diese Streuung nie eine
+ * Entscheidung, sondern ein Nebenprodukt.
+ *
+ * ## Warum nicht alle gleich
+ *
+ * «Vergleichbar» heisst nicht «identisch». Ein Jackpot darf lauter sein als
+ * ein Knopfdruck - das ist der Sinn der Sache. Die Tabelle ist deshalb eine
+ * gewollte Treppe von zehn Dezibel: unten die Dinge, die stundenlang laufen
+ * oder hundertmal vorkommen, oben die, die zweimal am Tag vorkommen. Zehn
+ * Dezibel statt vierundzwanzig.
+ *
+ * ## Warum Kurzzeitlautheit und nicht Spitze
+ *
+ * Eine Spitze sagt nichts darueber, wie laut etwas klingt: ein Knacken hat
+ * eine hohe Spitze und ist kaum zu hoeren, eine Flaeche hat eine niedrige
+ * und traegt durch den ganzen Raum. Gemessen wird deshalb der Effektivwert
+ * im lautesten Fenster - das kommt dem Hoereindruck nahe genug und ist in
+ * zwanzig Zeilen nachrechenbar.
+ */
+const ZIELPEGEL = {
+  // Oberflaeche und Lauf: das Fundament, bewusst unter allem anderen.
+  ui_button: -26,
+  musik: -27,
+  spin_start: -22,
+  reel_loop: -27,
+  // Fuenf Mal in jedem Spin - er muss durchkommen, ohne zu stechen.
+  reel_stop: -21,
+  // Gewinn: eine Treppe, damit man die Groesse hoert und nicht nur sieht.
+  no_win: -25,
+  win_small: -22,
+  win_normal: -21,
+  win_big: -20,
+  win_mega: -18,
+  jackpot: -17,
+  premium_win: -20,
+  // Bonus: der Trigger ist ein Ereignis, das Zittern darunter nur Teppich.
+  bonus_trigger: -19,
+  bonus_sweat: -24,
+  bonus_reveal: -20,
+  freespin_start: -19,
+  freespin_loop: -27,
+  freespin_end: -21,
+  retrigger: -20,
+  // Gamble: die Schleife leise, der Ausgang laut.
+  gamble_start: -22,
+  gamble_spin: -26,
+  gamble_tension: -24,
+  gamble_win: -18,
+  gamble_lose: -21,
+};
+
+/** Keine Spitze darf hierueber, auch nach dem Anheben nicht. */
+const DECKEL = 0.89;
+
+/**
+ * Die lauteste Kurzzeitlautheit eines Puffers.
+ *
+ * Der Effektivwert im lautesten Fenster von 200 Millisekunden. Bei kuerzeren
+ * Toenen ist das Fenster der ganze Ton - sonst wuerde ein 50-Millisekunden-
+ * Klick durch die Stille im Fenster kuenstlich leise gerechnet und beim
+ * Anheben dann zu laut.
+ */
+function lautheit(daten, fenster = 0.2) {
+  const breite = Math.min(Math.round(RATE * fenster), daten.length);
+  const schritt = Math.max(1, Math.round(RATE * 0.01));
+  let summe = 0;
+  for (let i = 0; i < breite; i += 1) {
+    summe += daten[i] * daten[i];
+  }
+  let beste = summe;
+  for (let start = schritt; start + breite <= daten.length; start += schritt) {
+    for (let i = start - schritt; i < start; i += 1) {
+      summe -= daten[i] * daten[i];
+    }
+    for (let i = start + breite - schritt; i < start + breite; i += 1) {
+      summe += daten[i] * daten[i];
+    }
+    beste = Math.max(beste, summe);
+  }
+  return Math.sqrt(beste / breite);
+}
+
+/**
+ * Bringt einen Ton auf seinen Zielpegel.
+ *
+ * Ein Slot ohne Eintrag in der Tabelle bricht den Lauf ab, und zwar mit
+ * Absicht: ein neuer Ton, den niemand eingepegelt hat, faellt sonst still
+ * aus der Reihe - und genau das war der Zustand, den diese Funktion behebt.
+ */
+function normalisiere(name, daten) {
+  const ziel = ZIELPEGEL[name];
+  if (ziel === undefined) {
+    throw new Error(`Kein Zielpegel fuer «${name}» - bitte in ZIELPEGEL eintragen.`);
+  }
+  const ist = lautheit(daten);
+  if (ist <= 0) {
+    return daten;
+  }
+  let gewinn = Math.pow(10, (ziel - 20 * Math.log10(ist)) / 20);
+  let spitze = 0;
+  for (const wert of daten) {
+    spitze = Math.max(spitze, Math.abs(wert));
+  }
+  // Lieber einen Ton minimal unter dem Ziel als eine gekappte Spitze: ein
+  // abgeschnittener Gipfel knackt, und das hoert man vor allem anderen.
+  if (spitze * gewinn > DECKEL) {
+    gewinn = DECKEL / spitze;
+  }
+  return daten.map((wert) => wert * gewinn);
+}
+
 /** 16-Bit-PCM-Mono, der kleinste gemeinsame Nenner aller Browser. */
 function alsWav(daten) {
   const kopf = Buffer.alloc(44);
@@ -644,7 +805,7 @@ function alsWav(daten) {
 mkdirSync(ZIEL, { recursive: true });
 let gesamt = 0;
 for (const [name, daten] of Object.entries(toene)) {
-  const wav = alsWav(daten);
+  const wav = alsWav(normalisiere(name, daten));
   writeFileSync(join(ZIEL, `${name}.wav`), wav);
   gesamt += wav.length;
   process.stdout.write(`${name}.wav  ${(wav.length / 1024).toFixed(1)} KB\n`);

@@ -403,6 +403,27 @@ export async function holeZurueck(projectId: string, akteurDiscordId: string): P
 }
 
 /** Mitglieder setzen. Die Liste ersetzt die bisherige - das ist der Vorgang. */
+/**
+ * Die Beteiligten eines Projekts setzen.
+ *
+ * ## Beteiligt heisst mitarbeiten, nicht zusehen duerfen
+ *
+ * Diese Liste beantwortet eine fachliche Frage - **wer arbeitet daran** - und
+ * keine Berechtigungsfrage. Wer das Projekt sehen darf, steht in
+ * `visibility` und `visibleRoleIds`, und diese Funktion fasst beide nicht an:
+ * wer jemanden beteiligt, aendert keine Sichtbarkeit, und wer jemanden
+ * entfernt, aendert auch keine.
+ *
+ * Die eine Stelle, an der beides zusammenfaellt, ist `PRIVATE`. Dort **ist**
+ * die Beteiligtenliste die Zugangsliste - nicht als Nebeneffekt, sondern
+ * weil ein privates Projekt sonst niemanden haette, der es oeffnen kann, und
+ * weil es so verlangt wurde. Die Regel steht in `sichtbarkeit.ts` und nicht
+ * hier; diese Funktion schreibt nur die Liste.
+ *
+ * Wer eine Rolle freischalten will, nimmt die Sichtbarkeit. Wer jemanden ins
+ * Projekt holen will, nimmt diese Liste. Die beiden zu vermischen hiesse,
+ * dass jede Zuteilung einer Aufgabe eine Berechtigung vergibt.
+ */
 export async function setzeMitglieder(
   projectId: string,
   akteurDiscordId: string,

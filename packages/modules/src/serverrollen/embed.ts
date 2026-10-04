@@ -87,17 +87,29 @@ export interface GruppenOption {
   discordRoleId: string;
   name: string;
   beschreibung: string | null;
+  /**
+   * Kann sich ein Mitglied diese Rolle selbst geben?
+   *
+   * Entscheidet, ob sie im **Menue** steht. Im Embed steht sie unabhaengig
+   * davon: eine Gruppe erklaert ihre Rollen, auch die, die das Team vergibt.
+   * Wer «Über 18» nur auf Nachfrage bekommt, soll trotzdem lesen koennen,
+   * was sie bedeutet.
+   */
+  vergebbar: boolean;
 }
 
 /**
- * Die Rollen einer Gruppe, die ueber Discord waehlbar sind.
+ * **Alle** Rollen einer Gruppe, mit Vermerk, ob sie vergebbar sind.
  *
- * Gefiltert wird mit demselben Urteil wie ueberall: freigegeben **und**
- * sicher. Eine Rolle, die `pruefeSelbstzuweisung` sperrt, steht nicht im
- * Menue - ein Eintrag, der beim Anklicken immer abweist, waere eine
- * Einladung ins Leere.
+ * Zwei Fragen, eine Abfrage: was das Embed auflistet (alles) und was im Menue
+ * steht (das Vergebbare). Sie getrennt zu laden waere dieselbe Arbeit zweimal
+ * - und zwei Gelegenheiten, dass die Listen auseinanderlaufen.
+ *
+ * Gefiltert wird nur, was es auf Discord nicht mehr gibt: eine Rolle ohne
+ * Eintrag im Zwischenspeicher hat keinen Namen, keine Farbe und keine
+ * Erwaehnung, die funktioniert.
  */
-export async function waehlbareRollen(categoryId: string): Promise<GruppenOption[]> {
+export async function gruppenRollen(categoryId: string): Promise<GruppenOption[]> {
   const einstellungen = await getModuleSettings<ServerrollenSettings>(SERVERROLLEN_MODULE_ID);
   const [metadaten, rollen, position] = await Promise.all([
     prisma.serverRoleMeta.findMany({ where: { categoryId }, orderBy: [{ sortOrder: 'asc' }] }),
@@ -126,16 +138,24 @@ export async function waehlbareRollen(categoryId: string): Promise<GruppenOption
        */
       voraussetzungRoleId: null,
     });
-    if (!urteil.erlaubt) {
-      continue;
-    }
     offen.push({
       discordRoleId: rolle.id,
       name: rolle.name,
       beschreibung: meta.beschreibung,
+      vergebbar: urteil.erlaubt,
     });
   }
-  return offen.slice(0, MAX_OPTIONEN);
+  return offen;
+}
+
+/**
+ * Nur die, die im Menue stehen duerfen.
+ *
+ * Gekappt auf 25: Discords Grenze fuer ein Auswahlmenue. Das Embed listet
+ * weiter alle auf - dort gibt es diese Grenze nicht, nur die der Zeichenzahl.
+ */
+export async function waehlbareRollen(categoryId: string): Promise<GruppenOption[]> {
+  return (await gruppenRollen(categoryId)).filter((rolle) => rolle.vergebbar).slice(0, MAX_OPTIONEN);
 }
 
 /**
@@ -152,14 +172,47 @@ export async function baueGruppenNachricht(categoryId: string): Promise<DiscordM
     throw new AppError('NOT_FOUND', { userMessage: 'Diese Gruppe gibt es nicht.' });
   }
 
-  const rollen = await waehlbareRollen(categoryId);
+  const alle = await gruppenRollen(categoryId);
+  const vergebbar = alle.filter((rolle) => rolle.vergebbar).slice(0, MAX_OPTIONEN);
   const titel = gruppe.embedTitel?.trim() || gruppe.name;
-  const beschreibung =
+  const einleitung =
     gruppe.embedBeschreibung?.trim() ||
     gruppe.hinweis?.trim() ||
     (gruppe.exklusiv ? 'Wähle deine Rolle - die bisherige wird ersetzt.' : 'Wähle deine Rollen.');
 
-  const optionen: DiscordSelectOption[] = rollen.map((rolle) => ({
+  /*
+   * Die Liste der Rollen - mit Erwaehnung und Beschreibung.
+   *
+   * ## Warum die Erwaehnung und nicht der Name
+   *
+   * Weil `<@&id>` auf Discord in der Farbe der Rolle erscheint und
+   * anklickbar ist. Das ist dieselbe Darstellung, in der man die Rolle im
+   * Chat kennt - ein abgeschriebener Name ist dagegen eine zweite Wahrheit,
+   * die nach dem ersten Umbenennen falsch ist.
+   *
+   * ## Warum das niemanden anpingt
+   *
+   * Eine Erwaehnung in einem **Embed** benachrichtigt auf Discord ohnehin
+   * niemanden. Zusaetzlich traegt die Nachricht `allowedMentions` mit leerem
+   * `parse`, und das ist die eigentliche Zusage: auch wenn jemand spaeter
+   * Text in den Nachrichtenkoerper legt, pingt diese Gruppe keine dreihundert
+   * Leute an.
+   *
+   * ## Warum alle Rollen und nicht nur die vergebbaren
+   *
+   * Weil die Gruppe ihre Rollen **erklaert**. «Über 18» bekommt man vom Team,
+   * nicht aus dem Menue - lesen soll man trotzdem koennen, was sie bedeutet
+   * und dass es sie gibt. Was man selbst nehmen kann, sagt das Menue
+   * darunter.
+   */
+  const zeilen = alle.map((rolle) => {
+    const kopf = `<@&${rolle.discordRoleId}>`;
+    return rolle.beschreibung ? `${kopf}\n${rolle.beschreibung}` : kopf;
+  });
+
+  const beschreibung = [einleitung, ...(zeilen.length > 0 ? ['', zeilen.join('\n\n')] : [])].join('\n');
+
+  const optionen: DiscordSelectOption[] = vergebbar.map((rolle) => ({
     label: rolle.name.slice(0, 100),
     value: rolle.discordRoleId,
     ...(rolle.beschreibung ? { description: rolle.beschreibung.slice(0, 100) } : {}),
@@ -183,29 +236,52 @@ export async function baueGruppenNachricht(categoryId: string): Promise<DiscordM
 
   const embed = {
     title: titel.slice(0, 256),
-    description: beschreibung.slice(0, 2000),
+    // Discords Grenze fuer eine Embed-Beschreibung sind 4096 Zeichen.
+    description: beschreibung.slice(0, 4096),
     color: embedFarbzahl(gruppe.embedFarbe),
     ...(gruppe.exklusiv
       ? { footer: { text: 'Nur eine Rolle aus dieser Gruppe' } }
       : { footer: { text: 'Deine Auswahl ersetzt deine bisherigen Rollen dieser Gruppe' } }),
   };
 
+  /*
+   * Kein Pingen - unabhaengig davon, was im Text steht.
+   *
+   * Erwaehnungen in einem Embed benachrichtigen ohnehin niemanden; das hier
+   * ist der Guertel zum Hosentraeger. Eine Rollengruppe mit dreihundert
+   * Mitgliedern ist genau die Nachricht, bei der ein versehentlicher Ping
+   * wehtut.
+   */
+  const stumm = { parse: [] as Array<'users' | 'roles' | 'everyone'> };
+
   if (optionen.length === 0) {
     /*
-     * Eine Gruppe ohne waehlbare Rolle bekommt kein Menue.
+     * Keine vergebbare Rolle: kein Menue.
      *
-     * Discord weist ein Auswahlmenue ohne Optionen ab, und ein leeres Menue
-     * waere auch sonst nichts, was man anbieten will. Die Nachricht bleibt -
-     * sie erklaert die Gruppe - und sagt, dass hier gerade nichts zu holen
-     * ist.
+     * Discord weist ein Auswahlmenue ohne Optionen ab, und ein abgeblendetes
+     * Menue waere eine Tuer, die sichtbar verschlossen ist - ohne dass
+     * jemand sie geoeffnet haben wollte. Das Embed bleibt und tut, was es
+     * ohnehin tut: die Rollen der Gruppe erklaeren. Dass hier nichts zu
+     * holen ist, steht als Satz darunter und nicht als graue Komponente.
      */
     return {
-      embeds: [{ ...embed, description: `${embed.description}\n\n*Zurzeit ist hier keine Rolle frei.*` }],
+      embeds: [
+        {
+          ...embed,
+          description:
+            `${embed.description}\n\n*Diese Rollen vergibt das Team - hier gibt es nichts zu wählen.*`.slice(
+              0,
+              4096,
+            ),
+        },
+      ],
+      allowedMentions: stumm,
     };
   }
 
   return {
     embeds: [embed],
+    allowedMentions: stumm,
     components: [
       {
         type: 1,

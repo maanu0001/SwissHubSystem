@@ -8,6 +8,16 @@ import { meineStatistik, type SitzungsStatistik } from './statistik';
 import { meinVerlauf, type MeinEintrag } from './historie';
 import { pruefeGrenzen } from './limits';
 import type { BonusStand } from './spin';
+import {
+  offeneBonusMeldung,
+  offeneFreispielMeldung,
+  offenerBonusAbschluss,
+  offenerFreispielAbschluss,
+  type BonusAbschluss,
+  type BonusIntro,
+  type FreispielAbschluss,
+  type FreispielIntro,
+} from './geschenke';
 
 /**
  * Was der Browser bekommt.
@@ -105,6 +115,8 @@ export interface SpielerAnsicht {
   statistik: SitzungsStatistik;
   verlauf: MeinEintrag[];
   gesperrt: string | null;
+  /** Was beim Oeffnen noch zu melden ist. */
+  meldungen: SlotMeldungen;
 }
 
 const BESCHREIBUNGEN: Record<string, string> = {
@@ -197,6 +209,18 @@ export async function slotAnsicht(
   };
 }
 
+/**
+ * Die Meldungen, die beim Oeffnen noch offen sind.
+ *
+ * Jede ist `null`, wenn es nichts zu melden gibt - der Normalfall.
+ */
+export interface SlotMeldungen {
+  freispielIntro: FreispielIntro | null;
+  bonusIntro: BonusIntro | null;
+  freispielEnde: FreispielAbschluss | null;
+  bonusEnde: BonusAbschluss | null;
+}
+
 /** Der Zustand einer Person. */
 export async function spielerAnsicht(
   discordId: string,
@@ -206,13 +230,22 @@ export async function spielerAnsicht(
   const k = konfiguration ?? (await leseKonfiguration());
   const w = k.wirksam;
 
-  const [profil, frei, bonus, statistik, verlauf, grenzen] = await Promise.all([
+  const [profil, frei, bonus, statistik, verlauf, grenzen, meldungen] = await Promise.all([
     prisma.levelProfile.findUnique({ where: { discordId }, select: { xp: true } }),
     offeneFreispiele(discordId, jetzt),
     bonusFuer(discordId, k),
     meineStatistik(discordId, jetzt),
     meinVerlauf(discordId, 15),
     pruefeGrenzen(prisma, discordId, 0, w, jetzt),
+    /*
+     * Die offenen Meldungen - was der Slot beim Oeffnen zu erzaehlen hat.
+     *
+     * Alle vier auf einmal geladen, weil die Oberflaeche sie ohnehin
+     * priorisiert: eine Meldung zur Zeit, und welche zuerst kommt,
+     * entscheidet sie. Hier zu entscheiden hiesse, die Reihenfolge in zwei
+     * Schichten zu haben.
+     */
+    offeneMeldungen(discordId, k),
   ]);
 
   const spielbareEinsaetze = w.einsaetze.filter((wert) => wert >= w.minEinsatz && wert <= w.maxEinsatz);
@@ -236,5 +269,25 @@ export async function spielerAnsicht(
     statistik,
     verlauf,
     gesperrt: grenzen.ok ? null : grenzen.grund,
+    meldungen,
   };
+}
+
+/**
+ * Was dem Spieler noch zu sagen ist.
+ *
+ * Vier Dinge, jedes hoechstens einmal: ein geschenktes Freispielpaket, ein
+ * geschenktes Bonusspiel, der Abschluss eines verbrauchten Pakets und der
+ * Abschluss einer Bonusrunde. Alle vier sind **persistent** vermerkt und
+ * nicht im Browser - wer das Geschenk auf dem Telefon erfaehrt, soll es am
+ * Rechner nicht zweimal erfahren.
+ */
+async function offeneMeldungen(discordId: string, konfiguration: SlotKonfiguration): Promise<SlotMeldungen> {
+  const [freispielIntro, bonusIntro, freispielEnde, bonusEnde] = await Promise.all([
+    offeneFreispielMeldung(discordId),
+    offeneBonusMeldung(discordId, konfiguration),
+    offenerFreispielAbschluss(discordId),
+    offenerBonusAbschluss(discordId),
+  ]);
+  return { freispielIntro, bonusIntro, freispielEnde, bonusEnde };
 }

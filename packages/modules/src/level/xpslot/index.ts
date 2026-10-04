@@ -44,3 +44,4 @@ export * from './klaenge';
 export * from './klang-speicher';
 export * from './verwaltung';
 export * from './ansicht';
+export * from './geschenke';

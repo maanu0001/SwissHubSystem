@@ -410,6 +410,117 @@ export const freispieleGewaehrenAction = defineAction(
   },
 );
 
+// --- Geschenkte Bonusspiele ------------------------------------------------
+
+/**
+ * Ein Bonusspiel verschenken.
+ *
+ * Dieselbe Berechtigung wie die Freispiele: beides ist ein Geschenk mit
+ * XP-Wert, und wer das eine vergeben darf, darf das andere. Eine dritte
+ * Berechtigung waere eine Unterscheidung ohne Unterschied.
+ */
+export const bonusSchenkenAction = defineAction(
+  {
+    name: 'level.xpslot.bonus.schenken',
+    module: MODULE_ID,
+    permission: P.xpslotFreespinsManage,
+    schema: z.object({
+      discordId: z.string().regex(/^\d{17,20}$/u, 'Das ist keine Discord-Kennung.'),
+      einsatz: z.number().int().min(1).max(1_000_000),
+      laeuftAb: z.coerce.date().nullable(),
+      grund: z.string().max(200).nullable(),
+    }),
+    rateLimit: 'slotAdmin',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const konfiguration = await S.leseKonfiguration();
+    const geschenk = await S.schenkeBonus(
+      {
+        discordId: input.discordId,
+        einsatz: input.einsatz,
+        laeuftAb: input.laeuftAb,
+        grund: input.grund,
+      },
+      konfiguration.wirksam.einsaetze,
+      { discordId: ctx.user.discordId, username: ctx.user.username },
+    );
+    revalidiereVerwaltung();
+    return { grantId: geschenk.id };
+  },
+);
+
+export const bonusGeschenkEntziehenAction = defineAction(
+  {
+    name: 'level.xpslot.bonus.geschenk.entziehen',
+    module: MODULE_ID,
+    permission: P.xpslotFreespinsManage,
+    schema: z.object({ grantId: z.string().min(1) }),
+    rateLimit: 'slotAdmin',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    await S.entzieheBonus(input.grantId, {
+      discordId: ctx.user.discordId,
+      username: ctx.user.username,
+    });
+    revalidiereVerwaltung();
+    return { ok: true };
+  },
+);
+
+/**
+ * Ein geschenktes Bonusspiel starten - vom Spieler aus.
+ *
+ * `selfService`: wirkt nur auf den Aufrufer, und die Kennung kommt aus der
+ * Sitzung. Welches Geschenk gestartet wird, prueft der Dienst gegen die
+ * eigene Kennung - eine fremde Geschenkkennung bekommt «gibt es nicht».
+ */
+export const bonusGeschenkStartenAction = defineAction(
+  {
+    name: 'level.xpslot.bonus.geschenk.starten',
+    module: MODULE_ID,
+    permission: P.xpslotPlay,
+    schema: z.object({ grantId: z.string().min(1) }),
+    rateLimit: 'slotSpin',
+  },
+  async ({ ctx, input }) => {
+    await assertModuleEnabled(MODULE_ID);
+    return S.starteGeschenktenBonus(ctx.user.discordId, input.grantId);
+  },
+);
+
+/**
+ * Eine Meldung als gesehen vermerken.
+ *
+ * Eine Action fuer alle vier Arten, weil es derselbe Vorgang ist: ein Haken
+ * an einer Zeile, die dieser Person gehoert. Vier Actions waeren vier
+ * Rate-Limits fuer dasselbe.
+ */
+export const meldungGesehenAction = defineAction(
+  {
+    name: 'level.xpslot.meldung.gesehen',
+    module: MODULE_ID,
+    permission: P.xpslotPlay,
+    schema: z.object({
+      art: z.enum(['freispiel-intro', 'freispiel-ende', 'bonus-intro', 'bonus-ende']),
+      id: z.string().min(1),
+    }),
+    rateLimit: 'slotSpin',
+  },
+  async ({ ctx, input }) => {
+    const wer = ctx.user.discordId;
+    if (input.art === 'freispiel-intro' || input.art === 'freispiel-ende') {
+      await S.merkeFreispielMeldung(wer, input.id, input.art === 'freispiel-intro' ? 'intro' : 'abschluss');
+    } else if (input.art === 'bonus-intro') {
+      await S.merkeBonusMeldung(wer, input.id);
+    } else {
+      await S.merkeBonusAbschluss(wer, input.id);
+    }
+    return { ok: true };
+  },
+);
+
 export const freispieleEntziehenAction = defineAction(
   {
     name: 'level.xpslot.freispiele.entziehen',
