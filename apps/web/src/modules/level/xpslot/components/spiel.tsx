@@ -157,11 +157,39 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
    * Reihenfolge ist entschieden statt zufaellig.
    */
   const [meldungen, setMeldungen] = useState<Meldungen>(start.meldungen);
+  /**
+   * Der Gewinn des zuletzt **abgeschlossenen** Spins.
+   *
+   * ## Warum eigener Zustand und nicht `ergebnis?.gewinn`
+   *
+   * Weil `ergebnis` beim Start des naechsten Spins geleert wird - die Anzeige
+   * stuende dann waehrend des ganzen Laufs auf null und spraenge am Ende
+   * wieder hoch. «Letzter Gewinn» soll stehen bleiben, bis es einen neuen
+   * gibt; das ist die Zusage der Beschriftung.
+   *
+   * ## Warum nicht der Bonusgewinn
+   *
+   * Weil das eine andere Zahl ist. Waehrend Freispielen stand hier
+   * `bonus.gewinn`, also die Summe der ganzen Runde - und damit zeigte das
+   * Feld bei einem Freispiel ohne Treffer trotzdem einen Betrag. Die
+   * Rundensumme gehoert in die Bonusanzeige und in das Abschluss-Overlay,
+   * nicht hierher.
+   *
+   * ## Warum der Verlauf den Anfangswert gibt
+   *
+   * Damit ein Neuladen die Zahl nicht verliert. `verlauf[0]` ist der jüngste
+   * gebuchte Spin dieser Person - dieselbe Quelle, aus der die Historie
+   * unten auf der Seite liest. Kein zweiter Speicher, keine Schaetzung im
+   * Browser.
+   */
+  const [letzterGewinn, setLetzterGewinn] = useState<number>(() => start.verlauf[0]?.gewinn ?? 0);
   /** Der Ausgang des Rads - er steht, bis jemand wegklickt. */
   const [radAusgang, setRadAusgang] = useState<{ gewonnen: boolean; freispiele: number } | null>(null);
   const [radAn, setRadAn] = useState(false);
   const [radErgebnis, setRadErgebnis] = useState<'gewonnen' | 'verloren' | null>(null);
   const radFolge = useRef<Spieler['bonus']>(null);
+  /** Die mit dem Wurf erreichte Freispielzahl - direkt aus der Serverantwort. */
+  const radFreispiele = useRef(0);
   /** Die Abschlusswerte, falls das Rad die Runde beendet hat. */
   const radEnde = useRef<Meldungen['bonusEnde']>(null);
 
@@ -287,6 +315,22 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
   const freispieleRest =
     (spieler.bonus?.stufe === 'SPINS' ? spieler.bonus.offen : 0) + spieler.freispieleOffen;
   const festerEinsatz = spieler.bonus?.stufe === 'SPINS' ? spieler.bonus.einsatz : spieler.freispielEinsatz;
+  /*
+   * Wann «Freispiele» ueberhaupt eine Auskunft ist.
+   *
+   * Genau dann, wenn Freispiele laufen: ein geschenktes Paket oder die
+   * Freispiele einer Bonusrunde. Im Basegame gibt es nichts zu zeigen -
+   * dort stand bisher dauerhaft eine Null, und eine Null, die nie etwas
+   * anderes wird, ist ein leeres Feld mit Beschriftung.
+   *
+   * ## Warum nicht schon auf der Risikoleiter
+   *
+   * Weil dort noch keine Zahl feststeht. Wer zwischen acht und zwoelf
+   * waehlt, hat null offene Freispiele - und «Freispiele 0» waere in diesem
+   * Moment die falsche Auskunft. Die Zahlen, um die es geht, stehen auf der
+   * Leiter selbst, gross und zur Wahl.
+   */
+  const zeigeFreispiele = imFreispiel;
   const wirksamerEinsatz = festerEinsatz ?? einsatz;
 
   /*
@@ -493,6 +537,9 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       melde({ art: 'premiumWin' });
     }
 
+    // Dieser Spin ist durch - er ist jetzt der letzte Gewinn, auch mit null.
+    setLetzterGewinn(spin.gewinn);
+
     // Den eigenen Stand fortschreiben - ohne die Seite neu zu laden.
     setSpieler((vorher) => ({
       ...vorher,
@@ -520,6 +567,28 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     if (spin.bonusEnde) {
       melde({ art: 'bonusFinished', gewonnen: !spin.bonusEnde.verloren });
       setMeldungen((vorher) => ({ ...vorher, bonusEnde: spin.bonusEnde }));
+    }
+
+    /*
+     * Und dasselbe fuer ein geschenktes Freispielpaket.
+     *
+     * ## Der Fehler, den das behebt
+     *
+     * Die Abschlussmeldung hing allein an der Ansicht, die beim Oeffnen der
+     * Seite geladen wird. Wer sein letztes geschenktes Freispiel drehte, sah
+     * also **nichts** - die Meldung erschien erst beim naechsten Besuch,
+     * ohne Zusammenhang zu dem Spin, der sie ausgeloest hatte. Gefunden hat
+     * das der Browser-Smoke: in der Phase danach stand sie da, in der Phase,
+     * die sie erwartete, nicht.
+     *
+     * Jetzt kommt sie mit der Spinantwort - mit denselben serverseitig
+     * gezaehlten Zahlen, in dem Moment, in dem sie endgueltig sind. Die
+     * Ansicht beim Oeffnen bleibt als zweiter Weg bestehen: wer den Tab
+     * schliesst, bevor er wegklickt, soll sie beim naechsten Mal sehen.
+     */
+    if (spin.freispielEnde) {
+      melde({ art: 'freespinsFinished' });
+      setMeldungen((vorher) => ({ ...vorher, freispielEnde: spin.freispielEnde }));
     }
 
     /*
@@ -662,6 +731,7 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       setRadErgebnis(null);
       radFolge.current = null;
       radEnde.current = null;
+      radFreispiele.current = 0;
       setRadAn(true);
       melde({ art: 'gambleStarted' });
 
@@ -677,6 +747,7 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
         // Ab hier steht das Ergebnis fest. Das Rad faehrt darauf aus; der
         // Zustand folgt in `radFertig`.
         radFolge.current = antwort.data.bonus;
+        radFreispiele.current = antwort.data.freispiele;
         radEnde.current = antwort.data.ende;
         setRadErgebnis(antwort.data.gewonnen ? 'gewonnen' : 'verloren');
       } catch (fehler) {
@@ -719,8 +790,18 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       melde({ art: 'bonusFinished', gewonnen: !ende.verloren });
       setMeldungen((vorher) => ({ ...vorher, bonusEnde: ende }));
     } else {
-      setRadAusgang({ gewonnen, freispiele: neu?.stufe === 'SPINS' ? neu.offen : 0 });
+      /*
+       * Die Zahl kommt vom Server und nicht aus dem Folgezustand.
+       *
+       * Hier stand `neu.stufe === 'SPINS' ? neu.offen : 0`. Nach einem
+       * gewonnenen Wurf auf der ersten Stufe steht die Runde aber auf
+       * `LADDER_2` - es gibt wieder eine Wahl -, und `offen` ist dann null.
+       * Die Meldung sagte deshalb «0 Freispiele», obwohl gerade zwoelf
+       * gewonnen waren. `freispiele` ist genau die erreichte Stufe.
+       */
+      setRadAusgang({ gewonnen, freispiele: radFreispiele.current });
     }
+    radFreispiele.current = 0;
     setSpieler((vorher) => ({
       ...vorher,
       bonus: !neu || neu.stufe === 'LOST' || neu.stufe === 'FINISHED' ? null : neu,
@@ -792,6 +873,9 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     const antwort = await meinStandAction({ csrfToken });
     if (antwort.ok) {
       setSpieler(antwort.data);
+      // Auch «Letzter Gewinn» kommt von dort - aus dem Verlauf, der dieselbe
+      // Quelle ist wie beim ersten Laden der Seite.
+      setLetzterGewinn(antwort.data.verlauf[0]?.gewinn ?? 0);
     }
   }, [csrfToken]);
 
@@ -859,17 +943,23 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
           notiz={festerEinsatz !== null ? 'festgelegt' : null}
           still
         />
-        <HudFeld
-          label="Gewinn"
-          wert={imFreispiel ? (spieler.bonus?.gewinn ?? 0) : (ergebnis?.gewinn ?? 0)}
-          vorzeichen
-        />
-        <HudFeld
-          label="Freispiele"
-          wert={freispieleRest}
-          notiz={festerEinsatz !== null ? `zu ${festerEinsatz} XP` : null}
-          still
-        />
+        {/*
+          «Freispiele» steht nur da, wenn es Freispiele gibt.
+
+          Im Basegame war das Feld dauerhaft sichtbar und zeigte null - eine
+          Auskunft ueber etwas, das gerade nicht stattfindet. Jetzt erscheint
+          es mit dem Bonus und verschwindet mit ihm; das Raster zaehlt seine
+          Spalten selbst, es bleibt also keine Luecke.
+        */}
+        {zeigeFreispiele ? (
+          <HudFeld
+            label="Freispiele"
+            wert={freispieleRest}
+            notiz={festerEinsatz !== null ? `zu ${festerEinsatz} XP` : null}
+            still
+          />
+        ) : null}
+        <HudFeld label="Letzter Gewinn" wert={letzterGewinn} vorzeichen />
       </div>
 
       {/* --- Die Bühne --- */}
@@ -977,9 +1067,11 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
         <SlotOverlay
           stimmung={radAusgang.gewonnen ? 'gewinn' : 'verlust'}
           augenbraue="Risiko"
-          titel={radAusgang.gewonnen ? 'Gewonnen' : 'Verloren'}
+          titel={radAusgang.gewonnen ? 'Gamble gewonnen' : 'Gamble verloren'}
           gross={
-            radAusgang.gewonnen ? `${formatSwissNumber(radAusgang.freispiele)} Freispiele` : 'Bonus beendet'
+            radAusgang.gewonnen
+              ? `${formatSwissNumber(radAusgang.freispiele)} Freispiele`
+              : 'Dein Bonus ist beendet.'
           }
           zeilen={
             radAusgang.gewonnen
@@ -1020,9 +1112,17 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
           titel="Freispiele abgeschlossen"
           zahl={{ wert: meldungen.freispielEnde.gewinn, einheit: 'XP' }}
           zeilen={[
-            `Du hast mit deinen Freispielen insgesamt ${formatSwissNumber(meldungen.freispielEnde.gewinn)} XP gewonnen.`,
+            /*
+             * Die Zahl steht oben und nicht auch noch im Satz.
+             *
+             * Hier stand sie zweimal - einmal als hochzaehlende Summe, einmal
+             * ausgeschrieben im Text. Das liest sich wie ein Fehler, und das
+             * Hochzaehlen verliert seinen Zweck, wenn das Ergebnis schon
+             * daneben steht.
+             */
+            'Das ist dein gesamter Gewinn aus diesem Freispielpaket.',
             `${formatSwissNumber(meldungen.freispielEnde.gespielt)} Freispiele zu ${formatSwissNumber(meldungen.freispielEnde.einsatz)} XP.`,
-            'Ab jetzt werden deine Einsätze wieder von deinen XP abgezogen.',
+            'Ab deinem nächsten Spin spielst du wieder mit deinen eigenen XP.',
           ]}
           knopf="Weiter spielen"
           ruhig={wenigerBewegung}

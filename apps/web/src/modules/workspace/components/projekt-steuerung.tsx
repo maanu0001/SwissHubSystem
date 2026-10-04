@@ -307,6 +307,10 @@ export function Mitgliederverwaltung({
           nicht, wer das Projekt sehen darf; das steht in der Sichtbarkeit. Nur bei «privat» ist beides
           dasselbe: dort sehen genau die Beteiligten das Projekt.
         </p>
+        <p className="text-[11px] text-muted-foreground">
+          «Projektleitung» und «Unterstützung» gelten nur in diesem Projekt. Es sind keine Discord-Rollen und
+          keine Berechtigungen - eine Rolle hier ändert nichts daran, was jemand im System darf.
+        </p>
       </div>
     </div>
   );

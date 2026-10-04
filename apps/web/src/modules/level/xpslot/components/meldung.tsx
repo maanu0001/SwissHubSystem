@@ -101,7 +101,15 @@ export function SlotOverlay({
           ruhig && 'slot-meldung__karte--ruhig',
         )}
       >
-        {stimmung !== 'verlust' && !ruhig ? <Partikel anzahl={14} /> : null}
+        {/*
+          Die Funken gehen vom Zentrum **dieser** Karte aus.
+
+          `ursprung="mitte"` ist der ganze Unterschied zur Buehne, wo sie von
+          unten treiben: eine Meldung hat eine Mitte, und ein Funkenschlag,
+          der nicht aus ihr kommt, sieht nach einem fremden Effekt aus, der
+          zufaellig daruntersteht.
+        */}
+        {stimmung !== 'verlust' && !ruhig ? <Partikel anzahl={14} ursprung="mitte" /> : null}
 
         {augenbraue ? <p className="slot-meldung__augenbraue">{augenbraue}</p> : null}
         <p className="slot-meldung__titel">{titel}</p>

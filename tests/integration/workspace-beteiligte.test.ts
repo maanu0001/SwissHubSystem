@@ -108,6 +108,43 @@ describeWithDatabase('Workspace: Beteiligte', () => {
     expect(liste.find((eintrag) => eintrag.discordId === BEN)?.rolle).toBe('LEAD');
   });
 
+  it('stuft eine beteiligte Person um, ohne sie zu verlieren', async () => {
+    const projectId = await projekt();
+    await workspace.setzeMitglieder(projectId, ANNA, [
+      { discordId: ANNA, rolle: 'LEAD' },
+      { discordId: BEN, rolle: 'MEMBER' },
+    ]);
+
+    // Unterstuetzung wird Projektleitung - mehrere Leitungen sind erlaubt.
+    await workspace.setzeMitglieder(projectId, ANNA, [
+      { discordId: ANNA, rolle: 'LEAD' },
+      { discordId: BEN, rolle: 'LEAD' },
+    ]);
+    expect(await beteiligte(projectId)).toEqual([
+      { discordId: ANNA, rolle: 'LEAD' },
+      { discordId: BEN, rolle: 'LEAD' },
+    ]);
+
+    // Und zurueck - die Person bleibt dabei, nur die Rolle wechselt.
+    await workspace.setzeMitglieder(projectId, ANNA, [
+      { discordId: ANNA, rolle: 'LEAD' },
+      { discordId: BEN, rolle: 'MEMBER' },
+    ]);
+    expect(await beteiligte(projectId)).toEqual([
+      { discordId: ANNA, rolle: 'LEAD' },
+      { discordId: BEN, rolle: 'MEMBER' },
+    ]);
+
+    const eintrag = await prisma.workspaceActivity.findFirstOrThrow({
+      where: { art: 'project.member' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(eintrag.detail).toContain('1× Rolle geändert');
+    // Umstufen ist weder ein Zugang noch ein Abgang.
+    expect(eintrag.detail).not.toContain('hinzugefügt');
+    expect(eintrag.detail).not.toContain('entfernt');
+  });
+
   it('verlangt mindestens eine Projektleitung', async () => {
     const projectId = await projekt();
     await expect(
@@ -130,9 +167,9 @@ describeWithDatabase('Workspace: Beteiligte', () => {
       where: { art: 'project.member' },
       orderBy: { createdAt: 'desc' },
     });
-    // «+1 · jetzt 2» statt nur «2 Mitglieder»: die Zahl danach beantwortet
-    // nicht die Frage, die man dem Verlauf stellt.
-    expect(eintrag.detail).toContain('+1');
+    // Der Vorgang in Worten statt nur die Zahl danach: «2 Mitglieder»
+    // beantwortet nicht die Frage, die man dem Verlauf stellt.
+    expect(eintrag.detail).toContain('1 hinzugefügt');
     expect(eintrag.detail).toContain('jetzt 2');
   });
 

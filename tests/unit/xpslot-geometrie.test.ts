@@ -138,10 +138,22 @@ describe('Spin-Gefühl', () => {
   });
 
   it('macht das laufende Band unscharf und den Rest nicht', () => {
-    expect(css).toMatch(/\.slot-band \.slot-zelle__bild[\s\S]*?filter: blur/u);
-    // Die Unschaerfe gehoert auf das Band: Rahmen und haftende Wilds bleiben
-    // scharf, und genau daran sieht man, dass sie nicht mitdrehen.
+    /*
+     * Die Unschaerfe liegt auf dem Band selbst und nicht mehr auf jedem Bild
+     * darin.
+     *
+     * Die Zusage ist dieselbe - das laufende Band ist unscharf, Rahmen und
+     * haftende Wilds bleiben scharf -, der Weg ist ein anderer: ein Filter
+     * auf einer Ebene statt dreissig Filter auf dreissig Ebenen. Gemessen
+     * waren das dreissig Compositor-Ebenen auf der Buehne; siehe
+     * `tests/unit/xpslot-leistung.test.ts`.
+     */
+    expect(css).toMatch(/\.slot-band \{[^}]*filter: blur/u);
+    expect(css).not.toMatch(/\.slot-band \.slot-zelle__bild/u);
     expect(css).not.toMatch(/\.slot-walze \{[^}]*filter: blur/u);
+    // Die haftende Lage liegt daneben und nicht darin - sonst waere sie mit
+    // weichgezeichnet.
+    expect(css).not.toMatch(/\.slot-band[^{]*\.slot-haftend/u);
   });
 });
 

@@ -90,12 +90,22 @@ describe('Klangsatz', () => {
     expect(level.xpslot.SCHLEIFEN_SLOTS).toContain('reel_loop');
   });
 
-  it('lädt die Klänge vor, sobald Ton erlaubt ist', () => {
+  it('lädt die Klänge vor - und zwar schon beim Rendern', () => {
     const quelle = ohneKommentare(lies(KLANG));
-    // Ohne Vorladen kommt der erste Walzenstopp eines Besuchs zu spaet - er
-    // muss erst die Datei holen.
+    /*
+     * Die Zusage ist dieselbe und gilt jetzt frueher.
+     *
+     * Vorgeladen wurde bisher erst **nach der Freigabe**, und die faellt im
+     * ersten Spin: der Browser-Smoke hat dort dreiundzwanzig Dateien im Netz
+     * gezaehlt, waehrend die Walzen liefen. Jetzt entstehen die Stimmen beim
+     * Rendern, die Musik am Ende der Reihe - abgespielt wird trotzdem nichts
+     * ohne Freigabe, das prueft `spiele`.
+     */
     expect(quelle).toMatch(
-      /if \(!freigegeben\) \{\s*return;\s*\}\s*for \(const slot of nachSlot\.keys\(\)\)/u,
+      /const reihe = \[\.\.\.nachSlot\.keys\(\)\][\s\S]*?for \(const slot of reihe\) \{\s*hole\(slot\);/u,
+    );
+    expect(quelle).toMatch(
+      /const spiele = useCallback\(\s*\(slot: string\) => \{\s*if \(!freigegebenRef\.current\)/u,
     );
   });
 

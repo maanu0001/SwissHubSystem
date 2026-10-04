@@ -289,8 +289,43 @@ function useGeometrie(
     );
   }, [reihen, walzen]);
 
+  /**
+   * Eine Messung anmelden - hoechstens eine je Bild.
+   *
+   * ## Der Fehler, den das behebt
+   *
+   * `messen()` stand vorher direkt in den Ref-Rueckrufen, und diese wurden
+   * **inline** erzeugt (`ref={walzenRef(walze)}`). Eine inline erzeugte
+   * Funktion ist bei jedem Rendern eine andere, und React loest einen Ref
+   * dann ab und haengt ihn neu an - also lief bei jedem Rendern fuenfmal
+   * `messen()`, und jeder Durchgang holt sechs `getBoundingClientRect`.
+   *
+   * Gemessen waren das **207 erzwungene Layoutberechnungen je Spin**, jede
+   * davon synchron mitten in einer laufenden CSS-Animation. Das ist der
+   * Grund, weshalb sich die Maschine anfuehlte, als komme sie nicht nach:
+   * nicht die Animation war zu teuer, sondern das Nachmessen daneben.
+   *
+   * Jetzt sind die Rueckrufe stabil - sie haengen genau einmal an -, und
+   * jede Messung laeuft gebuendelt im naechsten Bild. Mehrere Anlaesse im
+   * selben Bild werden eine Messung.
+   */
+  const bild = useRef(0);
+  const planen = useCallback(() => {
+    if (typeof window === 'undefined') {
+      messen();
+      return;
+    }
+    if (bild.current !== 0) {
+      return;
+    }
+    bild.current = window.requestAnimationFrame(() => {
+      bild.current = 0;
+      messen();
+    });
+  }, [messen]);
+
   useEffect(() => {
-    messen();
+    planen();
     if (typeof window === 'undefined') {
       return;
     }
@@ -299,51 +334,65 @@ function useGeometrie(
      * auch ohne Fensteraenderung - wenn eine Seitenleiste aufgeht, wenn die
      * Schriftgroesse wechselt, wenn `vh` auf dem Telefon beim Scrollen
      * nachgibt. Der Beobachter sieht alle drei Faelle, `resize` keinen davon.
+     *
+     * Beobachtet wird der **Rahmen**, nicht jede Walze: die Zellengroesse
+     * haengt an der Breite des Rahmens (`cqw`), eine Walze kann sich also
+     * nicht ohne ihn aendern. Fuenf Beobachter fuer dieselbe Aussage waeren
+     * fuenf Rueckrufe je Aenderung.
      */
     const beobachter =
       typeof ResizeObserver === 'function'
         ? new ResizeObserver(() => {
-            messen();
+            planen();
           })
         : null;
     if (beobachter && rahmenRef.current) {
       beobachter.observe(rahmenRef.current);
-      for (const element of walzenEls.current) {
-        if (element) {
-          beobachter.observe(element);
-        }
-      }
     }
     // Die Drehung eines Tablets aendert die Masse, ohne dass der Beobachter
     // in jedem Browser frueh genug anschlaegt - deshalb beides.
-    window.addEventListener('orientationchange', messen);
-    window.addEventListener('resize', messen);
+    window.addEventListener('orientationchange', planen);
+    window.addEventListener('resize', planen);
     return () => {
       beobachter?.disconnect();
-      window.removeEventListener('orientationchange', messen);
-      window.removeEventListener('resize', messen);
+      window.removeEventListener('orientationchange', planen);
+      window.removeEventListener('resize', planen);
+      if (bild.current !== 0) {
+        window.cancelAnimationFrame(bild.current);
+        bild.current = 0;
+      }
     };
-  }, [messen]);
+  }, [planen]);
 
   const rahmen = useCallback(
     (element: HTMLDivElement | null) => {
       rahmenRef.current = element;
       if (element) {
-        messen();
+        planen();
       }
     },
-    [messen],
+    [planen],
   );
 
-  const walzenRef = useCallback(
-    (walze: number) => (element: HTMLDivElement | null) => {
-      walzenEls.current[walze] = element;
-      if (element) {
-        messen();
-      }
-    },
-    [messen],
+  /*
+   * Je Walze **ein** Rueckruf, und zwar immer derselbe.
+   *
+   * Das ist der Kern des Fixes: `walzenRef(2)` gibt bei jedem Rendern
+   * dieselbe Funktion zurueck, also laesst React den Ref in Ruhe. Die Liste
+   * entsteht neu, wenn sich die Zahl der Walzen aendert - und nur dann.
+   */
+  const rueckrufe = useMemo(
+    () =>
+      Array.from({ length: walzen }, (_unused, walze) => (element: HTMLDivElement | null) => {
+        walzenEls.current[walze] = element;
+        if (element) {
+          planen();
+        }
+      }),
+    [planen, walzen],
   );
+
+  const walzenRef = useCallback((walze: number) => rueckrufe[walze] ?? (() => undefined), [rueckrufe]);
 
   return { rahmen, walzenRef, mitten, kasten };
 }
@@ -478,23 +527,76 @@ function LinienSchild({
   );
 }
 
-/** Die treibenden Punkte bei einem Gewinn. */
-export function Partikel({ anzahl = 12 }: { anzahl?: number }): React.JSX.Element {
+/**
+ * Die Funken.
+ *
+ * ## Zwei Urspruenge, ein Effekt
+ *
+ * Auf der Buehne treiben sie von **unten** nach oben - das ist die Bewegung,
+ * die zu einer Maschine passt, deren Gewinn unten steht. In einer grossen
+ * Meldung gehen sie vom **Zentrum** aus, und zwar vom Zentrum genau dieses
+ * Kastens.
+ *
+ * ## Der Fehler, den der zweite Ursprung behebt
+ *
+ * In der Meldung lief bisher derselbe Effekt wie auf der Buehne: Funken vom
+ * unteren Rand, waagrecht ueber die ganze Breite verteilt. Das sah nicht
+ * zentriert aus, weil es nicht zentriert war - und der obere Rand der Karte
+ * schnitt sie ab, weil dort `overflow: hidden` stand.
+ *
+ * Der Ursprung ist jetzt ein Punkt ohne eigene Groesse bei 50 % / 50 % des
+ * Kastens. Damit ist er immer das echte Zentrum - auf dem Telefon wie auf
+ * dem Schreibtisch, und auch dann, wenn die Karte wegen eines langen Textes
+ * hoeher wird. Keine Viewport-Mitte, keine festen Pixel.
+ */
+export function Partikel({
+  anzahl = 12,
+  ursprung = 'unten',
+}: {
+  anzahl?: number;
+  ursprung?: 'unten' | 'mitte';
+}): React.JSX.Element {
+  const mitte = ursprung === 'mitte';
+
   return (
-    <div className="slot-partikel" aria-hidden="true">
-      {Array.from({ length: anzahl }, (_unused, index) => (
-        <span
-          key={index}
-          style={{
-            left: `${(index * 97) % 100}%`,
-            animationDuration: `${2.4 + (index % 5) * 0.35}s`,
-            animationDelay: `${(index % 7) * 0.18}s`,
-            // Eine Drift je Punkt, damit nicht zwoelf Punkte dieselbe Bahn
-            // fliegen - das sieht nach einem Fehler aus, nicht nach Funken.
-            ['--drift' as string]: `${((index % 5) - 2) * 14}px`,
-          }}
-        />
-      ))}
+    <div className={cn('slot-partikel', mitte && 'slot-partikel--mitte')} aria-hidden="true">
+      {Array.from({ length: anzahl }, (_unused, index) => {
+        if (!mitte) {
+          return (
+            <span
+              key={index}
+              style={{
+                left: `${(index * 97) % 100}%`,
+                animationDuration: `${2.4 + (index % 5) * 0.35}s`,
+                animationDelay: `${(index % 7) * 0.18}s`,
+                // Eine Drift je Punkt, damit nicht zwoelf Punkte dieselbe Bahn
+                // fliegen - das sieht nach einem Fehler aus, nicht nach Funken.
+                ['--drift' as string]: `${((index % 5) - 2) * 14}px`,
+              }}
+            />
+          );
+        }
+        /*
+         * Der goldene Winkel verteilt die Richtungen gleichmaessig.
+         *
+         * 137,5 Grad je Funke heisst: keine zwei liegen uebereinander, und es
+         * entsteht keine sichtbare Speichenform - die bekaeme man mit
+         * `360 / anzahl` sofort.
+         */
+        const winkel = (index * 137.5 * Math.PI) / 180;
+        const weite = 0.62 + ((index * 7) % 5) * 0.095;
+        return (
+          <span
+            key={index}
+            style={{
+              animationDuration: `${1.5 + (index % 5) * 0.22}s`,
+              animationDelay: `${(index % 7) * 0.085}s`,
+              ['--dx' as string]: `calc(var(--slot-funken-weite) * ${(Math.cos(winkel) * weite).toFixed(3)})`,
+              ['--dy' as string]: `calc(var(--slot-funken-weite) * ${(Math.sin(winkel) * weite).toFixed(3)})`,
+            }}
+          />
+        );
+      })}
     </div>
   );
 }

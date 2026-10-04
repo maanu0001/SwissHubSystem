@@ -118,3 +118,72 @@ describe('Workspace-Seiten', () => {
     expect(quelle).not.toMatch(/actorDiscordId:\s*z\./u);
   });
 });
+
+/**
+ * Die Kachel «Beteiligte» - an beiden Stellen und mit derselben Bedeutung.
+ *
+ * ## Warum das hier und nicht im Browser steht
+ *
+ * Weil es Aussagen über die Struktur sind: dass es die Kachel gibt, dass sie
+ * an Projekt und Aufgabe gleich heisst, und dass die Rollen nur im Projekt
+ * vorkommen. Zwei Namen für eine Liste - «Beteiligte» im Projekt,
+ * «Zuständig» an der Aufgabe - waren genau der Grund, weshalb beide für zwei
+ * verschiedene Dinge gehalten wurden.
+ */
+describe('Workspace: Beteiligte', () => {
+  const lies = (pfad: string): string => ohneKommentare(readFileSync(pfad, 'utf8'));
+
+  const PROJEKTSEITE = 'apps/web/src/app/(app)/workspace/projekte/[projectId]/page.tsx';
+  const AUFGABENSEITE = 'apps/web/src/app/(app)/workspace/aufgaben/[taskId]/page.tsx';
+  const LABELS = 'apps/web/src/modules/workspace/labels.ts';
+  const PICKER = 'apps/web/src/modules/workspace/components/zustaendig-wahl.tsx';
+  const AUFGABE_BETEILIGTE = 'apps/web/src/modules/workspace/components/aufgabe-beteiligte.tsx';
+  const AUFGABE_STEUERUNG = 'apps/web/src/modules/workspace/components/aufgabe-steuerung.tsx';
+
+  it('trägt die Kachel in Projekt und Aufgabe', () => {
+    expect(lies(PROJEKTSEITE)).toContain('<Panel title="Beteiligte"');
+    expect(lies(AUFGABENSEITE)).toContain('<Panel title="Beteiligte"');
+  });
+
+  it('nennt die beiden Projektrollen Projektleitung und Unterstützung', () => {
+    const labels = lies(LABELS);
+    expect(labels).toContain("LEAD: 'Projektleitung'");
+    expect(labels).toContain("MEMBER: 'Unterstützung'");
+    // «Mitglied» klang nach Zugehoerigkeit und damit nach Berechtigung.
+    expect(labels).not.toContain("MEMBER: 'Mitglied'");
+  });
+
+  it('kennt an der Aufgabe keine Rollen - alle sind verantwortlich', () => {
+    const kachel = lies(AUFGABE_BETEILIGTE);
+    expect(kachel).toContain('workspaceZustaendigeSetzenAction');
+    expect(kachel).toContain('Beteiligte speichern');
+    // Keine Projektrolle an der Aufgabe.
+    expect(kachel).not.toContain('WorkspaceMemberRole');
+    expect(kachel).not.toContain('Projektleitung');
+    expect(lies(AUFGABENSEITE)).toContain('Alle Beteiligten sind verantwortlich.');
+  });
+
+  it('hat die Beteiligten aus «Ändern» herausgelöst', () => {
+    /*
+     * Dort standen sie neben Status, Prioritaet und dem Loeschknopf. «Wer
+     * macht das» ist aber die erste Frage an eine Aufgabe und nicht eine
+     * unter vielen Einstellungen.
+     */
+    const steuerung = lies(AUFGABE_STEUERUNG);
+    expect(steuerung).not.toContain('ZustaendigWahl');
+    expect(steuerung).not.toContain('workspaceZustaendigeSetzenAction');
+  });
+
+  it('beschriftet den Picker überall gleich', () => {
+    const picker = lies(PICKER);
+    expect(picker).toContain("beschriftung = 'Beteiligte'");
+    expect(picker).toContain('{beschriftung}');
+    expect(picker).not.toContain('>Zuständig<');
+  });
+
+  it('sagt in der Projektkachel, dass die Rollen keine Berechtigungen sind', () => {
+    const projekt = lies('apps/web/src/modules/workspace/components/projekt-steuerung.tsx');
+    expect(projekt).toContain('keine Discord-Rollen');
+    expect(projekt).toContain('wer mitarbeitet');
+  });
+});

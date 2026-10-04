@@ -302,7 +302,22 @@ export function AufgabeFormular({
             und beim Bearbeiten ebenso. Dass sie dort fehlte, war kein Entwurf:
             wer eine Aufgabe bearbeitet, will auch die Zustaendigen aendern.
           */}
-          <ZustaendigWahl team={team} gewaehlt={zustaendige} aufAendern={schalteZustaendig} />
+          <ZustaendigWahl
+            team={team}
+            gewaehlt={zustaendige}
+            aufAendern={schalteZustaendig}
+            /*
+              Beim Anlegen ist die anlegende Person vorgewaehlt - nicht
+              festgenagelt. Wer eine Aufgabe fuer jemand anderen anlegt,
+              nimmt sich mit einem Klick heraus; wer sie sich notiert, laesst
+              den Haken stehen.
+            */
+            hinweis={
+              aufgabe
+                ? undefined
+                : 'Du bist als Ersteller vorgewählt - ein Klick nimmt dich heraus. Alle Beteiligten sind gleichwertig verantwortlich.'
+            }
+          />
         </div>
 
         <DialogFooter>

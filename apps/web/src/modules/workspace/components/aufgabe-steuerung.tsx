@@ -8,25 +8,26 @@ import type { WorkspacePriority, WorkspaceTaskStatus } from '@swisshub/database'
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { ZustaendigWahl } from './zustaendig-wahl';
 import { AUFGABEN_STATUS_LABEL, PRIORITAET_LABEL } from '../labels';
 import {
   workspaceAufgabeLoeschenAction,
   workspacePrioritaetSetzenAction,
   workspaceStatusSetzenAction,
-  workspaceZustaendigeSetzenAction,
 } from '../actions';
-import type { Teammitglied } from '../daten';
 
 /**
  * Was man auf der Detailseite einer Aufgabe tut.
  *
- * Status, Priorität, Zuständige, löschen - jedes als eigener Aufruf und nicht
- * als ein Formular mit Speicherknopf. Der Grund ist derselbe wie beim Board:
- * ein gemeinsames Speichern würde Felder mitschreiben, die zwischenzeitlich
+ * Status, Priorität, löschen - jedes als eigener Aufruf und nicht als ein
+ * Formular mit Speicherknopf. Der Grund ist derselbe wie beim Board: ein
+ * gemeinsames Speichern würde Felder mitschreiben, die zwischenzeitlich
  * jemand anders geändert hat.
  *
  * Der Statuswechsel schickt den Status mit, den diese Seite vor sich sah.
+ *
+ * Die Beteiligten stehen nicht mehr hier, sondern in der Kachel
+ * «Beteiligte» - siehe `AufgabeBeteiligte`. Sie sind die Frage, die man an
+ * einer Aufgabe zuerst stellt, und gehören nicht neben den Löschknopf.
  */
 
 const STATUS: WorkspaceTaskStatus[] = ['OPEN', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED'];
@@ -37,8 +38,6 @@ export function AufgabeSteuerung({
   taskId,
   status,
   prioritaet,
-  zustaendige,
-  team,
   darfBearbeiten,
   darfLoeschen,
   zurueckAuf,
@@ -47,8 +46,6 @@ export function AufgabeSteuerung({
   taskId: string;
   status: WorkspaceTaskStatus;
   prioritaet: WorkspacePriority;
-  zustaendige: readonly string[];
-  team: Teammitglied[];
   darfBearbeiten: boolean;
   darfLoeschen: boolean;
   /** Wohin es nach dem Löschen geht - die Aufgabe gibt es dann nicht mehr. */
@@ -56,7 +53,6 @@ export function AufgabeSteuerung({
 }): React.JSX.Element {
   const router = useRouter();
   const [laeuft, starte] = useTransition();
-  const [gewaehlt, setGewaehlt] = useState<string[]>([...zustaendige]);
   const [loeschenBestaetigt, setLoeschenBestaetigt] = useState(false);
 
   const ruf = (
@@ -147,42 +143,6 @@ export function AufgabeSteuerung({
           </Select>
         </div>
       </div>
-
-      <fieldset className="space-y-2">
-        <ZustaendigWahl
-          team={team}
-          gewaehlt={gewaehlt}
-          aufAendern={(discordId): void =>
-            setGewaehlt((bisher) =>
-              bisher.includes(discordId)
-                ? bisher.filter((eintrag) => eintrag !== discordId)
-                : [...bisher, discordId],
-            )
-          }
-        />
-
-        {/*
-          Hier ist ein Speicherknopf richtig: eine Zuweisung ist eine
-          Entscheidung über mehrere Kästchen, und jeder Klick einzeln zu
-          schicken hiesse, bei «A raus, B rein» zwischendurch einen Zustand
-          ohne Zuständige herzustellen - und eine Meldung an B zu schicken,
-          bevor man fertig überlegt hat.
-        */}
-        {gewaehlt.length !== zustaendige.length ||
-        gewaehlt.some((kennung) => !zustaendige.includes(kennung)) ? (
-          <Button
-            size="sm"
-            onClick={(): void =>
-              ruf(
-                () => workspaceZustaendigeSetzenAction({ csrfToken, taskId, discordIds: gewaehlt }),
-                'Zuständige gespeichert.',
-              )
-            }
-          >
-            Zuständige speichern
-          </Button>
-        ) : null}
-      </fieldset>
 
       {darfLoeschen ? (
         <div className="border-t border-border pt-4">

@@ -223,8 +223,8 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
    * **null** Mal statt einmal.
    *
    * Die Referenz gilt sofort. Der Zustand bleibt daneben stehen, weil die
-   * Effekte - Vorladen, Lautstaerke - an einer Zustandsaenderung haengen
-   * muessen, um ueberhaupt zu laufen.
+   * Oberflaeche ihn braucht: die Grundstimmung wird erst gesetzt, wenn Ton
+   * ueberhaupt erlaubt ist, und das ist eine Frage an den Zustand.
    */
   const freigegebenRef = useRef(false);
   /** Je Slot ein Stimmenpool. Stimme 0 traegt auch die Schleifen. */
@@ -296,7 +296,20 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
   /** Eine neue Stimme fuer einen Slot - oder `null`, wenn es nicht geht. */
   const baue = useCallback(
     (slot: string): HTMLAudioElement | null => {
-      if (!freigegebenRef.current || typeof window === 'undefined' || typeof window.Audio !== 'function') {
+      /*
+       * Gebaut wird immer, abgespielt erst nach der Freigabe.
+       *
+       * Hier stand `!freigegebenRef.current` - und damit entstand **keine**
+       * einzige Stimme, bevor der erste Klick kam. Vorladen war dadurch
+       * wirkungslos: alle dreiundzwanzig Dateien wurden erst beim ersten
+       * Spin geholt und dekodiert, mitten in der Animation. Der Browser-Smoke
+       * hat genau das gezaehlt.
+       *
+       * Ein `new Audio(...)` mit `preload` braucht keine Nutzergeste - nur
+       * `play()` tut das. Die Freigabe sitzt deshalb jetzt dort, wo sie
+       * hingehoert: in `spiele` und `starteSchleife`.
+       */
+      if (typeof window === 'undefined' || typeof window.Audio !== 'function') {
         return null;
       }
       const eintrag = nachSlot.get(slot);
@@ -384,32 +397,46 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
   );
 
   /*
-   * Vorladen, sobald Ton ueberhaupt erlaubt ist.
+   * Vorladen, sobald die Seite steht - nicht erst beim ersten Spin.
    *
-   * ## Warum das zur Synchronitaet gehoert
+   * ## Warum das zur Synchronitaet **und** zur Bildrate gehoert
    *
-   * Ein Element entstand bisher beim ersten Abspielen. Der erste Walzenstopp
-   * eines Besuchs musste also erst eine Datei holen - und kam damit zu spaet,
-   * sichtbar neben der Animation. Ein Klang, der einmal zu spaet kommt,
-   * macht den ganzen Satz unglaubwuerdig.
+   * Ein Element entstand bisher beim ersten Abspielen, und gebaut wurde erst
+   * nach der Freigabe - die im ersten Spin faellt. Der erste Spin eines
+   * Besuchs holte und dekodierte damit **alle** Effektdateien, waehrend die
+   * Walzen liefen: gemessen dreiundzwanzig Dateien in genau diesem Fenster.
+   * Dekodieren laeuft im Hauptfaden, und das ist der Ruck, den man am
+   * Anfang spuert.
    *
-   * Darum wird nach der Freigabe je Slot die erste Stimme angelegt;
-   * `preload = 'auto'` laedt dann im Hintergrund. Weitere Stimmen entstehen
-   * erst, wenn sie gebraucht werden - sie zeigen auf dieselbe, dann schon
-   * geladene Adresse. Die Musik bleibt bewusst aussen vor: sie ist die
-   * groesste Datei und wird ohnehin gestartet, nicht angespielt.
+   * Jetzt laeuft es direkt nach dem ersten Rendern: je Slot eine Stimme mit
+   * `preload = 'auto'`, also ein Laden im Hintergrund, zu einem Zeitpunkt,
+   * an dem nichts animiert. Abgespielt wird dadurch nichts - dafuer braucht
+   * es die Freigabe, und die prueft `spiele`.
+   *
+   * Weitere Stimmen entstehen erst, wenn sie gebraucht werden; sie zeigen
+   * auf dieselbe, dann schon geladene Adresse.
+   *
+   * ## Die Musik zuletzt, aber auch sofort
+   *
+   * Sie ist mit Abstand die groesste Datei, und sie beginnt erst mit dem
+   * ersten Spin. Hier stand darum ein `requestIdleCallback` - und der war
+   * zu spaet: der Browser-Smoke klickte knapp eine Sekunde nach dem Laden,
+   * und die Musik lag noch im Netz, waehrend die Walzen liefen. Wer sich
+   * einen Automaten aufmacht, drueckt eben schnell.
+   *
+   * Jetzt laeuft alles in einem Durchgang, die Musik am Ende der Reihe. Der
+   * Browser arbeitet Anfragen in der Reihenfolge ab, in der sie kommen - die
+   * Effekte sind also zuerst da, und die grosse Datei haengt hinten dran,
+   * ohne dass ein Zeitgeber darueber entscheidet.
    */
   useEffect(() => {
-    if (!freigegeben) {
-      return;
-    }
-    for (const slot of nachSlot.keys()) {
-      if (MUSIK_SLOTS.has(slot)) {
-        continue;
-      }
+    const reihe = [...nachSlot.keys()].sort(
+      (links, rechts) => Number(MUSIK_SLOTS.has(links)) - Number(MUSIK_SLOTS.has(rechts)),
+    );
+    for (const slot of reihe) {
       hole(slot);
     }
-  }, [freigegeben, hole, nachSlot]);
+  }, [hole, nachSlot]);
 
   /*
    * Die Regler wirken sofort - auch auf eine laufende Schleife.
@@ -471,6 +498,9 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
 
   const spiele = useCallback(
     (slot: string) => {
+      if (!freigegebenRef.current) {
+        return;
+      }
       const eintrag = nachSlot.get(slot);
       const pool = hole(slot);
       if (!pool || !eintrag) {
@@ -525,6 +555,9 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
 
   const starteSchleife = useCallback(
     (slot: string, optionen?: SchleifenOptionen) => {
+      if (!freigegebenRef.current) {
+        return;
+      }
       const eintrag = nachSlot.get(slot);
       const element = hole(slot)?.[0];
       if (!element || !eintrag) {

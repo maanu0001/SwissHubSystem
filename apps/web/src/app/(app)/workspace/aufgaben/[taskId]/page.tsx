@@ -12,6 +12,7 @@ import { workspaceNavigation } from '@/modules/workspace/navigation';
 import { ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import { Frist, PrioritaetAbzeichen, StatusAbzeichen, Tags } from '@/modules/workspace/components/abzeichen';
 import { AufgabeFormular } from '@/modules/workspace/components/aufgabe-formular';
+import { AufgabeBeteiligte } from '@/modules/workspace/components/aufgabe-beteiligte';
 import { AufgabeSteuerung } from '@/modules/workspace/components/aufgabe-steuerung';
 import { Anhaenge, Checkliste, Kommentare, Links } from '@/modules/workspace/components/mitarbeit';
 import { ERINNERUNG_LABEL, VERLAUF_LABEL, fristText, zeitpunktText } from '@/modules/workspace/labels';
@@ -161,14 +162,26 @@ export default async function WorkspaceAufgabePage({
             />
           </Panel>
 
+          {/*
+            Wer arbeitet daran - die erste Frage an eine Aufgabe, und darum
+            eine eigene Kachel mit demselben Namen wie im Projekt.
+          */}
+          <Panel title="Beteiligte" icon="Users" description="Alle Beteiligten sind verantwortlich.">
+            <AufgabeBeteiligte
+              csrfToken={csrfToken}
+              taskId={ansicht.aufgabe.id}
+              beteiligte={ansicht.zustaendige}
+              team={team}
+              darfBearbeiten={darfBearbeiten}
+            />
+          </Panel>
+
           <Panel title="Ändern" icon="Pencil">
             <AufgabeSteuerung
               csrfToken={csrfToken}
               taskId={ansicht.aufgabe.id}
               status={ansicht.aufgabe.status}
               prioritaet={ansicht.aufgabe.priority}
-              zustaendige={ansicht.zustaendige}
-              team={team}
               darfBearbeiten={darfBearbeiten}
               darfLoeschen={darfLoeschen}
               zurueckAuf={

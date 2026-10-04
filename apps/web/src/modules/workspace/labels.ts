@@ -47,9 +47,17 @@ export const PRIORITAET_LABEL: Record<WorkspacePriority, string> = {
   URGENT: 'Dringend',
 };
 
+/**
+ * Die beiden Projektrollen.
+ *
+ * `MEMBER` hiess hier «Mitglied» - ein Wort, das nach Zugehoerigkeit klingt
+ * und damit nach Berechtigung. Gemeint war immer die Gegenrolle zur Leitung:
+ * wer mitarbeitet, ohne das Projekt zu fuehren. «Unterstuetzung» sagt das,
+ * und es sagt gleichzeitig, dass es um Arbeit geht und nicht um Zugang.
+ */
 export const ROLLE_LABEL: Record<WorkspaceMemberRole, string> = {
   LEAD: 'Projektleitung',
-  MEMBER: 'Mitglied',
+  MEMBER: 'Unterstützung',
 };
 
 export const ERINNERUNG_LABEL: Record<WorkspaceReminder, string> = {

@@ -167,13 +167,13 @@ describeWithDatabase('XP-Slot: Geschenke', () => {
     const alle = await einsaetze();
     const einsatz = alle[0]!;
     await S.gewaehreFreispiele(
-      { discordId: SPIELER, anzahl: 2, einsatz, laeuftAb: null, grund: 'Dankeschön' },
+      { discordId: SPIELER, anzahl: 5, einsatz, laeuftAb: null, grund: 'Dankeschön' },
       alle,
       TEAM,
     );
 
     let summe = 0;
-    for (let runde = 0; runde < 2; runde += 1) {
+    for (let runde = 0; runde < 5; runde += 1) {
       const spin = await S.dreheSpin({
         discordId: SPIELER,
         einsatz,
@@ -185,7 +185,7 @@ describeWithDatabase('XP-Slot: Geschenke', () => {
 
     const abschluss = await S.offenerFreispielAbschluss(SPIELER);
     expect(abschluss).not.toBeNull();
-    expect(abschluss?.gespielt).toBe(2);
+    expect(abschluss?.gespielt).toBe(5);
     expect(abschluss?.gewinn).toBe(summe);
     expect(abschluss?.einsatz).toBe(einsatz);
     expect(abschluss?.grund).toBe('Dankeschön');
@@ -205,6 +205,59 @@ describeWithDatabase('XP-Slot: Geschenke', () => {
     expect(danach.art).toBe('PAID');
     const nachher = await prisma.levelProfile.findUniqueOrThrow({ where: { discordId: SPIELER } });
     expect(nachher.xp).toBe(vorher.xp - einsatz + danach.gewinn);
+  });
+
+  it('liefert den Abschluss schon im letzten Freispiel-Spin', async () => {
+    /*
+     * Der Fehler, den das abdeckt: die Meldung kam erst beim naechsten
+     * Seitenaufruf.
+     *
+     * Sie hing allein an `spielerAnsicht`, also an dem, was beim Oeffnen der
+     * Seite geladen wird. Wer sein letztes geschenktes Freispiel drehte, sah
+     * nichts - und beim naechsten Besuch eine Meldung ohne Zusammenhang.
+     * Gefordert ist «unmittelbar danach», und dafuer muss der Abschluss in
+     * der Spinantwort stehen.
+     */
+    const alle = await einsaetze();
+    const einsatz = alle[0]!;
+    await S.gewaehreFreispiele(
+      { discordId: SPIELER, anzahl: 3, einsatz, laeuftAb: null, grund: 'Direkt' },
+      alle,
+      TEAM,
+    );
+
+    let summe = 0;
+    const abschluesse = [];
+    for (let runde = 0; runde < 3; runde += 1) {
+      const spin = await S.dreheSpin({
+        discordId: SPIELER,
+        einsatz,
+        schluessel: schluessel(),
+        random: quelleAusSeed(`sofort-${runde}`),
+      });
+      summe += spin.gewinn;
+      abschluesse.push(spin.freispielEnde);
+    }
+
+    // Nur der letzte Spin traegt ihn - die beiden davor nicht.
+    expect(abschluesse[0]).toBeNull();
+    expect(abschluesse[1]).toBeNull();
+    const ende = abschluesse[2];
+    expect(ende).not.toBeNull();
+    expect(ende?.gespielt).toBe(3);
+    expect(ende?.gewinn).toBe(summe);
+    expect(ende?.einsatz).toBe(einsatz);
+    expect(ende?.grund).toBe('Direkt');
+
+    /*
+     * Und derselbe Abschluss steht auch in der Ansicht - fuer den Fall, dass
+     * jemand den Tab schliesst, bevor er wegklickt. Einmal bleibt einmal:
+     * nach dem Haken ist er aus beiden Wegen verschwunden.
+     */
+    const ausAnsicht = await S.offenerFreispielAbschluss(SPIELER);
+    expect(ausAnsicht?.paketId).toBe(ende?.paketId);
+    await S.merkeFreispielMeldung(SPIELER, ausAnsicht!.paketId, 'abschluss');
+    expect(await S.offenerFreispielAbschluss(SPIELER)).toBeNull();
   });
 
   // --- Geschenktes Bonusspiel ---------------------------------------------

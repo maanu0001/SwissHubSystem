@@ -105,9 +105,18 @@ export async function offenerFreispielAbschluss(discordId: string): Promise<Frei
     where: { discordId, status: 'USED', outroSeenAt: null },
     orderBy: { updatedAt: 'asc' },
   });
-  if (!paket) {
-    return null;
-  }
+  return paket ? paketAbschluss(paket) : null;
+}
+
+/**
+ * Die Abschlusswerte einer Paketzeile.
+ *
+ * Eine Funktion und nicht zweimal dasselbe Objekt: dieselben Zahlen kommen
+ * aus zwei Richtungen - aus dem Spin, der das letzte Freispiel verbraucht
+ * hat, und aus der Ansicht beim Oeffnen der Seite, falls die Meldung noch
+ * aussteht. Zwei Stellen, die dieselbe Meldung bauen, laufen auseinander.
+ */
+export function paketAbschluss(paket: XpSlotFreespinPackage): FreispielAbschluss {
   return {
     paketId: paket.id,
     gespielt: paket.used,

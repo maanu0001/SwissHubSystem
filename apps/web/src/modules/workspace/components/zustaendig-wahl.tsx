@@ -38,12 +38,22 @@ export function ZustaendigWahl({
   aufAendern,
   disabled = false,
   hinweis,
+  beschriftung = 'Beteiligte',
 }: {
   team: readonly Teammitglied[];
   gewaehlt: readonly string[];
   aufAendern: (discordId: string) => void;
   disabled?: boolean;
   hinweis?: string;
+  /**
+   * Die Ueberschrift der Auswahl.
+   *
+   * Vorgabe «Beteiligte» - dasselbe Wort wie im Projekt, damit es an beiden
+   * Stellen dieselbe Sache bezeichnet. Hier stand «Zustaendig», und daneben
+   * hiess es im Projekt «Beteiligte»; zwei Namen fuer eine Liste sind ein
+   * Grund, zu glauben, es seien zwei Listen.
+   */
+  beschriftung?: string;
 }): React.JSX.Element | null {
   const [suche, setSuche] = useState('');
 
@@ -75,7 +85,7 @@ export function ZustaendigWahl({
 
   return (
     <fieldset className="space-y-2">
-      <legend className="text-sm font-medium">Zuständig</legend>
+      <legend className="text-sm font-medium">{beschriftung}</legend>
 
       {team.length >= SUCHE_AB ? (
         <div className="relative">
@@ -87,7 +97,7 @@ export function ZustaendigWahl({
             value={suche}
             onChange={(ereignis): void => setSuche(ereignis.target.value)}
             placeholder="Name oder Benutzername"
-            aria-label="Zuständige suchen"
+            aria-label={`${beschriftung} suchen`}
             className="pl-9"
             disabled={disabled}
           />
@@ -101,11 +111,12 @@ export function ZustaendigWahl({
             <label
               key={mitglied.discordId}
               className={cn(
-                'flex min-h-11 cursor-pointer items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-sm transition-colors',
+                'flex min-h-11 items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-sm transition-colors',
+                disabled ? 'cursor-not-allowed' : 'cursor-pointer',
                 an
                   ? 'border-primary bg-primary/10 text-foreground'
                   : 'border-border text-muted-foreground hover:text-foreground',
-                disabled && 'cursor-not-allowed opacity-60',
+                disabled && 'opacity-60',
               )}
             >
               <input
@@ -141,7 +152,8 @@ export function ZustaendigWahl({
       </div>
 
       <p className="text-xs text-muted-foreground">
-        {hinweis ?? 'Angeboten werden die, die den Workspace öffnen dürfen.'}
+        {hinweis ??
+          'Alle Beteiligten sind gleichwertig verantwortlich. Angeboten werden die, die den Workspace öffnen dürfen.'}
       </p>
     </fieldset>
   );

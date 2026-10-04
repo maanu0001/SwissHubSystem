@@ -777,6 +777,42 @@ describeWithDatabase('XP-Slot: Spin', () => {
     expect(zweite.bonus.offen).toBe(16);
   });
 
+  it('nennt die erreichte Freispielzahl - nie null nach einem Gewinn', async () => {
+    /*
+     * Der Fehler, den das abdeckt: die Meldung sagte «0 Freispiele», obwohl
+     * gerade zwoelf gewonnen waren.
+     *
+     * Die Oberflaeche las die Zahl aus `bonus.offen`. Nach einem gewonnenen
+     * Wurf auf der ersten Stufe steht die Runde aber auf `LADDER_2` - es gibt
+     * wieder eine Wahl -, und offene Freispiele hat sie erst, wenn jemand
+     * sie nimmt. `freispiele` ist die erreichte Stufe und kommt aus
+     * derselben Rechnung, die den Wurf bewertet hat.
+     */
+    const immerGewinn = { integer: () => 0, hex: () => '00' };
+    const immerVerlust = { integer: (max: number) => max - 1, hex: () => '00' };
+
+    /*
+     * Der verlorene Fall zuerst: er beendet die Runde, und danach ist Platz
+     * fuer die naechste. Andersherum laeuft nach zwei Gewinnen eine Runde
+     * mit sechzehn Freispielen - und solange die steht, loest kein Scatter
+     * eine neue aus.
+     */
+    const verloren = await S.riskiere(SPIELER, (await bonusAusloesen()).id, immerVerlust);
+    expect(verloren.gewonnen).toBe(false);
+    expect(verloren.freispiele).toBe(0);
+
+    const erste = await S.riskiere(SPIELER, (await bonusAusloesen()).id, immerGewinn);
+    expect(erste.gewonnen).toBe(true);
+    expect(erste.bonus.stufe).toBe('LADDER_2');
+    // Genau hier stand vorher die Null.
+    expect(erste.bonus.offen).toBe(0);
+    expect(erste.freispiele).toBe(12);
+
+    const zweite = await S.riskiere(SPIELER, erste.bonus.id, immerGewinn);
+    expect(zweite.freispiele).toBe(16);
+    expect(zweite.bonus.offen).toBe(16);
+  });
+
   it('lässt keine Entscheidung über eine fremde Runde zu', async () => {
     const runde = await bonusAusloesen();
     await expect(S.nimmFreispiele(ZWEITE, runde.id)).rejects.toThrow(/gibt es nicht/u);

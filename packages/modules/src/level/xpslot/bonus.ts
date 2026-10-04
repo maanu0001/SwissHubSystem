@@ -121,7 +121,27 @@ export async function riskiere(
   discordId: string,
   rundeId: string,
   random: RandomSource = secureRandom,
-): Promise<{ bonus: BonusStand; gewonnen: boolean; ende: BonusAbschluss | null }> {
+): Promise<{
+  bonus: BonusStand;
+  gewonnen: boolean;
+  /**
+   * Die Freispielzahl, die mit **dieser** Wahl erreicht wurde - oder 0.
+   *
+   * ## Warum das hier stehen muss
+   *
+   * Weil es sonst nirgends steht. Die Oberflaeche las die Zahl aus
+   * `bonus.offen`, und das ist bei einem gewonnenen Wurf auf der ersten
+   * Stufe **null**: die Runde steht dann auf `LADDER_2`, es gibt wieder eine
+   * Wahl, und offene Freispiele hat sie erst, wenn jemand sie nimmt. Die
+   * Meldung sagte deshalb «0 Freispiele» genau in dem Moment, in dem jemand
+   * zwoelf gewonnen hatte.
+   *
+   * Die Zahl kommt aus derselben Stufenrechnung, die den Wurf bewertet hat -
+   * nicht aus einer zweiten Quelle, die auseinanderlaufen koennte.
+   */
+  freispiele: number;
+  ende: BonusAbschluss | null;
+}> {
   const konfiguration = await leseKonfiguration();
   const runde = await holeRunde(discordId, rundeId);
   if (runde.stage !== 'LADDER_1' && runde.stage !== 'LADDER_2') {
@@ -180,6 +200,7 @@ export async function riskiere(
   return {
     bonus: bonusStand(aktualisiert, konfiguration),
     gewonnen,
+    freispiele: gewonnen ? riskierenAuf : 0,
     ende: istDurch(aktualisiert) ? bonusAbschluss(aktualisiert) : null,
   };
 }

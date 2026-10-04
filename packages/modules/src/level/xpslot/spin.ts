@@ -16,9 +16,11 @@ import { naechstesPaket, verbraucheFreispiel } from './freispiele';
 import {
   bonusAbschluss,
   istDurch,
+  paketAbschluss,
   schliesseGeschenkAb,
   zaehleAufPaket,
   type BonusAbschluss,
+  type FreispielAbschluss,
 } from './geschenke';
 import { dreheWalzen, ZELLEN } from './regeln';
 
@@ -121,6 +123,23 @@ export interface SpinErgebnis {
    * stehen in der Zeile und sind in diesem Moment endgueltig.
    */
   bonusEnde: BonusAbschluss | null;
+  /**
+   * Der Abschluss eines geschenkten Freispielpakets - nur in dem Spin, der
+   * dessen letztes Freispiel verbraucht hat.
+   *
+   * ## Warum das hier stehen muss
+   *
+   * Weil die Meldung sonst zu spaet kommt. Sie hing allein an der Ansicht,
+   * die beim Oeffnen der Seite geladen wird - wer sein letztes Freispiel
+   * drehte, sah also **nichts**, und die Abschlussmeldung erschien erst beim
+   * naechsten Besuch. Gefordert ist das Gegenteil: unmittelbar danach, als
+   * Abschluss genau dieses Moments.
+   *
+   * Die Zahlen sind dieselben wie in `offenerFreispielAbschluss` - gelesen
+   * aus der Paketzeile, in derselben Transaktion, in der sie endgueltig
+   * geworden ist.
+   */
+  freispielEnde: FreispielAbschluss | null;
   /** Offene Freispiele nach diesem Spin. */
   freispieleOffen: number;
   freispielEinsatz: number | null;
@@ -423,8 +442,22 @@ async function spinInTransaktion(
    * gebildet wird, kann einen Spin verpassen - und «was haben mir diese zehn
    * Freispiele gebracht» soll stimmen, nicht ungefaehr stimmen.
    */
+  let paketEnde: FreispielAbschluss | null = null;
   if (art === 'FREESPIN_PACKAGE' && paket) {
     await zaehleAufPaket(tx, paket, auswertung.gewinn);
+    /*
+     * War es das letzte Freispiel, gehoert der Abschluss in **diese**
+     * Antwort.
+     *
+     * Gelesen wird die Zeile nach dem Verbrauchen und nach dem Zaehlen -
+     * also in dem Zustand, in dem die Summe endgueltig ist. `status` steht
+     * dann auf `USED`; `outroSeenAt` ist noch leer, denn gesehen hat die
+     * Meldung niemand, sie gibt es ja noch nicht.
+     */
+    const danach = await tx.xpSlotFreespinPackage.findUnique({ where: { id: paket.id } });
+    if (danach && danach.status === 'USED' && danach.outroSeenAt === null) {
+      paketEnde = paketAbschluss(danach);
+    }
   }
 
   // --- Bonusrunde fortschreiben -------------------------------------------
@@ -502,6 +535,7 @@ async function spinInTransaktion(
        * Moment, in dem sie endgueltig sind.
        */
       bonusEnde: art === 'BONUS_ROUND' && laufende && istDurch(laufende) ? bonusAbschluss(laufende) : null,
+      freispielEnde: paketEnde,
       freispieleOffen: offen.anzahl,
       freispielEinsatz: offen.einsatz,
       stand: grenzen.stand,
@@ -667,6 +701,8 @@ async function nachbereitetesErgebnis(
      * nochmals zu schicken hiesse, dieselbe Feier zweimal zu zeigen.
      */
     bonusEnde: null,
+    // Eine Wiederholung verbraucht kein Freispiel - sie zeigt nur noch einmal.
+    freispielEnde: null,
     freispieleOffen: offen.anzahl,
     freispielEinsatz: offen.einsatz,
     stand: grenzen.stand,

@@ -203,6 +203,8 @@ export async function testlauf(
       bonus: null,
       // Der Testmodus beruehrt keine Bonusrunde - also auch keinen Abschluss.
       bonusEnde: null,
+      // Ein Testlauf beruehrt kein Geschenk.
+      freispielEnde: null,
       freispieleOffen: 0,
       freispielEinsatz: null,
       stand: {

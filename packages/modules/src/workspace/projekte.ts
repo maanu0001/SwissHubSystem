@@ -482,10 +482,20 @@ export async function setzeMitglieder(
     });
   });
 
+  /*
+   * Drei Vorgaenge, drei Woerter.
+   *
+   * Hier stand `+1 · -1 · 1× Rolle` - richtig, aber man muss es deuten. Der
+   * Verlauf wird gelesen, wenn jemand wissen will, was passiert ist, und
+   * dann soll dort stehen, was passiert ist: hinzugefuegt, umgestuft,
+   * entfernt. Die Namen stehen bewusst nicht dabei: eine Zeile mit acht
+   * Kennungen ist keine Auskunft mehr, und wer genau es war, zeigt die
+   * Liste selbst.
+   */
   const teile = [
-    dazu.length > 0 ? `+${dazu.length}` : null,
-    weg.length > 0 ? `-${weg.length}` : null,
-    umgestuft.length > 0 ? `${umgestuft.length}× Rolle` : null,
+    dazu.length > 0 ? `${dazu.length} hinzugefügt` : null,
+    umgestuft.length > 0 ? `${umgestuft.length}× Rolle geändert` : null,
+    weg.length > 0 ? `${weg.length} entfernt` : null,
   ].filter(Boolean);
 
   await vermerke({

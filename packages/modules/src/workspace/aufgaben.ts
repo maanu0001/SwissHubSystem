@@ -130,14 +130,23 @@ export async function erstelleAufgabe(
   const titel = pruefeTitel(eingabe.titel);
   const projectId = await pruefeProjekt(eingabe.projectId ?? null, guildId);
   /*
-   * Ohne Angabe ist die anlegende Person zustaendig.
+   * Ohne Angabe ist die anlegende Person beteiligt.
    *
    * ## Warum eine Vorgabe und nicht «niemand»
    *
-   * Weil eine Aufgabe ohne Zustaendige niemandem gehoert, und weil der
+   * Weil eine Aufgabe ohne Beteiligte niemandem gehoert, und weil der
    * haeufigste Fall «ich mache das» ist. Eine Aufgabe, die man sich notiert
    * und dann im Board nicht unter «Meine Aufgaben» findet, ist eine Aufgabe,
    * die man zweimal anlegt.
+   *
+   * ## Warum eine Vorgabe und keine Pflicht
+   *
+   * Weil «standardmaessig gesetzt» etwas anderes ist als «immer gesetzt».
+   * Wer eine Aufgabe fuer jemand anderen anlegt, soll sie nicht erst in der
+   * eigenen Liste finden und sich dann selbst herausnehmen muessen - das
+   * waere ein Arbeitsschritt, der bei jeder zugewiesenen Aufgabe anfaellt.
+   * Das Formular waehlt die anlegende Person vor; ein Klick nimmt sie
+   * heraus, und dieser Klick kommt hier als Liste an, in der sie fehlt.
    *
    * ## Warum `undefined` und `[]` verschieden sind
    *
