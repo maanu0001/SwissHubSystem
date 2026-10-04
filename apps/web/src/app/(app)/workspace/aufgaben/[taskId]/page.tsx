@@ -115,6 +115,7 @@ export default async function WorkspaceAufgabePage({
             csrfToken={csrfToken}
             projekte={projekte.map((projekt) => ({ id: projekt.id, title: projekt.title }))}
             team={team}
+            ichDiscordId={context.user.discordId}
             aufgabe={ansicht.aufgabe}
             zustaendigeVorgabe={ansicht.zustaendige}
             variante="outline"

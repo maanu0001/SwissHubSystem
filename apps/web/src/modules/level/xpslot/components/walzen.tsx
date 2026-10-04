@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { symbolBild } from '../adressen';
 import { cn } from '@/lib/utils';
 
@@ -16,10 +16,18 @@ import { cn } from '@/lib/utils';
  *
  * ## Die gestaffelten Stopps
  *
- * Walze 1 haelt zuerst, dann 2 bis 5. Das ist die ganze Dramatik eines
- * Automaten, und sie entsteht aus einer Zahl: `stoppt[i]`. Die Zeiten stehen
- * im Elternteil, weil sie dort mit dem Ton zusammenhaengen - hier wird nur
- * gezeigt, was schon entschieden ist.
+ * Walze 1 haelt zuerst, dann 2 bis 5 - ausser bei Quick Spin, wo alle
+ * zusammen halten. Das ist die Dramatik eines Automaten, und sie entsteht aus
+ * einer Zahl: `laufend[i]`. Die Zeiten stehen im Elternteil, weil sie dort mit
+ * dem Ton zusammenhaengen; hier wird nur gezeigt, was schon entschieden ist.
+ *
+ * ## Die festsitzenden Wilds
+ *
+ * Ein Sticky Wild bleibt **waehrend des Laufs sichtbar**, und zwar an genau
+ * seiner Position. Darum gibt es je Walze eine dritte Lage: `slot-haftend`
+ * liegt ueber dem laufenden Band und zeigt die geklebten Zellen. Vorher
+ * verschwand das Wild beim Anlaufen und war nach dem Stopp wieder da - das
+ * sah aus, als werde es neu gezogen, und genau das soll es nicht.
  */
 
 export interface SymbolBild {
@@ -40,6 +48,8 @@ export interface WalzenProps {
   treffer: readonly number[];
   /** Zellen mit festsitzendem Wild. */
   klebend: readonly number[];
+  /** Der Schluessel des Wild-Symbols - fuer die haftende Lage. */
+  wildKey?: string | null;
   /** Ab dieser Walze war der Bonus noch offen. */
   sweatAbWalze: number | null;
   reihen: number;
@@ -59,6 +69,7 @@ export function Walzen({
   laufend,
   treffer,
   klebend,
+  wildKey = null,
   sweatAbWalze,
   reihen,
   walzen,
@@ -67,16 +78,23 @@ export function Walzen({
   const nachKey = useMemo(() => new Map(symbole.map((eintrag) => [eintrag.key, eintrag])), [symbole]);
   const trefferSet = useMemo(() => new Set(treffer), [treffer]);
   const klebtSet = useMemo(() => new Set(klebend), [klebend]);
+  const wildSymbol = wildKey ? nachKey.get(wildKey) : undefined;
+
+  const { rahmen, walzenRef, mitten, kasten } = useGeometrie(walzen, reihen);
 
   return (
-    <div className="slot-walzen">
+    <div className="slot-walzen" ref={rahmen}>
       {Array.from({ length: walzen }, (_unused, walze) => {
         const laeuft = laufend[walze] === true;
         const sweat = laeuft && sweatAbWalze !== null && walze >= sweatAbWalze;
+        const haftend = Array.from({ length: reihen }, (_leer, reihe) => walze * reihen + reihe).filter(
+          (index) => klebtSet.has(index),
+        );
 
         return (
           <div
             key={walze}
+            ref={walzenRef(walze)}
             className={cn('slot-walze', !laeuft && 'slot-walze--stopp', sweat && 'slot-walze--sweat')}
           >
             {/*
@@ -108,18 +126,199 @@ export function Walzen({
                     );
                   })}
             </div>
+
+            {/*
+              Die haftende Lage - nur waehrend des Laufs und nur, wenn auf
+              dieser Walze wirklich etwas klebt. Im Stillstand steht das Wild
+              im Stand selbst; eine zweite Lage daruerber waere dasselbe Bild
+              zweimal.
+            */}
+            {laeuft && wildSymbol && haftend.length > 0 ? (
+              <div className="slot-haftend" aria-hidden="true">
+                {haftend.map((index) => (
+                  <div
+                    key={index}
+                    className="slot-haftend__zelle"
+                    style={{ top: `calc(var(--slot-zelle) * ${index % reihen})` }}
+                  >
+                    <Zelle symbol={wildSymbol} klebt />
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         );
       })}
 
       {/*
-        Die Linie liegt im Raster und nicht darueber: das Raster ist zentriert
-        und nur so breit wie fuenf Walzen, der Kasten darum ist breiter. Eine
-        Linie, die sich am Kasten ausrichtet, traefe die Zellen nicht.
+        Die Gewinnlinie liegt ueber dem Raster und rechnet in echten Pixeln -
+        siehe `Gewinnlinie`.
       */}
-      {linie && linie.length > 1 ? <Gewinnlinie zellen={linie} reihen={reihen} walzen={walzen} /> : null}
+      {linie && linie.length > 1 && mitten.length > 0 && kasten !== null ? (
+        <Gewinnlinie zellen={linie} mitten={mitten} kasten={kasten} />
+      ) : null}
     </div>
   );
+}
+
+/** Ein gemessener Punkt - die Mitte einer Zelle im Rahmen des Rasters. */
+export interface Mitte {
+  x: number;
+  y: number;
+}
+
+/** Die gemessenen Masse des Rasters selbst - der Bezugsrahmen der Punkte. */
+export interface Kasten {
+  breite: number;
+  hoehe: number;
+}
+
+/**
+ * Die gemessene Geometrie des Rasters.
+ *
+ * ## Warum gemessen und nicht gerechnet
+ *
+ * Weil die Linie sonst neben den Symbolen liegt. Hier stand einmal eine
+ * Rechnung: die Mitte der Walze `i` sei `(i + 0.5) / 5` der Rasterbreite.
+ * Das stimmt nur ohne Abstand zwischen den Walzen und ohne Innenabstand am
+ * Raster - und beides gibt es. Mit `gap` und `padding` liegt die wahre Mitte
+ * bei `padding + i * (zelle + gap) + zelle / 2`, und die Abweichung waechst
+ * dort, wo die Zellen klein sind: auf dem Tablet und auf dem Telefon lag die
+ * Linie um ein Zehntel einer Zelle daneben.
+ *
+ * Dazu kam ein zweiter Fehler: `viewBox="0 0 100 60"` mit
+ * `preserveAspectRatio="none"` streckt die Zeichnung auf die Flaeche. Ein
+ * Raster, das nicht genau im Verhaeltnis 100:60 steht - und es steht nie
+ * genau darin -, bekommt damit eine Linie, die in x und y unterschiedlich
+ * stark verzerrt ist.
+ *
+ * Darum wird jetzt gemessen. Die Walzenelemente stehen immer im Baum, auch
+ * waehrend sie laufen; ihre Kaesten sagen, wo die Zellen wirklich sind. Jede
+ * Groessenaenderung - Fenster, Drehung, Tastatur auf dem Telefon, eine
+ * aufgehende Seitenleiste - laeuft ueber denselben Beobachter.
+ */
+function useGeometrie(
+  walzen: number,
+  reihen: number,
+): {
+  rahmen: (element: HTMLDivElement | null) => void;
+  walzenRef: (walze: number) => (element: HTMLDivElement | null) => void;
+  mitten: Mitte[];
+  kasten: Kasten | null;
+} {
+  const rahmenRef = useRef<HTMLDivElement | null>(null);
+  const walzenEls = useRef<Array<HTMLDivElement | null>>([]);
+  const [mitten, setMitten] = useState<Mitte[]>([]);
+  /*
+   * Der Rahmen wird mitgemessen, weil die `viewBox` der Linie genau er ist.
+   *
+   * Hier stand einmal `max(x) * 2` als Breite - die Annahme, der Kasten sei
+   * doppelt so breit wie die Mitte der letzten Walze. Das ist falsch: bei
+   * fuenf Walzen ist der Kasten `max(x) + min(x)` breit, und `max(x) * 2` ist
+   * deutlich mehr. Eine zu grosse `viewBox` wird vom Standardverhalten
+   * (`xMidYMid meet`) gleichmaessig verkleinert und neu zentriert - die Linie
+   * lag damit zu kurz und verschoben ueber den Symbolen, also genau der
+   * Fehler, der behoben werden sollte.
+   */
+  const [kasten, setKasten] = useState<Kasten | null>(null);
+
+  const messen = useCallback(() => {
+    const kasten = rahmenRef.current?.getBoundingClientRect();
+    if (!kasten) {
+      return;
+    }
+    setKasten((vorher) =>
+      vorher !== null &&
+      Math.abs(vorher.breite - kasten.width) < 0.5 &&
+      Math.abs(vorher.hoehe - kasten.height) < 0.5
+        ? vorher
+        : { breite: kasten.width, hoehe: kasten.height },
+    );
+    const punkte: Mitte[] = [];
+    for (let walze = 0; walze < walzen; walze += 1) {
+      const element = walzenEls.current[walze];
+      if (!element) {
+        return;
+      }
+      const w = element.getBoundingClientRect();
+      // Die Walze ist genau `reihen` Zellen hoch - ihre Reihenmitten liegen
+      // deshalb in ihrem eigenen Kasten, unabhaengig davon, welche Lage
+      // gerade darin steckt.
+      for (let reihe = 0; reihe < reihen; reihe += 1) {
+        punkte[walze * reihen + reihe] = {
+          x: w.left - kasten.left + w.width / 2,
+          y: w.top - kasten.top + (w.height / reihen) * (reihe + 0.5),
+        };
+      }
+    }
+    setMitten((vorher) =>
+      vorher.length === punkte.length &&
+      vorher.every((punkt, index) => {
+        const neu = punkte[index];
+        return neu !== undefined && Math.abs(punkt.x - neu.x) < 0.5 && Math.abs(punkt.y - neu.y) < 0.5;
+      })
+        ? vorher
+        : punkte,
+    );
+  }, [reihen, walzen]);
+
+  useEffect(() => {
+    messen();
+    if (typeof window === 'undefined') {
+      return;
+    }
+    /*
+     * `ResizeObserver` statt `window.resize`: das Raster aendert seine Groesse
+     * auch ohne Fensteraenderung - wenn eine Seitenleiste aufgeht, wenn die
+     * Schriftgroesse wechselt, wenn `vh` auf dem Telefon beim Scrollen
+     * nachgibt. Der Beobachter sieht alle drei Faelle, `resize` keinen davon.
+     */
+    const beobachter =
+      typeof ResizeObserver === 'function'
+        ? new ResizeObserver(() => {
+            messen();
+          })
+        : null;
+    if (beobachter && rahmenRef.current) {
+      beobachter.observe(rahmenRef.current);
+      for (const element of walzenEls.current) {
+        if (element) {
+          beobachter.observe(element);
+        }
+      }
+    }
+    // Die Drehung eines Tablets aendert die Masse, ohne dass der Beobachter
+    // in jedem Browser frueh genug anschlaegt - deshalb beides.
+    window.addEventListener('orientationchange', messen);
+    window.addEventListener('resize', messen);
+    return () => {
+      beobachter?.disconnect();
+      window.removeEventListener('orientationchange', messen);
+      window.removeEventListener('resize', messen);
+    };
+  }, [messen]);
+
+  const rahmen = useCallback(
+    (element: HTMLDivElement | null) => {
+      rahmenRef.current = element;
+      if (element) {
+        messen();
+      }
+    },
+    [messen],
+  );
+
+  const walzenRef = useCallback(
+    (walze: number) => (element: HTMLDivElement | null) => {
+      walzenEls.current[walze] = element;
+      if (element) {
+        messen();
+      }
+    },
+    [messen],
+  );
+
+  return { rahmen, walzenRef, mitten, kasten };
 }
 
 function Zelle({
@@ -157,35 +356,34 @@ function Zelle({
 }
 
 /**
- * Die Gewinnlinie als Pfad.
+ * Die Gewinnlinie als Pfad durch gemessene Punkte.
  *
- * Gezeichnet in einem Koordinatensystem von 100x60, damit die Form unabhaengig
- * von der tatsaechlichen Groesse stimmt - `preserveAspectRatio="none"` zieht
- * sie auf das Spielfeld.
+ * Die `viewBox` ist der Kasten des Rasters in echten Pixeln, und es gibt
+ * keine Streckung: ein Punkt in der Zeichnung ist ein Punkt auf dem
+ * Bildschirm. Damit liegt die Linie auf jedem Geraet ueber den Symbolen - auf
+ * dem iPad genauso wie auf 1920 Pixeln, und nach einer Drehung auch.
  */
 export function Gewinnlinie({
   zellen,
-  reihen,
-  walzen,
+  mitten,
+  kasten,
 }: {
   zellen: readonly number[];
-  reihen: number;
-  walzen: number;
+  mitten: readonly Mitte[];
+  kasten: Kasten;
 }): React.JSX.Element | null {
-  if (zellen.length < 2) {
+  const punkte = zellen.map((index) => mitten[index]).filter((punkt): punkt is Mitte => punkt !== undefined);
+  if (punkte.length < 2 || kasten.breite <= 0 || kasten.hoehe <= 0) {
     return null;
   }
-  const punkte = zellen.map((index) => {
-    const walze = Math.trunc(index / reihen);
-    const reihe = index % reihen;
-    const x = ((walze + 0.5) / walzen) * 100;
-    const y = ((reihe + 0.5) / reihen) * 60;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  });
 
   return (
-    <svg className="slot-linie" viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true">
-      <path d={`M ${punkte.join(' L ')}`} />
+    <svg
+      className="slot-linie"
+      viewBox={`0 0 ${kasten.breite.toFixed(1)} ${kasten.hoehe.toFixed(1)}`}
+      aria-hidden="true"
+    >
+      <path d={`M ${punkte.map((punkt) => `${punkt.x.toFixed(1)},${punkt.y.toFixed(1)}`).join(' L ')}`} />
     </svg>
   );
 }

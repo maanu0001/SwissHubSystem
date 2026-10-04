@@ -137,6 +137,7 @@ export default async function WorkspaceProjektPage({
                 csrfToken={csrfToken}
                 projekte={[{ id: ansicht.projekt.id, title: ansicht.projekt.title }]}
                 team={team}
+                ichDiscordId={context.user.discordId}
                 projektVorgabe={ansicht.projekt.id}
               />
             ) : null}

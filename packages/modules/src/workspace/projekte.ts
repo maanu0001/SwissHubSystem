@@ -430,6 +430,30 @@ export async function setzeMitglieder(
   // eine Verletzung einer Datenbankbedingung ist keine Auskunft.
   const eindeutig = new Map(mitglieder.map((eintrag) => [eintrag.discordId, eintrag.rolle]));
 
+  /*
+   * Was sich ändert - vorher gelesen, damit der Verlauf es sagen kann.
+   *
+   * Im Verlauf stand bisher nur «4 Mitglieder». Das ist die Zahl danach und
+   * beantwortet die Frage nicht, die man dem Verlauf stellt: **wer** ist
+   * dazugekommen, wer ist raus. Und steht sich nichts geändert hat, gehört
+   * dort gar kein Eintrag hin - sonst füllt jedes geöffnete und wieder
+   * geschlossene Formular den Verlauf.
+   */
+  const vorher = await prisma.workspaceProjectMember.findMany({
+    where: { projectId },
+    select: { discordId: true, rolle: true },
+  });
+  const vorherKarte = new Map(vorher.map((eintrag) => [eintrag.discordId, eintrag.rolle]));
+  const dazu = [...eindeutig.keys()].filter((discordId) => !vorherKarte.has(discordId));
+  const weg = [...vorherKarte.keys()].filter((discordId) => !eindeutig.has(discordId));
+  const umgestuft = [...eindeutig.entries()].filter(
+    ([discordId, rolle]) => vorherKarte.has(discordId) && vorherKarte.get(discordId) !== rolle,
+  );
+
+  if (dazu.length === 0 && weg.length === 0 && umgestuft.length === 0) {
+    return;
+  }
+
   await prisma.$transaction(async (tx) => {
     await tx.workspaceProjectMember.deleteMany({ where: { projectId } });
     await tx.workspaceProjectMember.createMany({
@@ -437,12 +461,18 @@ export async function setzeMitglieder(
     });
   });
 
+  const teile = [
+    dazu.length > 0 ? `+${dazu.length}` : null,
+    weg.length > 0 ? `-${weg.length}` : null,
+    umgestuft.length > 0 ? `${umgestuft.length}× Rolle` : null,
+  ].filter(Boolean);
+
   await vermerke({
     guildId: projekt.guildId,
     art: 'project.member',
     actorDiscordId: akteurDiscordId,
     projectId,
-    detail: `${eindeutig.size} ${eindeutig.size === 1 ? 'Mitglied' : 'Mitglieder'}`,
+    detail: `${teile.join(' · ')} · jetzt ${eindeutig.size}`,
   });
 }
 

@@ -65,6 +65,16 @@ export interface AufgabeFormularProps {
     WorkspaceTask,
     'id' | 'title' | 'description' | 'projectId' | 'priority' | 'startAt' | 'dueAt' | 'reminder' | 'tags'
   >;
+  /**
+   * Die eigene Kennung - fuer die Vorgabe beim Anlegen.
+   *
+   * Wer eine Aufgabe anlegt, ist dafuer zustaendig, bis jemand anderes es
+   * ist. Das war vorher nur unter «Meine Aufgaben» so, wo die Seite es von
+   * Hand mitgab; ueberall sonst entstand eine Aufgabe ohne Zustaendige und
+   * tauchte prompt in keiner persoenlichen Liste auf. Abwaehlen laesst sich
+   * die Vorgabe mit einem Klick.
+   */
+  ichDiscordId: string;
   zustaendigeVorgabe?: readonly string[];
   /** Beschriftung des öffnenden Knopfs. */
   knopf?: string;
@@ -77,7 +87,8 @@ export function AufgabeFormular({
   team,
   projektVorgabe = null,
   aufgabe,
-  zustaendigeVorgabe = [],
+  ichDiscordId,
+  zustaendigeVorgabe,
   knopf,
   variante = 'default',
 }: AufgabeFormularProps): React.JSX.Element {
@@ -94,7 +105,9 @@ export function AufgabeFormular({
   const [dueAt, setDueAt] = useState(datumFuerFeld(aufgabe?.dueAt ?? null));
   const [reminder, setReminder] = useState<WorkspaceReminder>(aufgabe?.reminder ?? 'NONE');
   const [tags, setTags] = useState((aufgabe?.tags ?? []).join(', '));
-  const [zustaendige, setZustaendige] = useState<string[]>([...zustaendigeVorgabe]);
+  const [zustaendige, setZustaendige] = useState<string[]>(() =>
+    zustaendigeVorgabe ? [...zustaendigeVorgabe] : aufgabe ? [] : [ichDiscordId],
+  );
 
   const schalteZustaendig = (discordId: string): void => {
     setZustaendige((bisher) =>

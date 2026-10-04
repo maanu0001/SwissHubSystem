@@ -72,6 +72,12 @@ export const spinAction = defineAction(
       avatarHash: ctx.user.avatarHash ?? null,
       einsatz: input.einsatz,
       schluessel: input.schluessel,
+      /*
+       * Der Wartungsmodus sperrt die Mitglieder und laesst die Verwaltung
+       * spielen - geprueft **hier**, serverseitig, mit derselben
+       * Berechtigung wie das Dashboard. Die Oberflaeche zeigt es nur an.
+       */
+      darfVerwalten: can(ctx, P.xpslotManage),
     });
   },
 );
@@ -203,7 +209,7 @@ export const feedSpeichernAction = defineAction(
 );
 
 const statusSchema = z.object({
-  status: z.enum(['ACTIVE', 'MAINTENANCE', 'DISABLED', 'EVENT_ONLY']),
+  status: z.enum(['ACTIVE', 'MAINTENANCE', 'DISABLED']),
   hinweis: z.string().max(400).nullable(),
 });
 
@@ -364,122 +370,6 @@ export const klangEntfernenAction = defineAction(
   },
   async ({ input }) => {
     await S.entferneKlang(input.packId, input.slot);
-    revalidiereVerwaltung();
-    return { ok: true };
-  },
-);
-
-// --- Events ----------------------------------------------------------------
-
-/**
- * Das Eventschema fuer den Browser.
- *
- * Das Modul erwartet `Date`; aus einem Formular kommt eine Zeichenkette.
- * Umgewandelt wird hier, einmal - und zwar mit `coerce`, damit eine
- * unbrauchbare Angabe eine Fehlermeldung ergibt und kein `Invalid Date`, das
- * stillschweigend in die Datenbank wandert.
- */
-const eventFormular = z.object({
-  name: z.string().min(2).max(80),
-  beschreibung: z.string().max(500).nullable(),
-  von: z.coerce.date().nullable(),
-  bis: z.coerce.date().nullable(),
-  soundPackId: z.string().min(1).nullable(),
-  ueberschreibungen: S.eventUeberschreibungSchema,
-  symbolwerte: S.eventSymbolSchema,
-});
-
-export const eventAnlegenAction = defineAction(
-  {
-    name: 'level.xpslot.event.neu',
-    module: MODULE_ID,
-    permission: P.xpslotManage,
-    schema: eventFormular,
-    rateLimit: 'slotAdmin',
-    freshness: 'critical',
-  },
-  async ({ ctx, input }) => {
-    const event = await S.legeEventAn(input, {
-      discordId: ctx.user.discordId,
-      username: ctx.user.username,
-    });
-    revalidiereVerwaltung();
-    return { eventId: event.id };
-  },
-);
-
-export const eventAendernAction = defineAction(
-  {
-    name: 'level.xpslot.event.aendern',
-    module: MODULE_ID,
-    permission: P.xpslotManage,
-    schema: eventFormular.extend({ eventId: z.string().min(1) }),
-    rateLimit: 'slotAdmin',
-    freshness: 'critical',
-  },
-  async ({ ctx, input }) => {
-    const { eventId, ...rest } = input;
-    await S.aendereEvent(eventId, rest, {
-      discordId: ctx.user.discordId,
-      username: ctx.user.username,
-    });
-    revalidiereVerwaltung();
-    return { ok: true };
-  },
-);
-
-export const eventPruefenAction = defineAction(
-  {
-    name: 'level.xpslot.event.pruefen',
-    module: MODULE_ID,
-    permission: P.xpslotManage,
-    schema: z.object({ eventId: z.string().min(1) }),
-    rateLimit: 'slotAdmin',
-  },
-  async ({ input }) => {
-    const pruefung = await S.pruefeEvent(input.eventId);
-    return {
-      ok: pruefung.ok,
-      fehler: pruefung.fehler,
-      warnungen: pruefung.warnungen,
-      rtp: pruefung.rtp?.rtp ?? null,
-    };
-  },
-);
-
-export const eventAktivierenAction = defineAction(
-  {
-    name: 'level.xpslot.event.an',
-    module: MODULE_ID,
-    permission: P.xpslotManage,
-    schema: z.object({ eventId: z.string().min(1) }),
-    rateLimit: 'slotAdmin',
-    freshness: 'critical',
-  },
-  async ({ ctx, input }) => {
-    const pruefung = await S.aktiviereEvent(input.eventId, {
-      discordId: ctx.user.discordId,
-      username: ctx.user.username,
-    });
-    revalidiereVerwaltung();
-    return { warnungen: pruefung.warnungen, rtp: pruefung.rtp?.rtp ?? null };
-  },
-);
-
-export const eventBeendenAction = defineAction(
-  {
-    name: 'level.xpslot.event.aus',
-    module: MODULE_ID,
-    permission: P.xpslotManage,
-    schema: z.object({ eventId: z.string().min(1) }),
-    rateLimit: 'slotAdmin',
-    freshness: 'critical',
-  },
-  async ({ ctx, input }) => {
-    await S.beendeEvent(input.eventId, {
-      discordId: ctx.user.discordId,
-      username: ctx.user.username,
-    });
     revalidiereVerwaltung();
     return { ok: true };
   },

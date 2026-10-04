@@ -10668,13 +10668,12 @@ model WorkspaceTemplateTask {
 
 /// Der Gesamtzustand des Slots.
 ///
-/// `EVENT_ONLY` heisst: nur spielbar, solange eine Eventkonfiguration laeuft.
-/// Ohne laufendes Event verhaelt er sich wie `MAINTENANCE`.
+/// `MAINTENANCE` sperrt die Mitglieder und laesst die Verwaltung spielen -
+/// genau dafuer gibt es ihn: etwas pruefen, waehrend niemand sonst spielt.
 enum XpSlotStatus {
   ACTIVE
   MAINTENANCE
   DISABLED
-  EVENT_ONLY
 }
 
 /// Die Rolle eines Symbols im Spiel.
@@ -10742,10 +10741,9 @@ enum XpSlotSoundPackKind {
 
 /// Die Konfiguration des Slots - genau eine Zeile.
 ///
-/// Die Einzelzeile ist bewusst: es gibt einen Slot, nicht mehrere. Ein
-/// Eventmodus ueberschreibt Teile davon zeitweise (`XpSlotEvent`), ohne diese
-/// Zeile anzufassen - danach gilt wieder, was hier steht, ohne dass jemand
-/// etwas zuruecksetzen muss.
+/// Die Einzelzeile ist bewusst: es gibt einen Slot, nicht mehrere. Und es
+/// gibt keine zweite Tabelle, die Teile davon zeitweise ueberschreibt - der
+/// Eventmodus, der das tat, ist entfernt. Was hier steht, gilt.
 model XpSlotConfig {
   /// Immer `default`. Der feste Schluessel ist der Grund, weshalb es keine
   /// zweite Zeile geben kann.
@@ -10891,7 +10889,6 @@ model XpSlotSoundPack {
 
   sounds  XpSlotSound[]
   configs XpSlotConfig[]
-  events  XpSlotEvent[]
 }
 
 /// Ein einzelner Klang in einem Paket.
@@ -10913,41 +10910,6 @@ model XpSlotSound {
   updatedAt DateTime @updatedAt
 
   @@unique([packId, slot])
-}
-
-/// Ein zeitlich begrenzter Eventmodus.
-///
-/// `overrides` ist eine Teilmenge der Konfiguration, beim Speichern und beim
-/// Lesen gegen dasselbe Schema geprueft. Was nicht darin steht, bleibt wie in
-/// `XpSlotConfig` - danach gilt wieder alles Ursprungliche, ohne dass jemand
-/// etwas zuruecksetzen muss.
-model XpSlotEvent {
-  id          String  @id @default(cuid())
-  name        String
-  description String?
-
-  active   Boolean   @default(false)
-  startsAt DateTime?
-  endsAt   DateTime?
-
-  /// Teilkonfiguration.
-  overrides       Json
-  /// Abweichende Symbolwerte je Schluessel.
-  symbolOverrides Json?
-
-  soundPackId String?
-  soundPack   XpSlotSoundPack? @relation(fields: [soundPackId], references: [id])
-
-  createdByDiscordId String?
-  activatedAt        DateTime?
-  deactivatedAt      DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  spins XpSlotSpin[]
-
-  @@index([active, endsAt])
 }
 
 /// Ein vom Team gewaehrtes Freispielpaket.
@@ -11025,9 +10987,6 @@ model XpSlotSpin {
 
   bonusRoundId String?
   bonusRound   XpSlotBonusRound? @relation("BonusSpins", fields: [bonusRoundId], references: [id], onDelete: SetNull)
-
-  eventId String?
-  event   XpSlotEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
 
   /// Der Riegel gegen den zweiten Klick.
   idempotencyKey String? @unique

@@ -50,9 +50,15 @@ export interface SymbolAnsicht {
 
 export interface SlotAnsicht {
   spielbar: boolean;
+  /**
+   * Steht der Slot in Wartung?
+   *
+   * Zusammen mit `spielbar: true` heisst das: diese Person darf spielen, die
+   * Mitglieder nicht. Die Oberflaeche sagt das deutlich - sonst aendert
+   * jemand etwas in der Annahme, alle koennten gerade spielen.
+   */
+  wartung: boolean;
   grund: string | null;
-  /** Nur gesetzt, wenn ein Event laeuft. */
-  eventName: string | null;
   symbole: SymbolAnsicht[];
   linien: number[][];
   walzen: number;
@@ -109,11 +115,21 @@ const BESCHREIBUNGEN: Record<string, string> = {
   PREMIUM: 'Zahlt XP und zusätzlich Premium-Tage.',
 };
 
-/** Die Ansicht des Spiels. */
-export async function slotAnsicht(konfiguration?: SlotKonfiguration): Promise<SlotAnsicht> {
+/**
+ * Die Ansicht des Spiels.
+ *
+ * `darfVerwalten` entscheidet nur eines: ob der Wartungsmodus diese Person
+ * aussperrt. Es kommt aus der Berechtigungsengine der Aufrufstelle, und die
+ * Spin-API prueft dasselbe noch einmal selbst - diese Ansicht ist eine
+ * Anzeige und kein Riegel.
+ */
+export async function slotAnsicht(
+  konfiguration?: SlotKonfiguration,
+  darfVerwalten = false,
+): Promise<SlotAnsicht> {
   const k = konfiguration ?? (await leseKonfiguration());
   const w = k.wirksam;
-  const zustand = istSpielbar(k);
+  const zustand = istSpielbar(k, darfVerwalten);
   const rtp = rtpVon(k);
 
   const nachKey = new Map(k.regeln.symbole.map((symbol) => [symbol.key, symbol]));
@@ -141,7 +157,7 @@ export async function slotAnsicht(konfiguration?: SlotKonfiguration): Promise<Sl
   return {
     spielbar: zustand.ok,
     grund: zustand.grund,
-    eventName: k.event?.name ?? null,
+    wartung: zustand.wartung,
     symbole,
     linien: LINIEN.map((_unused, index) => linienZellen(index)),
     walzen: WALZEN,
@@ -187,7 +203,7 @@ export async function spielerAnsicht(
   konfiguration?: SlotKonfiguration,
   jetzt = new Date(),
 ): Promise<SpielerAnsicht> {
-  const k = konfiguration ?? (await leseKonfiguration(jetzt));
+  const k = konfiguration ?? (await leseKonfiguration());
   const w = k.wirksam;
 
   const [profil, frei, bonus, statistik, verlauf, grenzen] = await Promise.all([

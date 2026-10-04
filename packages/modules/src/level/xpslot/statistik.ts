@@ -86,7 +86,7 @@ export interface SlotKennzahlen {
 /** Alle Kennzahlen eines Zeitraums. */
 export async function kennzahlen(zeitraum: Zeitraum, jetzt = new Date()): Promise<SlotKennzahlen> {
   const wo = filter(zeitraum, jetzt);
-  const konfiguration = await leseKonfiguration(jetzt);
+  const konfiguration = await leseKonfiguration();
 
   const [
     gesamt,

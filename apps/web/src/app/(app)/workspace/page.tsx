@@ -96,6 +96,7 @@ export default async function WorkspaceUebersichtPage(): Promise<React.JSX.Eleme
             csrfToken={csrfToken}
             projekte={projekte.map((zeile) => ({ id: zeile.projekt.id, title: zeile.projekt.title }))}
             team={team}
+            ichDiscordId={context.user.discordId}
           />
         ) : null}
         {darfProjekte ? (

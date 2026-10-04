@@ -79,7 +79,14 @@ describe('/xp-slot', () => {
   it('prüft Modulstatus, Slotstatus und Berechtigung', () => {
     const quelle = ohneKommentare(lies(BEFEHL));
     expect(quelle).toContain('isModuleEnabled(level.LEVEL_MODULE_ID)');
-    expect(quelle).toContain('istSpielbar(konfiguration)');
+    /*
+     * Zwei Argumente, seit die Verwaltung im Wartungsmodus weiterspielen
+     * darf: die Konfiguration und das Verwaltungsrecht. Darum nicht mehr
+     * `istSpielbar(konfiguration)` als ganzer Aufruf - der Prettier-Umbruch
+     * setzt die Argumente auf eigene Zeilen.
+     */
+    expect(quelle).toContain('istSpielbar(');
+    expect(quelle).toContain('actor.can(level.LEVEL_PERMISSIONS.xpslotManage)');
     expect(quelle).toContain('actor.can(level.LEVEL_PERMISSIONS.xpslotPlay)');
     expect(quelle).toContain('NO_PERMISSION');
   });
@@ -94,11 +101,35 @@ describe('/xp-slot', () => {
     expect(quelle).toContain('MessageFlags.Ephemeral');
   });
 
-  it('nimmt die Zahlen im Embed aus der Konfiguration', () => {
+  it('zeigt ausschliesslich das eingestellte Embed - und keine Spielzahlen', () => {
+    /*
+     * Hier stand das Gegenteil: der Befehl haengte Einsaetze, Jackpot,
+     * Bonusausloeser und die theoretische Quote als Felder unter das Embed.
+     * Genau das soll er nicht mehr. Die Quelle der Wahrheit ist das, was im
+     * XP-Slot-Dashboard eingestellt wurde - Titel, Beschreibung, Farbe,
+     * Bild, Fusszeile, Knopftext und Link.
+     *
+     * Der Test prueft weiter an der Quelle, aber mit umgekehrtem Vorzeichen:
+     * dass diese Werte nirgends mehr in die Antwort geraten.
+     */
     const quelle = ohneKommentare(lies(BEFEHL));
-    expect(quelle).toContain('ansicht.einsaetze.join');
-    expect(quelle).toContain('w.jackpotMultiplikator');
-    expect(quelle).toContain('ansicht.rtp');
+    for (const verboten of [
+      'fields:',
+      'einsaetze',
+      'jackpotMultiplikator',
+      'bonusAusloeser',
+      'rtp',
+      'slotAnsicht',
+    ]) {
+      expect(quelle, verboten).not.toContain(verboten);
+    }
+
+    // Und dass das Eingestellte wirklich alles traegt, was das Embed zeigt.
+    for (const feld of ['embed.titel', 'embed.beschreibung', 'embed.farbe', 'embed.fusszeile']) {
+      expect(quelle, feld).toContain(feld);
+    }
+    expect(quelle).toContain('label: embed.knopf');
+    expect(quelle).toContain('url: embed.adresse');
   });
 });
 
@@ -313,9 +344,28 @@ describe('Quick Spin', () => {
   it('verkürzt nur die Inszenierung', () => {
     const quelle = ohneKommentare(lies(SPIEL));
     expect(quelle).toContain('schnellGrund');
-    expect(quelle).toContain('schnellStaffel');
     // Quick Spin taucht in keiner Anfrage auf - der Server erfaehrt davon nichts.
     expect(quelle).not.toMatch(/spinAction\(\{[^}]*schnell/u);
+  });
+
+  it('hält bei Quick Spin alle fünf Walzen zusammen an', () => {
+    /*
+     * Hier stand `schnellStaffel`: eine verkuerzte Staffelzeit, mit der die
+     * Walzen bei Quick Spin immer noch nacheinander hielten - nur schneller.
+     * Gefordert ist etwas anderes: sie halten gemeinsam. Darum gibt es die
+     * Staffelzeit fuer Quick Spin nicht mehr, sondern einen Aufruf, der alle
+     * fuenf auf einmal stellt.
+     */
+    const quelle = ohneKommentare(lies(SPIEL));
+    expect(quelle).not.toContain('schnellStaffel');
+    expect(quelle).toContain('haltAlle(0)');
+
+    /*
+     * Die eine Ausnahme bleibt der Bonus Sweat: steht der Bonus noch offen,
+     * darf die entscheidende Walze laenger laufen - auch im Quick Spin.
+     */
+    expect(quelle).toContain('schnellSweat');
+    expect(quelle).toContain('sweatAb');
   });
 
   it('merkt sich die Einstellung im Browser', () => {
@@ -609,10 +659,23 @@ describe('Feste Walzengeometrie', () => {
     expect(walzenBlock).not.toContain('scale(');
   });
 
-  it('bindet die Zellgröße auch an die Fensterhöhe', () => {
-    // Sonst passt das Spielfeld auf einem 768er-Laptop nicht neben die
-    // Steuerung, und genau das war die zweite Beschwerde.
-    expect(css).toMatch(/--slot-zelle:\s*clamp\([^)]*min\([^)]*vh/u);
+  it('bindet die Zellgröße an die Breite des Spielfelds und an die Fensterhöhe', () => {
+    /*
+     * Beides, und in dieser Reihenfolge.
+     *
+     * Vorher stand hier `clamp(42px, min(7.4vw, 9.4vh), 96px)` - also die
+     * Breite des **Fensters**. Auf dem iPad ergab das Zellen von knapp 60
+     * Pixeln in einem Panel von siebenhundert, und der Slot sah schmal aus.
+     * Jetzt kommt die Breite aus dem Kasten selbst (`cqw` gegen das
+     * Spielfeld) und die Hoehe weiter aus dem Fenster, damit das Feld auf
+     * einem 768er-Laptop neben die Steuerung passt. Der Weg fuehrt ueber
+     * zwei eigene Variablen, deshalb wird hier auf beide geprueft.
+     */
+    expect(css).toMatch(/--slot-zelle:\s*clamp\(\s*\d+px,\s*min\(var\(--slot-breit\), var\(--slot-hoch\)\)/u);
+    expect(css).toMatch(/--slot-breit:\s*calc\(\(100cqw/u);
+    expect(css).toMatch(/--slot-hoch:\s*calc\(\(100vh/u);
+    // Und der Kasten, gegen den `cqw` rechnet, muss es auch wirklich sein.
+    expect(css).toContain('container-type: inline-size');
   });
 });
 

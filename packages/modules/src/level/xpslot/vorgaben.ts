@@ -224,6 +224,8 @@ export const KLANG_SLOTS = [
   { key: 'retrigger', label: 'Retrigger', gruppe: 'Freispiele' },
   { key: 'premium_win', label: 'Premium-Gewinn', gruppe: 'Gewinn' },
   { key: 'gamble_start', label: 'Risiko-Start', gruppe: 'Risiko' },
+  { key: 'gamble_spin', label: 'Rad dreht (Schleife)', gruppe: 'Risiko' },
+  { key: 'gamble_tension', label: 'Risiko-Spannung', gruppe: 'Risiko' },
   { key: 'gamble_win', label: 'Risiko gewonnen', gruppe: 'Risiko' },
   { key: 'gamble_lose', label: 'Risiko verloren', gruppe: 'Risiko' },
   { key: 'musik', label: 'Hintergrundmusik', gruppe: 'Oberfläche' },
@@ -241,10 +243,19 @@ export function istKlangSlot(wert: string): wert is KlangSlot {
 /**
  * Die Slots, die als Schleife laufen.
  *
- * Sie brauchen in der Oberflaeche eine andere Behandlung - sie werden
- * gestartet und gestoppt, nicht angespielt - und sie haengen am Musikregler
- * statt am Effektregler.
+ * Sie brauchen in der Oberflaeche eine andere Behandlung: sie werden
+ * gestartet und gestoppt, nicht angespielt.
+ *
+ * ## Warum Walzenlauf und Rad dazugehoeren - und trotzdem Effekte sind
+ *
+ * Beide laufen als Schleife, gehoeren aber zum Spiel und nicht zur Musik: wer
+ * die Musik abschaltet und die Effekte anlaesst, will die Walzen hoeren. Die
+ * Liste hier sagt nur «das ist eine Schleife»; am Musikregler haengen in der
+ * Oberflaeche ausdruecklich nur `musik` und `freespin_loop`.
  */
+export const SCHLEIFEN_SLOTS: readonly string[] = ['musik', 'freespin_loop', 'reel_loop', 'gamble_spin'];
+
+/** Die Schleifen, die am Musikregler haengen - und nicht am Effektregler. */
 export const MUSIK_SLOTS: readonly string[] = ['musik', 'freespin_loop'];
 
 /** Die Stile des Spin-Knopfs. */

@@ -193,10 +193,19 @@ describeWithDatabase('Workspace - Erinnerungen', () => {
   });
 
   it('zählt eine Aufgabe ohne Zuständige getrennt und schickt nichts', async () => {
+    /*
+     * `zustaendige: []` ausdruecklich.
+     *
+     * Ohne Angabe ist inzwischen die anlegende Person zustaendig - so soll es
+     * beim Anlegen im Formular sein. Eine Aufgabe, fuer die wirklich niemand
+     * zustaendig ist, muss deshalb die leere Liste mitgeben, und genau diese
+     * Aufgabe prueft dieser Test.
+     */
     await workspace.erstelleAufgabe(GUILD, ANNA, {
       titel: 'Niemand',
       dueAt: new Date('2026-06-10T12:00:00Z'),
       reminder: 'ON_DUE_DATE',
+      zustaendige: [],
     });
 
     const ergebnis = await workspace.verschickeErinnerungen({

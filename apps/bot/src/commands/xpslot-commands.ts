@@ -26,6 +26,18 @@ const log = createLogger('bot:commands:xpslot');
  * steht keine Kopie davon. Was nicht eingestellt ist, kommt aus
  * `BEFEHL_VORGABEN`; ein leeres Embed gibt es nicht.
  *
+ * ## Warum keine Spielzahlen mehr dabeistehen
+ *
+ * Einsaetze, Jackpot, Bonus und die theoretische Quote standen hier einmal
+ * als Felder - automatisch angefuegt, unabhaengig davon, was die Verwaltung
+ * geschrieben hatte. Das war zweierlei: ein Embed, das niemand vollstaendig
+ * gestalten konnte, und eine Tabelle in einer Einladung. Wer die Zahlen
+ * sucht, findet sie auf der Spielseite samt Infotafel - immer aktuell und
+ * ohne dass eine Chatnachricht sie nachfuehren muss.
+ *
+ * Es gilt also: **im Embed steht genau, was eingestellt ist.** Nichts
+ * daneben.
+ *
  * Die **Adresse** aus `appUrl` - derselben zentralen Stelle, die jede andere
  * Adresse in diesem System baut, und ausdruecklich nicht aus der Konfiguration.
  * Ein Feld zum Eintippen waere auf dem naechsten Server falsch, und niemand
@@ -84,14 +96,16 @@ export async function handleXpSlotCommand(interaction: ChatInputCommandInteracti
     }
 
     const konfiguration = await level.xpslot.leseKonfiguration();
-    const zustand = level.xpslot.istSpielbar(konfiguration);
+    const zustand = level.xpslot.istSpielbar(
+      konfiguration,
+      // Im Wartungsmodus darf die Verwaltung spielen - dann soll der Befehl
+      // ihr auch den Link geben und nicht den Wartungshinweis.
+      actor.can(level.LEVEL_PERMISSIONS.xpslotManage),
+    );
     if (!zustand.ok) {
       await interaction.editReply({ content: zustand.grund ?? 'De XP-Slot isch grad zue.' });
       return;
     }
-
-    const ansicht = await level.xpslot.slotAnsicht(konfiguration);
-    const w = konfiguration.wirksam;
 
     /*
      * Die gespeicherte Nachricht - bei jedem Aufruf frisch gelesen.
@@ -114,42 +128,16 @@ export async function handleXpSlotCommand(interaction: ChatInputCommandInteracti
     };
 
     /*
-     * Die Zahlen im Embed kommen aus der Konfiguration, nicht aus dem Text.
-     *
-     * Ein Embed mit festen Zahlen waere nach der ersten Aenderung an der
-     * Auszahlungstabelle falsch - und niemand wuerde es nachfuehren.
+     * Nur das Eingestellte - kein Feld, das der Befehl selbst dazuerfindet.
      */
     await interaction.editReply({
       embeds: [
         {
           color: embed.farbe,
           title: embed.titel,
-          description: [
-            embed.beschreibung,
-            ansicht.eventName ? `**Grad laufend:** ${ansicht.eventName}` : null,
-          ]
-            .filter(Boolean)
-            .join('\n'),
+          description: embed.beschreibung,
           ...(embed.thumbnailUrl ? { thumbnail: { url: embed.thumbnailUrl } } : {}),
           ...(embed.bildUrl ? { image: { url: embed.bildUrl } } : {}),
-          fields: [
-            { name: 'Einsätz', value: `${ansicht.einsaetze.join(', ')} XP`, inline: true },
-            {
-              name: 'Jackpot',
-              value: `${w.jackpotMultiplikator}× Isatz bi fünf Logo`,
-              inline: true,
-            },
-            {
-              name: 'Bonus',
-              value: `${w.bonusAusloeser} Bonussymbol → ${w.bonusFreispiele} Freispiel`,
-              inline: true,
-            },
-            {
-              name: 'Theoretischi Quote',
-              value: `${(ansicht.rtp * 100).toFixed(1)} % über vieli Spins`,
-              inline: true,
-            },
-          ],
           ...(embed.fusszeile ? { footer: { text: embed.fusszeile } } : {}),
         },
       ],

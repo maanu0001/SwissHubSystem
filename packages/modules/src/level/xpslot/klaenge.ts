@@ -16,10 +16,9 @@ import { loescheKlang } from './klang-speicher';
  *
  * ## Warum Pakete und nicht einzelne Klaenge
  *
- * Weil ein Event nicht zwanzig Dateien austauscht, sondern eine Stimmung. Ein
- * Paket ist ein vollstaendiger Satz; umgeschaltet wird eines, nicht zwanzig.
- * Ein Event kann sein eigenes Paket mitbringen - danach gilt wieder das
- * eingestellte, ohne dass jemand etwas zuruecksetzt.
+ * Weil eine Stimmung aus zwanzig Dateien besteht und nicht aus einer. Ein
+ * Paket ist ein vollstaendiger Satz; umgeschaltet wird eines, nicht zwanzig -
+ * zur Adventszeit, zu einem Turnier, oder zurueck auf den Standard.
  *
  * ## Warum ein fehlender Klang kein Fehler ist
  *
@@ -177,11 +176,6 @@ export async function loeschePaket(packId: string, akteur: KlangAkteur): Promise
   if (config?.activeSoundPackId === packId) {
     throw conflict('Das aktive Sound-Paket lässt sich nicht löschen. Bitte zuerst ein anderes wählen.');
   }
-  const verwendet = await prisma.xpSlotEvent.count({ where: { soundPackId: packId } });
-  if (verwendet > 0) {
-    throw conflict('Dieses Paket gehört zu einem Eventmodus. Bitte dort zuerst ein anderes wählen.');
-  }
-
   const paket = await prisma.xpSlotSoundPack.findUnique({
     where: { id: packId },
     include: { sounds: true },

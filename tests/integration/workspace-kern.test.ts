@@ -380,7 +380,15 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
       titel: 'Bens',
       zustaendige: [BEN],
     });
-    const offen = await workspace.erstelleAufgabe(GUILD, ANNA, { titel: 'Niemand' });
+    /*
+     * Ausdruecklich niemand - und zwar mit leerer Liste.
+     *
+     * Ohne Angabe ist seit der Umstellung die anlegende Person zustaendig:
+     * `undefined` heisst «nicht gesagt» und ergibt die Vorgabe, `[]` heisst
+     * «niemand» und bleibt so. Dieser Fall prueft die zweite Haelfte davon;
+     * die erste steht im Fall darunter.
+     */
+    const offen = await workspace.erstelleAufgabe(GUILD, ANNA, { titel: 'Niemand', zustaendige: [] });
 
     expect(
       (await workspace.ladeAufgaben(GUILD, ALLES, { zustaendig: ANNA })).map((z) => z.aufgabe.id),
@@ -390,6 +398,25 @@ describeWithDatabase('Workspace - Projekte und Aufgaben', () => {
     ).toEqual([offen.id]);
     expect(await workspace.ladeAufgaben(GUILD, ALLES, { zustaendig: BEN })).toHaveLength(1);
     expect((await workspace.ladeAufgaben(GUILD, ALLES, { zustaendig: BEN }))[0]?.aufgabe.id).toBe(fremde.id);
+  });
+
+  it('macht ohne Angabe die anlegende Person zuständig', async () => {
+    const aufgabe = await workspace.erstelleAufgabe(GUILD, ANNA, { titel: 'Notiert' });
+
+    /*
+     * Die haeufigste Aufgabe ist «ich mache das». Eine Aufgabe, die man sich
+     * notiert und danach unter «Meine Aufgaben» nicht findet, legt man zweimal
+     * an - und darum ist die Vorgabe die anlegende Person.
+     */
+    const zeilen = await workspace.ladeAufgaben(GUILD, ALLES, { zustaendig: ANNA });
+    expect(zeilen.map((zeile) => zeile.aufgabe.id)).toContain(aufgabe.id);
+    expect(zeilen.find((zeile) => zeile.aufgabe.id === aufgabe.id)?.zustaendige).toEqual([ANNA]);
+
+    // Und sie laesst sich abwaehlen - die Vorgabe ist keine Fessel.
+    await workspace.setzeZustaendige(aufgabe.id, ANNA, []);
+    expect(
+      (await workspace.ladeAufgaben(GUILD, ALLES, { ohneZustaendige: true })).map((z) => z.aufgabe.id),
+    ).toContain(aufgabe.id);
   });
 
   it('schreibt den Verlauf, aber nicht jeden Zug ins Audit Log', async () => {

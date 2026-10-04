@@ -162,7 +162,6 @@ export async function testlauf(
       xpBefore: 0,
       xpAfter: 0,
       configNote: { testfall: eingabe.fall },
-      eventId: konfiguration.event?.id ?? null,
     },
   });
 

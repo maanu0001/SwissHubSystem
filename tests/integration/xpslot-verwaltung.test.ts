@@ -28,7 +28,6 @@ async function leere(): Promise<void> {
   await prisma.xpSlotFreespinPackage.deleteMany();
   await prisma.xpSlotSession.deleteMany();
   await prisma.xpSlotDaily.deleteMany();
-  await prisma.xpSlotEvent.deleteMany();
   await prisma.xpSlotSound.deleteMany();
   await prisma.xpSlotConfig.deleteMany();
   await prisma.xpSlotSoundPack.deleteMany();
@@ -392,240 +391,44 @@ describeWithDatabase('XP-Slot: Verwaltung', () => {
     expect(await S.klaengeDesPakets(null)).toEqual([]);
   });
 
-  // --- Eventmodus ----------------------------------------------------------
+  // --- Premium-Schalter ----------------------------------------------------
 
-  it('überschreibt Werte nur, solange das Event läuft', async () => {
-    const event = await S.legeEventAn(
-      {
-        name: 'Herbstfest',
-        beschreibung: null,
-        von: null,
-        bis: null,
-        soundPackId: null,
-        ueberschreibungen: { jackpotMultiplikator: 2000, einsaetze: [50, 100] },
-        symbolwerte: {},
-      },
-      TEAM,
-    );
+  /*
+   * Der Eventmodus ist entfernt, und damit die Pruefungen darueber.
+   *
+   * Hier standen zehn Faelle: Ueberschreibungen, Enddatum, hoechstens ein
+   * Event gleichzeitig, Pruefung vor dem Aktivieren. Sie pruefen eine
+   * Funktion, die es nicht mehr gibt - nicht etwas, das jetzt ungetestet
+   * waere. Was davon bleibt, steht hier: Premium hing am Eventmodus, und
+   * zwar so, dass der Schalter in der Grundstellung nichts tat.
+   */
 
-    // Noch nicht aktiv: die Grundstellung gilt.
-    expect((await S.leseKonfiguration()).wirksam.jackpotMultiplikator).toBe(500);
-
-    await S.aktiviereEvent(event.id, TEAM);
-    const mitEvent = await S.leseKonfiguration();
-    expect(mitEvent.wirksam.jackpotMultiplikator).toBe(2000);
-    expect(mitEvent.wirksam.einsaetze).toEqual([50, 100]);
-    expect(mitEvent.event?.name).toBe('Herbstfest');
-
-    await S.beendeEvent(event.id, TEAM);
-    const danach = await S.leseKonfiguration();
-    // Automatisch zurueck - niemand musste etwas zuruecksetzen.
-    expect(danach.wirksam.jackpotMultiplikator).toBe(500);
-    expect(danach.event).toBeNull();
-  });
-
-  it('wirkt nach dem Enddatum nicht mehr und wird aufgeräumt', async () => {
-    const event = await S.legeEventAn(
-      {
-        name: 'Kurz',
-        beschreibung: null,
-        von: null,
-        bis: new Date(Date.now() + 60_000),
-        soundPackId: null,
-        ueberschreibungen: { jackpotMultiplikator: 3000 },
-        symbolwerte: {},
-      },
-      TEAM,
-    );
-    await S.aktiviereEvent(event.id, TEAM);
-    expect((await S.leseKonfiguration()).wirksam.jackpotMultiplikator).toBe(3000);
-
-    await prisma.xpSlotEvent.update({
-      where: { id: event.id },
-      data: { endsAt: new Date(Date.now() - 1000) },
-    });
-    // Ohne jeden Aufraeumlauf: der Zeitraum entscheidet.
-    expect((await S.leseKonfiguration()).wirksam.jackpotMultiplikator).toBe(500);
-
-    expect(await S.beendeAbgelaufeneEvents()).toBe(1);
-    const zeile = await prisma.xpSlotEvent.findUniqueOrThrow({ where: { id: event.id } });
-    expect(zeile.active).toBe(false);
-  });
-
-  it('lässt immer höchstens ein Event laufen', async () => {
-    const eins = await S.legeEventAn(
-      {
-        name: 'Eins',
-        beschreibung: null,
-        von: null,
-        bis: null,
-        soundPackId: null,
-        ueberschreibungen: {},
-        symbolwerte: {},
-      },
-      TEAM,
-    );
-    const zwei = await S.legeEventAn(
-      {
-        name: 'Zwei',
-        beschreibung: null,
-        von: null,
-        bis: null,
-        soundPackId: null,
-        ueberschreibungen: {},
-        symbolwerte: {},
-      },
-      TEAM,
-    );
-
-    await S.aktiviereEvent(eins.id, TEAM);
-    await S.aktiviereEvent(zwei.id, TEAM);
-
-    const aktive = await prisma.xpSlotEvent.findMany({ where: { active: true } });
-    expect(aktive).toHaveLength(1);
-    expect(aktive[0]?.id).toBe(zwei.id);
-  });
-
-  it('prüft vor der Aktivierung und blockiert nur, was nicht aufgeht', async () => {
-    const kaputt = await S.legeEventAn(
-      {
-        name: 'Unmöglich',
-        beschreibung: null,
-        von: null,
-        bis: null,
-        soundPackId: null,
-        // Ein Bonus, der die Runde nie enden laesst.
-        ueberschreibungen: { retriggerSpins: 25 },
-        symbolwerte: { bonus: { gewicht: 200 } },
-      },
-      TEAM,
-    );
-
-    const pruefung = await S.pruefeEvent(kaputt.id);
-    expect(pruefung.ok).toBe(false);
-    expect(pruefung.fehler.join(' ')).toContain('nicht endet');
-    await expect(S.aktiviereEvent(kaputt.id, TEAM)).rejects.toThrow(/nicht endet/u);
-  });
-
-  it('warnt bei einer Quote ausserhalb der Zielspanne, blockiert aber nicht', async () => {
-    const grosszuegig = await S.legeEventAn(
-      {
-        name: 'Grosszügig',
-        beschreibung: null,
-        von: null,
-        bis: null,
-        soundPackId: null,
-        ueberschreibungen: {},
-        symbolwerte: { eins: { auszahlung: [8000, 32_000, 104_000] } },
-      },
-      TEAM,
-    );
-
-    const pruefung = await S.pruefeEvent(grosszuegig.id);
-    expect(pruefung.ok).toBe(true);
-    expect(pruefung.warnungen.join(' ')).toMatch(/Zielspanne/u);
-    await expect(S.aktiviereEvent(grosszuegig.id, TEAM)).resolves.toBeDefined();
-  });
-
-  it('blockiert Premium ohne Premium-Auszahlung', async () => {
-    const event = await S.legeEventAn(
-      {
-        name: 'Premium ohne Tage',
-        beschreibung: null,
-        von: null,
-        bis: null,
-        soundPackId: null,
-        ueberschreibungen: { premiumAktiv: true },
-        symbolwerte: { premium: { premiumTage: [0, 0, 0] } },
-      },
-      TEAM,
-    );
-
-    const pruefung = await S.pruefeEvent(event.id);
-    expect(pruefung.ok).toBe(false);
-    expect(pruefung.fehler.join(' ')).toContain('keine Tage');
-  });
-
-  it('blockiert eine unbekannte Symbolkennung', async () => {
-    const event = await S.legeEventAn(
-      {
-        name: 'Tippfehler',
-        beschreibung: null,
-        von: null,
-        bis: null,
-        soundPackId: null,
-        ueberschreibungen: {},
-        symbolwerte: { eisn: { gewicht: 50 } },
-      },
-      TEAM,
-    );
-    const pruefung = await S.pruefeEvent(event.id);
-    expect(pruefung.ok).toBe(false);
-    expect(pruefung.fehler.join(' ')).toContain('eisn');
-  });
-
-  it('blockiert ein Bild, das diese Anwendung nie erzeugt hat', async () => {
-    const event = await S.legeEventAn(
-      {
-        name: 'Fremdes Bild',
-        beschreibung: null,
-        von: null,
-        bis: null,
-        soundPackId: null,
-        ueberschreibungen: {},
-        symbolwerte: { eins: { bildPfad: '../../etc/passwd' } },
-      },
-      TEAM,
-    );
-    const pruefung = await S.pruefeEvent(event.id);
-    expect(pruefung.ok).toBe(false);
-    expect(pruefung.fehler.join(' ')).toContain('Namen');
-  });
-
-  it('ignoriert Überschreibungen, die nicht zum Schema passen', async () => {
-    const event = await prisma.xpSlotEvent.create({
-      data: {
-        name: 'Aus der Zukunft',
-        active: true,
-        // Ein Feld, das es nicht gibt - etwa aus einer neueren Fassung.
-        overrides: { jackpotMultiplikatorNeu: 9999 },
-      },
-    });
-    const konfig = await S.leseKonfiguration();
-    expect(konfig.event?.id).toBe(event.id);
-    // Die Grundstellung gilt - und nicht ein halbgarer Wert.
-    expect(konfig.wirksam.jackpotMultiplikator).toBe(500);
-  });
-
-  it('schaltet Premium ohne Event nicht ein', async () => {
+  it('schaltet Premium über den Schalter ein - ohne Umweg', async () => {
     await S.speichereKonfig(await eingabe({ premiumAktiv: true }), TEAM);
     const konfig = await S.leseKonfiguration();
-    // Die Einstellung steht, wirkt aber nicht: so steht es im Konzept.
+
     expect(konfig.config.premiumEnabled).toBe(true);
-    expect(konfig.wirksam.premiumAktiv).toBe(false);
-    expect(konfig.regeln.premiumAktiv).toBe(false);
-  });
-
-  it('schaltet Premium mit laufendem Event ein', async () => {
-    await S.speichereKonfig(await eingabe({ premiumAktiv: true }), TEAM);
-    const event = await S.legeEventAn(
-      {
-        name: 'Premium-Woche',
-        beschreibung: null,
-        von: null,
-        bis: null,
-        soundPackId: null,
-        ueberschreibungen: {},
-        symbolwerte: {},
-      },
-      TEAM,
-    );
-    await S.aktiviereEvent(event.id, TEAM);
-
-    const konfig = await S.leseKonfiguration();
+    // Vorher war das `false`, solange kein Event lief - ein Schalter, der
+    // nichts tat, und niemand konnte sehen, warum.
     expect(konfig.wirksam.premiumAktiv).toBe(true);
+    expect(konfig.regeln.premiumAktiv).toBe(true);
+
     const premiumSymbol = konfig.regeln.symbole.find((eintrag) => eintrag.rolle === 'PREMIUM');
     expect(premiumSymbol?.gewicht).toBeGreaterThan(0);
+  });
+
+  it('nimmt das Premiumsymbol von den Walzen, wenn Premium aus ist', async () => {
+    await S.speichereKonfig(await eingabe({ premiumAktiv: false }), TEAM);
+    const konfig = await S.leseKonfiguration();
+
+    expect(konfig.wirksam.premiumAktiv).toBe(false);
+    /*
+     * Das Symbol steht weiterhin in der Liste - die Auswertung braucht es,
+     * damit ein alter Gewinn in der Historie lesbar bleibt. Gezogen wird es
+     * nicht: `ziehbareSymbole` laesst PREMIUM weg, solange Premium aus ist.
+     */
+    const ziehbar = S.ziehbareSymbole(konfig.regeln);
+    expect(ziehbar.some((eintrag) => eintrag.rolle === 'PREMIUM')).toBe(false);
   });
 
   // --- Premium-Gutschrift --------------------------------------------------

@@ -1,16 +1,15 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   AlertTriangle,
   BarChart3,
-  CalendarClock,
   Check,
   Coins,
   Dice5,
-  FlaskConical,
   Gauge,
   Gift,
   History,
@@ -26,7 +25,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { level } from '@swisshub/modules';
-import { formatSwissNumber } from '@swisshub/shared';
+import { formatSwissNumber, systemRoutes } from '@swisshub/shared';
 import { formatDateTime } from '../../components/raffle-shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,9 +38,6 @@ import { istEigenesBild, quelle, STANDARD_KLAENGE, symbolBild } from '../adresse
 import {
   befehlSpeichernAction,
   designSpeichernAction,
-  eventAktivierenAction,
-  eventBeendenAction,
-  eventPruefenAction,
   feedSpeichernAction,
   freispieleEntziehenAction,
   freispieleFristAction,
@@ -60,12 +56,13 @@ import {
 /**
  * Die Verwaltung des XP-Slots.
  *
- * ## Zwoelf Bereiche, nicht mehr
+ * ## Elf Bereiche, nicht mehr
  *
  * Uebersicht, Spielregeln, Symbole, Paytable, Bonus, Freespins, Design,
- * Sounds, Events, Statistik, Historie, Einstellungen. Die Liste steht so im
- * Konzept, und sie ist eine Obergrenze: ein dreizehnter Bereich waere ein
- * Zeichen, dass etwas an die falsche Stelle geraten ist.
+ * Sounds, Statistik, Historie, Einstellungen. Es waren zwoelf; der
+ * Eventmodus ist weg, und mit ihm sein Bereich. Die Zahl ist eine
+ * Obergrenze: ein weiterer Bereich waere ein Zeichen, dass etwas an die
+ * falsche Stelle geraten ist.
  *
  * ## Warum die Quote nach jedem Speichern dasteht
  *
@@ -79,7 +76,6 @@ type Uebersicht = Awaited<ReturnType<typeof level.xpslot.leseKonfiguration>>;
 type Rtp = ReturnType<typeof level.xpslot.rtpVon>;
 type Pakete = Awaited<ReturnType<typeof level.xpslot.pakete>>;
 type Freispiele = Awaited<ReturnType<typeof level.xpslot.offeneFreispiele>>['pakete'];
-type Events = Awaited<ReturnType<typeof level.xpslot.eventListe>>;
 type Kennzahlen = Awaited<ReturnType<typeof level.xpslot.kennzahlen>>;
 type Verlauf = Awaited<ReturnType<typeof level.xpslot.verlauf>>;
 type Testergebnis = Awaited<ReturnType<typeof level.xpslot.testlauf>>['ergebnis'];
@@ -93,7 +89,6 @@ const BEREICHE = [
   { key: 'freespins', label: 'Freespins', icon: Gift },
   { key: 'design', label: 'Design', icon: Palette },
   { key: 'sounds', label: 'Sounds', icon: Music },
-  { key: 'events', label: 'Events', icon: CalendarClock },
   { key: 'statistik', label: 'Statistik', icon: BarChart3 },
   { key: 'historie', label: 'Historie', icon: History },
   { key: 'einstellungen', label: 'Einstellungen', icon: Settings },
@@ -107,7 +102,21 @@ export interface VerwaltungProps {
   rtp: Rtp;
   pakete: Pakete;
   freispiele: Freispiele;
-  events: Events;
+  /**
+   * Die Namen hinter den Kennungen - serverseitig aufgeloest.
+   *
+   * `slug` ist die oeffentliche Adresse, falls es eine gibt. Ob ein Profil
+   * oeffentlich ist, entscheidet das Profilmodul; hier kommt eine Adresse an
+   * oder keine, und ohne Adresse bleibt der Name Text. Ein Link ins Leere
+   * waere schlimmer als keiner.
+   */
+  namen: ReadonlyArray<{
+    discordId: string;
+    name: string;
+    username: string | null;
+    slug: string | null;
+    ehemalig: boolean;
+  }>;
   kennzahlen: Kennzahlen;
   verlauf: Verlauf;
   klangSlots: ReadonlyArray<{ key: string; label: string; gruppe: string }>;
@@ -162,7 +171,6 @@ export function SlotVerwaltung(props: VerwaltungProps): React.JSX.Element {
       {bereich === 'freespins' ? <FreespinsTab {...props} /> : null}
       {bereich === 'design' ? <DesignTab {...props} /> : null}
       {bereich === 'sounds' ? <SoundsTab {...props} /> : null}
-      {bereich === 'events' ? <EventsTab {...props} /> : null}
       {bereich === 'statistik' ? <StatistikTab {...props} /> : null}
       {bereich === 'historie' ? <HistorieTab {...props} /> : null}
       {bereich === 'einstellungen' ? <EinstellungenTab {...props} /> : null}
@@ -369,11 +377,9 @@ function UebersichtTab({
   kennzahlen,
   freispiele,
   pakete,
-  events,
 }: VerwaltungProps): React.JSX.Element {
   const w = konfiguration.wirksam;
   const aktivesPaket = pakete.find((paket) => paket.aktiv);
-  const laufendesEvent = events.find((eintrag) => eintrag.laeuft);
 
   return (
     <div className="space-y-4">
@@ -394,7 +400,11 @@ function UebersichtTab({
         />
         <Kachel label="Jackpot-Multiplikator" wert={`${w.jackpotMultiplikator}×`} />
         <Kachel label="Aktives Sound-Paket" wert={aktivesPaket?.name ?? 'keines'} />
-        <Kachel label="Eventmodus" wert={laufendesEvent?.name ?? 'keiner'} />
+        <Kachel
+          label="Premium-Gewinne"
+          wert={w.premiumAktiv ? 'an' : 'aus'}
+          hinweis={w.premiumAktiv ? 'einstellbar unter Bonus' : null}
+        />
         <Kachel
           label="Offene Freispielpakete"
           wert={String(freispiele.length)}
@@ -409,7 +419,6 @@ const STATUS_LABEL: Record<string, string> = {
   ACTIVE: 'Aktiv',
   MAINTENANCE: 'Wartung',
   DISABLED: 'Abgeschaltet',
-  EVENT_ONLY: 'Nur im Event',
 };
 
 // ---------------------------------------------------------------------------
@@ -532,13 +541,6 @@ function RegelnTab({
 
   return (
     <div className="space-y-4">
-      {konfiguration.event ? (
-        <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-          Gerade läuft der Eventmodus «{konfiguration.event.name}». Er überschreibt Teile dieser Werte,
-          solange er läuft - was hier steht, gilt danach wieder.
-        </p>
-      ) : null}
-
       {nurBonus ? (
         <>
           <Kasten titel="Bonus" hinweis="Wie der Bonus ausgelöst wird und was er bringt.">
@@ -560,19 +562,23 @@ function RegelnTab({
             </div>
           </Kasten>
           <Kasten titel="Freispielmodus">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Schalter
-                feld="stickyWilds"
-                label="Sticky Wilds"
-                hinweis="Wilds bleiben für die ganze Bonusrunde stehen."
-              />
-              <Schalter
-                feld="premiumAktiv"
-                label="Premium-Gewinne"
-                hinweis="Wirkt nur, solange ein Eventmodus läuft - so steht es im Konzept."
-              />
-            </div>
+            <Schalter
+              feld="stickyWilds"
+              label="Sticky Wilds"
+              hinweis="Wilds bleiben für die ganze Bonusrunde stehen - auf genau der Position, auf der sie gefallen sind."
+            />
           </Kasten>
+          <Kasten
+            titel="Premium-Gewinne"
+            hinweis="Aus heisst: das Premiumsymbol liegt nicht auf den Walzen und kann nicht gewinnen. An heisst: fünf Premiumsymbole auf einer Linie schenken Premium-Tage."
+          >
+            <Schalter
+              feld="premiumAktiv"
+              label="Premium-Gewinne aktivieren"
+              hinweis="Verschenkt echte Premium-Tage über das bestehende Premium-System."
+            />
+          </Kasten>
+          <PremiumSymbolKasten csrfToken={csrfToken} konfiguration={konfiguration} an={werte.premiumAktiv} />
         </>
       ) : (
         <>
@@ -655,6 +661,131 @@ function RegelnTab({
         Speichern
       </Button>
     </div>
+  );
+}
+
+/**
+ * Das Premiumsymbol - dort, wo auch der Schalter steht.
+ *
+ * ## Warum dieser Kasten hier und nicht nur unter «Symbole»
+ *
+ * Weil der Schalter allein nichts aussagt. «Premium an» ohne Tage ist ein
+ * Symbol, das gewinnt und nichts gibt; «Premium an» mit Gewicht 0 ist ein
+ * Schalter, der nichts tut. Beide Faelle waren moeglich, und beide fielen
+ * erst im Spiel auf. Hier stehen Schalter, Gewicht und Tage beieinander, und
+ * zwar genau die drei Zahlen, die zusammen entscheiden.
+ *
+ * Gespeichert wird ueber dieselbe Action wie unter «Symbole» - es gibt keine
+ * zweite Stelle, an der ein Symbol geschrieben wird, und damit auch keine
+ * zweite Pruefung der Quote.
+ */
+function PremiumSymbolKasten({
+  csrfToken,
+  konfiguration,
+  an,
+}: {
+  csrfToken: string;
+  konfiguration: Uebersicht;
+  an: boolean;
+}): React.JSX.Element | null {
+  const { laeuft, fuehreAus } = useSpeichern();
+  const symbol = konfiguration.symbole.find((eintrag) => eintrag.role === 'PREMIUM');
+  const [werte, setWerte] = useState(() => ({
+    aktiv: symbol?.active ?? false,
+    gewicht: symbol?.weight ?? 0,
+    tage3: symbol?.premiumDays3 ?? 0,
+    tage4: symbol?.premiumDays4 ?? 0,
+    tage5: symbol?.premiumDays5 ?? 0,
+  }));
+
+  // Ohne Premiumsymbol gibt es nichts einzustellen - und auch keinen Grund
+  // fuer einen leeren Kasten.
+  if (!symbol) {
+    return null;
+  }
+
+  const zahl = (feld: 'gewicht' | 'tage3' | 'tage4' | 'tage5', label: string): React.JSX.Element => (
+    <div>
+      <Label className="text-xs">{label}</Label>
+      <Input
+        className="mt-1"
+        type="number"
+        inputMode="numeric"
+        value={werte[feld]}
+        onChange={(ereignis) => setWerte((vorher) => ({ ...vorher, [feld]: Number(ereignis.target.value) }))}
+      />
+    </div>
+  );
+
+  return (
+    <Kasten
+      titel="Premiumsymbol"
+      hinweis={
+        an
+          ? 'Gewicht und Tage des Premiumsymbols. Dieselben Werte wie unter «Symbole» - hier stehen sie neben dem Schalter.'
+          : 'Premium-Gewinne sind aus. Das Symbol liegt nicht auf den Walzen; diese Werte wirken erst, wenn der Schalter oben an ist.'
+      }
+    >
+      <div className={cn('space-y-3', !an && 'opacity-70')}>
+        <div className="grid gap-3 sm:grid-cols-4">
+          {zahl('gewicht', 'Gewicht auf den Walzen')}
+          {zahl('tage3', '3× gleich: Tage')}
+          {zahl('tage4', '4× gleich: Tage')}
+          {zahl('tage5', '5× gleich: Tage')}
+        </div>
+
+        <label className="flex items-center gap-2 text-sm">
+          <Switch
+            aria-label="Premiumsymbol aktiv"
+            checked={werte.aktiv}
+            onCheckedChange={(wert) => setWerte((vorher) => ({ ...vorher, aktiv: wert }))}
+          />
+          Symbol aktiv
+        </label>
+
+        {an && (!werte.aktiv || werte.gewicht === 0) ? (
+          <p className="text-xs text-warning">
+            Premium ist eingeschaltet, aber das Symbol liegt nicht auf den Walzen - so kann niemand Premium
+            gewinnen.
+          </p>
+        ) : null}
+        {an && werte.tage3 === 0 && werte.tage4 === 0 && werte.tage5 === 0 ? (
+          <p className="text-xs text-warning">
+            Das Premiumsymbol gibt keine Tage. Ein Treffer darauf wäre ein Gewinn ohne Gewinn.
+          </p>
+        ) : null}
+
+        <Button
+          size="sm"
+          disabled={laeuft}
+          onClick={() =>
+            void fuehreAus(
+              () =>
+                symbolSpeichernAction({
+                  csrfToken,
+                  key: symbol.key,
+                  name: symbol.name,
+                  aktiv: werte.aktiv,
+                  gewicht: werte.gewicht,
+                  glow: symbol.glow,
+                  bildPfad: symbol.imagePath,
+                  bildUrl: symbol.imageUrl,
+                  auszahlung3: symbol.payout3Bp,
+                  auszahlung4: symbol.payout4Bp,
+                  auszahlung5: symbol.payout5Bp,
+                  premiumTage3: werte.tage3,
+                  premiumTage4: werte.tage4,
+                  premiumTage5: werte.tage5,
+                }),
+              'Premiumsymbol gespeichert.',
+            )
+          }
+        >
+          <Save aria-hidden="true" />
+          Premiumsymbol speichern
+        </Button>
+      </div>
+    </Kasten>
   );
 }
 
@@ -1077,9 +1208,11 @@ function FreespinsTab({
   csrfToken,
   konfiguration,
   freispiele,
+  namen,
   darfFreispiele,
 }: VerwaltungProps): React.JSX.Element {
   const { laeuft, fuehreAus } = useSpeichern();
+  const nachKennung = useMemo(() => new Map(namen.map((eintrag) => [eintrag.discordId, eintrag])), [namen]);
   const [neu, setNeu] = useState({
     discordId: '',
     anzahl: 10,
@@ -1200,7 +1333,9 @@ function FreespinsTab({
               <tbody>
                 {freispiele.map((paket) => (
                   <tr key={paket.id} className="border-t border-border">
-                    <td className="p-2 font-mono text-[11px]">{paket.discordId}</td>
+                    <td className="p-2">
+                      <PersonZelle eintrag={nachKennung.get(paket.discordId)} />
+                    </td>
                     <td className="p-2 text-right tabular-nums">
                       {paket.offen} / {paket.gewaehrt}
                     </td>
@@ -1663,125 +1798,57 @@ function KlangZeile({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Events
-// ---------------------------------------------------------------------------
-
-function EventsTab({ csrfToken, events }: VerwaltungProps): React.JSX.Element {
-  const { laeuft, fuehreAus } = useSpeichern();
-  const [pruefung, setPruefung] = useState<
-    Record<string, { ok: boolean; fehler: string[]; warnungen: string[]; rtp: number | null }>
-  >({});
+/**
+ * Eine Person in einer Tabelle: Name oben, Kennung darunter.
+ *
+ * ## Warum beides
+ *
+ * Der Name ist fuer den Menschen, die Kennung fuer die Arbeit - wer einen
+ * Fall in Discord nachsieht, braucht die Zahl. Vorher stand nur die Zahl, und
+ * damit war die Historie eine Liste aus Ziffern.
+ *
+ * ## Warum der Link manchmal fehlt
+ *
+ * Weil es ihn manchmal nicht gibt: ein privates Profil hat keine oeffentliche
+ * Adresse, und wer den Server verlassen hat, hat gar keine Seite mehr. Dann
+ * bleibt der gespeicherte Name stehen - ohne Link, ohne Fehler. Ein Link, der
+ * auf eine leere Seite fuehrt, waere eine Zumutung fuer den, der ihn anklickt.
+ */
+function PersonZelle({
+  eintrag,
+}: {
+  eintrag: VerwaltungProps['namen'][number] | undefined;
+}): React.JSX.Element {
+  if (!eintrag) {
+    return <span className="font-mono text-[11px] text-muted-foreground">unbekannt</span>;
+  }
+  const beschriftung = eintrag.username && eintrag.username !== eintrag.name ? `@${eintrag.username}` : null;
 
   return (
-    <div className="space-y-4">
-      <Kasten
-        titel="Eventmodus"
-        hinweis="Ein Event überschreibt Teile der Konfiguration, solange es läuft - danach gilt wieder die Grundstellung, ohne dass jemand etwas zurücksetzt. Es läuft immer höchstens eines."
-      >
-        {events.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Noch kein Eventmodus angelegt. Events entstehen über die Server Action «level.xpslot.event.neu» -
-            die Oberfläche dafür folgt mit dem ersten echten Event, damit hier kein Formular für Felder steht,
-            die noch niemand gebraucht hat.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {events.map((event) => {
-              const p = pruefung[event.id];
-              return (
-                <div key={event.id} className="rounded-lg border border-border p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {event.name}
-                        {event.laeuft ? (
-                          <span className="ml-2 rounded bg-success/15 px-1.5 py-0.5 text-[10px] uppercase text-success">
-                            läuft
-                          </span>
-                        ) : null}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {event.von ? event.von.toISOString().slice(0, 10) : 'ohne Start'} bis{' '}
-                        {event.bis ? event.bis.toISOString().slice(0, 10) : 'offen'} ·{' '}
-                        {Object.keys(event.ueberschreibungen).length} überschriebene Werte
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={laeuft}
-                        onClick={() =>
-                          void (async () => {
-                            const antwort = await eventPruefenAction({ csrfToken, eventId: event.id });
-                            if (antwort.ok) {
-                              setPruefung((vorher) => ({ ...vorher, [event.id]: antwort.data }));
-                            } else {
-                              toast.error(antwort.error.message);
-                            }
-                          })()
-                        }
-                      >
-                        <FlaskConical aria-hidden="true" />
-                        Prüfen
-                      </Button>
-                      {event.aktiv ? (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          disabled={laeuft}
-                          onClick={() =>
-                            void fuehreAus(
-                              () => eventBeendenAction({ csrfToken, eventId: event.id }),
-                              'Eventmodus beendet.',
-                            )
-                          }
-                        >
-                          Beenden
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          disabled={laeuft}
-                          onClick={() =>
-                            void fuehreAus(
-                              () => eventAktivierenAction({ csrfToken, eventId: event.id }),
-                              'Eventmodus aktiviert.',
-                            )
-                          }
-                        >
-                          Aktivieren
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  {p ? (
-                    <div className="mt-2 space-y-1 text-[11px]">
-                      <p className={p.ok ? 'text-success' : 'text-destructive'}>
-                        {p.ok ? 'Aktivierbar.' : 'Aktivierung blockiert.'}
-                        {p.rtp !== null ? ` Quote: ${(p.rtp * 100).toFixed(1)} %` : ''}
-                      </p>
-                      {p.fehler.map((zeile) => (
-                        <p key={zeile} className="text-destructive">
-                          {zeile}
-                        </p>
-                      ))}
-                      {p.warnungen.map((zeile) => (
-                        <p key={zeile} className="text-warning">
-                          {zeile}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Kasten>
-    </div>
+    <span className="flex flex-col leading-tight">
+      {eintrag.slug ? (
+        <Link
+          href={systemRoutes.oeffentlichesProfil(eintrag.slug)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium underline decoration-dotted underline-offset-2 hover:text-primary hover:decoration-solid"
+        >
+          {eintrag.name}
+        </Link>
+      ) : (
+        <Link
+          href={systemRoutes.mitglied(eintrag.discordId)}
+          className="font-medium underline decoration-dotted underline-offset-2 hover:text-primary hover:decoration-solid"
+        >
+          {eintrag.name}
+        </Link>
+      )}
+      <span className="font-mono text-[10px] text-muted-foreground">
+        {eintrag.discordId}
+        {beschriftung ? ` · ${beschriftung}` : ''}
+        {eintrag.ehemalig ? ' · ehemalig' : ''}
+      </span>
+    </span>
   );
 }
 
@@ -1789,8 +1856,9 @@ function EventsTab({ csrfToken, events }: VerwaltungProps): React.JSX.Element {
 // Statistik
 // ---------------------------------------------------------------------------
 
-function StatistikTab({ kennzahlen }: VerwaltungProps): React.JSX.Element {
+function StatistikTab({ kennzahlen, namen }: VerwaltungProps): React.JSX.Element {
   const maximum = Math.max(1, ...kennzahlen.jeTag.map((tag) => Math.max(tag.einsatz, tag.gewinn)));
+  const nachKennung = useMemo(() => new Map(namen.map((eintrag) => [eintrag.discordId, eintrag])), [namen]);
 
   return (
     <div className="space-y-4">
@@ -1874,7 +1942,9 @@ function StatistikTab({ kennzahlen }: VerwaltungProps): React.JSX.Element {
             <tbody>
               {kennzahlen.aktivste.map((zeile) => (
                 <tr key={zeile.discordId} className="border-t border-border">
-                  <td className="p-2 font-mono text-[11px]">{zeile.discordId}</td>
+                  <td className="p-2">
+                    <PersonZelle eintrag={nachKennung.get(zeile.discordId)} />
+                  </td>
                   <td className="p-2 text-right tabular-nums">{zeile.spins}</td>
                   <td className="p-2 text-right tabular-nums">{formatSwissNumber(zeile.einsatz)}</td>
                   <td className="p-2 text-right tabular-nums">{formatSwissNumber(zeile.gewinn)}</td>
@@ -1892,7 +1962,9 @@ function StatistikTab({ kennzahlen }: VerwaltungProps): React.JSX.Element {
 // Historie
 // ---------------------------------------------------------------------------
 
-function HistorieTab({ verlauf }: VerwaltungProps): React.JSX.Element {
+function HistorieTab({ verlauf, namen }: VerwaltungProps): React.JSX.Element {
+  const nachKennung = useMemo(() => new Map(namen.map((eintrag) => [eintrag.discordId, eintrag])), [namen]);
+
   return (
     <Kasten
       titel="Spielverlauf"
@@ -1922,7 +1994,9 @@ function HistorieTab({ verlauf }: VerwaltungProps): React.JSX.Element {
                   <td className="p-2 whitespace-nowrap text-muted-foreground">
                     {formatDateTime(eintrag.zeit)}
                   </td>
-                  <td className="p-2 font-mono text-[11px]">{eintrag.discordId}</td>
+                  <td className="p-2">
+                    <PersonZelle eintrag={nachKennung.get(eintrag.discordId)} />
+                  </td>
                   <td className="p-2 text-right tabular-nums">{eintrag.einsatz}</td>
                   <td className="p-2">{ART_LABEL[eintrag.art] ?? eintrag.art}</td>
                   <td className="p-2">
@@ -1948,7 +2022,6 @@ function HistorieTab({ verlauf }: VerwaltungProps): React.JSX.Element {
                       eintrag.jackpot ? 'Jackpot' : null,
                       eintrag.bonus ? 'Bonus' : null,
                       eintrag.premiumTage > 0 ? `${eintrag.premiumTage} Tage Premium` : null,
-                      eintrag.eventName,
                     ]
                       .filter(Boolean)
                       .join(' · ') || '–'}
@@ -2012,8 +2085,7 @@ function EinstellungenTab({
               onChange={(ereignis) => setStatus(ereignis.target.value as typeof status)}
             >
               <option value="ACTIVE">Aktiv</option>
-              <option value="MAINTENANCE">Wartung</option>
-              <option value="EVENT_ONLY">Nur während eines Events</option>
+              <option value="MAINTENANCE">Wartung (nur Verwaltung spielt)</option>
               <option value="DISABLED">Abgeschaltet</option>
             </select>
           </div>

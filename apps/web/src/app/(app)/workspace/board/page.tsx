@@ -108,6 +108,7 @@ export default async function WorkspaceBoardPage({
             csrfToken={csrfToken}
             projekte={projekte.map((projekt) => ({ id: projekt.id, title: projekt.title }))}
             team={team}
+            ichDiscordId={context.user.discordId}
             projektVorgabe={projektFilter}
           />
         ) : null}

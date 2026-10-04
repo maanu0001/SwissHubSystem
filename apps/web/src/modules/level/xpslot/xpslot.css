@@ -104,9 +104,44 @@
  * echten Pixeln. Die Hoehe ist zusaetzlich an `vh` gebunden, damit das Spiel
  * auf einem 768er-Laptop neben die Steuerung passt, ohne dass jemand scrollt.
  */
+/*
+ * Das Walzenraster.
+ *
+ * ## Warum die Zellgroesse aus der Breite des Kastens kommt
+ *
+ * Hier stand `min(7.4vw, 9.4vh)`: beides Masse des **Fensters**, nicht des
+ * Kastens. Auf einem iPad waren damit 7,4 Prozent der Fensterbreite rund 57
+ * Pixel - fuenf davon sind 285 Pixel in einem Panel, das 700 breit ist. Der
+ * Automat stand als schmaler Streifen in einer roten Flaeche, und die Hoehe
+ * war daran gar nicht beteiligt: `9.4vh` von 1024 sind 96, also nicht die
+ * Grenze. Es war die Breite, und sie war am falschen Kasten gemessen.
+ *
+ * `cqw` ist ein Prozent der Breite des naechsten Containers - also des
+ * Spielfelds. Die Rechnung darunter ist die Umkehrung des Rasters: fuenf
+ * Zellen und sechs Abstaende fuellen den Kasten genau aus.
+ *
+ * ## Warum trotzdem eine Hoehengrenze
+ *
+ * Damit das Spielfeld auf einem flachen Laptop neben die Steuerung passt,
+ * ohne dass jemand scrollt. `--slot-rest` ist der Platz, den alles andere
+ * braucht - Kopf, HUD, Steuerung -, und was bleibt, teilen drei Reihen. Die
+ * Zahl ist gemessen und nicht geraten; sie steht weiter unten je Groesse.
+ *
+ * Kein `transform: scale` - eine skalierte Maschine haette unscharfen Text
+ * und verschobene Klickflaechen. Hier aendert sich eine Laenge, alles andere
+ * rechnet der Browser in echten Pixeln.
+ */
+.slot-feld {
+  container-type: inline-size;
+  width: 100%;
+}
+
 .slot-walzen {
-  --slot-zelle: clamp(42px, min(7.4vw, 9.4vh), 96px);
   --slot-spalt: 0.4rem;
+  --slot-rest: 25rem;
+  --slot-breit: calc((100cqw - var(--slot-spalt) * 6) / 5);
+  --slot-hoch: calc((100vh - var(--slot-rest)) / 3);
+  --slot-zelle: clamp(36px, min(var(--slot-breit), var(--slot-hoch)), 132px);
   position: relative;
   display: grid;
   grid-template-columns: repeat(5, var(--slot-zelle));
@@ -146,6 +181,27 @@
   grid-auto-rows: var(--slot-zelle);
 }
 
+/*
+ * Die haftende Lage eines Sticky Wild.
+ *
+ * Sie liegt ueber dem laufenden Band, in der Walze, an der Position der
+ * geklebten Zelle. Das Band dreht dahinter weiter - sichtbar, weil es
+ * unscharf ist und das haftende Wild scharf. Genau das soll die Aussage sein:
+ * dieses Symbol dreht nicht mit.
+ */
+.slot-haftend {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.slot-haftend__zelle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--slot-zelle);
+}
+
 .slot-zelle {
   position: relative;
   display: grid;
@@ -180,10 +236,24 @@
   filter: drop-shadow(0 0 10px hsl(var(--primary-bright) / 0.75));
 }
 
-/* Das laufende Band. Eine Animation, fuenf Walzen, kein Reflow. */
+/*
+ * Das laufende Band. Eine Animation, fuenf Walzen, kein Reflow.
+ *
+ * `linear` ist richtig und bleibt: eine Walze mit Beschleunigung in jedem
+ * Umlauf wuerde pulsieren. Was fehlte, war die Unschaerfe - ein Symbol, das
+ * sich mit 1200 Pixeln je Sekunde bewegt und trotzdem scharf steht, sieht
+ * nach Diaschau aus. Die Unschaerfe liegt auf dem Band und nicht auf der
+ * Walze: der Rahmen und die haftenden Wilds bleiben scharf.
+ */
 .slot-band {
-  animation: slot-lauf 0.26s linear infinite;
+  animation: slot-lauf 0.22s linear infinite;
   will-change: transform;
+}
+
+.slot-band .slot-zelle__bild,
+.slot-band .slot-zelle__text {
+  filter: blur(0.7px);
+  opacity: 0.92;
 }
 
 /*
@@ -211,18 +281,64 @@
  * Rahmen, der mitfedert, verschiebt alles daneben.
  */
 .slot-walze--stopp .slot-stand {
-  animation: slot-stopp 0.34s cubic-bezier(0.17, 0.89, 0.32, 1.28);
+  animation: slot-stopp 0.26s cubic-bezier(0.22, 0.86, 0.3, 1.2);
 }
 
+/*
+ * Der Snap.
+ *
+ * Kuerzer und knapper als vorher: 0,26 s statt 0,34, und das Ueberschwingen
+ * nur noch ein Sechstel einer Zelle. Ein weiter Nachschwinger sieht weich
+ * aus; ein Automat soll einrasten. Die Walze selbst steht dabei still - sie
+ * ist der Rahmen, und ein Rahmen, der mitfedert, verschiebt alles daneben.
+ */
 @keyframes slot-stopp {
   0% {
-    transform: translate3d(0, calc(var(--slot-zelle) * -0.26), 0);
+    transform: translate3d(0, calc(var(--slot-zelle) * -0.17), 0);
   }
-  60% {
-    transform: translate3d(0, calc(var(--slot-zelle) * 0.07), 0);
+  62% {
+    transform: translate3d(0, calc(var(--slot-zelle) * 0.045), 0);
   }
   100% {
     transform: translate3d(0, 0, 0);
+  }
+}
+
+/*
+ * Der Klick des Einrastens - sichtbar und nicht nur hoerbar.
+ *
+ * Ein kurzer heller Rand innen am Walzenfenster, 0,2 s lang.
+ *
+ * ## Warum auf einer eigenen Lage und nicht auf der Walze
+ *
+ * Weil die Walze der Rahmen ist. Sie bekommt im ganzen Spin keine Animation -
+ * nicht einmal eine, die nur die Farbe aendert: wer spaeter eine Skalierung
+ * oder einen Rahmen dazuschreibt, verschiebt die Nachbarwalzen, und genau
+ * dieser Fehler ist hier einmal passiert. Darum blitzt eine absolute Lage
+ * darueber, und animiert wird nur ihre Deckkraft - keine Eigenschaft, die
+ * ein Layout anstoesst.
+ */
+.slot-walze::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px hsl(var(--primary-bright) / 0.55);
+  opacity: 0;
+}
+
+.slot-walze--stopp::after {
+  animation: slot-rasten 0.2s ease-out;
+}
+
+@keyframes slot-rasten {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 
@@ -293,10 +409,17 @@
   }
 }
 
-/* Die Gewinnlinie als gezeichneter Pfad - genau ueber den Zellen. */
+/*
+ * Die Gewinnlinie als gezeichneter Pfad - genau ueber den Zellen.
+ *
+ * `inset: 0`, weil die Punkte im Koordinatensystem des ganzen Rasters
+ * gemessen werden, Innenabstand eingeschlossen. Vorher lag das Bild um den
+ * Innenabstand versetzt **und** wurde gestreckt; beides zusammen ergab eine
+ * Linie, die auf dem iPad sichtbar neben den Symbolen lag.
+ */
 .slot-linie {
   position: absolute;
-  inset: var(--slot-spalt);
+  inset: 0;
   pointer-events: none;
 }
 
@@ -577,18 +700,33 @@
   }
 
   /*
-   * Mobil darf die Zelle einen groesseren Anteil der Breite nehmen: auf 390
-   * Pixeln waeren 7.4vw winzig, und fuenf Walzen sollen den Bildschirm fuellen.
-   * Die Hoehengrenze faellt weg - in der Senkrechten ist auf dem Telefon Platz,
-   * in der Breite nicht.
+   * Mobil bleibt die Rechnung dieselbe, nur die Abstaende werden knapper und
+   * die Hoehengrenze faellt weg: in der Senkrechten ist auf dem Telefon
+   * Platz, in der Breite nicht. Die Breite fuehrt hier ohnehin - 100cqw sind
+   * auf 390 Pixeln rund 358, geteilt durch fuenf sind das 69 Pixel je Zelle.
    */
   .slot-walzen {
-    --slot-zelle: clamp(40px, 16.4vw, 74px);
     --slot-spalt: 0.25rem;
+    --slot-rest: 0rem;
+    --slot-zelle: clamp(40px, var(--slot-breit), 78px);
   }
 
   .slot-zelle__text {
     font-size: clamp(0.8rem, 5vw, 1.2rem);
+  }
+}
+
+/*
+ * Flache Fenster.
+ *
+ * Auf einem iPad im Querformat (768 Pixel hoch) und auf einem 1366x768-Laptop
+ * fuehrt die Hoehe. `--slot-rest` ist dort knapper gesetzt, weil HUD und
+ * Steuerung in der Breite nebeneinander Platz haben und damit weniger hoch
+ * bauen - gemessen bei 1366x768 und 1024x768.
+ */
+@media (min-width: 641px) and (max-height: 820px) {
+  .slot-walzen {
+    --slot-rest: 21rem;
   }
 }
 
@@ -618,7 +756,8 @@
     animation-duration: 0.5s;
   }
 
-  .slot-walze--stopp .slot-stand {
+  .slot-walze--stopp .slot-stand,
+  .slot-walze--stopp::after {
     animation: none;
   }
 
@@ -1030,5 +1169,116 @@
   .slot-chip:active:not(:disabled),
   .slot-einsatz__schritt:active:not(:disabled) {
     transform: none;
+  }
+}
+
+/* --- Das Risiko-Rad ------------------------------------------------------ */
+
+/*
+ * Ein Rad, kein Knopf.
+ *
+ * Die Entscheidung «acht nehmen oder auf zwoelf riskieren» war vorher ein
+ * Klick und eine Textzeile - dieselbe Entscheidung, aber ohne Moment. Das Rad
+ * macht aus derselben Zahl ein Ereignis: es dreht, es wird langsamer, und
+ * dann steht es. Das Ergebnis dabei steht vom ersten Bild an fest; siehe
+ * `rad.tsx`.
+ */
+.slot-rad {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: center;
+  border-radius: 0.9rem;
+  border: 1px solid hsl(var(--primary) / 0.3);
+  background: hsl(var(--card) / 0.85);
+  padding: 1rem;
+}
+
+.slot-rad__kopf {
+  text-align: center;
+}
+
+.slot-rad__buehne {
+  position: relative;
+  width: clamp(180px, 46vw, 260px);
+  aspect-ratio: 1 / 1;
+}
+
+.slot-rad__scheibe {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid hsl(0 0% 100% / 0.12);
+  box-shadow:
+    0 0 0 6px hsl(240 7% 8%),
+    0 18px 40px -18px hsl(0 0% 0% / 0.9),
+    inset 0 0 30px -8px hsl(0 0% 0% / 0.8);
+  /*
+   * Das Ausfahren.
+   *
+   * Eine lange, stark abflachende Kurve: das Rad dreht schnell los und
+   * kriecht die letzten Grad. Genau dort entsteht die Spannung - und genau
+   * dort laeuft auch der Spannungsklang aus.
+   */
+  transition-property: transform;
+  transition-timing-function: cubic-bezier(0.12, 0.72, 0.06, 1);
+  will-change: transform;
+}
+
+/* Solange kein Ergebnis da ist, dreht das Rad frei - ohne Uebergang. */
+.slot-rad__scheibe--laeuft {
+  animation: slot-rad-frei 1.1s linear infinite;
+}
+
+@keyframes slot-rad-frei {
+  from {
+    rotate: 0deg;
+  }
+  to {
+    rotate: 360deg;
+  }
+}
+
+.slot-rad__zeiger {
+  position: absolute;
+  top: -0.55rem;
+  left: 50%;
+  z-index: 2;
+  width: 0;
+  height: 0;
+  translate: -50% 0;
+  border-left: 0.6rem solid transparent;
+  border-right: 0.6rem solid transparent;
+  border-top: 1.1rem solid hsl(var(--primary-bright));
+  filter: drop-shadow(0 2px 6px hsl(0 0% 0% / 0.8));
+}
+
+.slot-rad__nabe {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 28%;
+  aspect-ratio: 1 / 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  border: 1px solid hsl(0 0% 100% / 0.14);
+  background: linear-gradient(180deg, hsl(240 6% 14%), hsl(240 7% 7%));
+  box-shadow: 0 6px 18px -8px hsl(0 0% 0% / 0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * Weniger Bewegung heisst hier: das Rad dreht nicht, es zeigt. Die
+   * Entscheidung bleibt dieselbe, und das Ergebnis steht sofort da - es war
+   * ohnehin vom ersten Bild an entschieden.
+   */
+  .slot-rad__scheibe {
+    transition-duration: 1ms !important;
+  }
+
+  .slot-rad__scheibe--laeuft {
+    animation: none;
   }
 }

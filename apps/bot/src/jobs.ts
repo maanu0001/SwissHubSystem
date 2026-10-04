@@ -309,23 +309,23 @@ export function createJobRunner(
     {
       name: 'xp-slot-pflege',
       /*
-       * Die Pflege des XP-Slots - drei kleine Dinge, ein Lauf.
+       * Die Pflege des XP-Slots - zwei kleine Dinge, ein Lauf.
        *
        * Keines davon beeinflusst ein Spiel: ein abgelaufenes Freispielpaket
-       * wird ohnehin nicht verbraucht, ein abgelaufenes Event wirkt ohnehin
-       * nicht, und ein vorgemerkter Premium-Gewinn wartet ohnehin. Dieser
-       * Lauf bringt die Anzeige in Ordnung und holt nach, was nachzuholen
-       * ist - deshalb genuegen fuenf Minuten.
+       * wird ohnehin nicht verbraucht, und ein vorgemerkter Premium-Gewinn
+       * wartet ohnehin. Dieser Lauf bringt die Anzeige in Ordnung und holt
+       * nach, was nachzuholen ist - deshalb genuegen fuenf Minuten.
+       *
+       * Es waren drei: das Beenden abgelaufener Events ist weggefallen, weil
+       * es den Eventmodus nicht mehr gibt.
        */
       intervalMs: 5 * 60 * 1000,
       async run() {
         const abgelaufen = await level.xpslot.markiereAbgelaufene();
-        const events = await level.xpslot.beendeAbgelaufeneEvents();
         const premium = await level.xpslot.holeVorgemerkteNach();
-        if (abgelaufen > 0 || events > 0 || premium.gebucht > 0) {
+        if (abgelaufen > 0 || premium.gebucht > 0) {
           log.info('XP-Slot gepflegt', {
             freispielpakete: abgelaufen,
-            events,
             premiumGebucht: premium.gebucht,
             premiumOffen: premium.offen,
           });

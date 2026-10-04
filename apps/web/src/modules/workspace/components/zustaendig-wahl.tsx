@@ -60,7 +60,12 @@ export function ZustaendigWahl({
      * weil man glaubt, sie sei nicht dabei.
      */
     return team.filter(
-      (mitglied) => gewaehlt.includes(mitglied.discordId) || mitglied.name.toLowerCase().includes(begriff),
+      (mitglied) =>
+        gewaehlt.includes(mitglied.discordId) ||
+        mitglied.name.toLowerCase().includes(begriff) ||
+        // Auch der Benutzername: zwei «Max» auf einem Server sind keine
+        // Seltenheit, und der Benutzername ist eindeutig.
+        (mitglied.username ?? '').toLowerCase().includes(begriff),
     );
   }, [team, suche, gewaehlt]);
 
@@ -81,7 +86,7 @@ export function ZustaendigWahl({
           <Input
             value={suche}
             onChange={(ereignis): void => setSuche(ereignis.target.value)}
-            placeholder="Name suchen"
+            placeholder="Name oder Benutzername"
             aria-label="Zuständige suchen"
             className="pl-9"
             disabled={disabled}
@@ -116,7 +121,17 @@ export function ZustaendigWahl({
                 name={mitglied.name}
                 size={28}
               />
-              <span className="truncate">{mitglied.name}</span>
+              <span className="min-w-0 truncate">
+                {mitglied.name}
+                {/*
+                  Der Benutzername nur, wenn er etwas hinzufuegt - und nur in
+                  der Suche sichtbar klein. Eine Zeile mit «max · max» waere
+                  dieselbe Auskunft zweimal.
+                */}
+                {mitglied.username && mitglied.username !== mitglied.name ? (
+                  <span className="ml-1 text-[11px] text-muted-foreground">@{mitglied.username}</span>
+                ) : null}
+              </span>
             </label>
           );
         })}

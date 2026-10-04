@@ -1,20 +1,10 @@
-import { prisma, type XpSlotConfig, type XpSlotEvent, type XpSlotSymbol } from '@swisshub/database';
-import { createLogger } from '@swisshub/logger';
-import { z } from 'zod';
+import { prisma, type XpSlotConfig, type XpSlotSymbol } from '@swisshub/database';
 import { BASISPUNKTE, type SpielSymbol, type Spielregeln } from './regeln';
 import { rechneRtp, type BonusAnnahmen, type RtpErgebnis } from './rtp';
-import {
-  AUTO_SPIN_VORGABEN,
-  EINSATZ_VORGABEN,
-  KNOPF_STIL_KEYS,
-  KONFIG_VORGABEN,
-  SYMBOL_VORGABEN,
-} from './vorgaben';
-
-const log = createLogger('level:xpslot:konfiguration');
+import { AUTO_SPIN_VORGABEN, EINSATZ_VORGABEN, KONFIG_VORGABEN, SYMBOL_VORGABEN } from './vorgaben';
 
 /**
- * Die Konfiguration des Slots - Lesen, Schreiben, Eventmodus.
+ * Die Konfiguration des Slots - Lesen und Schreiben.
  *
  * ## Eine Zeile, und sie entsteht beim ersten Hinsehen
  *
@@ -24,28 +14,26 @@ const log = createLogger('level:xpslot:konfiguration');
  * Slot ohne Symbole und keinen Weg zurueck. So entsteht die Grundstellung
  * immer dann, wenn sie gebraucht wird.
  *
- * ## Der Eventmodus ist eine Schicht, keine Kopie
+ * ## Es gibt nur eine Wahrheit, und sie steht in `XpSlotConfig`
  *
- * Ein Event ueberschreibt Teile der Konfiguration, solange es laeuft. Es
- * aendert dabei **nichts** an `XpSlotConfig` - danach gilt wieder, was dort
- * steht, ohne dass jemand etwas zuruecksetzen muss. Genau das war die
- * Anforderung: «danach automatisch zurueck».
+ * Hier lag einmal ein Eventmodus: eine zweite Tabelle mit JSON-Feldern, die
+ * Teile dieser Konfiguration ueberschrieb, solange ein Event lief. Er ist
+ * weg, und das ist eine Vereinfachung mit Folgen in alle Richtungen - jede
+ * Zahl, die das Dashboard zeigt, ist jetzt auch die, mit der gespielt wird.
+ * Vorher musste man wissen, ob gerade ein Event laeuft, um eine Auszahlung
+ * richtig zu lesen.
  *
- * Die Ueberschreibungen liegen als JSON in der Eventzeile und gehen beim
- * Speichern **und** beim Lesen durch dasselbe Zod-Schema. Beim Lesen, weil
- * eine Datenbank aelter sein kann als der Code: ein Feld, das es nicht mehr
- * gibt, darf nicht zu einem `undefined` fuehren, das sich als Gewicht
- * ausgibt. Was nicht durchkommt, wird protokolliert und ignoriert - der Slot
- * laeuft dann auf seiner Grundstellung und nicht auf halbgaren Werten.
+ * `wirksameWerte` bleibt trotzdem bestehen: sie ist die Stelle, die aus den
+ * englischen Spaltennamen der Datenbank die deutschen Begriffe des Spiels
+ * macht, und sie ist der einzige Weg zu diesen Werten. Wer `config.minBet`
+ * direkt liest, umgeht eine Umrechnung, die es vielleicht einmal wieder gibt.
  */
 
 /** Die vollstaendige, wirksame Konfiguration. */
 export interface SlotKonfiguration {
   config: XpSlotConfig;
   symbole: XpSlotSymbol[];
-  /** Das laufende Event - oder keines. */
-  event: XpSlotEvent | null;
-  /** Die wirksamen Werte nach dem Eventmodus. */
+  /** Die wirksamen Werte des Spiels. */
   wirksam: WirksameWerte;
   /** Was die Auswertung braucht. */
   regeln: Spielregeln;
@@ -53,11 +41,11 @@ export interface SlotKonfiguration {
 }
 
 /**
- * Die Werte, die nach dem Eventmodus gelten.
+ * Die Werte, mit denen gespielt wird.
  *
- * Bewusst eine eigene Form und nicht die Prisma-Zeile: wer `config.minBet`
- * liest, umgeht den Eventmodus, und das faellt niemandem auf, bis ein Event
- * laeuft. Alles, was ein Event ueberschreiben kann, steht hier.
+ * Bewusst eine eigene Form und nicht die Prisma-Zeile: hier stehen die
+ * Begriffe des Spiels, dort die Spaltennamen der Datenbank. Alles, was eine
+ * Regel beeinflusst, steht hier - und nur hier wird umgerechnet.
  */
 export interface WirksameWerte {
   status: XpSlotConfig['status'];
@@ -94,94 +82,6 @@ export interface WirksameWerte {
   knopfStil: string;
   soundPackId: string | null;
 }
-
-/**
- * Das Schema der Eventueberschreibungen.
- *
- * Eine Teilmenge der Konfiguration. Jedes Feld ist optional - was fehlt,
- * bleibt wie in der Grundstellung. Die Grenzen sind dieselben wie beim
- * Speichern der Konfiguration, damit ein Event nicht einstellen kann, was
- * die Verwaltung nicht einstellen darf.
- */
-export const eventUeberschreibungSchema = z
-  .object({
-    einsaetze: z.array(z.number().int().min(1).max(1_000_000)).min(1).max(12).optional(),
-    minEinsatz: z.number().int().min(1).max(1_000_000).optional(),
-    maxEinsatz: z.number().int().min(1).max(1_000_000).optional(),
-    jackpotMultiplikator: z.number().int().min(1).max(100_000).optional(),
-    jackpotNurEcht: z.boolean().optional(),
-    wildErsetztAlles: z.boolean().optional(),
-    bonusAusloeser: z.number().int().min(2).max(6).optional(),
-    bonusFreispiele: z.number().int().min(0).max(100).optional(),
-    leiter1: z.number().int().min(0).max(200).optional(),
-    leiter2: z.number().int().min(0).max(300).optional(),
-    gambleChance1Bp: z.number().int().min(0).max(10_000).optional(),
-    gambleChance2Bp: z.number().int().min(0).max(10_000).optional(),
-    retriggerSpins: z.number().int().min(0).max(25).optional(),
-    stickyWilds: z.boolean().optional(),
-    premiumAktiv: z.boolean().optional(),
-    maxGewinnMultiplikator: z.number().int().min(0).max(1_000_000).optional(),
-    maxTagesverlust: z.number().int().min(0).max(100_000_000).optional(),
-    maxTagesgewinn: z.number().int().min(0).max(100_000_000).optional(),
-    maxSpinsJeSitzung: z.number().int().min(0).max(100_000).optional(),
-    sitzungspauseSekunden: z.number().int().min(0).max(86_400).optional(),
-    autoSpinZahlen: z.array(z.number().int().min(1).max(100)).min(1).max(6).optional(),
-    tierGross: z.number().int().min(1).max(10_000).optional(),
-    tierMega: z.number().int().min(1).max(100_000).optional(),
-    hintergrundPfad: z.string().max(200).nullable().optional(),
-    hintergrundUrl: z.string().max(1000).nullable().optional(),
-    logoPfad: z.string().max(200).nullable().optional(),
-    logoUrl: z.string().max(1000).nullable().optional(),
-    akzentfarbe: z
-      .string()
-      .regex(/^#[0-9a-fA-F]{6}$/u, 'Bitte eine Hex-Farbe wie #83060a.')
-      .nullable()
-      .optional(),
-    overlay: z.number().int().min(0).max(100).optional(),
-    glow: z.number().int().min(0).max(100).optional(),
-    knopfStil: z
-      .string()
-      .refine((wert) => KNOPF_STIL_KEYS.includes(wert))
-      .optional(),
-  })
-  .strict();
-
-export type EventUeberschreibung = z.infer<typeof eventUeberschreibungSchema>;
-
-/**
- * Abweichende Symbolwerte eines Events.
- *
- * Nur Gewicht, Auszahlung, Bild, Glow und «aktiv» - nicht die Rolle. Ein
- * Event, das aus dem Wild ein Bonussymbol macht, waere ein anderes Spiel und
- * kein Event; und die Auswertung baut auf der Rolle auf.
- */
-export const eventSymbolSchema = z.record(
-  z
-    .object({
-      aktiv: z.boolean().optional(),
-      gewicht: z.number().int().min(0).max(1000).optional(),
-      auszahlung: z
-        .tuple([
-          z.number().int().min(0).max(10_000_000),
-          z.number().int().min(0).max(10_000_000),
-          z.number().int().min(0).max(10_000_000),
-        ])
-        .optional(),
-      premiumTage: z
-        .tuple([
-          z.number().int().min(0).max(365),
-          z.number().int().min(0).max(365),
-          z.number().int().min(0).max(365),
-        ])
-        .optional(),
-      bildPfad: z.string().max(200).nullable().optional(),
-      bildUrl: z.string().max(1000).nullable().optional(),
-      glow: z.boolean().optional(),
-    })
-    .strict(),
-);
-
-export type EventSymbolWerte = z.infer<typeof eventSymbolSchema>;
 
 /**
  * Legt die Grundstellung an, falls sie fehlt.
@@ -266,136 +166,79 @@ export async function sorgeFuerKonfiguration(): Promise<void> {
   }
 }
 
-/** Das Event, das jetzt laeuft - oder keines. */
-export async function laufendesEvent(jetzt = new Date()): Promise<XpSlotEvent | null> {
-  const kandidaten = await prisma.xpSlotEvent.findMany({ where: { active: true } });
-  return (
-    kandidaten.find(
-      (eintrag) =>
-        (!eintrag.startsAt || eintrag.startsAt <= jetzt) && (!eintrag.endsAt || eintrag.endsAt > jetzt),
-    ) ?? null
-  );
-}
-
-/** Die geprueften Ueberschreibungen eines Events. */
-export function eventWerte(event: XpSlotEvent | null): EventUeberschreibung {
-  if (!event) {
-    return {};
-  }
-  const geprueft = eventUeberschreibungSchema.safeParse(event.overrides ?? {});
-  if (!geprueft.success) {
-    // Lieber die Grundstellung als halbgare Werte: ein Gewicht aus einem
-    // Feld, das das Schema nicht kennt, waere ein Spiel, das niemand
-    // eingestellt hat.
-    log.warn('Eventueberschreibungen passen nicht zum Schema und werden ignoriert', {
-      eventId: event.id,
-      fehler: geprueft.error.issues.map((eintrag) => eintrag.path.join('.')),
-    });
-    return {};
-  }
-  return geprueft.data;
-}
-
-/** Dieselbe Pruefung fuer die Symbolwerte eines Events. */
-export function eventSymbole(event: XpSlotEvent | null): EventSymbolWerte {
-  if (!event?.symbolOverrides) {
-    return {};
-  }
-  const geprueft = eventSymbolSchema.safeParse(event.symbolOverrides);
-  if (!geprueft.success) {
-    log.warn('Symbolueberschreibungen eines Events passen nicht zum Schema', { eventId: event.id });
-    return {};
-  }
-  return geprueft.data;
-}
-
-/** Die wirksamen Werte: Grundstellung, darueber das Event. */
-export function wirksameWerte(config: XpSlotConfig, event: XpSlotEvent | null): WirksameWerte {
-  const ueber = eventWerte(event);
-  const einsaetze = [...(ueber.einsaetze ?? config.betTiers)].sort((a, b) => a - b);
-
+/** Die wirksamen Werte aus der Grundstellung. */
+export function wirksameWerte(config: XpSlotConfig): WirksameWerte {
   return {
     status: config.status,
-    einsaetze,
-    minEinsatz: ueber.minEinsatz ?? config.minBet,
-    maxEinsatz: ueber.maxEinsatz ?? config.maxBet,
-    jackpotMultiplikator: ueber.jackpotMultiplikator ?? config.jackpotMultiplier,
-    jackpotNurEcht: ueber.jackpotNurEcht ?? config.jackpotPureOnly,
-    wildErsetztAlles: ueber.wildErsetztAlles ?? config.wildSubstitutesAll,
-    bonusAusloeser: ueber.bonusAusloeser ?? config.bonusTriggerCount,
-    bonusFreispiele: ueber.bonusFreispiele ?? config.bonusBaseFreespins,
-    leiter1: ueber.leiter1 ?? config.bonusLadder1,
-    leiter2: ueber.leiter2 ?? config.bonusLadder2,
-    gambleChance1Bp: ueber.gambleChance1Bp ?? config.gambleChance1Bp,
-    gambleChance2Bp: ueber.gambleChance2Bp ?? config.gambleChance2Bp,
-    retriggerSpins: ueber.retriggerSpins ?? config.retriggerSpins,
-    stickyWilds: ueber.stickyWilds ?? config.stickyWilds,
+    einsaetze: [...config.betTiers].sort((a, b) => a - b),
+    minEinsatz: config.minBet,
+    maxEinsatz: config.maxBet,
+    jackpotMultiplikator: config.jackpotMultiplier,
+    jackpotNurEcht: config.jackpotPureOnly,
+    wildErsetztAlles: config.wildSubstitutesAll,
+    bonusAusloeser: config.bonusTriggerCount,
+    bonusFreispiele: config.bonusBaseFreespins,
+    leiter1: config.bonusLadder1,
+    leiter2: config.bonusLadder2,
+    gambleChance1Bp: config.gambleChance1Bp,
+    gambleChance2Bp: config.gambleChance2Bp,
+    retriggerSpins: config.retriggerSpins,
+    stickyWilds: config.stickyWilds,
     /*
-     * Premium: das Event darf es einschalten, die Grundstellung nicht.
+     * Premium haengt an einem Schalter, und zwar an diesem.
      *
-     * So steht es im Konzept - «ohne aktivierte Premium-/Event-Konfiguration
-     * deaktiviert». `premiumEnabled` in der Grundstellung bleibt deshalb
-     * wirkungslos, solange kein Event laeuft: wer Premium dauerhaft will,
-     * legt ein Event ohne Enddatum an und sieht dabei die Quote.
+     * Vorher war Premium an den Eventmodus gebunden: `premiumEnabled` in der
+     * Grundstellung war wirkungslos, solange kein Event lief. Das war ein
+     * Schalter, der nichts tat - niemand konnte sehen, warum. Jetzt gilt er.
      */
-    premiumAktiv: event ? (ueber.premiumAktiv ?? config.premiumEnabled) : false,
-    maxGewinnMultiplikator: ueber.maxGewinnMultiplikator ?? config.maxWinMultiplier,
-    maxTagesverlust: ueber.maxTagesverlust ?? config.maxDailyLoss,
-    maxTagesgewinn: ueber.maxTagesgewinn ?? config.maxDailyWin,
-    maxSpinsJeSitzung: ueber.maxSpinsJeSitzung ?? config.maxSpinsPerSession,
-    sitzungspauseSekunden: ueber.sitzungspauseSekunden ?? config.sessionCooldownSeconds,
-    autoSpinZahlen: [...(ueber.autoSpinZahlen ?? config.autoSpinCounts)].sort((a, b) => a - b),
-    tierGross: ueber.tierGross ?? config.tierBigMultiplier,
-    tierMega: ueber.tierMega ?? config.tierMegaMultiplier,
-    hintergrundPfad: ueber.hintergrundPfad ?? config.backgroundPath,
-    hintergrundUrl: ueber.hintergrundUrl ?? config.backgroundUrl,
-    logoPfad: ueber.logoPfad ?? config.logoPath,
-    logoUrl: ueber.logoUrl ?? config.logoUrl,
-    akzentfarbe: ueber.akzentfarbe ?? config.accentColor,
-    overlay: ueber.overlay ?? config.overlayOpacity,
-    glow: ueber.glow ?? config.glowStrength,
-    knopfStil: ueber.knopfStil ?? config.spinButtonStyle,
-    soundPackId: event?.soundPackId ?? config.activeSoundPackId,
+    premiumAktiv: config.premiumEnabled,
+    maxGewinnMultiplikator: config.maxWinMultiplier,
+    maxTagesverlust: config.maxDailyLoss,
+    maxTagesgewinn: config.maxDailyWin,
+    maxSpinsJeSitzung: config.maxSpinsPerSession,
+    sitzungspauseSekunden: config.sessionCooldownSeconds,
+    autoSpinZahlen: [...config.autoSpinCounts].sort((a, b) => a - b),
+    tierGross: config.tierBigMultiplier,
+    tierMega: config.tierMegaMultiplier,
+    hintergrundPfad: config.backgroundPath,
+    hintergrundUrl: config.backgroundUrl,
+    logoPfad: config.logoPath,
+    logoUrl: config.logoUrl,
+    akzentfarbe: config.accentColor,
+    overlay: config.overlayOpacity,
+    glow: config.glowStrength,
+    knopfStil: config.spinButtonStyle,
+    soundPackId: config.activeSoundPackId,
   };
 }
 
-/** Die Symbole nach dem Eventmodus, in Spielform. */
-export function spielSymbole(symbole: readonly XpSlotSymbol[], event: XpSlotEvent | null): SpielSymbol[] {
-  const ueber = eventSymbole(event);
+/** Die Symbole in Spielform. */
+export function spielSymbole(symbole: readonly XpSlotSymbol[]): SpielSymbol[] {
   return symbole
-    .map((symbol) => {
-      const e = ueber[symbol.key] ?? {};
-      const aktiv = e.aktiv ?? symbol.active;
-      return {
-        key: symbol.key,
-        rolle: symbol.role,
-        // Ein abgeschaltetes Symbol hat Gewicht 0 - es liegt nicht auf den
-        // Walzen. Die Auswertung braucht es trotzdem in der Liste, damit ein
-        // altes Ergebnis in der Historie weiterhin lesbar bleibt.
-        gewicht: aktiv ? (e.gewicht ?? symbol.weight) : 0,
-        auszahlung: (e.auszahlung ?? [symbol.payout3Bp, symbol.payout4Bp, symbol.payout5Bp]) as [
-          number,
-          number,
-          number,
-        ],
-        premiumTage: (e.premiumTage ?? [symbol.premiumDays3, symbol.premiumDays4, symbol.premiumDays5]) as [
-          number,
-          number,
-          number,
-        ],
-      } satisfies SpielSymbol;
-    })
+    .map(
+      (symbol) =>
+        ({
+          key: symbol.key,
+          rolle: symbol.role,
+          // Ein abgeschaltetes Symbol hat Gewicht 0 - es liegt nicht auf den
+          // Walzen. Die Auswertung braucht es trotzdem in der Liste, damit ein
+          // altes Ergebnis in der Historie weiterhin lesbar bleibt.
+          gewicht: symbol.active ? symbol.weight : 0,
+          auszahlung: [symbol.payout3Bp, symbol.payout4Bp, symbol.payout5Bp] as [number, number, number],
+          premiumTage: [symbol.premiumDays3, symbol.premiumDays4, symbol.premiumDays5] as [
+            number,
+            number,
+            number,
+          ],
+        }) satisfies SpielSymbol,
+    )
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
 /** Die Regeln, mit denen gespielt wird. */
-export function spielregeln(
-  symbole: readonly XpSlotSymbol[],
-  wirksam: WirksameWerte,
-  event: XpSlotEvent | null,
-): Spielregeln {
+export function spielregeln(symbole: readonly XpSlotSymbol[], wirksam: WirksameWerte): Spielregeln {
   return {
-    symbole: spielSymbole(symbole, event),
+    symbole: spielSymbole(symbole),
     jackpotMultiplikator: wirksam.jackpotMultiplikator,
     jackpotNurEcht: wirksam.jackpotNurEcht,
     wildErsetztAlles: wirksam.wildErsetztAlles,
@@ -424,21 +267,19 @@ export function bonusAnnahmen(wirksam: WirksameWerte): BonusAnnahmen {
  * Eine Abfrage je Tabelle, kein Nachladen in Schleifen - diese Funktion
  * laeuft bei jedem Spin.
  */
-export async function leseKonfiguration(jetzt = new Date()): Promise<SlotKonfiguration> {
+export async function leseKonfiguration(): Promise<SlotKonfiguration> {
   await sorgeFuerKonfiguration();
-  const [config, symbole, event] = await Promise.all([
+  const [config, symbole] = await Promise.all([
     prisma.xpSlotConfig.findUniqueOrThrow({ where: { id: 'default' } }),
     prisma.xpSlotSymbol.findMany({ orderBy: { order: 'asc' } }),
-    laufendesEvent(jetzt),
   ]);
 
-  const wirksam = wirksameWerte(config, event);
+  const wirksam = wirksameWerte(config);
   return {
     config,
     symbole,
-    event,
     wirksam,
-    regeln: spielregeln(symbole, wirksam, event),
+    regeln: spielregeln(symbole, wirksam),
     bonus: bonusAnnahmen(wirksam),
   };
 }
@@ -449,28 +290,63 @@ export function rtpVon(konfiguration: Pick<SlotKonfiguration, 'regeln' | 'bonus'
 }
 
 /** Laesst sich gerade spielen? */
-export function istSpielbar(konfiguration: SlotKonfiguration): {
+export interface Spielzustand {
   ok: boolean;
+  /** Warum nicht - unveraendert anzeigbar. */
   grund: string | null;
-} {
+  /**
+   * Steht der Slot in Wartung?
+   *
+   * Getrennt von `ok`, weil beides zusammen vorkommt: fuer die Verwaltung ist
+   * er spielbar **und** in Wartung. Die Oberflaeche sagt das dann auch - ein
+   * versteckter Wartungsmodus waere eine Verwaltung, die nicht weiss, dass
+   * die Mitglieder gerade ausgesperrt sind.
+   */
+  wartung: boolean;
+}
+
+export function istSpielbar(konfiguration: SlotKonfiguration, darfVerwalten = false): Spielzustand {
   const { status } = konfiguration.wirksam;
+  if (konfiguration.regeln.symbole.every((symbol) => symbol.gewicht === 0)) {
+    /*
+     * Diese Pruefung steht **vor** allen anderen und gilt auch fuer die
+     * Verwaltung: ein Spielfeld ohne ziehbares Symbol laesst sich nicht
+     * ziehen - das ist keine Frage der Berechtigung, sondern der Mathematik.
+     */
+    return {
+      ok: false,
+      grund: 'Der XP-Slot ist nicht spielbar: kein Symbol hat ein Gewicht.',
+      wartung: false,
+    };
+  }
   if (status === 'DISABLED') {
-    return { ok: false, grund: 'Der XP-Slot ist abgeschaltet.' };
+    return { ok: false, grund: 'Der XP-Slot ist abgeschaltet.', wartung: false };
   }
   if (status === 'MAINTENANCE') {
+    /*
+     * Der Wartungsmodus sperrt die Mitglieder und laesst die Verwaltung
+     * spielen.
+     *
+     * Dafuer ist er da: etwas pruefen, waehrend niemand sonst spielt. Vorher
+     * sperrte er alle - also auch die Person, die gerade eine Aenderung
+     * kontrollieren wollte. Wer pruefen wollte, musste den Slot fuer alle
+     * aufmachen, und genau in diesem Moment waren die Walzen offen.
+     *
+     * `darfVerwalten` kommt von der Aufrufstelle und damit aus der
+     * Berechtigungsengine - hier steht keine Rolle und keine Kennung.
+     */
+    if (darfVerwalten) {
+      return {
+        ok: true,
+        grund: null,
+        wartung: true,
+      };
+    }
     return {
       ok: false,
       grund: konfiguration.config.maintenanceNote ?? 'Der XP-Slot ist gerade in Wartung.',
+      wartung: true,
     };
   }
-  if (status === 'EVENT_ONLY' && !konfiguration.event) {
-    return {
-      ok: false,
-      grund: 'Der XP-Slot läuft derzeit nur während eines Events. Gerade läuft keines.',
-    };
-  }
-  if (konfiguration.regeln.symbole.every((symbol) => symbol.gewicht === 0)) {
-    return { ok: false, grund: 'Der XP-Slot ist nicht spielbar: kein Symbol hat ein Gewicht.' };
-  }
-  return { ok: true, grund: null };
+  return { ok: true, grund: null, wartung: false };
 }

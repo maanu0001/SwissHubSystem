@@ -47,14 +47,18 @@ export interface KlangEintrag {
 }
 
 /**
- * Die Slots, die als Schleife laufen.
+ * Die Slots, die als Schleife laufen - und die, die am Musikregler haengen.
  *
- * Dieselbe Liste wie `MUSIK_SLOTS` im Modulkern, und zwar bewusst zweimal:
- * diese Datei laeuft im Browser und darf die Modulschicht mit ihrer
- * Datenbankanbindung nicht laden. Die Konfiguration bringt das Merkmal je
- * Eintrag ohnehin mit; gebraucht wird die Liste nur fuer die Slots, fuer die
- * es gar keine Konfigurationszeile gibt - die mitgelieferten.
+ * Dieselben Listen wie im Modulkern, und zwar bewusst zweimal: diese Datei
+ * laeuft im Browser und darf die Modulschicht mit ihrer Datenbankanbindung
+ * nicht laden. Gebraucht werden sie fuer die Slots, fuer die es gar keine
+ * Konfigurationszeile gibt - die mitgelieferten.
+ *
+ * Der Unterschied zwischen den beiden ist der Grund, weshalb es zwei sind:
+ * Walzenlauf und Rad **laufen** als Schleife, gehoeren aber zu den Effekten.
+ * Wer die Musik abschaltet, will die Walzen weiter hoeren.
  */
+const SCHLEIFEN_SLOTS = new Set(['musik', 'freespin_loop', 'reel_loop', 'gamble_spin']);
 const MUSIK_SLOTS = new Set(['musik', 'freespin_loop']);
 
 export interface KlangEinstellungen {
@@ -67,10 +71,18 @@ export interface KlangEinstellungen {
 
 const SPEICHER = 'swisshub.xpslot.ton';
 
+/*
+ * Die Vorgaben.
+ *
+ * Musik **an**, und zwar leise: sie ist jetzt mitgeliefert, sie gehoert zum
+ * Spiel, und sie laeuft erst nach der ersten Beruehrung - ein Automat, der
+ * stumm startet, klingt kaputt. Wer sie nicht will, schaltet sie mit einem
+ * Klick aus, und die Entscheidung bleibt in diesem Browser.
+ */
 const VORGABE: KlangEinstellungen = {
-  musikAn: false,
+  musikAn: true,
   effekteAn: true,
-  musikLaut: 35,
+  musikLaut: 28,
   effekteLaut: 70,
 };
 
@@ -197,7 +209,7 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
       try {
         const element = new window.Audio(adresse);
         element.preload = 'auto';
-        element.loop = eintrag.musik;
+        element.loop = SCHLEIFEN_SLOTS.has(slot);
         elemente.current.set(slot, element);
         return element;
       } catch {
@@ -206,6 +218,32 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
     },
     [freigegeben, nachSlot],
   );
+
+  /*
+   * Vorladen, sobald Ton ueberhaupt erlaubt ist.
+   *
+   * ## Warum das zur Synchronitaet gehoert
+   *
+   * Ein Element entstand bisher beim ersten Abspielen. Der erste Walzenstopp
+   * eines Besuchs musste also erst eine Datei holen - und kam damit zu spaet,
+   * sichtbar neben der Animation. Ein Klang, der einmal zu spaet kommt,
+   * macht den ganzen Satz unglaubwuerdig.
+   *
+   * Darum wird nach der Freigabe jedes Element angelegt; `preload = 'auto'`
+   * laedt dann im Hintergrund. Die Musik bleibt bewusst aussen vor: sie ist
+   * die groesste Datei und wird ohnehin gestartet, nicht angespielt.
+   */
+  useEffect(() => {
+    if (!freigegeben) {
+      return;
+    }
+    for (const slot of nachSlot.keys()) {
+      if (MUSIK_SLOTS.has(slot)) {
+        continue;
+      }
+      hole(slot);
+    }
+  }, [freigegeben, hole, nachSlot]);
 
   // Die Regler wirken sofort - auch auf eine laufende Schleife.
   useEffect(() => {

@@ -82,7 +82,6 @@ async function leere(): Promise<void> {
   await prisma.xpSlotFreespinPackage.deleteMany();
   await prisma.xpSlotSession.deleteMany();
   await prisma.xpSlotDaily.deleteMany();
-  await prisma.xpSlotEvent.deleteMany();
   await prisma.xpSlotSound.deleteMany();
   await prisma.xpSlotConfig.deleteMany();
   await prisma.xpSlotSoundPack.deleteMany();
@@ -168,11 +167,30 @@ describeWithDatabase('XP-Slot: Spin', () => {
     );
   });
 
-  it('weist ab, wenn EVENT_ONLY gilt und kein Event läuft', async () => {
-    await S.setzeStatus('EVENT_ONLY', null, TEAM);
-    await expect(S.dreheSpin({ discordId: SPIELER, einsatz: 10, schluessel: schluessel() })).rejects.toThrow(
-      /nur während eines Events/u,
-    );
+  /*
+   * Der Wartungsmodus sperrt die Mitglieder - und laesst die Verwaltung
+   * spielen. Der Fall darueber zeigt die Sperre; dieser zeigt die Ausnahme,
+   * und beide gehen durch dieselbe Pruefung in `dreheSpin`.
+   *
+   * Hier stand vorher ein Fall ueber `EVENT_ONLY`. Diesen Status gibt es
+   * nicht mehr - der Eventmodus ist entfernt.
+   */
+  it('lässt die Verwaltung im Wartungsmodus spielen', async () => {
+    await S.setzeStatus('MAINTENANCE', 'Wir schrauben am Jackpot.', TEAM);
+
+    const spin = await S.dreheSpin({
+      discordId: SPIELER,
+      einsatz: 10,
+      schluessel: schluessel(),
+      darfVerwalten: true,
+    });
+    expect(spin.spinId).toBeTruthy();
+
+    // Dieselbe Person ohne die Berechtigung bleibt gesperrt: die Grenze
+    // haengt am Recht und nicht an der Kennung.
+    await expect(
+      S.dreheSpin({ discordId: SPIELER, einsatz: 10, schluessel: schluessel(), darfVerwalten: false }),
+    ).rejects.toThrow('Wir schrauben am Jackpot.');
   });
 
   // --- Der zweite Klick ----------------------------------------------------
@@ -631,6 +649,67 @@ describeWithDatabase('XP-Slot: Spin', () => {
       }
     }
     expect(stickyVorher).toBeGreaterThan(0);
+  });
+
+  it('hält jede geklebte Position über die ganze Runde - und dreht den Rest neu', async () => {
+    const runde = await bonusAusloesen();
+    await S.nimmFreispiele(SPIELER, runde.id);
+
+    /*
+     * Die genaue Zusage, Freispiel fuer Freispiel.
+     *
+     * Der Fall darueber prueft, dass die Zahl der geklebten Zellen nicht
+     * sinkt. Das ist die halbe Aussage: sie liesse auch zu, dass ein Wild
+     * woanders neu entsteht und das alte zufaellig wieder faellt. Hier wird
+     * jede einzelne Position verfolgt - und zusaetzlich, dass der Rest der
+     * Walze wirklich neu gezogen wird. Beides zusammen ist die Anforderung:
+     * «diese Position wird NICHT neu gezogen, alle anderen drehen neu».
+     */
+    const geklebt = new Set<number>();
+    let vorigesFeld: string[] | null = null;
+    let irgendwoAnders = false;
+
+    for (let index = 0; index < 5; index += 1) {
+      const ergebnis = await S.dreheSpin({
+        discordId: SPIELER,
+        einsatz: 10,
+        schluessel: schluessel(),
+        random: quelleAusSeed(`klebt-${index}`),
+      });
+      if (ergebnis.art !== 'BONUS_ROUND') {
+        break;
+      }
+
+      // Jede Position, die beim letzten Mal klebte, traegt wieder das Wild.
+      for (const zelle of geklebt) {
+        expect(ergebnis.grid[zelle], `Zelle ${zelle} im Freispiel ${index + 1}`).toBe('wild');
+      }
+
+      // Der Rest dreht: irgendeine nicht geklebte Zelle muss sich im Lauf der
+      // Runde einmal geaendert haben. Alles andere waere ein stehendes Bild.
+      if (vorigesFeld) {
+        for (let zelle = 0; zelle < ergebnis.grid.length; zelle += 1) {
+          if (!geklebt.has(zelle) && ergebnis.grid[zelle] !== vorigesFeld[zelle]) {
+            irgendwoAnders = true;
+          }
+        }
+      }
+
+      for (const zelle of ergebnis.bonus?.stickyZellen ?? []) {
+        geklebt.add(zelle);
+      }
+      vorigesFeld = ergebnis.grid;
+    }
+
+    expect(geklebt.size).toBeGreaterThan(0);
+    expect(irgendwoAnders).toBe(true);
+
+    // Und in der Datenbank steht genau das, was die Runde gesehen hat - die
+    // Positionen liegen serverseitig und nicht in der Animation.
+    const zeile = await prisma.xpSlotBonusRound.findUniqueOrThrow({ where: { id: runde.id } });
+    for (const zelle of zeile.stickyCells) {
+      expect(geklebt.has(zelle)).toBe(true);
+    }
   });
 
   it('beendet die Runde, wenn das letzte Freispiel gespielt ist', async () => {

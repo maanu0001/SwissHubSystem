@@ -106,6 +106,15 @@ export interface SpinEingabe extends LevelIdentity {
   einsatz: number;
   /** Der Schluessel gegen den zweiten Klick. */
   schluessel: string;
+  /**
+   * Darf diese Person den Slot verwalten?
+   *
+   * Nur fuer einen Zweck: im Wartungsmodus spielt die Verwaltung weiter,
+   * waehrend die Mitglieder gesperrt sind. Der Wert kommt aus der
+   * Berechtigungsengine der Aufrufstelle; hier steht keine Rolle und keine
+   * Kennung, und die Vorgabe ist `false` - wer nichts mitgibt, ist Mitglied.
+   */
+  darfVerwalten?: boolean;
   /** Nur fuer Tests und den Testmodus. */
   random?: RandomSource;
   jetzt?: Date;
@@ -154,9 +163,9 @@ export async function offeneBonusrunde(
 export async function dreheSpin(eingabe: SpinEingabe): Promise<SpinErgebnis> {
   const jetzt = eingabe.jetzt ?? new Date();
   const random = eingabe.random ?? secureRandom;
-  const konfiguration = await leseKonfiguration(jetzt);
+  const konfiguration = await leseKonfiguration();
 
-  const spielbar = istSpielbar(konfiguration);
+  const spielbar = istSpielbar(konfiguration, eingabe.darfVerwalten ?? false);
   if (!spielbar.ok) {
     throw conflict(spielbar.grund ?? 'Der XP-Slot ist gerade nicht spielbar.');
   }
@@ -362,7 +371,6 @@ async function spinInTransaktion(
       configNote: spielnotiz(konfiguration),
       freespinPackageId: paket?.id ?? null,
       bonusRoundId: art === 'BONUS_ROUND' && runde ? runde.id : null,
-      eventId: konfiguration.event?.id ?? null,
       idempotencyKey: eingabe.schluessel,
     },
   });
@@ -447,7 +455,6 @@ function spielnotiz(konfiguration: SlotKonfiguration): Prisma.InputJsonValue {
     bonusAusloeser: w.bonusAusloeser,
     maxGewinn: w.maxGewinnMultiplikator,
     premiumAktiv: w.premiumAktiv,
-    event: konfiguration.event?.name ?? null,
     gewichte: Object.fromEntries(konfiguration.regeln.symbole.map((symbol) => [symbol.key, symbol.gewicht])),
     auszahlungen: Object.fromEntries(
       konfiguration.regeln.symbole

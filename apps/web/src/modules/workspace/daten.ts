@@ -41,6 +41,17 @@ export function workspaceBetrachter(context: AuthContext): workspace.WorkspaceBe
 export interface Teammitglied {
   discordId: string;
   name: string;
+  /**
+   * Der Discord-Benutzername - fuer die Faelle, in denen der Anzeigename
+   * nicht genuegt.
+   *
+   * Zwei Leute mit demselben Anzeigenamen sind auf einem Server mit
+   * hundertfuenfzig Mitgliedern keine Seltenheit, und wer jemandem eine
+   * Aufgabe zuteilt, soll die richtige Person treffen. Angezeigt wird er nur,
+   * wenn er sich vom Anzeigenamen unterscheidet - sonst steht dasselbe
+   * zweimal.
+   */
+  username: string | null;
   avatarHash: string | null;
   ehemalig: boolean;
 }
@@ -82,6 +93,7 @@ export async function personenZuListe(kennungen: readonly string[]): Promise<Tea
         // erfundener Platzhalter wäre schlechter, weil er nach einem Namen
         // aussieht.
         name: person?.displayName ?? discordId,
+        username: person?.username ?? null,
         avatarHash: person?.avatarHash ?? null,
         ehemalig: person?.ehemalig ?? true,
       };
@@ -104,6 +116,7 @@ export async function namenKarte(
     karte.set(discordId, {
       discordId,
       name: person.displayName,
+      username: person.username,
       avatarHash: person.avatarHash,
       ehemalig: person.ehemalig,
     });

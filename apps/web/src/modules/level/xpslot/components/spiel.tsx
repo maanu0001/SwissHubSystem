@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { Partikel, Walzen } from './walzen';
 import { Infotafel } from './infotafel';
 import { Leiter } from './leiter';
+import { Rad } from './rad';
 import { useTon, useWenigerBewegung } from './klang';
 import { bonusNehmenAction, bonusRiskierenAction, meinStandAction, spinAction } from '../../xpslot-actions';
 import '../xpslot.css';
@@ -58,16 +59,39 @@ type Ergebnis = Awaited<ReturnType<typeof level.xpslot.dreheSpin>>;
  * Doppelklicks sperrt den Server.
  */
 
-/** Die Zeiten der Inszenierung. */
+/**
+ * Die Zeiten der Inszenierung.
+ *
+ * ## Quick Spin haelt alle Walzen zusammen an
+ *
+ * Vorher staffelte er sie nur enger - 55 Millisekonden Abstand, fuenfmal
+ * hintereinander. Das war ein schnelles Nacheinander und kein Sofort, und mit
+ * fuenf Stoppklaengen in 220 Millisekunden klang es nach Stottern. Jetzt
+ * halten alle fuenf im selben Bild, und es gibt **einen** Stoppklang.
+ *
+ * Die Ausnahme bleibt der Sweat: stehen zwei Bonussymbole und kann das dritte
+ * noch kommen, dreht die entscheidende Walze weiter - auch im Quick Spin.
+ * Genau das ist der Moment, den niemand verkuerzt haben will.
+ */
 const ZEITEN = {
   grund: 620,
   staffel: 160,
   /** Zuschlag je Sweat-Walze - die Spannung, die der Server bestaetigt hat. */
   sweat: 700,
   schnellGrund: 230,
-  schnellStaffel: 55,
+  /** Quick Spin mit Sweat: die vorderen Walzen halten gemeinsam, dann die letzte. */
+  schnellSweat: 520,
   /** Wie lange ein Treffer je Linie hervorgehoben wird. */
   linie: 520,
+  /**
+   * Der Abstand zwischen dem letzten Einrasten und dem Gewinnklang.
+   *
+   * Ohne ihn fallen Stoppklang und Fanfare auf denselben Moment, und man
+   * hoert beides nicht richtig. Mit 170 Millisekunden sitzt zuerst die Walze,
+   * dann kommt das Ergebnis - so, wie es im Konzept steht: «erst nach finalem
+   * Reel Stop».
+   */
+  ergebnis: 170,
 };
 
 /** Welcher Klang zu welcher Gewinnstufe gehoert. */
@@ -109,6 +133,17 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
   const [autoRest, setAutoRest] = useState(0);
   const [schnell, setSchnell] = useState(false);
   const [leiterVerloren, setLeiterVerloren] = useState(false);
+  /*
+   * Das Risiko-Rad.
+   *
+   * `radErgebnis` ist die Antwort des Servers; sie liegt hier, bis das Rad
+   * ausgefahren ist. `radFolge` ist der Zustand, der danach gilt - er wird
+   * erst uebernommen, wenn das Rad steht, damit die Zahl im HUD nicht vor
+   * dem Rad die Antwort verraet.
+   */
+  const [radAn, setRadAn] = useState(false);
+  const [radErgebnis, setRadErgebnis] = useState<'gewonnen' | 'verloren' | null>(null);
+  const radFolge = useRef<Spieler['bonus']>(null);
 
   const laeuftRef = useRef(false);
   const abbrechenRef = useRef(false);
@@ -162,6 +197,19 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       setEinsatz(wert);
     },
     [ansicht.einsaetze, einsatz, ton],
+  );
+
+  /*
+   * Der Schluessel des Wild-Symbols.
+   *
+   * Gebraucht fuer die haftende Lage: ein Sticky Wild muss waehrend des Laufs
+   * sichtbar bleiben, und dafuer muss die Walzenansicht wissen, welches
+   * Symbol sie dort zeichnen soll. Die Rolle kommt aus der Ansicht - es gibt
+   * keine zweite Liste, in der «wild» als Zeichenkette steht.
+   */
+  const wildKey = useMemo(
+    () => ansicht.symbole.find((symbol) => symbol.rolle === 'WILD')?.key ?? null,
+    [ansicht.symbole],
   );
 
   const imFreispiel = spieler.bonus?.stufe === 'SPINS' || spieler.freispieleOffen > 0;
@@ -231,7 +279,7 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
 
     const spin = antwort.data;
     const grund = schnell ? ZEITEN.schnellGrund : ZEITEN.grund;
-    const staffel = schnell ? ZEITEN.schnellStaffel : ZEITEN.staffel;
+    const staffel = ZEITEN.staffel;
 
     // Mindestlaufzeit: der Server ist schneller als das Auge.
     await warte(Math.max(0, grund - (Date.now() - begonnen)));
@@ -240,29 +288,84 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     }
     setGrid(spin.grid);
 
-    // Die Stopps, Walze fuer Walze. Die Sweat-Walzen laufen laenger - und
-    // zwar, weil der Server gesagt hat, dass dort wirklich etwas offen war.
-    for (let walze = 0; walze < ansicht.walzen; walze += 1) {
-      const sweat = spin.sweatAbWalze !== null && walze >= spin.sweatAbWalze && !wenigerBewegung && !schnell;
-      if (sweat && walze === spin.sweatAbWalze) {
-        ton.spiele('bonus_sweat');
+    /*
+     * Die Stopps.
+     *
+     * Drei Faelle, und sie unterscheiden sich nur in der Zeit - nie im
+     * Ergebnis: das steht fertig in `spin`.
+     *
+     *  1. **Quick Spin ohne Sweat**: alle fuenf halten im selben Bild, ein
+     *     Stoppklang.
+     *  2. **Quick Spin mit Sweat**: die Walzen vor der entscheidenden halten
+     *     gemeinsam, dann dreht die letzte weiter.
+     *  3. **Normal**: einzeln von links nach rechts, mit Zuschlag auf den
+     *     Sweat-Walzen.
+     */
+    const sweatAb = spin.sweatAbWalze;
+    const sweatSpielt = sweatAb !== null && !wenigerBewegung;
+
+    const haltAlle = (von: number): void => {
+      setLaufend((vorher) => vorher.map((wert, index) => (index >= von ? false : wert)));
+    };
+
+    if (schnell && !sweatSpielt) {
+      haltAlle(0);
+      ton.spiele('reel_stop');
+    } else if (schnell && sweatAb !== null) {
+      if (sweatAb > 0) {
+        haltAlle(0);
+        ton.spiele('reel_stop');
       }
-      await warte(staffel + (sweat ? ZEITEN.sweat : 0));
+      ton.spiele('bonus_sweat');
+      await warte(ZEITEN.schnellSweat);
       if (!lebtRef.current) {
         return { weiter: false, grund: null };
       }
-      setLaufend((vorher) => vorher.map((wert, index) => (index === walze ? false : wert)));
+      setLaufend(Array.from({ length: ansicht.walzen }, () => false));
       ton.spiele('reel_stop');
+    } else {
+      for (let walze = 0; walze < ansicht.walzen; walze += 1) {
+        const sweat = sweatSpielt && sweatAb !== null && walze >= sweatAb;
+        if (sweat && walze === sweatAb) {
+          ton.spiele('bonus_sweat');
+        }
+        await warte(staffel + (sweat ? ZEITEN.sweat : 0));
+        if (!lebtRef.current) {
+          return { weiter: false, grund: null };
+        }
+        setLaufend((vorher) => vorher.map((wert, index) => (index === walze ? false : wert)));
+        ton.spiele('reel_stop');
+      }
     }
     ton.stoppeSchleife('reel_loop');
 
     setErgebnis(spin);
-    ton.spiele(STUFEN_KLANG[spin.stufe] ?? 'no_win');
-    if (spin.premiumTage > 0) {
-      ton.spiele('premium_win');
+
+    /*
+     * Erst sitzt die letzte Walze, dann kommt das Ergebnis.
+     *
+     * Die kurze Pause ist der Unterschied zwischen «zwei Klaenge
+     * gleichzeitig» und «zuerst der Stopp, dann die Fanfare». Gebucht ist zu
+     * diesem Zeitpunkt alles; das hier ist reine Inszenierung.
+     */
+    await warte(ZEITEN.ergebnis);
+    if (!lebtRef.current) {
+      return { weiter: false, grund: null };
     }
+
+    /*
+     * Ein ausgeloester Bonus ersetzt den Gewinnklang, er kommt nicht dazu.
+     *
+     * Vorher spielten beide: «kein Gewinn» und darueber der Bonusklang - das
+     * waren zwei Aussagen zur selben Zeit, und die wichtigere ging unter.
+     */
     if (spin.bonusAusgeloest) {
       ton.spiele(spin.art === 'BONUS_ROUND' ? 'retrigger' : 'bonus_trigger');
+    } else {
+      ton.spiele(STUFEN_KLANG[spin.stufe] ?? 'no_win');
+    }
+    if (spin.premiumTage > 0) {
+      ton.spiele('premium_win');
     }
 
     // Den eigenen Stand fortschreiben - ohne die Seite neu zu laden.
@@ -365,6 +468,22 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     [dreheEinmal, schnell],
   );
 
+  /**
+   * Die Entscheidung der Bonusrunde.
+   *
+   * ## Nehmen
+   *
+   * Ein Klick, eine Antwort, fertig. Hier ist nichts zu inszenieren: wer
+   * nimmt, will die Freispiele und keine Animation.
+   *
+   * ## Riskieren
+   *
+   * Das Rad dreht los, **dann** geht die Anfrage hinaus, und das Rad faehrt
+   * auf die Antwort aus. Die Reihenfolge ist wichtig: dreht es erst nach der
+   * Antwort los, sieht man eine Verzoegerung; entscheidet es selbst, ist es
+   * ein zweites Spiel. Der Zustand wird erst uebernommen, wenn das Rad steht
+   * - sonst stuende die neue Zahl im HUD, bevor das Rad sie zeigt.
+   */
   const bonusEntscheiden = useCallback(
     async (riskieren: boolean) => {
       const runde = spieler.bonus;
@@ -372,39 +491,85 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
         return;
       }
       setBeschaeftigt(true);
-      ton.spiele(riskieren ? 'gamble_start' : 'ui_button');
+
+      if (!riskieren) {
+        ton.spiele('ui_button');
+        try {
+          const antwort = await bonusNehmenAction({ csrfToken, rundeId: runde.id });
+          if (!antwort.ok) {
+            toast.error(antwort.error.message);
+            return;
+          }
+          const neu = antwort.data.bonus;
+          ton.spiele('bonus_reveal');
+          if (neu.stufe === 'SPINS') {
+            ton.spiele('freespin_start');
+            toast.success(`${neu.offen} Freispiele - viel Glück.`);
+          }
+          setSpieler((vorher) => ({
+            ...vorher,
+            bonus: neu.stufe === 'LOST' || neu.stufe === 'FINISHED' ? null : neu,
+          }));
+        } finally {
+          setBeschaeftigt(false);
+        }
+        return;
+      }
+
+      // Das Rad erscheint und dreht frei - noch ohne Ergebnis.
+      setRadErgebnis(null);
+      radFolge.current = null;
+      setRadAn(true);
+      ton.spiele('gamble_start');
+      ton.starteSchleife('gamble_spin');
+      ton.spiele('gamble_tension');
+
       try {
-        const antwort = riskieren
-          ? await bonusRiskierenAction({ csrfToken, rundeId: runde.id })
-          : await bonusNehmenAction({ csrfToken, rundeId: runde.id });
+        const antwort = await bonusRiskierenAction({ csrfToken, rundeId: runde.id });
         if (!antwort.ok) {
           toast.error(antwort.error.message);
+          ton.stoppeSchleife('gamble_spin');
+          setRadAn(false);
+          setBeschaeftigt(false);
           return;
         }
-        const neu = antwort.data.bonus;
-        if (riskieren && 'gewonnen' in antwort.data) {
-          ton.spiele(antwort.data.gewonnen ? 'gamble_win' : 'gamble_lose');
-          setLeiterVerloren(!antwort.data.gewonnen);
-          if (!antwort.data.gewonnen) {
-            toast.error('Das Risiko ist nicht aufgegangen - die Bonusrunde ist weg.');
-          }
-        } else {
-          ton.spiele('bonus_reveal');
-        }
-        if (neu.stufe === 'SPINS') {
-          ton.spiele('freespin_start');
-          toast.success(`${neu.offen} Freispiele - viel Glück.`);
-        }
-        setSpieler((vorher) => ({
-          ...vorher,
-          bonus: neu.stufe === 'LOST' || neu.stufe === 'FINISHED' ? null : neu,
-        }));
-      } finally {
+        // Ab hier steht das Ergebnis fest. Das Rad faehrt darauf aus; der
+        // Zustand folgt in `radFertig`.
+        radFolge.current = antwort.data.bonus;
+        setRadErgebnis(antwort.data.gewonnen ? 'gewonnen' : 'verloren');
+      } catch (fehler) {
+        ton.stoppeSchleife('gamble_spin');
+        setRadAn(false);
         setBeschaeftigt(false);
+        throw fehler;
       }
     },
     [beschaeftigt, csrfToken, spieler.bonus, ton],
   );
+
+  /** Das Rad steht - jetzt gilt, was der Server gesagt hat. */
+  const radFertig = useCallback(() => {
+    ton.stoppeSchleife('gamble_spin');
+    const neu = radFolge.current;
+    const gewonnen = radErgebnis === 'gewonnen';
+    ton.spiele(gewonnen ? 'gamble_win' : 'gamble_lose');
+    setLeiterVerloren(!gewonnen);
+    if (neu?.stufe === 'SPINS') {
+      ton.spiele('freespin_start');
+      toast.success(`${neu.offen} Freispiele - viel Glück.`);
+    }
+    if (!gewonnen) {
+      toast.error('Das Risiko ist nicht aufgegangen - die Bonusrunde ist weg.');
+    }
+    setSpieler((vorher) => ({
+      ...vorher,
+      bonus: !neu || neu.stufe === 'LOST' || neu.stufe === 'FINISHED' ? null : neu,
+    }));
+    setRadAn(false);
+    setRadErgebnis(null);
+    radFolge.current = null;
+    setBeschaeftigt(false);
+  }, [radErgebnis, ton]);
 
   /** Den Stand neu holen - nach einem Fehler oder einer Sperre. */
   const standAktualisieren = useCallback(async () => {
@@ -438,6 +603,20 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
 
   return (
     <div className="mx-auto w-full max-w-[54rem] space-y-3">
+      {/*
+        Der Wartungsmodus - fuer die Verwaltung sichtbar, nicht versteckt.
+
+        Wer hier spielt, waehrend `wartung` steht, spielt als einzige Person:
+        die Mitglieder bekommen die Wartungsansicht. Das muss dastehen. Ein
+        Wartungsmodus, der sich fuer Admins unsichtbar macht, fuehrt zu dem
+        einen Satz, den niemand hoeren will - «bei mir lief es doch».
+      */}
+      {ansicht.wartung ? (
+        <p className="flex items-center justify-center gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-center text-sm font-semibold text-warning">
+          <Gauge aria-hidden="true" className="size-4 shrink-0" />
+          Wartungsmodus aktiv – Admin-Zugriff. Für Mitglieder ist der Slot gesperrt.
+        </p>
+      ) : null}
       {/*
         Das HUD.
 
@@ -501,17 +680,29 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
           </p>
         ) : null}
 
-        <Walzen
-          grid={grid}
-          symbole={ansicht.symbole}
-          laufend={laufend}
-          treffer={trefferZellen}
-          klebend={spieler.bonus?.stufe === 'SPINS' ? spieler.bonus.stickyZellen : []}
-          sweatAbWalze={ergebnis?.sweatAbWalze ?? null}
-          reihen={ansicht.reihen}
-          walzen={ansicht.walzen}
-          linie={linienPfad}
-        />
+        {/*
+          Der Container fuer die Walzenbreite.
+          
+          `container-type: inline-size` steht hier und nicht an den Walzen
+          selbst: ein Element kann seine eigene Breite nicht abfragen. Erst
+          dadurch kann das Raster darunter in `cqw` rechnen - also in Prozent
+          **dieses** Kastens statt in Prozent des Fensters. Das war die
+          Ursache der schmalen Walzen auf dem iPad.
+        */}
+        <div className="slot-feld">
+          <Walzen
+            grid={grid}
+            symbole={ansicht.symbole}
+            laufend={laufend}
+            treffer={trefferZellen}
+            klebend={spieler.bonus?.stufe === 'SPINS' ? spieler.bonus.stickyZellen : []}
+            wildKey={wildKey}
+            sweatAbWalze={ergebnis?.sweatAbWalze ?? null}
+            reihen={ansicht.reihen}
+            walzen={ansicht.walzen}
+            linie={linienPfad}
+          />
+        </div>
 
         {/*
           Die Gewinnzeile hat immer dieselbe Hoehe - auch ohne Gewinn.
@@ -546,8 +737,19 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
         ) : null}
       </div>
 
+      {/* --- Das Risiko-Rad, solange es dreht --- */}
+      {radAn && spieler.bonus?.wahl ? (
+        <Rad
+          chance={spieler.bonus.wahl.chanceBp / 10000}
+          riskierenAuf={spieler.bonus.wahl.riskierenAuf}
+          nehmen={spieler.bonus.wahl.nehmen}
+          ergebnis={radErgebnis}
+          aufEnde={radFertig}
+        />
+      ) : null}
+
       {/* --- Die Entscheidung der Bonusrunde --- */}
-      {entscheidung && spieler.bonus ? (
+      {entscheidung && spieler.bonus && !radAn ? (
         <Leiter
           nehmen={spieler.bonus.wahl?.nehmen ?? 0}
           riskierenAuf={spieler.bonus.wahl?.riskierenAuf ?? null}

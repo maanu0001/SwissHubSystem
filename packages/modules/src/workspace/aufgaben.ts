@@ -129,7 +129,25 @@ export async function erstelleAufgabe(
 ): Promise<WorkspaceTask> {
   const titel = pruefeTitel(eingabe.titel);
   const projectId = await pruefeProjekt(eingabe.projectId ?? null, guildId);
-  const zustaendige = saubereKennungen(eingabe.zustaendige ?? []);
+  /*
+   * Ohne Angabe ist die anlegende Person zustaendig.
+   *
+   * ## Warum eine Vorgabe und nicht «niemand»
+   *
+   * Weil eine Aufgabe ohne Zustaendige niemandem gehoert, und weil der
+   * haeufigste Fall «ich mache das» ist. Eine Aufgabe, die man sich notiert
+   * und dann im Board nicht unter «Meine Aufgaben» findet, ist eine Aufgabe,
+   * die man zweimal anlegt.
+   *
+   * ## Warum `undefined` und `[]` verschieden sind
+   *
+   * `undefined` heisst «nicht gesagt» - dann gilt die Vorgabe. `[]` heisst
+   * «ausdruecklich niemand», und das ist eine Entscheidung, die bestehen
+   * bleibt: eine Aufgabe fuer das Team insgesamt, die sich jemand nimmt.
+   * Waeren beide Faelle gleich, liesse sich die Vorgabe nicht abwaehlen.
+   */
+  const gewuenscht = eingabe.zustaendige ?? [akteurDiscordId];
+  const zustaendige = saubereKennungen(gewuenscht);
 
   const aufgabe = await prisma.workspaceTask.create({
     data: {

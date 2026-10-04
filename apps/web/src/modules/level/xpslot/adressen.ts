@@ -68,16 +68,21 @@ export function istEigenesBild(symbol: { bildPfad: string | null; bildUrl: strin
 /**
  * Die mitgelieferten Klaenge, nach Slot.
  *
- * Erzeugt mit `scripts/xp-slot-standardklaenge.mjs` - kurze, synthetische
- * Toene aus dem Projekt selbst. Keine fremden Spielassets, kein CDN, keine
- * Datei, die zur Laufzeit von irgendwoher geladen wird.
+ * Erzeugt mit `scripts/xp-slot-standardklaenge.mjs` - synthetische Toene aus
+ * dem Projekt selbst. Keine fremden Spielassets, kein CDN, keine Datei, die
+ * zur Laufzeit von irgendwoher geladen wird.
  *
- * Die beiden Musikslots fehlen bewusst: eine Hintergrundschleife ist Geschmack
- * und waere als mitgelieferte Datei ein Vielfaches aller Effekte zusammen.
- * Musik bleibt etwas, das die Verwaltung hochlaedt.
+ * ## Jeder Slot ist belegt - auch die Musik
+ *
+ * Die beiden Musikschleifen fehlten hier einmal, mit der Begruendung, Musik
+ * sei Geschmack und gehoere hochgeladen. Das Ergebnis war ein Automat, der
+ * in der Stille stand: jeder Effekt kam aus dem Nichts, und niemand lud eine
+ * Datei hoch, weil niemand merkte, dass eine fehlte. Jetzt ist jeder Slot
+ * dieser Liste belegt, und wer eine andere Stimmung will, ersetzt sie.
  */
 export const STANDARD_KLAENGE: Readonly<Record<string, string>> = {
   ui_button: '/xp-slot/klaenge/ui_button.wav',
+  musik: '/xp-slot/klaenge/musik.wav',
   spin_start: '/xp-slot/klaenge/spin_start.wav',
   reel_loop: '/xp-slot/klaenge/reel_loop.wav',
   reel_stop: '/xp-slot/klaenge/reel_stop.wav',
@@ -87,14 +92,17 @@ export const STANDARD_KLAENGE: Readonly<Record<string, string>> = {
   win_big: '/xp-slot/klaenge/win_big.wav',
   win_mega: '/xp-slot/klaenge/win_mega.wav',
   jackpot: '/xp-slot/klaenge/jackpot.wav',
+  premium_win: '/xp-slot/klaenge/premium_win.wav',
   bonus_trigger: '/xp-slot/klaenge/bonus_trigger.wav',
   bonus_sweat: '/xp-slot/klaenge/bonus_sweat.wav',
   bonus_reveal: '/xp-slot/klaenge/bonus_reveal.wav',
   freespin_start: '/xp-slot/klaenge/freespin_start.wav',
+  freespin_loop: '/xp-slot/klaenge/freespin_loop.wav',
   freespin_end: '/xp-slot/klaenge/freespin_end.wav',
   retrigger: '/xp-slot/klaenge/retrigger.wav',
-  premium_win: '/xp-slot/klaenge/premium_win.wav',
   gamble_start: '/xp-slot/klaenge/gamble_start.wav',
+  gamble_spin: '/xp-slot/klaenge/gamble_spin.wav',
+  gamble_tension: '/xp-slot/klaenge/gamble_tension.wav',
   gamble_win: '/xp-slot/klaenge/gamble_win.wav',
   gamble_lose: '/xp-slot/klaenge/gamble_lose.wav',
 };

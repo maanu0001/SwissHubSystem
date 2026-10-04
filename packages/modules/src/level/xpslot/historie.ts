@@ -44,7 +44,6 @@ export interface VerlaufEintrag {
   premiumTage: number;
   xpNachher: number;
   notiz: unknown;
-  eventName: string | null;
 }
 
 export interface VerlaufFilter {
@@ -83,7 +82,6 @@ export async function verlauf(filter: VerlaufFilter = {}): Promise<VerlaufSeite>
       orderBy: { createdAt: 'desc' },
       skip: (seite - 1) * proSeite,
       take: proSeite,
-      include: { event: { select: { name: true } } },
     }),
     prisma.xpSlotSpin.count({ where: wo }),
   ]);
@@ -105,7 +103,6 @@ export async function verlauf(filter: VerlaufFilter = {}): Promise<VerlaufSeite>
       premiumTage: zeile.premiumDays,
       xpNachher: zeile.xpAfter,
       notiz: zeile.configNote,
-      eventName: zeile.event?.name ?? null,
     })),
     gesamt,
     seite,

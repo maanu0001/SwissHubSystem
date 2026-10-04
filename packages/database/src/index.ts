@@ -371,7 +371,6 @@ export type {
   XpSlotBonusStage,
   XpSlotConfig,
   XpSlotDaily,
-  XpSlotEvent,
   XpSlotFreespinPackage,
   XpSlotFreespinStatus,
   XpSlotPremiumGrant,

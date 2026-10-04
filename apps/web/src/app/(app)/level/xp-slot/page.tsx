@@ -51,8 +51,11 @@ export default async function XpSlotPage(): Promise<React.JSX.Element> {
   }
 
   const konfiguration = await level.xpslot.leseKonfiguration();
+  // Im Wartungsmodus spielt die Verwaltung weiter. Dieselbe Berechtigung
+  // prueft die Spin-Action noch einmal selbst.
+  const darfVerwalten = can(context, level.LEVEL_PERMISSIONS.xpslotManage);
   const [ansicht, spieler] = await Promise.all([
-    level.xpslot.slotAnsicht(konfiguration),
+    level.xpslot.slotAnsicht(konfiguration, darfVerwalten),
     level.xpslot.spielerAnsicht(context.user.discordId, konfiguration),
   ]);
   const csrfToken = csrfTokenFor(context);
@@ -71,10 +74,7 @@ export default async function XpSlotPage(): Promise<React.JSX.Element> {
       */}
       <PageHeader
         title="XP-Slot"
-        description={
-          `Fünf Walzen, ${ansicht.linien.length} Linien.` +
-          (ansicht.eventName ? ` Gerade läuft: ${ansicht.eventName}.` : '')
-        }
+        description={`Fünf Walzen, ${ansicht.linien.length} Linien.`}
         actions={
           can(context, level.LEVEL_PERMISSIONS.xpslotManage) ? (
             <Link
