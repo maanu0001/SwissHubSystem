@@ -1,10 +1,13 @@
 import { prisma, recordAudit, AUDIT_ACTIONS } from '@swisshub/database';
 import { discord } from '@swisshub/discord';
 import { AppError } from '@swisshub/shared';
+import { createLogger } from '@swisshub/logger';
 import { getModuleSettings, isModuleEnabled } from '../module-state';
 import { listCachedRoles } from '../discord/sync';
 import { SERVERROLLEN_MODULE_ID, type ServerrollenSettings } from './config';
 import { pruefeSelbstzuweisung, type SelbstzuweisungsUrteil } from './sicherheit';
+
+const log = createLogger('modules:serverrollen');
 
 /**
  * Der Dienst hinter der Rollenübersicht.
@@ -45,6 +48,15 @@ export interface OeffentlicheKategorie {
    * zweite Rolle durchlassen.
    */
   exklusiv: boolean;
+  /**
+   * Spalten auf dem Schreibtisch - 1 bis 4.
+   *
+   * Die Zahl kommt aus der Gruppe und nicht aus der Darstellung: ob eine
+   * Gruppe mit drei kurzen Rollen in drei Spalten steht, weiss das Team und
+   * nicht der Breakpoint. Tablet und Telefon deckeln sie trotzdem - siehe
+   * oeffentliche Seite.
+   */
+  spalten: number;
   rollen: OeffentlicheRolle[];
 }
 
@@ -182,6 +194,7 @@ export async function ladeOeffentlicheRollen(): Promise<OeffentlicheRollenseite 
       name: kategorie.name,
       hinweis: kategorie.hinweis,
       exklusiv: kategorie.exklusiv,
+      spalten: kategorie.spalten,
       rollen: nachKategorie.get(kategorie.id) ?? [],
     }))
     .filter((gruppe) => gruppe.rollen.length > 0);
@@ -193,7 +206,16 @@ export async function ladeOeffentlicheRollen(): Promise<OeffentlicheRollenseite 
      * exklusiv sein - Rollen landen hier, weil ihnen eine Zuordnung fehlt, und
      * nicht weil sie zusammengehören.
      */
-    gruppen.push({ id: 'ohne', name: 'Sonstige', hinweis: null, exklusiv: false, rollen: ohneGruppe });
+    gruppen.push({
+      id: 'ohne',
+      name: 'Sonstige',
+      hinweis: null,
+      exklusiv: false,
+      // Eine Spalte: «Sonstige» ist der Rest, und der soll nicht breiter
+      // aussehen als die Gruppen, die jemand gepflegt hat.
+      spalten: 1,
+      rollen: ohneGruppe,
+    });
   }
 
   return {
@@ -443,4 +465,253 @@ async function geschwisterrollen(
     select: { discordRoleId: true, selfRemovable: true },
   });
   return geschwister;
+}
+
+export interface GruppenWahlErgebnis {
+  erfolg: boolean;
+  nachricht: string;
+  /** Rollen, die dazugekommen sind - mit Namen. */
+  dazu: string[];
+  /** Rollen, die weggefallen sind. */
+  weg: string[];
+}
+
+/**
+ * Die Auswahl einer Gruppe setzen - der Weg des Discord-Dropdowns.
+ *
+ * ## Warum «setzen» und nicht «hinzufuegen»
+ *
+ * Weil ein Auswahlmenue einen Wunsch ausdrueckt und keine Einzelaktion. Wer
+ * in einer Sammelgruppe zwei Rollen markiert, meint «ich will diese zwei» -
+ * und nicht «diese zwei zusaetzlich zu dem, was ich vergessen habe». Daraus
+ * folgt auch, dass man ueber dasselbe Menue Rollen abgeben kann: was nicht
+ * mehr markiert ist, faellt weg. Ohne diese Lesart braeuchte es einen zweiten
+ * Weg zum Entfernen, und Discord haette dafuer keinen Platz.
+ *
+ * ## Was der Client nicht entscheidet
+ *
+ * Die Gruppenkennung steht in der Interaktion, die **erlaubten Rollen** kommen
+ * aus der Datenbank. Eine Kennung, die nicht zu dieser Gruppe gehoert, wird
+ * nicht einfach ignoriert, sondern fuehrt zur Absage mit Eintrag im Log: eine
+ * fremde Rollenkennung in einem Rollenmenue ist nichts, was im normalen
+ * Betrieb vorkommt.
+ *
+ * Danach gilt dieselbe Pruefung wie ueberall - `pruefeSelbstzuweisung` je
+ * Rolle, gegen Rechte, `managed`, Bot-Hierarchie, Freigabe und Voraussetzung.
+ *
+ * ## Warum ein einziger Schreibvorgang
+ *
+ * `setRoles` schreibt die ganze Liste in einem PATCH. Nacheinander entfernen
+ * und hinzufuegen waeren zwei Aufrufe, und zwischen ihnen stuende die Person
+ * entweder mit zwei Rollen einer Exklusivgruppe da oder mit keiner - je
+ * nachdem, welcher Aufruf scheitert. Scheitert der eine Aufruf, aendert sich
+ * nichts, und das ist der Zustand, in dem man einen Fehlschlag haben will.
+ */
+export async function setzeGruppenauswahl(
+  discordId: string,
+  categoryId: string,
+  gewaehlt: readonly string[],
+): Promise<GruppenWahlErgebnis> {
+  if (!(await isModuleEnabled(SERVERROLLEN_MODULE_ID))) {
+    throw new AppError('CONFLICT', { userMessage: 'Serverrollen sind derzeit ausgeschaltet.' });
+  }
+  const einstellungen = await getModuleSettings<ServerrollenSettings>(SERVERROLLEN_MODULE_ID);
+  if (!einstellungen.selbstvergabeAktiv) {
+    return { erfolg: false, nachricht: 'Die Selbstvergabe ist derzeit ausgeschaltet.', dazu: [], weg: [] };
+  }
+
+  const gruppe = await prisma.serverRoleCategory.findUnique({ where: { id: categoryId } });
+  if (!gruppe) {
+    throw new AppError('NOT_FOUND', { userMessage: 'Diese Rollengruppe gibt es nicht.' });
+  }
+
+  const [metadaten, rollen, position, mitglied] = await Promise.all([
+    prisma.serverRoleMeta.findMany({ where: { categoryId } }),
+    listCachedRoles(),
+    botPosition(),
+    discord.members.get(discordId),
+  ]);
+  if (!mitglied) {
+    return {
+      erfolg: false,
+      nachricht: 'Du bist auf dem Discord-Server gerade nicht zu finden.',
+      dazu: [],
+      weg: [],
+    };
+  }
+
+  const rollenNachId = new Map(rollen.map((rolle) => [rolle.id, rolle]));
+  const metaNachId = new Map(metadaten.map((eintrag) => [eintrag.discordRoleId, eintrag]));
+  const nameVon = (id: string): string => rollenNachId.get(id)?.name ?? id;
+
+  /*
+   * Eine Auswahl, die nicht zur Gruppe gehoert, ist eine Absage.
+   *
+   * Das kann der Normalfall nicht sein: das Menue traegt genau die Rollen
+   * dieser Gruppe. Bleibt eine fremde Kennung uebrig, ist entweder die
+   * Nachricht alt oder jemand hat die Interaktion nachgebaut - beides ist
+   * nichts, was man stillschweigend zurechtbiegt.
+   */
+  const fremde = gewaehlt.filter((id) => !metaNachId.has(id));
+  if (fremde.length > 0) {
+    await recordAudit({
+      action: AUDIT_ACTIONS.SERVERROLE_SELF_DENIED,
+      module: SERVERROLLEN_MODULE_ID,
+      actorDiscordId: discordId,
+      targetLabel: gruppe.name,
+      success: false,
+      metadata: { categoryId, grund: 'fremde_rolle', rollen: fremde },
+    });
+    return {
+      erfolg: false,
+      nachricht: 'Diese Auswahl passt nicht zu dieser Gruppe. Lade die Nachricht neu.',
+      dazu: [],
+      weg: [],
+    };
+  }
+
+  // Exklusiv heisst eine - auch wenn das Menue etwas anderes geschickt hat.
+  if (gruppe.exklusiv && gewaehlt.length > 1) {
+    return {
+      erfolg: false,
+      nachricht: 'Aus dieser Gruppe geht nur eine Rolle. Wähle eine.',
+      dazu: [],
+      weg: [],
+    };
+  }
+
+  const inGruppe = new Set(metadaten.map((eintrag) => eintrag.discordRoleId));
+  const hatJetzt = mitglied.roleIds.filter((id) => inGruppe.has(id));
+  const soll = new Set(gewaehlt);
+
+  const hinzu = [...soll].filter((id) => !hatJetzt.includes(id));
+  const runter = hatJetzt.filter((id) => !soll.has(id));
+
+  if (hinzu.length === 0 && runter.length === 0) {
+    return { erfolg: true, nachricht: 'Passt schon - daran ändert sich nichts.', dazu: [], weg: [] };
+  }
+
+  // Jede neue Rolle wird einzeln geprueft - mit dem Stand von jetzt.
+  for (const id of hinzu) {
+    const meta = metaNachId.get(id);
+    const rolle = rollenNachId.get(id);
+    const urteil = rolle
+      ? pruefeSelbstzuweisung({
+          rolle: { permissions: rolle.permissions, managed: rolle.managed, position: rolle.position },
+          selfAssignable: meta?.selfAssignable ?? false,
+          botPosition: position,
+          eigeneRollen: mitglied.roleIds,
+          voraussetzungRoleId: meta?.voraussetzungRoleId ?? null,
+        })
+      : null;
+
+    if (!urteil?.erlaubt) {
+      await recordAudit({
+        action: AUDIT_ACTIONS.SERVERROLE_SELF_DENIED,
+        module: SERVERROLLEN_MODULE_ID,
+        actorDiscordId: discordId,
+        targetLabel: nameVon(id),
+        success: false,
+        metadata: {
+          categoryId,
+          discordRoleId: id,
+          grund: urteil?.grund ?? 'rolle_unbekannt',
+          rechte: urteil?.gefundeneRechte ?? [],
+        },
+      });
+      return {
+        erfolg: false,
+        nachricht: urteil?.text ?? 'Diese Rolle gibt es auf dem Server nicht mehr.',
+        dazu: [],
+        weg: [],
+      };
+    }
+  }
+
+  /*
+   * Was man nicht abgeben darf, nimmt auch der Tausch nicht weg.
+   *
+   * Sonst waere `selfRemovable` eine Luecke mit zwei Tueren: ueber «abgeben»
+   * gesperrt, ueber «etwas anderes waehlen» offen.
+   */
+  const festsitzend = runter.filter((id) => metaNachId.get(id)?.selfRemovable === false);
+  if (festsitzend.length > 0) {
+    return {
+      erfolg: false,
+      nachricht: `«${festsitzend.map(nameVon).join('», «')}» lässt sich nicht selbst abgeben. Melde dich beim Team.`,
+      dazu: [],
+      weg: [],
+    };
+  }
+
+  const weg = new Set(runter);
+  const naechste = [...mitglied.roleIds.filter((id) => !weg.has(id)), ...hinzu];
+  await discord.members.setRoles(discordId, naechste, `Rollenauswahl über SwissHub (${discordId})`);
+
+  /*
+   * Nachsehen, ob es gewirkt hat.
+   *
+   * `setRoles` wirft bei einem Fehler, aber es gibt den Fall dazwischen:
+   * Discord nimmt den Aufruf an und eine Rolle fehlt doch, weil sich die
+   * Hierarchie in derselben Sekunde verschoben hat. Dann soll die Antwort das
+   * sagen und nicht «erledigt» melden.
+   */
+  const danach = await discord.members.get(discordId).catch(() => null);
+  if (danach) {
+    const istJetzt = new Set(danach.roleIds);
+    const fehlend = hinzu.filter((id) => !istJetzt.has(id));
+    const haengend = runter.filter((id) => istJetzt.has(id));
+    if (fehlend.length > 0 || haengend.length > 0) {
+      log.warn('Rollenauswahl nicht vollständig angekommen', {
+        discordId,
+        categoryId,
+        fehlend,
+        haengend,
+      });
+      return {
+        erfolg: false,
+        nachricht: 'Discord hat die Änderung nicht vollständig übernommen. Versuch es noch einmal.',
+        dazu: hinzu.filter((id) => istJetzt.has(id)).map(nameVon),
+        weg: runter.filter((id) => !istJetzt.has(id)).map(nameVon),
+      };
+    }
+  }
+
+  if (hinzu.length > 0) {
+    await recordAudit({
+      action: AUDIT_ACTIONS.SERVERROLE_SELF_ADDED,
+      module: SERVERROLLEN_MODULE_ID,
+      actorDiscordId: discordId,
+      targetDiscordId: discordId,
+      targetLabel: hinzu.map(nameVon).join(', '),
+      success: true,
+      metadata: { categoryId, rollen: hinzu, ueber: 'discord-menue' },
+    });
+  }
+  if (runter.length > 0) {
+    await recordAudit({
+      action: AUDIT_ACTIONS.SERVERROLE_SELF_REMOVED,
+      module: SERVERROLLEN_MODULE_ID,
+      actorDiscordId: discordId,
+      targetDiscordId: discordId,
+      targetLabel: runter.map(nameVon).join(', '),
+      success: true,
+      metadata: { categoryId, rollen: runter, ueber: 'discord-menue' },
+    });
+  }
+
+  const teile: string[] = [];
+  if (hinzu.length > 0) {
+    teile.push(`«${hinzu.map(nameVon).join('», «')}» ist jetzt deine`);
+  }
+  if (runter.length > 0) {
+    teile.push(`«${runter.map(nameVon).join('», «')}» ist weg`);
+  }
+
+  return {
+    erfolg: true,
+    nachricht: `${teile.join(' - ')}.`,
+    dazu: hinzu.map(nameVon),
+    weg: runter.map(nameVon),
+  };
 }

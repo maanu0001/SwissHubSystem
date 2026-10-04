@@ -366,6 +366,68 @@ export interface DiscordLinkButton {
 export type DiscordButton = DiscordActionButton | DiscordLinkButton;
 
 /**
+ * Eine Option eines Auswahlmenues.
+ *
+ * `value` ist das, was beim Absenden zurueckkommt - eine eigene Kennung, kein
+ * Anzeigetext. Wer sie liest, prueft sie trotzdem: was der Client schickt,
+ * hat der Client in der Hand.
+ */
+export interface DiscordSelectOption {
+  label: string;
+  value: string;
+  description?: string;
+  emoji?: { name: string; id?: string };
+  default?: boolean;
+}
+
+/**
+ * Ein Auswahlmenue mit festen Optionen (Discords `STRING_SELECT`, Typ 3).
+ *
+ * ## Warum das neben den Knoepfen steht und nicht statt ihnen
+ *
+ * Ein Knopf ist eine Entscheidung, ein Menue ist eine Wahl aus vielen. Fuenf
+ * Rollen als fuenf Knoepfe gehen noch; zwanzig sind vier Reihen, und Discord
+ * erlaubt fuenf. Umgekehrt ist ein Menue mit zwei Eintraegen ein Klick zu
+ * viel. Beides hat seinen Platz, deshalb beides.
+ *
+ * `min_values`/`max_values` tragen die eigentliche Aussage: `0..1` ist eine
+ * Entweder-oder-Wahl, die man auch leer lassen kann; `0..n` ist eine
+ * Sammlung. Discord erlaubt hoechstens 25 Optionen je Menue.
+ */
+export interface DiscordSelectMenu {
+  type: 3;
+  /** Eigene ID - wird beim Absenden an den Bot zurueckgegeben. */
+  custom_id: string;
+  options: DiscordSelectOption[];
+  placeholder?: string;
+  min_values?: number;
+  max_values?: number;
+  disabled?: boolean;
+}
+
+/**
+ * Was in einer Reihe stehen darf.
+ *
+ * Discord erlaubt je Reihe entweder bis zu fuenf Knoepfe **oder** genau ein
+ * Auswahlmenue - nicht beides gemischt. Diese Regel steht hier nicht im Typ,
+ * weil sie sich darin nur umstaendlich ausdruecken liesse; die Aufrufer
+ * halten sich daran, und Discord weist eine Mischung ohnehin ab.
+ */
+export type DiscordRowComponent = DiscordButton | DiscordSelectMenu;
+
+/**
+ * Ist dieser Teil ein Knopf?
+ *
+ * Gebraucht, seit eine Reihe auch ein Auswahlmenue tragen darf: wer die
+ * Beschriftungen einer Knopfreihe liest, muss sagen, dass es Knoepfe sind.
+ * Ein `as` waere dasselbe mit verschwiegenem Risiko - die Pruefung kostet
+ * einen Vergleich und faellt auf, wenn sich der Inhalt einer Reihe aendert.
+ */
+export function istKnopf(teil: DiscordRowComponent): teil is DiscordButton {
+  return teil.type === 2;
+}
+
+/**
  * Eine Nachricht im Kanalverlauf - nur, was zum Wiederfinden noetig ist.
  *
  * Kein Inhalt: wer aufraeumt, entscheidet anhand des Absenders, nicht anhand
@@ -381,7 +443,7 @@ export interface ChannelMessage {
 
 export interface DiscordActionRow {
   type: 1;
-  components: DiscordButton[];
+  components: DiscordRowComponent[];
 }
 
 export interface CreateTextChannelInput {

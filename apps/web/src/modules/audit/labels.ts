@@ -84,6 +84,10 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   SERVERROLE_SELF_ADDED: 'Rolle selbst genommen',
   SERVERROLE_SELF_REMOVED: 'Rolle selbst abgegeben',
   SERVERROLE_SELF_DENIED: 'Selbstvergabe abgelehnt',
+  SERVERROLE_GROUP_EXCLUSIVE_CHANGED: 'Rollengruppe: Exklusivmodus geändert',
+  SERVERROLE_EMBED_PUBLISHED: 'Rollenmenü veröffentlicht',
+  SERVERROLE_EMBED_UPDATED: 'Rollenmenü aktualisiert',
+  SERVERROLE_EMBED_REMOVED: 'Rollenmenü entfernt',
 
   /*
    * Emojis.

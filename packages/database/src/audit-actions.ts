@@ -387,6 +387,28 @@ export const AUDIT_ACTIONS = {
   SERVERROLE_SELF_REMOVED: 'SERVERROLE_SELF_REMOVED',
   SERVERROLE_SELF_DENIED: 'SERVERROLE_SELF_DENIED',
 
+  /*
+   * Serverrollen - was am Aufbau geaendert wird.
+   *
+   * Die Selbstvergabe eines Mitglieds steht oben und ist Betrieb. Hier steht
+   * **Konfiguration**: dass eine Gruppe von «mehrere» auf «nur eine»
+   * umgestellt wurde, und dass ein Auswahlmenue in einem Kanal erschienen,
+   * sich geaendert hat oder verschwunden ist.
+   *
+   * Warum das eigene Eintraege sind: diese drei Vorgaenge aendern, was auf dem
+   * Server moeglich ist, und sie hinterlassen auf Discord eine Nachricht, die
+   * jeder bedienen kann. Wer spaeter fragt «wer hat das Menue da
+   * hingestellt», soll eine Antwort finden.
+   *
+   * Die Spaltenzahl steht bewusst **nicht** hier: sie aendert die Breite
+   * einer Kachel und sonst nichts. Ein Log, das jede Layoutschraube
+   * mitschreibt, verdeckt die Eintraege, auf die es ankommt.
+   */
+  SERVERROLE_GROUP_EXCLUSIVE_CHANGED: 'SERVERROLE_GROUP_EXCLUSIVE_CHANGED',
+  SERVERROLE_EMBED_PUBLISHED: 'SERVERROLE_EMBED_PUBLISHED',
+  SERVERROLE_EMBED_UPDATED: 'SERVERROLE_EMBED_UPDATED',
+  SERVERROLE_EMBED_REMOVED: 'SERVERROLE_EMBED_REMOVED',
+
   // --- Emoji Management ----------------------------------------------------
   //
   // Der Verlauf des Emoji-Bereichs **ist** dieses Log, gefiltert auf das Modul

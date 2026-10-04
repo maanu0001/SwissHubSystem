@@ -8,6 +8,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { KategorienVerwaltung } from '@/modules/serverrollen/components/kategorien-verwaltung';
 import { RollenVerwaltung } from '@/modules/serverrollen/components/rollen-verwaltung';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
+import { loadDiscordOptions } from '@/server/configuration';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Serverrollen' };
@@ -32,9 +33,11 @@ export const dynamic = 'force-dynamic';
  */
 export default async function ServerrollenVerwaltungsSeite(): Promise<React.JSX.Element> {
   const context = await requirePagePermission(serverrollen.SERVERROLLEN_PERMISSIONS.view);
-  const [ansicht, oeffentlich] = await Promise.all([
+  const [ansicht, oeffentlich, discordOptionen] = await Promise.all([
     serverrollen.ladeVerwaltung(),
     serverrollen.oeffentlichErlaubt(),
+    // Die Kanalliste fuer das Dropdown-Embed - dieselbe Quelle wie ueberall.
+    loadDiscordOptions(),
   ]);
 
   const csrfToken = csrfTokenFor(context);
@@ -99,12 +102,18 @@ export default async function ServerrollenVerwaltungsSeite(): Promise<React.JSX.
           <CardTitle>Gruppen</CardTitle>
           <CardDescription>
             Die Abschnitte der öffentlichen Seite, in der Reihenfolge ihrer Position. Rollen ohne Gruppe
-            stehen am Ende unter «Sonstige».
+            stehen am Ende unter «Sonstige». Je Gruppe lässt sich einstellen, ob nur eine Rolle daraus gilt,
+            in wie vielen Spalten sie auf der öffentlichen Seite steht und ob sie als Auswahlmenü in einem
+            Discord-Kanal liegt.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {darfPflegen ? (
-            <KategorienVerwaltung kategorien={ansicht.kategorien} csrfToken={csrfToken} />
+            <KategorienVerwaltung
+              kategorien={ansicht.kategorien}
+              channels={discordOptionen.channels}
+              csrfToken={csrfToken}
+            />
           ) : (
             <NurLesen kategorien={ansicht.kategorien} />
           )}

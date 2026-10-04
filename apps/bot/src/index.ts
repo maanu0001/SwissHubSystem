@@ -45,6 +45,7 @@ import { registerInviteEvents, synchronisiereEinladungenBeimStart } from './invi
 import { registerTournamentInteractions } from './tournament-interactions';
 import { recoverVoiceHub, registerVoiceHub } from './voice-hub';
 import { registerVoiceInteractions } from './voice-interactions';
+import { registerServerrollenInteractions } from './serverrollen-interactions';
 import { registerAbgeschalteteKnoepfe } from './altlasten';
 import {
   recoverVoiceMembers,
@@ -205,6 +206,8 @@ async function main(): Promise<void> {
   // Join-to-Create und das Bedienfeld im Talk.
   registerVoiceHub(client);
   registerVoiceInteractions(client);
+
+  registerServerrollenInteractions(client);
 
   /**
    * Aktive Guild-ID. Sie kann sich zur Laufzeit ändern (Einrichtungsassistent),

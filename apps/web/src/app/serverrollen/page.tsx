@@ -82,16 +82,17 @@ export default async function OeffentlicheRollenSeite(): Promise<React.JSX.Eleme
         />
       ) : (
         /*
-          Eine Spalte, auf jeder Breite.
+          Die **Gruppen** stehen untereinander - eine Spalte, auf jeder Breite.
 
-          Vorher standen die Kategorien ab `lg` in zwei Spalten. Weil die
-          Karten unterschiedlich viele Rollen enthalten, sind sie
-          unterschiedlich hoch - zwei Spalten verrutschen damit zwangslaeufig
-          gegeneinander, und die Leserichtung springt von unten links nach
-          oben rechts. Genau das war als «versetzte Cards» gemeldet.
+          Vorher standen sie ab `lg` in zwei Spalten. Weil die Karten
+          unterschiedlich viele Rollen enthalten, sind sie unterschiedlich
+          hoch - zwei Spalten verrutschen damit zwangslaeufig gegeneinander,
+          und die Leserichtung springt von unten links nach oben rechts. Genau
+          das war als «versetzte Cards» gemeldet.
 
-          Eine Spalte liest sich von oben nach unten, auf dem Telefon wie am
-          Schreibtisch, und braucht dafuer keine Breakpoint-Sonderfaelle.
+          Die **Rollen innerhalb** einer Gruppe sind eine andere Frage: dort
+          sind die Karten gleich hoch, und dort entscheidet die Einstellung der
+          Gruppe - siehe `spaltenKlasse`.
         */
         <div className="space-y-5">
           {seite.kategorien.map((gruppe) => (
@@ -112,61 +113,72 @@ export default async function OeffentlicheRollenSeite(): Promise<React.JSX.Eleme
                 </CardTitle>
                 {gruppe.hinweis ? <CardDescription>{gruppe.hinweis}</CardDescription> : null}
               </CardHeader>
-              <CardContent className="space-y-3">
-                {gruppe.rollen.map((rolle) => (
-                  <div
-                    key={rolle.discordRoleId}
-                    className="flex flex-col gap-2 rounded-xl border border-border/70 bg-muted/30 p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex items-center gap-2">
-                        {/*
+              <CardContent>
+                <div className={cn('grid gap-3', spaltenKlasse(gruppe.spalten))}>
+                  {gruppe.rollen.map((rolle) => (
+                    <div
+                      key={rolle.discordRoleId}
+                      className={cn(
+                        'flex flex-col gap-2 rounded-xl border border-border/70 bg-muted/30 p-3',
+                        /*
+                        Nur in einer Spalte steht der Knopf neben dem Text.
+                        Ab zwei Spalten ist die Karte zu schmal dafuer - dort
+                        wandert er unter die Beschreibung, statt den Namen auf
+                        zwei Zeichen zu quetschen.
+                      */
+                        gruppe.spalten === 1 && 'sm:flex-row sm:items-start sm:justify-between sm:gap-4',
+                      )}
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2">
+                          {/*
                           Die Farbe als Punkt und nicht als Textfarbe: ein
                           dunkles Discord-Rot auf dunklem Grund waere im Dark
                           Mode unlesbar, und ein hellgelbes im White Mode. Der
                           Punkt traegt die Farbe, der Name die Lesbarkeit.
                         */}
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            'size-2.5 shrink-0 rounded-full',
-                            rolle.farbe ? '' : 'bg-muted-foreground/40',
-                          )}
-                          style={rolle.farbe ? { backgroundColor: rolle.farbe } : undefined}
-                        />
-                        <span className="truncate font-medium">{rolle.name}</span>
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              'size-2.5 shrink-0 rounded-full',
+                              rolle.farbe ? '' : 'bg-muted-foreground/40',
+                            )}
+                            style={rolle.farbe ? { backgroundColor: rolle.farbe } : undefined}
+                          />
+                          <span className="truncate font-medium">{rolle.name}</span>
+                        </div>
+                        {rolle.beschreibung ? (
+                          <p className="text-pretty text-sm text-muted-foreground">{rolle.beschreibung}</p>
+                        ) : null}
                       </div>
-                      {rolle.beschreibung ? (
-                        <p className="text-pretty text-sm text-muted-foreground">{rolle.beschreibung}</p>
+
+                      {mitglied && csrfToken ? (
+                        <div className="shrink-0">
+                          <RollenKnopf
+                            discordRoleId={rolle.discordRoleId}
+                            name={rolle.name}
+                            csrfToken={csrfToken}
+                            hatSie={meine.has(rolle.discordRoleId)}
+                            vergebbar={rolle.selbstVergebbar}
+                            entfernbar={rolle.selbstEntfernbar}
+                            sperrText={rolle.sperrText}
+                            weichenFuer={
+                              gruppe.exklusiv
+                                ? gruppe.rollen
+                                    .filter(
+                                      (andere) =>
+                                        andere.discordRoleId !== rolle.discordRoleId &&
+                                        meine.has(andere.discordRoleId),
+                                    )
+                                    .map((andere) => andere.name)
+                                : []
+                            }
+                          />
+                        </div>
                       ) : null}
                     </div>
-
-                    {mitglied && csrfToken ? (
-                      <div className="shrink-0">
-                        <RollenKnopf
-                          discordRoleId={rolle.discordRoleId}
-                          name={rolle.name}
-                          csrfToken={csrfToken}
-                          hatSie={meine.has(rolle.discordRoleId)}
-                          vergebbar={rolle.selbstVergebbar}
-                          entfernbar={rolle.selbstEntfernbar}
-                          sperrText={rolle.sperrText}
-                          weichenFuer={
-                            gruppe.exklusiv
-                              ? gruppe.rollen
-                                  .filter(
-                                    (andere) =>
-                                      andere.discordRoleId !== rolle.discordRoleId &&
-                                      meine.has(andere.discordRoleId),
-                                  )
-                                  .map((andere) => andere.name)
-                              : []
-                          }
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -193,4 +205,41 @@ export default async function OeffentlicheRollenSeite(): Promise<React.JSX.Eleme
       ) : null}
     </div>
   );
+}
+
+/**
+ * Die Spaltenklassen einer Gruppe.
+ *
+ * ## Warum feste Klassen und keine Stilvariable
+ *
+ * Weil Tailwind zur Bauzeit scannt. `grid-cols-${n}` steht nirgends im
+ * Quelltext und landet deshalb nicht im CSS - die Klasse existiert zur
+ * Laufzeit nicht, und das Raster bleibt einspaltig. Dasselbe gilt fuer eine
+ * Variable im `style`, solange die Rasterregel selbst aus einer Klasse kommt.
+ * Vier Faelle sind hier die ehrlichere Loesung als eine Zeile, die aussieht,
+ * als waere sie allgemein.
+ *
+ * ## Warum das Telefon nie mehr als eine Spalte bekommt
+ *
+ * Weil zwei Spalten auf 390 Pixeln zwei Streifen von je 170 Pixeln sind -
+ * dort steht kein Rollenname mehr, und der Knopf darunter ist breiter als
+ * seine Zelle. Die Einstellung gilt deshalb ab `md`, auf dem Tablet
+ * gedeckelt, und darunter gilt sie nicht. Das ist kein Ignorieren der
+ * Einstellung, sondern ihre einzige sinnvolle Lesart: sie sagt, wie breit es
+ * sein **darf**.
+ *
+ * Gedeckelt wird bei drei: vier Spalten auf einem 768 Pixel breiten Tablet
+ * waeren wieder 170 Pixel je Karte. Die vierte kommt erst ab `xl`.
+ */
+function spaltenKlasse(spalten: number): string {
+  switch (spalten) {
+    case 2:
+      return 'md:grid-cols-2';
+    case 3:
+      return 'md:grid-cols-2 lg:grid-cols-3';
+    case 4:
+      return 'md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
+    default:
+      return 'grid-cols-1';
+  }
 }

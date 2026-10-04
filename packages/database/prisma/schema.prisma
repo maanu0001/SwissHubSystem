@@ -443,6 +443,44 @@ model ServerRoleCategory {
   /// das Gegenteil des Erwarteten.
   exklusiv Boolean @default(false)
 
+  /// Wie viele Spalten die Rollen dieser Gruppe auf der oeffentlichen Seite
+  /// bekommen - auf dem Schreibtisch.
+  ///
+  /// Eine Gruppe mit zwei kurzen Namen braucht keine ganze Seitenbreite, eine
+  /// mit zwanzig beschriebenen Rollen liest sich in einer Spalte besser. Das
+  /// ist eine Entscheidung je Gruppe, nicht je Seite.
+  ///
+  /// Nur der **Schreibtisch** folgt dieser Zahl. Auf dem Tablet wird sie
+  /// gedeckelt und auf dem Telefon ignoriert: vier Spalten auf 390 Pixeln
+  /// waeren vier unlesbare Streifen, und eine Einstellung, die das Layout
+  /// kaputt macht, ist keine Einstellung.
+  spalten Int @default(1)
+
+  /// --- Das Dropdown-Embed dieser Gruppe ---------------------------------
+  ///
+  /// Die Gruppe kann als eigene Nachricht in einem Discord-Kanal stehen, mit
+  /// einem Auswahlmenue darunter. Wer die Webseite nicht benutzt, waehlt
+  /// seine Rollen dort.
+  ///
+  /// Gespeichert werden Kanal **und** Nachricht. Ohne die Nachrichtenkennung
+  /// gaebe es nur einen Weg, eine Aenderung zu zeigen: eine neue Nachricht
+  /// posten. Nach drei Rollenaenderungen stuenden vier Menues im Kanal, und
+  /// die ersten drei waeren veraltet - sie wuerden aber weiter bedient.
+  /// Soll das Embed aktiv sein?
+  embedAktiv Boolean @default(false)
+  /// Wohin es gehoert. `null` heisst: noch kein Kanal gewaehlt.
+  embedChannelId String?
+  /// Die Nachricht, die aktualisiert wird. `null` heisst: noch nicht
+  /// veroeffentlicht.
+  embedMessageId String?
+  /// Titel und Text des Embeds - leer heisst: Gruppenname und Hinweis.
+  embedTitel        String?
+  embedBeschreibung String?
+  /// Die Farbe als `#rrggbb`. Leer nimmt die Markenfarbe.
+  embedFarbe String?
+  /// Wann die Nachricht zuletzt geschrieben wurde.
+  embedAktualisiertAm DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

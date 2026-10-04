@@ -2,6 +2,7 @@ import { prisma } from '@swisshub/database';
 import { AppError, sanitizeText } from '@swisshub/shared';
 import { listCachedRoles } from '../discord/sync';
 import { botPosition, rollenFarbe } from './dienst';
+import { frischeGruppenEmbedAuf, waehlbareRollen } from './embed';
 import { pruefeSelbstzuweisung, type SperrGrund } from './sicherheit';
 import type { DiscordPermissionName } from '@swisshub/discord';
 
@@ -50,7 +51,24 @@ export interface KategorieFuerVerwaltung {
   publicVisible: boolean;
   /** Nur eine Rolle aus dieser Gruppe gleichzeitig. */
   exklusiv: boolean;
+  /** Spalten auf der oeffentlichen Seite - Schreibtisch. */
+  spalten: number;
   anzahlRollen: number;
+  embedAktiv: boolean;
+  embedChannelId: string | null;
+  embedMessageId: string | null;
+  embedTitel: string | null;
+  embedBeschreibung: string | null;
+  embedFarbe: string | null;
+  embedAktualisiertAm: Date | null;
+  /**
+   * Wie viele Rollen im Dropdown stehen wuerden.
+   *
+   * Nicht `anzahlRollen`: im Menue stehen nur die freigegebenen und sicheren.
+   * Eine Gruppe mit zwoelf Rollen, von denen keine freigegeben ist, hat ein
+   * leeres Menue - und das soll man sehen, bevor man veroeffentlicht.
+   */
+  embedOptionen: number;
 }
 
 export interface VerwaltungsAnsicht {
@@ -79,16 +97,37 @@ export async function ladeVerwaltung(): Promise<VerwaltungsAnsicht> {
 
   const metaNachId = new Map(metadaten.map((eintrag) => [eintrag.discordRoleId, eintrag]));
 
+  /*
+   * Je Gruppe die Zahl der waehlbaren Rollen.
+   *
+   * Das sind zwar weitere Abfragen, aber sie laufen parallel und beantworten
+   * die Frage, die vor dem Veroeffentlichen zaehlt: steht im Menue
+   * ueberhaupt etwas. Die Alternative - erst klicken, dann ein leeres Menue
+   * sehen - ist die schlechtere.
+   */
+  const optionen = await Promise.all(
+    kategorien.map(async (kategorie) => (await waehlbareRollen(kategorie.id)).length),
+  );
+
   return {
     botPosition: position,
-    kategorien: kategorien.map((kategorie) => ({
+    kategorien: kategorien.map((kategorie, index) => ({
       id: kategorie.id,
       name: kategorie.name,
       hinweis: kategorie.hinweis,
       sortOrder: kategorie.sortOrder,
       publicVisible: kategorie.publicVisible,
       exklusiv: kategorie.exklusiv,
+      spalten: kategorie.spalten,
       anzahlRollen: kategorie._count.rollen,
+      embedAktiv: kategorie.embedAktiv,
+      embedChannelId: kategorie.embedChannelId,
+      embedMessageId: kategorie.embedMessageId,
+      embedTitel: kategorie.embedTitel,
+      embedBeschreibung: kategorie.embedBeschreibung,
+      embedFarbe: kategorie.embedFarbe,
+      embedAktualisiertAm: kategorie.embedAktualisiertAm,
+      embedOptionen: optionen[index] ?? 0,
     })),
     rollen: rollen
       // Die `@everyone`-Rolle hat jeder; sie zu beschreiben hiesse, den Server
@@ -138,6 +177,25 @@ export interface KategorieEingabe {
   sortOrder?: number;
   publicVisible?: boolean;
   exklusiv?: boolean;
+  spalten?: number;
+}
+
+/**
+ * Die erlaubten Spaltenzahlen.
+ *
+ * Eins bis vier, und nicht mehr: fuenf Spalten sind auf 1280 Pixeln schon
+ * schmaler als ein Rollenname, und eine Einstellung, die das Layout
+ * zerlegt, ist keine Einstellung. Gedeckelt wird serverseitig - der Wert
+ * kommt aus einer Server Action und nicht nur aus einem Auswahlfeld.
+ */
+export const SPALTEN_MIN = 1;
+export const SPALTEN_MAX = 4;
+
+function spaltenWert(wert: number): number {
+  if (!Number.isFinite(wert)) {
+    return SPALTEN_MIN;
+  }
+  return Math.min(SPALTEN_MAX, Math.max(SPALTEN_MIN, Math.round(wert)));
 }
 
 export async function erstelleKategorie(eingabe: KategorieEingabe): Promise<string> {
@@ -153,6 +211,7 @@ export async function erstelleKategorie(eingabe: KategorieEingabe): Promise<stri
       publicVisible: eingabe.publicVisible ?? true,
       // Aus, weil die Sammlung der Normalfall ist. Wer tauschen will, sagt es.
       exklusiv: eingabe.exklusiv ?? false,
+      spalten: spaltenWert(eingabe.spalten ?? SPALTEN_MIN),
     },
   });
   return kategorie.id;
@@ -173,8 +232,25 @@ export async function bearbeiteKategorie(id: string, eingabe: Partial<KategorieE
       ...(eingabe.sortOrder !== undefined ? { sortOrder: eingabe.sortOrder } : {}),
       ...(eingabe.publicVisible !== undefined ? { publicVisible: eingabe.publicVisible } : {}),
       ...(eingabe.exklusiv !== undefined ? { exklusiv: eingabe.exklusiv } : {}),
+      ...(eingabe.spalten !== undefined ? { spalten: spaltenWert(eingabe.spalten) } : {}),
     },
   });
+
+  /*
+   * Aendert sich etwas, das im Menue steht, wird die Nachricht nachgefuehrt.
+   *
+   * Titel, Text und besonders der Exklusivstatus stehen im Embed - der Fuss
+   * sagt «nur eine Rolle aus dieser Gruppe», und das Menue laesst
+   * entsprechend eine oder mehrere Auswahlen zu. Eine Nachricht, die nach
+   * der Umstellung noch «mehrere» anbietet, waere eine falsche Zusage; der
+   * Dienst weist die zweite Rolle dann ab, und die Person versteht nicht,
+   * warum.
+   *
+   * Die Spaltenzahl loest das **nicht** aus: sie betrifft nur die Webseite.
+   */
+  if (eingabe.exklusiv !== undefined || eingabe.name !== undefined || eingabe.hinweis !== undefined) {
+    await frischeGruppenEmbedAuf(id);
+  }
 }
 
 /**
@@ -216,7 +292,11 @@ export interface RollenEingabe {
  * Haken ist der Wunsch des Teams, die Prüfung beim Zugriff ist die Wahrheit.
  */
 export async function speichereRolle(discordRoleId: string, eingabe: RollenEingabe): Promise<void> {
-  const [rollen, position] = await Promise.all([listCachedRoles(), botPosition()]);
+  const [rollen, position, vorher] = await Promise.all([
+    listCachedRoles(),
+    botPosition(),
+    prisma.serverRoleMeta.findUnique({ where: { discordRoleId }, select: { categoryId: true } }),
+  ]);
   const rolle = rollen.find((eintrag) => eintrag.id === discordRoleId);
   if (!rolle) {
     throw new AppError('NOT_FOUND', { userMessage: 'Diese Rolle gibt es auf dem Server nicht.' });
@@ -273,9 +353,37 @@ export async function speichereRolle(discordRoleId: string, eingabe: RollenEinga
         : {}),
     },
   });
+
+  /*
+   * Das Menue der betroffenen Gruppen nachfuehren.
+   *
+   * Betroffen sind bis zu zwei: die, aus der die Rolle kommt, und die, in die
+   * sie geht. Wer eine Rolle umsortiert und nur das Ziel aktualisiert, laesst
+   * im alten Menue einen Eintrag stehen, der dort nicht mehr hingehoert - und
+   * der wird weiter bedient.
+   */
+  const betroffen = new Set<string>();
+  if (vorher?.categoryId) {
+    betroffen.add(vorher.categoryId);
+  }
+  if (eingabe.categoryId) {
+    betroffen.add(eingabe.categoryId);
+  }
+  for (const id of betroffen) {
+    await frischeGruppenEmbedAuf(id);
+  }
 }
 
 /** Die Angaben zu einer Rolle wieder entfernen - sie verschwindet damit von der Seite. */
 export async function entferneRolle(discordRoleId: string): Promise<void> {
+  const vorher = await prisma.serverRoleMeta.findUnique({
+    where: { discordRoleId },
+    select: { categoryId: true },
+  });
   await prisma.serverRoleMeta.deleteMany({ where: { discordRoleId } });
+  // Auch hier: eine Rolle, die von der Seite verschwindet, verschwindet aus
+  // dem Menue. Sonst steht sie dort und ist das Einzige, was sie noch ist.
+  if (vorher?.categoryId) {
+    await frischeGruppenEmbedAuf(vorher.categoryId);
+  }
 }

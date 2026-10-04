@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { tickets } from '@swisshub/modules';
+import { istKnopf } from '@swisshub/discord';
 
 /**
  * Die Discord-Nachrichten des Ticket-Moduls.
@@ -34,7 +35,7 @@ describe('Ticket-Panel', () => {
     ]);
     // Bei mehreren Kategorien traegt der Knopf ihren Namen, nicht die
     // Panel-Beschriftung - sonst waeren alle Knoepfe gleich benannt.
-    expect(knoepfe.map((knopf) => knopf.label)).toEqual(['Allgemein', 'Meldung']);
+    expect(knoepfe.filter(istKnopf).map((knopf) => knopf.label)).toEqual(['Allgemein', 'Meldung']);
   });
 
   it('nimmt bei genau einer Kategorie die Beschriftung des Panels', () => {
@@ -43,7 +44,7 @@ describe('Ticket-Panel', () => {
       kategorien: [{ id: 'kat-a', name: 'Allgemein', emoji: null }],
     });
     const knopf = nachricht.components?.[0]?.components[0];
-    expect(knopf?.label).toBe('Ticket erstellen');
+    expect(knopf && istKnopf(knopf) ? knopf.label : null).toBe('Ticket erstellen');
   });
 
   it('verteilt mehr als fünf Kategorien auf mehrere Reihen', () => {

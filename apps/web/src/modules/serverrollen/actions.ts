@@ -63,6 +63,15 @@ const kategorieSchema = z.object({
   sortOrder: z.number().int().min(0).max(999).optional(),
   publicVisible: z.boolean().optional(),
   exklusiv: z.boolean().optional(),
+  /*
+   * Die Spaltenzahl steht auch im Schema und nicht nur im Auswahlfeld.
+   *
+   * Eine Server Action ist eine Tuer; wer sie aufruft, kann jede Zahl
+   * schicken. `serverrollen.bearbeiteKategorie` deckelt zusaetzlich - zwei
+   * Sperren fuer denselben Wert, und die hier spart dem Dienst den
+   * Sonderfall.
+   */
+  spalten: z.number().int().min(1).max(4).optional(),
 });
 
 export const erstelleKategorieAction = defineAction(
@@ -170,6 +179,82 @@ export const entferneRolleAction = defineAction(
     await serverrollen.entferneRolle(input.discordRoleId);
     revalidatePath(PFAD);
     revalidatePath('/serverrollen');
+    return { ok: true };
+  },
+);
+
+/**
+ * Das Dropdown-Embed einer Gruppe.
+ *
+ * ## Warum das Senden dieselbe Berechtigung braucht wie das Pflegen
+ *
+ * Weil es eine Nachricht auf dem Server ist, die jeder bedienen kann. Wer sie
+ * veroeffentlichen darf, entscheidet mit, wo Rollen zu holen sind - das ist
+ * dieselbe Art von Entscheidung wie «diese Gruppe sichtbar machen», und
+ * deshalb `manage`.
+ *
+ * **Nicht** `selfService`: welche Rollen im Menue stehen, entscheidet die
+ * Gruppe und nicht dieses Knopfdruck. Wer eine Rolle freigeben will, braucht
+ * dafuer weiterhin die eigene, kritische Berechtigung.
+ *
+ * Mitglieder brauchen hier gar nichts: sie waehlen im Menue, und das laeuft
+ * ueber den Bot und `setzeGruppenauswahl`.
+ */
+export const speichereEmbedAction = defineAction(
+  {
+    name: 'serverrollen.embed.speichern',
+    module: serverrollen.SERVERROLLEN_MODULE_ID,
+    permission: serverrollen.SERVERROLLEN_PERMISSIONS.manage,
+    rateLimit: 'serverrollenPflege',
+    schema: z.object({
+      id: z.string().min(1),
+      channelId: z.string().max(32).nullish(),
+      titel: z.string().max(120).nullish(),
+      beschreibung: z.string().max(500).nullish(),
+      farbe: z.string().max(7).nullish(),
+    }),
+  },
+  async ({ input }) => {
+    const { id, ...rest } = input;
+    await serverrollen.speichereEmbedEinstellungen(id, rest);
+    revalidatePath(PFAD);
+    return { ok: true };
+  },
+);
+
+/** Veroeffentlichen oder aktualisieren - derselbe Vorgang, siehe `sendeGruppenEmbed`. */
+export const sendeEmbedAction = defineAction(
+  {
+    name: 'serverrollen.embed.senden',
+    module: serverrollen.SERVERROLLEN_MODULE_ID,
+    permission: serverrollen.SERVERROLLEN_PERMISSIONS.manage,
+    rateLimit: 'serverrollenPflege',
+    schema: z.object({ id: z.string().min(1) }),
+  },
+  async ({ ctx, input }) => {
+    const ergebnis = await serverrollen.sendeGruppenEmbed(input.id, {
+      discordId: ctx.user.discordId,
+      username: ctx.user.username,
+    });
+    revalidatePath(PFAD);
+    return ergebnis;
+  },
+);
+
+export const entferneEmbedAction = defineAction(
+  {
+    name: 'serverrollen.embed.entfernen',
+    module: serverrollen.SERVERROLLEN_MODULE_ID,
+    permission: serverrollen.SERVERROLLEN_PERMISSIONS.manage,
+    rateLimit: 'serverrollenPflege',
+    schema: z.object({ id: z.string().min(1) }),
+  },
+  async ({ ctx, input }) => {
+    await serverrollen.entferneGruppenEmbed(input.id, {
+      discordId: ctx.user.discordId,
+      username: ctx.user.username,
+    });
+    revalidatePath(PFAD);
     return { ok: true };
   },
 );

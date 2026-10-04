@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, expect, it } from 'vitest';
 import { describeWithDatabase, pushSchema, useTestSchema } from '../helpers/database';
+import { istKnopf } from '@swisshub/discord';
 
 useTestSchema('test_voice_hub');
 
@@ -871,7 +872,7 @@ describeWithDatabase('Voice Hub', () => {
     }
 
     const reihen = voiceHub.baueKnoepfe(erstellt.kanal);
-    const knoepfe = reihen.flatMap((reihe) => reihe.components);
+    const knoepfe = reihen.flatMap((reihe) => reihe.components).filter(istKnopf);
     const beschriftungen = knoepfe.map((knopf) => knopf.label);
 
     expect(beschriftungen).not.toContain('Verstecken');

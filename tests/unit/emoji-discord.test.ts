@@ -11,6 +11,7 @@ import {
   vorschauSignaturGueltig,
 } from '../../packages/modules/src/emoji/discord';
 import { DISCORD_BILD_HOSTS } from '../../packages/modules/src/emoji/herkunft';
+import { istKnopf } from '@swisshub/discord';
 
 /**
  * Die Discord-Seite des Emoji-Moduls.
@@ -125,7 +126,7 @@ function antrag(
 describe('Moderationsmeldung: Knöpfe nur, wo sie etwas tun', () => {
   it('zeigt Annehmen und Ablehnen bei einem offenen Vorschlag', () => {
     const payload = moderationsPayload(antrag(), 0, { abstimmungMoeglich: false });
-    const label = payload.components?.[0]?.components.map((knopf) => knopf.label) ?? [];
+    const label = payload.components?.[0]?.components.filter(istKnopf).map((knopf) => knopf.label) ?? [];
     expect(label).toEqual(['Annehmen', 'Ablehnen']);
   });
 
@@ -190,7 +191,7 @@ describe('Abstimmungsnachricht', () => {
       antrag({ status: 'ABSTIMMUNG', stimmenZiel: 10, abstimmungEndetAm: new Date(Date.now() + 60_000) }),
       7,
     );
-    const knoepfe = payload.components?.[0]?.components ?? [];
+    const knoepfe = (payload.components?.[0]?.components ?? []).filter(istKnopf);
     expect(knoepfe).toHaveLength(1);
     // Der Stand steht auf dem Knopf: wer klickt, sieht ihn ohne Scrollen.
     expect(knoepfe[0]?.label).toBe('Dafür (7/10)');
