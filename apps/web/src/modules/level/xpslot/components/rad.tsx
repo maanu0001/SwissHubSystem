@@ -40,6 +40,16 @@ const FELDER = 12;
 const RUNDEN = 4;
 /** Wie lange die Drehung dauert. Dieselbe Zahl steht im CSS als Uebergang. */
 export const RAD_DAUER_MS = 2600;
+/**
+ * Wie lange das Rad auf seinem Ergebnis stehen bleibt, bevor es abgeben wird.
+ *
+ * Ohne diese Pause verschwand das Rad in demselben Moment, in dem es stehen
+ * blieb: `aufEnde` nimmt es aus dem Baum, und wer hinsah, bekam das Ergebnis
+ * nur noch als Meldung zu lesen. Gefordert ist, dass das Rad **eindeutig auf
+ * Gewinn oder Verlust stehen bleibt** - und das heisst: lange genug, um es zu
+ * sehen.
+ */
+export const RAD_HALTEN_MS = 900;
 
 export interface RadProps {
   /** Die Gewinnchance dieser Stufe, 0 bis 1 - sie bestimmt die Felder. */
@@ -106,12 +116,22 @@ export function Rad({ chance, riskierenAuf, nehmen, ergebnis, aufEnde }: RadProp
     const versatz = (Math.random() * 2 - 1) * (halb * 0.55);
     setWinkel(RUNDEN * 360 + (360 - gewaehlt.mitte) + versatz);
 
-    const uhr = setTimeout(() => {
+    /*
+     * Zwei Uhren, und das ist der Punkt: zuerst steht das Rad, dann wird
+     * abgegeben. In einem Schritt waere das Ergebnis unsichtbar - React
+     * nimmt das Rad aus dem Baum, bevor der Text einmal gezeichnet ist.
+     */
+    const uhrStopp = setTimeout(() => {
       setSteht(true);
+    }, RAD_DAUER_MS);
+    const uhrEnde = setTimeout(() => {
       gemeldet.current = true;
       aufEnde();
-    }, RAD_DAUER_MS);
-    return () => clearTimeout(uhr);
+    }, RAD_DAUER_MS + RAD_HALTEN_MS);
+    return () => {
+      clearTimeout(uhrStopp);
+      clearTimeout(uhrEnde);
+    };
   }, [aufEnde, ergebnis, felder]);
 
   const gradient = useMemo(() => {

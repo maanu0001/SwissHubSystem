@@ -176,6 +176,27 @@ describe('Risiko-Rad', () => {
     expect(ergebnis).toBeGreaterThan(anfrage);
     expect(spiel).toContain('radFolge.current = antwort.data.bonus');
   });
+
+  it('bleibt auf seinem Ergebnis stehen, bevor es abgibt', () => {
+    /*
+     * Zwei Uhren statt einer.
+     *
+     * Vorher setzte derselbe Rueckruf `steht` und rief `aufEnde` - und
+     * `aufEnde` nimmt das Rad aus dem Baum. Das Ergebnis war damit nie
+     * gezeichnet: das Rad verschwand in dem Moment, in dem es stehen blieb,
+     * und wer hinsah, bekam nur noch eine Meldung. Der Browser-Smoke hat
+     * genau das gefunden.
+     */
+    expect(quelle).toContain('RAD_HALTEN_MS');
+    expect(quelle).toContain('RAD_DAUER_MS + RAD_HALTEN_MS');
+    const stopp = quelle.indexOf('setSteht(true)');
+    const ende = quelle.indexOf('aufEnde();');
+    expect(stopp).toBeGreaterThan(-1);
+    expect(ende).toBeGreaterThan(stopp);
+    // Und beide Uhren werden wieder abgeraeumt.
+    expect(quelle).toContain('clearTimeout(uhrStopp)');
+    expect(quelle).toContain('clearTimeout(uhrEnde)');
+  });
 });
 
 describe('Eventmodus entfernt', () => {
