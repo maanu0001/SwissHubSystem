@@ -495,10 +495,22 @@ describeWithDatabase('Ticket schliessen und antworten', () => {
       expect(geschlossen.closedByDiscordId).toBe(SUPPORTER);
       expect(discord.geloescht).not.toContain(kanal);
 
-      // Fünf Sekunden später - hier vorgezogen, statt sie abzuwarten.
+      /*
+        Fünf Sekunden später - hier vorgezogen, statt sie abzuwarten.
+
+        Deutlich vorgezogen, und das ist nicht Geschmack: `purgeDueChannels`
+        nimmt seinen eigenen `new Date()` und vergleicht mit `lte`. Hier stand
+        eine Millisekunde, und eine Millisekunde Abstand hält nicht - unter
+        Last mit dreihundert Testdateien springt die Uhr des Containers weiter
+        als das. Die Frist lag dann in der Zukunft, die Abfrage fand nichts,
+        und der Test schlug an einer Uhr fehl statt an der Logik.
+
+        Eine Minute ist derselbe Fall - «die Frist ist abgelaufen» -, nur ohne
+        Wettlauf mit der Zeitmessung.
+      */
       await prisma.ticket.update({
         where: { id: offen.id },
-        data: { channelPurgeAt: new Date(Date.now() - 1) },
+        data: { channelPurgeAt: new Date(Date.now() - 60_000) },
       });
       await tickets.purgeDueChannels();
 
