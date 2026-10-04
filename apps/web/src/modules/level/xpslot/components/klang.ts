@@ -206,6 +206,27 @@ const begrenzt = (wert: number): number => Math.max(0, Math.min(1, wert));
 export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
   const [einstellungen, setze] = useState<KlangEinstellungen>(VORGABE);
   const [freigegeben, setFreigegeben] = useState(false);
+  /**
+   * Dasselbe als Referenz - und das ist nicht Bequemlichkeit.
+   *
+   * ## Der Fehler, den das behebt
+   *
+   * `freigeben()` wird im **ersten** Spin aufgerufen, in derselben Funktion,
+   * die unmittelbar danach den Spinstart und den Walzenlauf anfordert. Ein
+   * `setState` wirkt aber erst beim naechsten Rendern: `freigegeben` war in
+   * genau diesen Aufrufen noch `false`, und `baue` gab `null` zurueck. Der
+   * erste Spin eines Besuchs lief damit ohne Startklang und ohne Walzenlauf
+   * - die Walzenstopps kamen, weil React bis dahin neu gerendert hatte.
+   *
+   * Das war nicht zu sehen und nur schwer zu hoeren, und der Browser-Smoke
+   * hat es gefunden, indem er die Abspielvorgaenge gezaehlt hat: Spinstart
+   * **null** Mal statt einmal.
+   *
+   * Die Referenz gilt sofort. Der Zustand bleibt daneben stehen, weil die
+   * Effekte - Vorladen, Lautstaerke - an einer Zustandsaenderung haengen
+   * muessen, um ueberhaupt zu laufen.
+   */
+  const freigegebenRef = useRef(false);
   /** Je Slot ein Stimmenpool. Stimme 0 traegt auch die Schleifen. */
   const elemente = useRef(new Map<string, HTMLAudioElement[]>());
   const laufend = useRef(new Set<string>());
@@ -275,7 +296,7 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
   /** Eine neue Stimme fuer einen Slot - oder `null`, wenn es nicht geht. */
   const baue = useCallback(
     (slot: string): HTMLAudioElement | null => {
-      if (!freigegeben || typeof window === 'undefined' || typeof window.Audio !== 'function') {
+      if (!freigegebenRef.current || typeof window === 'undefined' || typeof window.Audio !== 'function') {
         return null;
       }
       const eintrag = nachSlot.get(slot);
@@ -295,7 +316,7 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
         return null;
       }
     },
-    [freigegeben, nachSlot],
+    [nachSlot],
   );
 
   /** Der Pool eines Slots, mit mindestens einer Stimme. */
@@ -592,6 +613,9 @@ export function useTon(klaenge: readonly KlangEintrag[]): Tonausgabe {
   );
 
   const freigeben = useCallback(() => {
+    // Erst die Referenz - sie gilt in derselben Funktion weiter -, dann der
+    // Zustand fuer die Effekte.
+    freigegebenRef.current = true;
     setFreigegeben(true);
   }, []);
 
