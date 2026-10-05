@@ -390,11 +390,16 @@ describeWithDatabase('Workspace: Beteiligte', () => {
      *
      * Hier stand `{ discordId, rolle: neueRolle }` - damals nahm
      * `hinzufuegen` die Kennung als Parameter, weil ein Klick in der
-     * Kandidatenliste sofort hinzufuegte. Jetzt waehlt man erst eine Person
-     * (`gewaehlt`), dann die Rolle, dann «Hinzufuegen»; die Kennung kommt
-     * also aus dem Zustand. Dieselbe Zusage, ein Schritt mehr Absicht.
+     * Kandidatenliste sofort hinzufuegte. Jetzt waehlt man erst eine Person,
+     * dann die Rolle, dann «Hinzufuegen»; die Person kommt also aus dem
+     * Zustand. Dieselbe Zusage, ein Schritt mehr Absicht.
+     *
+     * Seit die Suche serverseitig laeuft, haelt der Zustand die ganze Person
+     * und nicht nur ihre Kennung: wer im Mitgliederspiegel gefunden wird,
+     * steht nicht zwangslaeufig in der Liste, die die Seite mitgebracht hat.
      */
-    expect(quelle).toContain('{ discordId: gewaehlt, rolle: neueRolle }');
+    expect(quelle).toContain('{ discordId: person.discordId, rolle: neueRolle }');
+    expect(quelle).toContain('useState<Teammitglied | null>(null)');
     expect(quelle).toContain('const hinzufuegen = ()');
     // Die alte Form: jede neue Person kam fest als Unterstuetzung herein.
     expect(quelle).not.toMatch(/rolle: 'MEMBER' \}/u);

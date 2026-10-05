@@ -847,7 +847,14 @@ describe('Die XP je Gewinnlinie', () => {
 
   it('gibt der gezeigten Linie ihren eigenen Wert mit', () => {
     expect(spiel).toContain('linienGewinn={linienGewinn}');
-    expect(spiel).toContain('linienDauerMs={ZEITEN.linie}');
+    /*
+     * Die Dauer kommt aus dem Plan und nicht aus einer festen Zahl: im Quick
+     * Spin steht jede Linie kuerzer - aber sie steht. Dieselbe Zahl, mit der
+     * der Sequencer wartet, sonst laeuft die Zeichenanimation gegen eine
+     * andere Uhr als die Anzeige.
+     */
+    expect(spiel).toContain('linienDauerMs={linienDauer}');
+    expect(spiel).toContain('setLinienDauer(folge.dauerMs);');
     // Der Wert kommt aus dem Treffer und nicht aus der Gesamtsumme.
     expect(spiel).toContain('.find((treffer) => treffer.linie === sichtbareLinie)?.gewinn');
   });
@@ -911,10 +918,19 @@ describe('Die XP je Gewinnlinie', () => {
   });
 
   it('spielt je Linie einen Klang und keinen für die Summe', () => {
-    const einzeln = spiel.indexOf('const einzelneLinien =');
-    expect(einzeln).toBeGreaterThan(-1);
-    expect(spiel).toContain("} else if (!einzelneLinien) {\n      melde({ art: 'spinResult'");
-    expect(spiel).toContain("melde({ art: 'winLineShown', stufe: treffer.stufe })");
+    /*
+     * ## Was hier vorher stand
+     *
+     * `const einzelneLinien = spin.treffer.length > 1 && !schnell && ...` -
+     * und genau diese Bedingung verschluckte im Quick Spin alle Linien samt
+     * ihren Klaengen. Die Entscheidung liegt jetzt in `linienfolge`, und der
+     * Gesamtklang haengt an ihrer Antwort: `gesamtklang` ist nur wahr, wenn
+     * keine Linie klingt.
+     */
+    expect(spiel).toContain('const folge = linienfolge(spin.treffer, {');
+    expect(spiel).toContain("} else if (folge.gesamtklang) {\n      melde({ art: 'spinResult'");
+    expect(spiel).toContain("melde({ art: 'winLineShown', stufe: schritt.stufe })");
+    expect(spiel).not.toContain('einzelneLinien');
   });
 
   it('nimmt die Stufe je Linie vom Server und rechnet sie nicht selbst', () => {
@@ -923,7 +939,7 @@ describe('Die XP je Gewinnlinie', () => {
      * im Browser noch einmal auszurechnen waere dieselbe Frage an zwei
      * Stellen - und die gehen irgendwann auseinander.
      */
-    expect(spiel).toContain('treffer.stufe');
+    expect(spiel).toContain('stufe: schritt.stufe');
     expect(spiel).not.toContain('gewinnstufe(');
     const spin = ohneKommentare(lies('packages/modules/src/level/xpslot/spin.ts'));
     expect(spin).toContain('function trefferMitStufe');

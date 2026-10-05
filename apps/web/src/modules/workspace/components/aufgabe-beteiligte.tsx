@@ -78,21 +78,26 @@ export function AufgabeBeteiligte({
    * zurückgesetzt.
    */
   const [stand, setStand] = useState<string[]>([...beteiligte]);
-  const [gewaehlt, setGewaehlt] = useState<string | null>(null);
-
-  const nachKennung = useMemo(() => new Map(team.map((eintrag) => [eintrag.discordId, eintrag])), [team]);
-
   /**
-   * Wer noch nicht dabei ist.
+   * Wer als nächstes dazukommt - die ganze Person, nicht nur ihre Kennung.
    *
-   * Das ist die Zusage «keine Duplikate», und sie steht hier und nicht in
-   * einer Prüfung beim Hinzufügen: was man nicht wählen kann, kann man nicht
-   * doppelt wählen.
+   * Gesucht wird serverseitig im Mitgliederspiegel, und wer dort gefunden
+   * wird, steht nicht zwangsläufig in `team` - sonst hätte die Zeile nach
+   * dem Hinzufügen keinen Namen.
    */
-  const kandidaten = useMemo(
-    () => team.filter((eintrag) => !stand.includes(eintrag.discordId)),
-    [stand, team],
-  );
+  const [gewaehlt, setGewaehlt] = useState<Teammitglied | null>(null);
+  /** Zähler, der die Suche nach dem Hinzufügen zurücksetzt. */
+  const [runde, setRunde] = useState(0);
+  /** Wer in dieser Sitzung dazukam - bis `router.refresh()` durch ist. */
+  const [dazu, setDazu] = useState<Record<string, Teammitglied>>({});
+
+  const nachKennung = useMemo(() => {
+    const karte = new Map(team.map((eintrag) => [eintrag.discordId, eintrag]));
+    for (const [discordId, person] of Object.entries(dazu)) {
+      karte.set(discordId, person);
+    }
+    return karte;
+  }, [dazu, team]);
 
   const speichere = (naechster: string[], meldung: string): void => {
     const vorher = stand;
@@ -118,12 +123,14 @@ export function AufgabeBeteiligte({
       toast.error('Wähle zuerst eine Person aus.');
       return;
     }
-    if (stand.includes(gewaehlt)) {
+    if (stand.includes(gewaehlt.discordId)) {
       return;
     }
-    const name = nachKennung.get(gewaehlt)?.name ?? 'Die Person';
+    const person = gewaehlt;
+    setDazu((vorher) => ({ ...vorher, [person.discordId]: person }));
     setGewaehlt(null);
-    speichere([...stand, gewaehlt], `${name} ist jetzt beteiligt.`);
+    setRunde((vorher) => vorher + 1);
+    speichere([...stand, person.discordId], `${person.name} ist jetzt beteiligt.`);
   };
 
   const entfernen = (discordId: string): void => {
@@ -198,15 +205,13 @@ export function AufgabeBeteiligte({
       {/* ---------- 1. Hinzufügen: Person, Knopf ---------- */}
       <div className="min-w-0 space-y-2">
         <Personensuche
-          team={kandidaten}
+          key={runde}
+          csrfToken={csrfToken}
+          ausgeschlossen={stand}
           wert={gewaehlt}
           aufWahl={setGewaehlt}
           beschriftung="Person für die Aufgabe suchen"
-          leerText={
-            kandidaten.length === 0
-              ? 'Alle, die den Workspace öffnen dürfen, sind beteiligt.'
-              : 'Niemand passt zu dieser Suche.'
-          }
+          leerText="Niemand passt zu dieser Suche - oder die Treffer sind schon beteiligt."
         />
         {/*
           Auf dem Telefon über die ganze Breite, ab `sm` so breit wie sein

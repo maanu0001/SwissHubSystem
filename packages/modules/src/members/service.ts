@@ -255,6 +255,62 @@ export async function listMembersPage(
   return { members: await ausSpiegel(zeilen, gateway), total, page, pageSize };
 }
 
+/** Ein Treffer der schlanken Personensuche - mit den Rollen fuer die Berechtigungsfrage. */
+export interface SpiegelPerson {
+  discordId: string;
+  displayName: string;
+  username: string | null;
+  avatarHash: string | null;
+  roleIds: string[];
+}
+
+/**
+ * Personen im Spiegel suchen - fuer Auswahlfelder, nicht fuer Listenseiten.
+ *
+ * ## Warum es diese zweite Suche gibt
+ *
+ * `listMembersPage` liefert `MemberSummary`: mit aufgeloesten Rollennamen und
+ * Farben, mit dem Jail-Stand, mit der Gesamtzahl fuer die Blaetterleiste. Das
+ * ist die Mitgliederliste, und dafuer ist es richtig. Ein Auswahlfeld
+ * braucht davon nichts - es braucht Avatar, Namen und die Kennung, und es
+ * fragt bei jedem zweiten Tastendruck neu. Die Rollenliste des Servers dafuer
+ * jedes Mal mitzuladen waere Aufwand fuer eine Auskunft, die niemand sieht.
+ *
+ * Geteilt wird deshalb nicht die Ausgabe, sondern die **Bedingung**:
+ * dieselbe `bedingung()`, die auch die Listenseite benutzt - derselbe
+ * `searchText`, dieselbe Behandlung einer Kennung, dieselbe Regel, dass
+ * Ausgetretene nicht mehr auftauchen.
+ *
+ * `roleIds` kommt mit, weil der Aufrufer meist nicht alle Mitglieder will,
+ * sondern die mit einer Berechtigung - und die rechnet sich aus den Rollen.
+ */
+export async function suchePersonenSpiegel(
+  rawQuery: string,
+  optionen: { grenze?: number } = {},
+): Promise<SpiegelPerson[]> {
+  const grenze = Math.min(Math.max(optionen.grenze ?? 50, 1), 500);
+  const query = sanitizeText(rawQuery, 100).trim();
+  const where = await bedingung(query, { ohneBots: true });
+
+  const zeilen = await prisma.discordMemberCache.findMany({
+    where,
+    select: { discordId: true, displayName: true, username: true, avatarHash: true, roleIds: true },
+    // Dieselbe Ordnung wie die Listenseite: nach Anzeigename, bei Gleichstand
+    // nach Kennung. Eine Suche, die bei gleicher Eingabe zweimal etwas anderes
+    // zeigt, waere keine.
+    orderBy: [{ displayName: 'asc' }, { discordId: 'asc' }],
+    take: grenze,
+  });
+
+  return zeilen.map((zeile) => ({
+    discordId: zeile.discordId,
+    displayName: zeile.displayName,
+    username: zeile.username,
+    avatarHash: zeile.avatarHash,
+    roleIds: zeile.roleIds,
+  }));
+}
+
 /** Die Bedingung der Liste - Suche und Filter, vor jeder Seitenaufteilung. */
 async function bedingung(query: string, filter: MemberFilter): Promise<Prisma.DiscordMemberCacheWhereInput> {
   const where: Prisma.DiscordMemberCacheWhereInput = { leftAt: null };

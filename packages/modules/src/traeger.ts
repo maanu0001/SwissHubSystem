@@ -1,6 +1,7 @@
 import { prisma } from '@swisshub/database';
 import { bootstrapConfig } from '@swisshub/config';
 import { hasPermission, loadRoleConfiguration, resolvePermissions } from '@swisshub/permissions';
+import { suchePersonenSpiegel, type SpiegelPerson } from './members/service';
 
 /**
  * Wer eine Berechtigung besitzt.
@@ -65,4 +66,91 @@ export async function traegerDerBerechtigung(
     }
   }
   return traeger;
+}
+
+/** Eine Person, die die Berechtigung besitzt - mit allem, was ein Auswahlfeld zeigt. */
+export interface TraegerPerson {
+  discordId: string;
+  displayName: string;
+  username: string | null;
+  avatarHash: string | null;
+}
+
+/**
+ * Wer eine Berechtigung besitzt und zu einem Suchbegriff passt.
+ *
+ * ## Warum das nicht `traegerDerBerechtigung` ist
+ *
+ * Wegen der Grundmenge. Oben steht, warum sie dort aus den **angemeldeten**
+ * Benutzern besteht: ein Empfaenger einer Meldung soll die Seite auch oeffnen
+ * koennen, auf die der Link zeigt.
+ *
+ * Fuer ein Auswahlfeld ist genau das der Fehler. Auf einem Server, dessen
+ * Mitglieder die WebApp kaum benutzen, haben sich eine Handvoll Leute je
+ * angemeldet - und ein Suchfeld, das nur diese Handvoll kennt, findet zu
+ * «man» niemanden, obwohl einundzwanzig Mitglieder so heissen. Es sah aus wie
+ * ein kaputtes Dropdown und war eine zu kleine Grundmenge.
+ *
+ * Hier ist sie deshalb der Mitgliederspiegel: alle, die auf dem Server sind.
+ * Die Berechtigung bleibt die gleiche Frage und wird mit derselben
+ * `resolvePermissions`/`hasPermission` beantwortet - sie braucht keine
+ * Anmeldung, sondern Rollen, und die traegt der Spiegel. Wer zugewiesen wird,
+ * darf das Modul also nach wie vor oeffnen; er muss es nur noch nicht schon
+ * einmal getan haben.
+ *
+ * ## Warum die Rohmenge groesser ist als die Ausgabe
+ *
+ * Gefiltert wird nach der Abfrage, nicht in ihr: die Berechtigung steht in
+ * der Rollenzuordnung und nicht in der Datenbank. Geholt werden deshalb bis
+ * zu `ROHMENGE` Treffer des Suchbegriffs, und erst was davon berechtigt ist,
+ * wird auf `grenze` gekuerzt. Bei einer Suche ab zwei Zeichen ist die
+ * Rohmenge klein; ohne Suchbegriff ist sie die Bremse, die sie sein soll.
+ */
+const ROHMENGE = 200;
+
+export async function traegerSuche(
+  permission: string,
+  suche: string,
+  optionen: { grenze?: number } = {},
+): Promise<TraegerPerson[]> {
+  const grenze = Math.min(Math.max(optionen.grenze ?? 20, 1), 200);
+  const [konfiguration, kandidaten] = await Promise.all([
+    loadRoleConfiguration(),
+    suchePersonenSpiegel(suche, { grenze: Math.max(ROHMENGE, grenze) }),
+  ]);
+
+  const treffer: TraegerPerson[] = [];
+  for (const person of kandidaten) {
+    if (!darf(person, konfiguration.mappings, permission)) {
+      continue;
+    }
+    treffer.push({
+      discordId: person.discordId,
+      displayName: person.displayName,
+      username: person.username,
+      avatarHash: person.avatarHash,
+    });
+    if (treffer.length >= grenze) {
+      break;
+    }
+  }
+  return treffer;
+}
+
+function darf(
+  person: SpiegelPerson,
+  mappings: Awaited<ReturnType<typeof loadRoleConfiguration>>['mappings'],
+  permission: string,
+): boolean {
+  return hasPermission(
+    resolvePermissions(
+      {
+        discordId: person.discordId,
+        roleIds: person.roleIds,
+        isOwner: bootstrapConfig.ownerDiscordId === person.discordId,
+      },
+      mappings,
+    ),
+    permission,
+  );
 }

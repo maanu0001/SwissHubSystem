@@ -149,12 +149,23 @@ describe('Die Beteiligten-Kachel bedient sich an Projekt und Aufgabe gleich', ()
      * nicht doppelt waehlen. Die Pruefung beim Klick bleibt als zweite
      * Schranke - zwei schnelle Klicks sind schneller als ein Neuaufbau.
      */
-    expect(projekt).toContain('const kandidaten = useMemo');
-    expect(projekt).toContain('team.filter((eintrag) => !dabei.has(eintrag.discordId))');
-    expect(projekt).toContain('if (stand.some((eintrag) => eintrag.discordId === gewaehlt))');
+    /*
+     * Seit die Suche serverseitig laeuft, ist die Kandidatenliste kein
+     * Filter ueber eine mitgelieferte Liste mehr: die Kachel sagt der Suche,
+     * wer **nicht** mehr in Frage kommt, und die Suche nimmt diese Leute aus
+     * ihren Treffern. Dieselbe Zusage, eine Ebene weiter unten - und die
+     * Pruefung beim Klick bleibt als zweite Schranke.
+     */
+    expect(projekt).toContain('const beteiligte = useMemo');
+    expect(projekt).toContain('ausgeschlossen={beteiligte}');
+    expect(projekt).toContain('if (stand.some((eintrag) => eintrag.discordId === gewaehlt.discordId))');
 
-    expect(aufgabe).toContain('team.filter((eintrag) => !stand.includes(eintrag.discordId))');
-    expect(aufgabe).toContain('if (stand.includes(gewaehlt))');
+    expect(aufgabe).toContain('ausgeschlossen={stand}');
+    expect(aufgabe).toContain('if (stand.includes(gewaehlt.discordId))');
+
+    const suche = lies('apps/web/src/modules/workspace/components/personensuche.tsx');
+    expect(suche).toContain('const draussen = new Set(ausgeschlossen);');
+    expect(suche).toContain('treffer.filter((person) => !draussen.has(person.discordId))');
   });
 
   it('nimmt keine freie Texteingabe als Person an', () => {
@@ -164,10 +175,10 @@ describe('Die Beteiligten-Kachel bedient sich an Projekt und Aufgabe gleich', ()
      * Beteiligter werden, weil es keinen Weg gibt, auf dem er einer wuerde.
      */
     const suche = lies('apps/web/src/modules/workspace/components/personensuche.tsx');
-    expect(suche).toContain('wert: string | null');
-    expect(suche).toContain('aufWahl: (discordId: string | null) => void');
-    // Die Wahl kommt aus der Liste, nicht aus dem Feld.
-    expect(suche).toContain('aufWahl(an ? null : person.discordId)');
+    expect(suche).toContain('wert: Teammitglied | null');
+    expect(suche).toContain('aufWahl: (person: Teammitglied | null) => void');
+    // Die Wahl kommt aus der Trefferliste, nicht aus dem Feld.
+    expect(suche).toContain('aufWahl(wert?.discordId === person.discordId ? null : person)');
     expect(suche).not.toMatch(/aufWahl\(suche/u);
   });
 

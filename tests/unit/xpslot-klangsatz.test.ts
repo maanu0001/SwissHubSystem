@@ -145,8 +145,14 @@ describe('Klänge zur richtigen Zeit', () => {
   });
 
   it('ersetzt den Gewinnklang bei einem Bonus, statt beide zu melden', () => {
+    /*
+     * Die Bedingung des Gegenzweigs heisst jetzt `folge.gesamtklang` und
+     * nicht mehr `!einzelneLinien`: wer entscheidet, ob eine Linie klingt,
+     * entscheidet damit auch, ob der Gesamtklang entfaellt. Die Zusage ist
+     * dieselbe - Bonus **statt** Gewinnklang, nicht beides.
+     */
     expect(quelle).toMatch(
-      /if \(spin\.bonusAusgeloest\) \{[\s\S]*?melde\(\{ art: 'bonusTriggered', retrigger: spin\.art === 'BONUS_ROUND' \}\);[\s\S]*?\} else if \(!einzelneLinien\) \{[\s\S]*?melde\(\{ art: 'spinResult'/u,
+      /if \(spin\.bonusAusgeloest\) \{[\s\S]*?melde\(\{ art: 'bonusTriggered', retrigger: spin\.art === 'BONUS_ROUND' \}\);[\s\S]*?\} else if \(folge\.gesamtklang\) \{[\s\S]*?melde\(\{ art: 'spinResult'/u,
     );
   });
 

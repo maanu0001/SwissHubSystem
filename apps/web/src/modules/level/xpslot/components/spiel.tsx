@@ -20,6 +20,7 @@ import type { level } from '@swisshub/modules';
 import { formatSwissNumber } from '@swisshub/shared';
 import { cn } from '@/lib/utils';
 import { Partikel, Walzen } from './walzen';
+import { LINIEN_ZEITEN, linienfolge } from './linienfolge';
 import { symbolBild } from '../adressen';
 import { Hochzaehlen, SlotOverlay } from './meldung';
 import { Infotafel } from './infotafel';
@@ -93,8 +94,6 @@ const ZEITEN = {
   schnellGrund: 230,
   /** Quick Spin mit Sweat: die vorderen Walzen halten gemeinsam, dann die letzte. */
   schnellSweat: 520,
-  /** Wie lange ein Treffer je Linie hervorgehoben wird. */
-  linie: 520,
   /**
    * Der Abstand zwischen dem letzten Einrasten und dem Gewinnklang.
    *
@@ -132,6 +131,13 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
   );
   const [ergebnis, setErgebnis] = useState<Ergebnis | null>(null);
   const [sichtbareLinie, setSichtbareLinie] = useState<number | null>(null);
+  /**
+   * Wie lange die gerade gezeigte Linie steht.
+   *
+   * Dieselbe Zahl, mit der der Sequencer wartet - sonst laeuft die
+   * Zeichenanimation der Linie gegen eine andere Uhr als die Anzeige.
+   */
+  const [linienDauer, setLinienDauer] = useState(LINIEN_ZEITEN.ruhig);
   const [beschaeftigt, setBeschaeftigt] = useState(false);
   const [autoRest, setAutoRest] = useState(0);
   const [schnell, setSchnell] = useState(false);
@@ -555,18 +561,26 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     }
 
     /*
-     * Was jetzt klingt - und was nicht.
+     * Der Plan fuer die Gewinnlinien - und was dazu klingt.
      *
-     * Kommen mehrere Linien einzeln, klingt **jede** einzeln, und der
-     * Gesamtklang entfaellt: sonst waeren es fuenf Klaenge fuer vier Linien,
-     * und der erste wuerde die Reihe verderben. Ein ausgeloester Bonus
-     * ersetzt den Gewinnklang, er kommt nicht dazu - vorher spielten beide,
-     * und die wichtigere Aussage ging unter.
+     * Was gezeigt wird, entscheidet `linienfolge` aus den Treffern des
+     * Servers: jeder genau einmal, unabhaengig von Quick Spin, reduzierter
+     * Bewegung und Sprung. Hier wird nur noch abgespielt, was dort steht.
+     *
+     * Klingt eine Linie, klingt **jede** einzeln, und der Gesamtklang
+     * entfaellt: sonst waeren es fuenf Klaenge fuer vier Linien, und der
+     * erste wuerde die Reihe verderben. Ein ausgeloester Bonus ersetzt den
+     * Gewinnklang, er kommt nicht dazu - vorher spielten beide, und die
+     * wichtigere Aussage ging unter.
      */
-    const einzelneLinien = spin.treffer.length > 1 && !schnell && !wenigerBewegung;
+    const folge = linienfolge(spin.treffer, {
+      schnell,
+      wenigerBewegung,
+      bonusAusgeloest: spin.bonusAusgeloest,
+    });
     if (spin.bonusAusgeloest) {
       melde({ art: 'bonusTriggered', retrigger: spin.art === 'BONUS_ROUND' });
-    } else if (!einzelneLinien) {
+    } else if (folge.gesamtklang) {
       melde({ art: 'spinResult', stufe: spin.stufe });
     }
     if (spin.premiumTage > 0) {
@@ -628,23 +642,40 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     }
 
     /*
-     * Die Linien einzeln zeigen, jede mit ihrem eigenen Klang und ihrem
-     * eigenen XP-Schild. Nicht bei Quick Spin und nicht bei weniger
-     * Bewegung - dort steht das Ergebnis sofort.
+     * Die Linien einzeln zeigen - jede mit ihrem Klang und ihrem XP-Schild.
+     *
+     * Eine Schleife ueber `folge.schritte`, und sonst nichts: keine zweite
+     * Fallunterscheidung, keine Kette unabhaengiger Zeitgeber, kein Zweig,
+     * der bei vier Linien in keinen von beiden faellt. Was der Server
+     * geschickt hat, laeuft hier genau einmal durch.
+     *
+     * Abgebrochen wird nur, wenn die Seite verlassen wurde (`lebtRef`) -
+     * nicht durch einen harmlosen Re-Render und nicht durch den Sprung, der
+     * oben nach dem Walzenstopp verbraucht wurde.
      */
-    if (einzelneLinien) {
-      for (const treffer of spin.treffer) {
-        setSichtbareLinie(treffer.linie);
-        melde({ art: 'winLineShown', stufe: treffer.stufe });
-        await warte(ZEITEN.linie);
+    if (folge.schritte.length > 0) {
+      setLinienDauer(folge.dauerMs);
+      if (folge.vorlaufMs > 0) {
+        await warte(folge.vorlaufMs);
         if (!lebtRef.current) {
           return { weiter: false, grund: null };
         }
       }
+      for (const schritt of folge.schritte) {
+        setSichtbareLinie(schritt.linie);
+        melde({ art: 'winLineShown', stufe: schritt.stufe });
+        await warte(folge.dauerMs);
+        if (!lebtRef.current) {
+          return { weiter: false, grund: null };
+        }
+      }
+      /*
+       * Danach die Gesamtansicht: alle Gewinnzellen hervorgehoben, der
+       * Gesamtgewinn in der Gewinnzeile. Beides haengt an `sichtbareLinie`,
+       * und `null` heisst «keine einzelne Linie mehr, sondern alle».
+       */
       setSichtbareLinie(null);
       melde({ art: 'allLinesFinished' });
-    } else if (spin.treffer.length === 1) {
-      setSichtbareLinie(spin.treffer[0]!.linie);
     }
 
     /*
@@ -1061,7 +1092,7 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
             walzen={ansicht.walzen}
             linie={linienPfad}
             linienGewinn={linienGewinn}
-            linienDauerMs={ZEITEN.linie}
+            linienDauerMs={linienDauer}
           />
         </div>
 
@@ -1073,7 +1104,16 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
           dieser Umbau beseitigen; ein leerer Platz ist der Preis dafuer.
         */}
         <div className="slot-gewinnzeile relative">
-          {ergebnis && ergebnis.gewinn > 0 && !laufend.some(Boolean) ? (
+          {/*
+            Der Gesamtgewinn erst, wenn keine einzelne Linie mehr steht.
+
+            Waehrend der Reihe gehoert die Buehne der Linie und ihrem
+            eigenen XP-Schild; die Summe darueber waere die Antwort, bevor
+            die Frage fertig gestellt ist. `sichtbareLinie === null` ist
+            genau «die Reihe ist durch» - und bei einem Spin ohne Gewinnlinie
+            von Anfang an wahr.
+          */}
+          {ergebnis && ergebnis.gewinn > 0 && !laufend.some(Boolean) && sichtbareLinie === null ? (
             <div className="text-center">
               <p className="slot-gewinn text-2xl font-black text-[hsl(var(--primary-bright))] sm:text-3xl">
                 +<Hochzaehlen ziel={ergebnis.gewinn} ruhig={wenigerBewegung} /> XP

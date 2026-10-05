@@ -1,7 +1,13 @@
 import 'server-only';
 import { can } from '@swisshub/auth';
 import type { AuthContext } from '@swisshub/auth';
-import { getModuleSettings, members, traegerDerBerechtigung, workspace } from '@swisshub/modules';
+import {
+  getModuleSettings,
+  members,
+  traegerDerBerechtigung,
+  traegerSuche,
+  workspace,
+} from '@swisshub/modules';
 
 /**
  * Was die Seiten des Workspace laden.
@@ -72,10 +78,97 @@ export async function workspaceEinstellungen(): Promise<workspace.WorkspaceSetti
  * Alle, die `workspace.view` besitzen - und nicht alle Servermitglieder. Eine
  * Aufgabe jemandem zuzuweisen, der das Modul nicht öffnen darf, wäre eine
  * Zuweisung, von der der Zuständige nie erfährt.
+ *
+ * ## Warum zwei Quellen
+ *
+ * Weil eine davon im Betrieb fast leer war. `traegerDerBerechtigung` nimmt
+ * seine Grundmenge aus den **angemeldeten** Benutzern - mit gutem Grund, dort
+ * steht er -, und auf einem Server, dessen Mitglieder die WebApp kaum
+ * benutzen, waren das 14 von 35. Jede Auswahlliste des Moduls kannte damit 14
+ * Leute, und das sah nach einer kaputten Liste aus.
+ *
+ * Dazu kommen deshalb die Berechtigten aus dem Mitgliederspiegel: dieselbe
+ * Berechtigung, an denselben Rollen geprüft, nur ohne die Anmeldung als
+ * stille Voraussetzung. Die Vereinigung ist die Antwort auf «wer darf das
+ * Modul öffnen» - und sie bleibt bei 200 gedeckelt, weil eine Liste in einer
+ * Seite eine Liste bleiben soll. Wer darüber hinaus sucht, benutzt
+ * `sucheTeam`.
  */
 export async function ladeTeam(): Promise<Teammitglied[]> {
-  const kennungen = await traegerDerBerechtigung(workspace.WORKSPACE_PERMISSIONS.view);
-  return personenZuListe(kennungen);
+  const [kennungen, imSpiegel] = await Promise.all([
+    traegerDerBerechtigung(workspace.WORKSPACE_PERMISSIONS.view),
+    traegerSuche(workspace.WORKSPACE_PERMISSIONS.view, '', { grenze: 200 }),
+  ]);
+
+  const liste = new Map<string, Teammitglied>();
+  for (const person of imSpiegel) {
+    liste.set(person.discordId, {
+      discordId: person.discordId,
+      name: person.displayName,
+      username: person.username,
+      avatarHash: person.avatarHash,
+      ehemalig: false,
+    });
+  }
+  // Die Angemeldeten danach, aber ohne die schon bekannten zu überschreiben:
+  // der Spiegel ist die frischere Auskunft über Namen und Avatar.
+  for (const person of await personenZuListe(kennungen)) {
+    if (!liste.has(person.discordId)) {
+      liste.set(person.discordId, person);
+    }
+  }
+  return [...liste.values()].sort((a, b) => a.name.localeCompare(b.name, 'de-CH'));
+}
+
+/**
+ * Wer zu einem Suchbegriff passt und zugewiesen werden kann.
+ *
+ * ## Der Fehler, den das behebt
+ *
+ * Das Suchfeld der Beteiligten zeigte auf dem Server keine Treffer. Es lag
+ * nicht am Feld, nicht am Klick und nicht am Popover: `ladeTeam` nimmt seine
+ * Grundmenge aus den **angemeldeten** Benutzern, und auf einem Server, dessen
+ * Mitglieder die WebApp kaum oeffnen, sind das eine Handvoll. Nachgemessen:
+ * 35 Mitglieder im Spiegel, 14 davon je angemeldet, 21 Treffer zu «manuel» im
+ * Spiegel - und **keiner** davon in der Auswahlliste. Durchsucht wurde eine
+ * Liste, in der die gesuchten Leute nicht standen.
+ *
+ * `traegerSuche` sucht deshalb im Mitgliederspiegel und prueft die
+ * Berechtigung an den Rollen, die dort stehen. Dieselbe Berechtigung wie
+ * vorher - nur ohne die Anmeldung als stille Voraussetzung.
+ *
+ * ## Warum es den Rueckfall auf `ladeTeam` gibt
+ *
+ * Weil der Spiegel leer sein kann: eine frisch eingerichtete Anwendung hat
+ * noch nie abgeglichen, und eine Testumgebung hat Benutzer ohne Spiegelzeile.
+ * Dann ist die kleine Menge besser als keine. Er greift nur, wenn der Spiegel
+ * **nichts** liefert; im Normalfall kostet er keine Abfrage.
+ */
+export async function sucheTeam(begriff: string, grenze = 20): Promise<Teammitglied[]> {
+  const treffer = await traegerSuche(workspace.WORKSPACE_PERMISSIONS.view, begriff, { grenze });
+  if (treffer.length > 0) {
+    return treffer.map((person) => ({
+      discordId: person.discordId,
+      name: person.displayName,
+      username: person.username,
+      avatarHash: person.avatarHash,
+      // Wer im Spiegel steht, ist auf dem Server - das ist, was der Spiegel
+      // bedeutet.
+      ehemalig: false,
+    }));
+  }
+
+  const gesucht = begriff.trim().toLowerCase();
+  const angemeldete = await ladeTeam();
+  const passend =
+    gesucht === ''
+      ? angemeldete
+      : angemeldete.filter(
+          (eintrag) =>
+            eintrag.name.toLowerCase().includes(gesucht) ||
+            (eintrag.username ?? '').toLowerCase().includes(gesucht),
+        );
+  return passend.slice(0, grenze);
 }
 
 /** Kennungen zu Namen - in der Reihenfolge der Namen. */

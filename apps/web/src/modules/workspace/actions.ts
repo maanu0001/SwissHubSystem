@@ -7,7 +7,7 @@ import { resolveGuildId } from '@swisshub/discord';
 import { workspace } from '@swisshub/modules';
 import { AppError, systemRoutes } from '@swisshub/shared';
 import { defineAction } from '@/server/action';
-import { workspaceBetrachter } from '@/modules/workspace/daten';
+import { sucheTeam, workspaceBetrachter, type Teammitglied } from '@/modules/workspace/daten';
 import type { AuthContext } from '@swisshub/auth';
 
 /**
@@ -840,4 +840,39 @@ export const workspaceProjektAusVorlageAction = defineAction(
     revalidatePath(systemRoutes.workspacePlanung());
     return { projectId: projekt.id };
   },
+);
+
+/**
+ * Personen fuer ein Auswahlfeld suchen.
+ *
+ * ## Warum das eine Aktion ist und keine Liste in der Seite
+ *
+ * Weil die Grundmenge der Mitgliederspiegel ist und nicht mehr eine Handvoll
+ * angemeldeter Benutzer. Sie alle in jede Workspace-Seite zu legen hiesse, ein
+ * paar hundert Namen in jedes HTML zu schreiben, damit der Browser darin
+ * filtert - fuer eine Auswahl, die die meisten Besuche gar nicht treffen.
+ * Gesucht wird deshalb dort, wo die Daten liegen, und der Browser bekommt die
+ * zwanzig Treffer, die er anzeigt.
+ *
+ * ## Warum sie trotzdem durch dieselbe Kette laeuft
+ *
+ * `view` ist Pflicht: wer den Workspace nicht oeffnen darf, soll ueber diesen
+ * Endpunkt auch keine Namen und Avatare des Servers abfragen koennen. Die
+ * Ratengrenze ist der eigene Eimer des Moduls - ein entprelltes Feld kommt
+ * damit aus, eine Schleife nicht. `cached` statt `critical`, weil hier nichts
+ * geschrieben wird: die Rollen frisch von Discord zu holen waere ein
+ * Gateway-Aufruf je Tastendruck.
+ */
+export const workspaceTeamSuchenAction = defineAction(
+  {
+    name: 'workspace.team.search',
+    module: workspace.WORKSPACE_MODULE_ID,
+    permission: workspace.WORKSPACE_PERMISSIONS.view,
+    schema: z.object({ begriff: z.string().trim().max(100) }),
+    rateLimit: 'workspaceSuche',
+    freshness: 'cached',
+  },
+  async ({ input }): Promise<{ treffer: Teammitglied[] }> => ({
+    treffer: await sucheTeam(input.begriff),
+  }),
 );

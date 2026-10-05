@@ -335,6 +335,15 @@ export const RATE_LIMITS = {
   /** Anhaenge kosten Platz und Rechenzeit, deshalb knapper. */
   workspaceUpload: { limit: 30, windowMs: 10 * 60 * 1000 },
   /*
+   * Die Personensuche der Beteiligten - ein entprelltes Feld.
+   *
+   * Eigener Eimer und nicht `memberSearch`: wer im Workspace Beteiligte
+   * sucht, soll damit nicht sein Kontingent fuer die Mitgliederliste
+   * aufbrauchen - und umgekehrt. Grosszuegig, weil jeder zweite Tastendruck
+   * eine Abfrage ist, und trotzdem eine Grenze gegen eine Schleife.
+   */
+  workspaceSuche: { limit: 120, windowMs: 5 * 60 * 1000 },
+  /*
    * Clipdateien hochladen - eng.
    *
    * Jeder Versuch kostet Bandbreite und bis zu 100 MB Plattenplatz, bevor

@@ -85,8 +85,32 @@ export function Mitgliederverwaltung({
 }): React.JSX.Element {
   const router = useRouter();
   const [laeuft, starte] = useTransition();
-  /** Wer als naechstes dazukommt - genau eine Person, oder niemand. */
-  const [gewaehlt, setGewaehlt] = useState<string | null>(null);
+  /**
+   * Wer als naechstes dazukommt - genau eine Person, oder niemand.
+   *
+   * Die ganze Person und nicht nur ihre Kennung: gesucht wird serverseitig
+   * im Mitgliederspiegel, und wer dort gefunden wird, steht nicht
+   * zwangslaeufig in `team` - sonst haette die Zeile nach dem Hinzufuegen
+   * keinen Namen.
+   */
+  const [gewaehlt, setGewaehlt] = useState<Teammitglied | null>(null);
+  /**
+   * Zaehler, der die Suche zuruecksetzt.
+   *
+   * Nach einem Hinzufuegen soll das Feld leer sein und die Trefferliste
+   * verschwinden - sonst steht dort eine Person, die jetzt schon beteiligt
+   * ist. Ein neuer `key` ist dafuer ehrlicher als ein Dutzend `setX(null)`
+   * aus der Ferne.
+   */
+  const [runde, setRunde] = useState(0);
+  /**
+   * Wer in dieser Sitzung dazukam.
+   *
+   * `team` ist die Liste, die die Seite mitgebracht hat; eine Person aus der
+   * Suche kann darin fehlen. Bis `router.refresh()` durch ist, kommt ihr
+   * Name von hier.
+   */
+  const [dazu, setDazu] = useState<Record<string, Teammitglied>>({});
   /**
    * Die Rolle, mit der die naechste Person dazukommt.
    *
@@ -116,20 +140,23 @@ export function Mitgliederverwaltung({
     mitglieder.map((eintrag) => ({ ...eintrag })),
   );
 
-  const nachKennung = useMemo(() => new Map(team.map((eintrag) => [eintrag.discordId, eintrag])), [team]);
+  const nachKennung = useMemo(() => {
+    const karte = new Map(team.map((eintrag) => [eintrag.discordId, eintrag]));
+    for (const [discordId, person] of Object.entries(dazu)) {
+      karte.set(discordId, person);
+    }
+    return karte;
+  }, [dazu, team]);
 
   /**
-   * Wer noch nicht dabei ist.
+   * Wer nicht mehr in Frage kommt.
    *
-   * Das Filtern nach dem Suchbegriff macht die Personensuche selbst; hier
-   * wird nur entfernt, wer schon beteiligt ist. Das ist die Zusage «keine
-   * Duplikate», und sie steht hier und nicht in einer Pruefung beim
-   * Hinzufuegen: was man nicht waehlen kann, kann man nicht doppelt waehlen.
+   * Das Suchen macht die Personensuche serverseitig; hier wird nur gesagt,
+   * wer schon beteiligt ist. Das ist die Zusage «keine Duplikate», und sie
+   * steht hier und nicht in einer Pruefung beim Hinzufuegen: was man nicht
+   * waehlen kann, kann man nicht doppelt waehlen.
    */
-  const kandidaten = useMemo(() => {
-    const dabei = new Set(stand.map((eintrag) => eintrag.discordId));
-    return team.filter((eintrag) => !dabei.has(eintrag.discordId));
-  }, [stand, team]);
+  const beteiligte = useMemo(() => stand.map((eintrag) => eintrag.discordId), [stand]);
 
   const leitungen = stand.filter((eintrag) => eintrag.rolle === 'LEAD').length;
 
@@ -172,17 +199,19 @@ export function Mitgliederverwaltung({
       toast.error('Wähle zuerst eine Person aus.');
       return;
     }
-    // Kein doppeltes Hinzufügen: wer dabei ist, steht nicht in `kandidaten` -
+    // Kein doppeltes Hinzufügen: wer dabei ist, steht nicht in den Treffern -
     // und hier noch einmal geprüft, weil zwei schnelle Klicks schneller sind
     // als ein Neuaufbau der Liste.
-    if (stand.some((eintrag) => eintrag.discordId === gewaehlt)) {
+    if (stand.some((eintrag) => eintrag.discordId === gewaehlt.discordId)) {
       return;
     }
-    const name = nachKennung.get(gewaehlt)?.name ?? 'Die Person';
+    const person = gewaehlt;
+    setDazu((vorher) => ({ ...vorher, [person.discordId]: person }));
     setGewaehlt(null);
+    setRunde((vorher) => vorher + 1);
     speichere(
-      [...stand, { discordId: gewaehlt, rolle: neueRolle }],
-      `${name} ist jetzt beteiligt - als ${ROLLE_LABEL[neueRolle]}.`,
+      [...stand, { discordId: person.discordId, rolle: neueRolle }],
+      `${person.name} ist jetzt beteiligt - als ${ROLLE_LABEL[neueRolle]}.`,
     );
   };
 
@@ -216,15 +245,13 @@ export function Mitgliederverwaltung({
         */}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <Personensuche
-            team={kandidaten}
+            key={runde}
+            csrfToken={csrfToken}
+            ausgeschlossen={beteiligte}
             wert={gewaehlt}
             aufWahl={setGewaehlt}
             beschriftung="Person für das Projekt suchen"
-            leerText={
-              kandidaten.length === 0
-                ? 'Alle, die den Workspace öffnen dürfen, sind beteiligt.'
-                : 'Niemand passt zu dieser Suche.'
-            }
+            leerText="Niemand passt zu dieser Suche - oder die Treffer sind schon beteiligt."
           />
 
           <div className="min-w-0 space-y-1 sm:w-44">
