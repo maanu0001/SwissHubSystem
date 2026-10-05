@@ -10,7 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { WORKSPACE_ZUGANG, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import {
+  WORKSPACE_ZUGANG,
+  namenKarte,
+  workspaceBetrachter,
+  workspaceEinstellungen,
+} from '@/modules/workspace/daten';
 import { Fortschrittsbalken, Tags, Zustaendige } from '@/modules/workspace/components/abzeichen';
 import { zeitpunktText } from '@/modules/workspace/labels';
 

@@ -11,7 +11,13 @@ import { EmptyState } from '@/components/shared/states';
 import { cn } from '@/lib/utils';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { WORKSPACE_ZUGANG, ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import {
+  WORKSPACE_ZUGANG,
+  ladeTeam,
+  namenKarte,
+  workspaceBetrachter,
+  workspaceEinstellungen,
+} from '@/modules/workspace/daten';
 import {
   ChecklisteZahl,
   Frist,

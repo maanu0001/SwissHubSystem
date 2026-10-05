@@ -90,7 +90,8 @@ describe('Workspace - Sicherheit', () => {
      * intern.
      */
     const route = lies('apps/web/src/app/api/workspace/anhang/[anhangId]/route.ts');
-    expect(route).toContain('WORKSPACE_PERMISSIONS.view');
+    // Dieselbe Menge wie die Seiten - siehe `WORKSPACE_ZUGANG` in `daten.ts`.
+    expect(route).toContain('WORKSPACE_ZUGANG');
     expect(route).toContain('status: 403');
     // Der Content-Type wird gesetzt, nicht abgeleitet, und `nosniff` verbietet
     // dem Browser das Raten: eine hochgeladene Datei kann nie als Skript

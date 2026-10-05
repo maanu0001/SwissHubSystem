@@ -347,7 +347,22 @@ describeWithDatabase('Die Bereitstellung', () => {
       'ports',
     ]);
     expect(spez.image).toBe('ghcr.io/swisshub/cs2:2026-09');
-    expect(JSON.stringify(spez)).not.toMatch(/privileged|network|cap-add|--/u);
+    /*
+     * Keine freien Docker-Argumente - geprueft am Geruest, nicht am ganzen
+     * JSON.
+     *
+     * Vorher stand hier `JSON.stringify(spez)` gegen `/…|--/`, und das schlug
+     * irgendwann zu: das zufaellig erzeugte RCON-Passwort enthielt zwei
+     * Bindestriche («MmCK3WMw6igr--6zmuBx…»). Ein Test, der an einem
+     * Zufallswert haengt, ist nicht rot, weil etwas kaputt ist, sondern weil
+     * der Wuerfel so fiel - und blockiert dann einen Lauf, der nichts damit
+     * zu tun hat. Die Aussage bleibt dieselbe: kein Schluessel und kein
+     * **Befehl** traegt Docker-Argumente; die Umgebungsvariablen sind Werte
+     * und keine Argumente.
+     */
+    const geruest = { ...spez, env: Object.keys(spez.env as Record<string, string>) };
+    expect(JSON.stringify(geruest)).not.toMatch(/privileged|network|cap-add|--/u);
+    expect(spez.command).toEqual([]);
 
     // Das RCON-Passwort reist mit - es muss in den Container, und es geht
     // ueber eine signierte Verbindung. Im Browser taucht es nirgends auf.

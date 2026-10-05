@@ -8,7 +8,13 @@ import { ModulNavigation } from '@/components/shared/modul-navigation';
 import { cn } from '@/lib/utils';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { WORKSPACE_ZUGANG, ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import {
+  WORKSPACE_ZUGANG,
+  ladeTeam,
+  namenKarte,
+  workspaceBetrachter,
+  workspaceEinstellungen,
+} from '@/modules/workspace/daten';
 import { Board, BoardLeer } from '@/modules/workspace/components/board';
 import { AufgabeFormular } from '@/modules/workspace/components/aufgabe-formular';
 

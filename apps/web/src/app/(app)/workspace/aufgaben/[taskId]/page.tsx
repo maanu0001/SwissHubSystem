@@ -9,7 +9,13 @@ import { ModulNavigation } from '@/components/shared/modul-navigation';
 import { Panel } from '@/components/shared/panel';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { WORKSPACE_ZUGANG, ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import {
+  WORKSPACE_ZUGANG,
+  ladeTeam,
+  namenKarte,
+  workspaceBetrachter,
+  workspaceEinstellungen,
+} from '@/modules/workspace/daten';
 import { Frist, PrioritaetAbzeichen, StatusAbzeichen, Tags } from '@/modules/workspace/components/abzeichen';
 import { AufgabeFormular } from '@/modules/workspace/components/aufgabe-formular';
 import { AufgabeBeteiligte } from '@/modules/workspace/components/aufgabe-beteiligte';

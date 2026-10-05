@@ -36,9 +36,18 @@ describe('Workspace-Seiten', () => {
     expect(SEITEN.length).toBeGreaterThanOrEqual(6);
   });
 
-  it.each(SEITEN)('%s verlangt workspace.view', (seite) => {
+  it.each(SEITEN)('%s verlangt die Zugangsmenge des Moduls', (seite) => {
+    /*
+     * `WORKSPACE_ZUGANG` und nicht mehr `workspace.view` allein.
+     *
+     * Die Menge steht in `daten.ts` und enthaelt neben `workspace.view` die
+     * Vollzugriffsberechtigungen - sonst kaeme ein Moderator, der alle
+     * Projekte sehen darf, nicht einmal auf die Seite. Geprueft wird weiter
+     * **dass** jede Seite einen Riegel hat, und dass es derselbe ist: eine
+     * Seite mit einer eigenen Antwort waere der Anfang von zwei Wahrheiten.
+     */
     const quelle = ohneKommentare(readFileSync(join(process.cwd(), seite), 'utf8'));
-    expect(quelle).toContain('requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view)');
+    expect(quelle).toContain('requirePagePermission(WORKSPACE_ZUGANG)');
   });
 
   it.each(SEITEN)('%s setzt keinen zweiten Modultitel', (seite) => {

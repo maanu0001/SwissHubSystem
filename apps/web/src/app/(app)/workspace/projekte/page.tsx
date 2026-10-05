@@ -11,7 +11,12 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { WORKSPACE_ZUGANG, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import {
+  WORKSPACE_ZUGANG,
+  namenKarte,
+  workspaceBetrachter,
+  workspaceEinstellungen,
+} from '@/modules/workspace/daten';
 import {
   Fortschrittsbalken,
   Frist,
