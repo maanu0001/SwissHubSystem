@@ -12,7 +12,7 @@ import { EmptyState } from '@/components/shared/states';
 import { cn } from '@/lib/utils';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { WORKSPACE_ZUGANG, ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import {
   Frist,
   Fortschrittsbalken,
@@ -43,7 +43,7 @@ export const dynamic = 'force-dynamic';
  * ein Test hält das fest.
  */
 export default async function WorkspaceUebersichtPage(): Promise<React.JSX.Element> {
-  const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const context = await requirePagePermission(WORKSPACE_ZUGANG);
   const betrachter = workspaceBetrachter(context);
   /*
    * Rollen und Kanaele fuer das Projektformular.

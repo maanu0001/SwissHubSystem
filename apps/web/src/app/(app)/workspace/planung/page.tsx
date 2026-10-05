@@ -16,7 +16,7 @@ import { EmptyState } from '@/components/shared/states';
 import { cn } from '@/lib/utils';
 import { requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { WORKSPACE_ZUGANG, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import { Legende, Monatsgitter, Wochengitter } from '@/modules/workspace/components/planungsgitter';
 import { fristText } from '@/modules/workspace/labels';
 
@@ -103,7 +103,7 @@ export default async function WorkspacePlanungPage({
 }: {
   searchParams: Promise<Suche>;
 }): Promise<React.JSX.Element> {
-  const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const context = await requirePagePermission(WORKSPACE_ZUGANG);
   const betrachter = workspaceBetrachter(context);
   const suche = await searchParams;
   const guildId = await resolveGuildId();

@@ -11,7 +11,7 @@ import { StatCard } from '@/components/shared/stat-card';
 import { EmptyState } from '@/components/shared/states';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { WORKSPACE_ZUGANG, ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import {
   ChecklisteZahl,
   Frist,
@@ -47,7 +47,7 @@ export default async function WorkspaceProjektPage({
 }: {
   params: Promise<{ projectId: string }>;
 }): Promise<React.JSX.Element> {
-  const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const context = await requirePagePermission(WORKSPACE_ZUGANG);
   const betrachter = workspaceBetrachter(context);
   /*
    * Rollen und Kanaele fuer das Projektformular.

@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { WORKSPACE_ZUGANG, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import {
   Fortschrittsbalken,
   Frist,
@@ -42,7 +42,7 @@ export default async function WorkspaceProjektePage({
 }: {
   searchParams: Promise<{ q?: string }>;
 }): Promise<React.JSX.Element> {
-  const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const context = await requirePagePermission(WORKSPACE_ZUGANG);
   const betrachter = workspaceBetrachter(context);
   /*
    * Rollen und Kanaele fuer das Projektformular.

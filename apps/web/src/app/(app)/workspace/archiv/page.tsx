@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { WORKSPACE_ZUGANG, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import { Fortschrittsbalken, Tags, Zustaendige } from '@/modules/workspace/components/abzeichen';
 import { zeitpunktText } from '@/modules/workspace/labels';
 
@@ -36,7 +36,7 @@ export default async function WorkspaceArchivPage({
 }: {
   searchParams: Promise<{ q?: string }>;
 }): Promise<React.JSX.Element> {
-  const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const context = await requirePagePermission(WORKSPACE_ZUGANG);
   const betrachter = workspaceBetrachter(context);
   const { q } = await searchParams;
   const suche = (q ?? '').trim();

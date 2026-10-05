@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/shared/states';
 import { cn } from '@/lib/utils';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { WORKSPACE_ZUGANG, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import { PRIORITAET_LABEL } from '@/modules/workspace/labels';
 import { Tags } from '@/modules/workspace/components/abzeichen';
 import {
@@ -56,7 +56,7 @@ export default async function WorkspaceVorlagenPage({
    * ineinander: `templates.manage` als Guard wuerde jemanden hereinlassen, der
    * `view` nicht hat.
    */
-  const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const context = await requirePagePermission(WORKSPACE_ZUGANG);
   const betrachter = workspaceBetrachter(context);
   const { archiv } = await searchParams;
   const archiviert = archiv === 'ja';

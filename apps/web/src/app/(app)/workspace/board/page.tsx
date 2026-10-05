@@ -8,7 +8,7 @@ import { ModulNavigation } from '@/components/shared/modul-navigation';
 import { cn } from '@/lib/utils';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { WORKSPACE_ZUGANG, ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import { Board, BoardLeer } from '@/modules/workspace/components/board';
 import { AufgabeFormular } from '@/modules/workspace/components/aufgabe-formular';
 
@@ -34,7 +34,7 @@ export default async function WorkspaceBoardPage({
 }: {
   searchParams: Promise<Suche>;
 }): Promise<React.JSX.Element> {
-  const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const context = await requirePagePermission(WORKSPACE_ZUGANG);
   const betrachter = workspaceBetrachter(context);
   const suche = await searchParams;
   const guildId = await resolveGuildId();

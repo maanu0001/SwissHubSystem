@@ -109,3 +109,52 @@ describe('Workspace: alle Beteiligten sind sichtbar', () => {
     }
   });
 });
+
+describe('Workspace: der Riegel der Seiten kennt dieselbe Menge', () => {
+  /**
+   * Der Fehler, den dieser Block festnagelt.
+   *
+   * `darfAlles` entscheidet, **welche Zeilen** jemand sieht - nicht, **ob die
+   * Seite aufgeht**. Das entschied `requirePagePermission(workspace.view)`,
+   * und ein Moderator, der diese Berechtigung nie zugewiesen bekam, kam gar
+   * nicht erst hinein: am gebauten Server gemessen eine Projektliste ohne das
+   * private Projekt, ein leeres Board, ein Projektdetail ohne Inhalt.
+   *
+   * Beide Fragen haengen jetzt an `WORKSPACE_ZUGANG`. Dass eine neue Seite
+   * wieder den einzelnen Schluessel nimmt, faellt hier auf.
+   */
+  const SEITEN = [
+    'board/page.tsx',
+    'meine/page.tsx',
+    'page.tsx',
+    'projekte/page.tsx',
+    'projekte/[projectId]/page.tsx',
+    'vorlagen/page.tsx',
+    'planung/page.tsx',
+    'aufgaben/[taskId]/page.tsx',
+    'archiv/page.tsx',
+  ];
+
+  it('nennt die Zugangsmenge an einer Stelle', () => {
+    expect(daten).toContain('export const WORKSPACE_ZUGANG');
+    // Dieselbe Menge wie fuer die Beteiligtensuche - nicht eine zweite Liste.
+    expect(daten).toContain('const WORKSPACE_BETEILIGUNG: readonly string[] = WORKSPACE_ZUGANG;');
+  });
+
+  it('prüft sie auf jeder Seite des Moduls', () => {
+    for (const seite of SEITEN) {
+      const quelle = lies(`apps/web/src/app/(app)/workspace/${seite}`);
+      expect(quelle, seite).toContain('await requirePagePermission(WORKSPACE_ZUGANG)');
+      expect(quelle, seite).not.toContain('requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view)');
+    }
+  });
+
+  it('prüft sie auch an der Anhang-Adresse', () => {
+    /*
+     * Eine Adresse ist keine Seite: wer die Aufgabe sehen darf, muss ihren
+     * Anhang oeffnen koennen, sonst liefert die Vorschau 403.
+     */
+    const route = lies('apps/web/src/app/api/workspace/anhang/[anhangId]/route.ts');
+    expect(route).toContain('WORKSPACE_ZUGANG.some((berechtigung) => can(context, berechtigung))');
+  });
+});

@@ -154,7 +154,12 @@ export interface PagePermissionOptions {
  * ebenso dem, der eine starten darf, ohne deswegen die Strafakte zu lesen.
  */
 export async function requirePagePermission(
-  permission: string | string[],
+  /**
+   * Eine Berechtigung oder mehrere - `readonly`, weil die Mengen, die hier
+   * ankommen, Konstanten sind (`WORKSPACE_ZUGANG` etwa). Gelesen wird sie
+   * ohnehin nur.
+   */
+  permission: string | readonly string[],
   options: PagePermissionOptions = {},
 ): Promise<AuthContext> {
   const context = await requireMember();

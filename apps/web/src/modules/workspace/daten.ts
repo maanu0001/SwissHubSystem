@@ -69,6 +69,31 @@ export const WORKSPACE_VOLLZUGRIFF: readonly string[] = [
 ];
 
 /**
+ * Wer das Modul oeffnen darf.
+ *
+ * Die Seiten des Workspace fragen diese Menge und nicht `workspace.view`
+ * allein - «eine davon genuegt», wie `requirePagePermission` es mit mehreren
+ * Angaben ohnehin versteht.
+ *
+ * ## Der Fehler, den das behebt
+ *
+ * `darfAlles` entscheidet, **welche Zeilen** jemand sieht. Es entscheidet
+ * nicht, **ob die Seite aufgeht** - das tat der Riegel davor, und der hing an
+ * `workspace.view`. Ein Moderator, der diese Berechtigung nie zugewiesen
+ * bekam, kam damit gar nicht erst hinein: die Zusage «Moderatoren sehen alle
+ * Projekte» galt fuer eine Seite, die er nicht oeffnen konnte. Nachgemessen am
+ * gebauten Server: Projektliste ohne das private Projekt, Projektdetail ohne
+ * Inhalt, Board leer.
+ *
+ * Beide Fragen haengen jetzt an derselben Menge. Eine zweite Antwort auf
+ * «gehoert diese Person in den Workspace» gibt es nicht.
+ */
+export const WORKSPACE_ZUGANG: readonly string[] = [
+  workspace.WORKSPACE_PERMISSIONS.view,
+  ...WORKSPACE_VOLLZUGRIFF,
+];
+
+/**
  * Wer als Beteiligter in Frage kommt.
  *
  * Die Vollzugriffsberechtigungen gehören dazu, und zwar ausdrücklich: ein
@@ -80,10 +105,7 @@ export const WORKSPACE_VOLLZUGRIFF: readonly string[] = [
  * Automatisch beteiligt ist dadurch niemand. Die Liste sagt, wer **wählbar**
  * ist; eingetragen wird, wer eingetragen wird.
  */
-const WORKSPACE_BETEILIGUNG: readonly string[] = [
-  workspace.WORKSPACE_PERMISSIONS.view,
-  ...WORKSPACE_VOLLZUGRIFF,
-];
+const WORKSPACE_BETEILIGUNG: readonly string[] = WORKSPACE_ZUGANG;
 
 export function workspaceBetrachter(context: AuthContext): workspace.WorkspaceBetrachter {
   return {

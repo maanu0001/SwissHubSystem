@@ -9,7 +9,7 @@ import { ModulNavigation } from '@/components/shared/modul-navigation';
 import { Panel } from '@/components/shared/panel';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
-import { ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
+import { WORKSPACE_ZUGANG, ladeTeam, namenKarte, workspaceBetrachter, workspaceEinstellungen } from '@/modules/workspace/daten';
 import { Frist, PrioritaetAbzeichen, StatusAbzeichen, Tags } from '@/modules/workspace/components/abzeichen';
 import { AufgabeFormular } from '@/modules/workspace/components/aufgabe-formular';
 import { AufgabeBeteiligte } from '@/modules/workspace/components/aufgabe-beteiligte';
@@ -34,7 +34,7 @@ export default async function WorkspaceAufgabePage({
 }: {
   params: Promise<{ taskId: string }>;
 }): Promise<React.JSX.Element> {
-  const context = await requirePagePermission(workspace.WORKSPACE_PERMISSIONS.view);
+  const context = await requirePagePermission(WORKSPACE_ZUGANG);
   const betrachter = workspaceBetrachter(context);
   const { taskId } = await params;
   const guildId = await resolveGuildId();

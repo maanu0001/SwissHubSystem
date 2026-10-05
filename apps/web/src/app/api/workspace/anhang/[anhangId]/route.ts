@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { can } from '@swisshub/auth';
 import { prisma } from '@swisshub/database';
-import { branding as brandingModule, workspace } from '@swisshub/modules';
+import { branding as brandingModule } from '@swisshub/modules';
 import { getActionAuthContext } from '@/server/auth';
+import { WORKSPACE_ZUGANG } from '@/modules/workspace/daten';
 
 /**
  * Liefert einen Anhang aus dem Workspace aus.
@@ -33,7 +34,13 @@ export async function GET(
   if (!context?.isMember) {
     return new NextResponse(null, { status: 401 });
   }
-  if (!can(context, workspace.WORKSPACE_PERMISSIONS.view)) {
+  /*
+   * Dieselbe Menge wie die Seiten - siehe `WORKSPACE_ZUGANG`.
+   *
+   * Ein Moderator, der die Aufgabe sieht, muss ihren Anhang oeffnen koennen;
+   * eine Vorschau, deren Bild 403 liefert, waere die halbe Zusage.
+   */
+  if (!WORKSPACE_ZUGANG.some((berechtigung) => can(context, berechtigung))) {
     return new NextResponse(null, { status: 403 });
   }
 
