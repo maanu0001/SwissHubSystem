@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { can } from '@swisshub/auth';
 import { AppError } from '@swisshub/shared';
-import { level } from '@swisshub/modules';
+import { level, traegerSuche } from '@swisshub/modules';
 import { defineAction } from '@/server/action';
 import { assertModuleEnabled } from '@/server/modules';
 
@@ -232,6 +232,33 @@ export const statusSetzenAction = defineAction(
   },
 );
 
+/**
+ * Das Bild eines Symbols setzen oder entfernen - sofort.
+ *
+ * Getrennt von `symbolSpeichernAction`, weil der Upload nicht auf einen
+ * zweiten Klick warten darf: genau dieser zweite Klick ging im Betrieb
+ * verloren, und das Symbol war nach dem Neuladen wieder das alte. Die Aktion
+ * schreibt nur die Bildreferenz; alles andere am Symbol bleibt unberuehrt.
+ */
+export const symbolBildAction = defineAction(
+  {
+    name: 'level.xpslot.symbol.bild',
+    module: MODULE_ID,
+    permission: P.xpslotManage,
+    schema: S.symbolBildSchema,
+    rateLimit: 'slotAdmin',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const symbol = await S.setzeSymbolbild(input, {
+      discordId: ctx.user.discordId,
+      username: ctx.user.username,
+    });
+    revalidiereVerwaltung();
+    return { bildPfad: symbol.imagePath, bildUrl: symbol.imageUrl };
+  },
+);
+
 export const symbolSpeichernAction = defineAction(
   {
     name: 'level.xpslot.symbol',
@@ -407,6 +434,53 @@ export const freispieleGewaehrenAction = defineAction(
     );
     revalidiereVerwaltung();
     return { packageId: paket.id };
+  },
+);
+
+/**
+ * Personen fuer die Geschenke suchen.
+ *
+ * ## Warum es diese Aktion gibt
+ *
+ * Weil in der Verwaltung ein Textfeld fuer die Discord-Kennung stand. Achtzehn
+ * Ziffern, abgetippt oder kopiert, ohne Rueckmeldung, ob es die richtige
+ * Person ist - und ein Zahlendreher verschenkte Freispiele an einen
+ * Fremden. Jetzt wird nach Namen gesucht, und die Kennung bleibt, was sie
+ * sein soll: ein inneres Merkmal.
+ *
+ * ## Die Berechtigung
+ *
+ * `freespins.manage` - dieselbe wie die beiden Geschenke selbst. Wer schenken
+ * darf, darf dafuer suchen; wer nicht schenken darf, braucht die Namen nicht.
+ *
+ * ## Warum nur Spielberechtigte
+ *
+ * Ein Geschenk an jemanden, der den Slot nicht oeffnen darf, ist ein Geschenk,
+ * das niemand auspackt. Gesucht wird deshalb unter denen mit
+ * `level.xpslot.play` - im Mitgliederspiegel, also auch unter denen, die sich
+ * an der WebApp noch nie angemeldet haben.
+ */
+export const xpslotPersonSuchenAction = defineAction(
+  {
+    name: 'level.xpslot.person.suchen',
+    module: MODULE_ID,
+    permission: P.xpslotFreespinsManage,
+    schema: z.object({ begriff: z.string().trim().max(100) }),
+    rateLimit: 'slotAdmin',
+    // Nichts wird geschrieben - die Rollen frisch von Discord zu holen waere
+    // ein Gateway-Aufruf je Tastendruck.
+    freshness: 'cached',
+  },
+  async ({ input }) => {
+    const treffer = await traegerSuche(P.xpslotPlay, input.begriff, { grenze: 20 });
+    return {
+      treffer: treffer.map((person) => ({
+        discordId: person.discordId,
+        name: person.displayName,
+        username: person.username,
+        avatarHash: person.avatarHash,
+      })),
+    };
   },
 );
 

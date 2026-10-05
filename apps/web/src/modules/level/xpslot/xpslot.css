@@ -671,6 +671,126 @@
   }
 }
 
+/* --- Die grosse Meldung: Big Win, Mega Win, Jackpot ---------------------- */
+
+/*
+ * Ueber der Buehne, nicht ueber der Seite.
+ *
+ * `position: absolute` im Buehnenkasten, `inset: 0` und ein Raster, das
+ * zentriert - damit liegt die Meldung genau ueber den Walzen, die den Gewinn
+ * gemacht haben. `pointer-events: none` ist der Punkt, an dem sie sich von
+ * einem Dialog unterscheidet: der Spin-Knopf darunter bleibt bedienbar, und
+ * der naechste Spin muss nicht warten, bis jemand wegklickt.
+ *
+ * Animiert werden ausschliesslich `transform` und `opacity` - beide liegen
+ * beim Compositor. Der Schein kommt aus `text-shadow` auf einer Schrift, die
+ * sich nicht bewegt, und nicht aus einem `filter` auf einer bewegten Ebene:
+ * genau das war die Ursache der zaehen Walzen auf iOS.
+ */
+.slot-grossgewinn {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-content: center;
+  gap: 0.25rem;
+  pointer-events: none;
+  text-align: center;
+  background: radial-gradient(
+    circle at 50% 45%,
+    hsl(var(--background) / 0.72),
+    hsl(var(--background) / 0.18) 65%,
+    transparent
+  );
+  animation: slot-grossgewinn-auf 0.42s cubic-bezier(0.17, 0.89, 0.32, 1.28) both;
+}
+
+.slot-grossgewinn__titel {
+  font-size: clamp(1.75rem, 9cqw, 3.5rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: hsl(var(--primary-bright));
+  text-shadow:
+    0 0 18px hsl(var(--primary-bright) / 0.75),
+    0 0 44px hsl(var(--primary-bright) / 0.45);
+  animation: slot-grossgewinn-puls 1.1s ease-in-out infinite alternate;
+}
+
+.slot-grossgewinn__zahl {
+  font-size: clamp(1.1rem, 5cqw, 2rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--foreground));
+  text-shadow: 0 0 14px hsl(var(--primary-bright) / 0.5);
+}
+
+/*
+ * Mega und Jackpot: dasselbe, nur mehr.
+ *
+ * Mehr Glut im Titel, ein Hauch Gold beim Jackpot, eine kraeftigere Bewegung.
+ * Keine zweite Anordnung - ein Spieler soll den Unterschied spueren und nicht
+ * ein anderes Spiel sehen.
+ */
+.slot-grossgewinn--mega .slot-grossgewinn__titel,
+.slot-grossgewinn--jackpot .slot-grossgewinn__titel {
+  font-size: clamp(2rem, 11cqw, 4.25rem);
+  text-shadow:
+    0 0 24px hsl(var(--primary-bright) / 0.9),
+    0 0 60px hsl(var(--primary-bright) / 0.6),
+    0 0 110px hsl(var(--primary-bright) / 0.35);
+  animation-duration: 0.75s;
+}
+
+.slot-grossgewinn--jackpot .slot-grossgewinn__titel {
+  color: hsl(45 96% 62%);
+  text-shadow:
+    0 0 24px hsl(45 96% 62% / 0.9),
+    0 0 60px hsl(45 96% 62% / 0.6),
+    0 0 110px hsl(45 96% 62% / 0.35);
+}
+
+.slot-grossgewinn--mega,
+.slot-grossgewinn--jackpot {
+  background: radial-gradient(
+    circle at 50% 45%,
+    hsl(var(--background) / 0.82),
+    hsl(var(--background) / 0.3) 70%,
+    transparent
+  );
+}
+
+@keyframes slot-grossgewinn-auf {
+  from {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slot-grossgewinn-puls {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.045);
+  }
+}
+
+/*
+ * Ruhig: steht da, bewegt sich nicht.
+ *
+ * Die Meldung entfaellt nicht - wer weniger Bewegung will, will trotzdem
+ * wissen, dass er gerade viel gewonnen hat.
+ */
+.slot-grossgewinn--ruhig,
+.slot-grossgewinn--ruhig .slot-grossgewinn__titel {
+  animation: none;
+}
+
 /* --- Partikel ------------------------------------------------------------ */
 
 /*
@@ -991,6 +1111,8 @@
 
   .slot-zelle--treffer::after,
   .slot-gewinn,
+  .slot-grossgewinn,
+  .slot-grossgewinn__titel,
   .slot-leiter-wurf {
     animation: none;
   }

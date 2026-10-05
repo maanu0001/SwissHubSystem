@@ -24,7 +24,15 @@ import { describe, expect, it } from 'vitest';
  */
 const lies = (pfad: string): string => readFileSync(pfad, 'utf8');
 
-const suche = lies('apps/web/src/modules/workspace/components/personensuche.tsx');
+/**
+ * Der Picker liegt zentral.
+ *
+ * Er wird an zwei Stellen gebraucht - Workspace-Beteiligte und XP-Slot-
+ * Geschenke -, und darum steht er unter `components/shared`. Was den
+ * Workspace daran betrifft, ist eine Zeile: welche Suche gefragt wird.
+ */
+const suche = lies('apps/web/src/components/shared/personensuche.tsx');
+const anschluss = lies('apps/web/src/modules/workspace/components/personensuche.tsx');
 const daten = lies('apps/web/src/modules/workspace/daten.ts');
 const aktionen = lies('apps/web/src/modules/workspace/actions.ts');
 const traeger = lies('packages/modules/src/traeger.ts');
@@ -37,7 +45,7 @@ describe('Beteiligten-Suche: die Quelle', () => {
     expect(traeger).toContain('export async function traegerSuche(');
     expect(traeger).toContain('suchePersonenSpiegel(suche,');
     expect(daten).toContain('export async function sucheTeam(');
-    expect(daten).toContain('traegerSuche(workspace.WORKSPACE_PERMISSIONS.view, begriff');
+    expect(daten).toContain('traegerSuche(WORKSPACE_BETEILIGUNG, begriff');
   });
 
   it('prueft die Berechtigung an den Rollen des Spiegels', () => {
@@ -60,7 +68,7 @@ describe('Beteiligten-Suche: die Quelle', () => {
     // verschwinden - und eine frisch eingerichtete Anwendung ohne Abgleich
     // auch nicht leer dastehen.
     expect(daten).toContain('traegerDerBerechtigung(workspace.WORKSPACE_PERMISSIONS.view)');
-    expect(daten).toContain("traegerSuche(workspace.WORKSPACE_PERMISSIONS.view, ''");
+    expect(daten).toContain("traegerSuche(WORKSPACE_BETEILIGUNG, ''");
     expect(daten).toContain('if (!liste.has(person.discordId))');
   });
 });
@@ -81,7 +89,8 @@ describe('Beteiligten-Suche: der Endpunkt', () => {
 
 describe('Beteiligten-Suche: das Feld', () => {
   it('fragt die Server Action und nicht eine uebergebene Liste', () => {
-    expect(suche).toContain('workspaceTeamSuchenAction({ csrfToken, begriff })');
+    expect(anschluss).toContain('workspaceTeamSuchenAction({ csrfToken, begriff })');
+    expect(suche).toContain('const antwort = await suchen(begriff);');
     // Die alte Form: ein Filter ueber `team`, das die Seite mitgebracht hat.
     expect(suche).not.toContain('team: readonly Teammitglied[]');
   });

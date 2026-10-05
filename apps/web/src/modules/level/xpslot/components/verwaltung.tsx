@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Personensuche, type Personentreffer } from '@/components/shared/personensuche';
 import { toast } from 'sonner';
 import {
   AlertTriangle,
@@ -51,7 +52,9 @@ import {
   paketLoeschenAction,
   paytableSpeichernAction,
   statusSetzenAction,
+  symbolBildAction,
   symbolSpeichernAction,
+  xpslotPersonSuchenAction,
   testlaufAction,
 } from '../../xpslot-actions';
 
@@ -830,6 +833,7 @@ function SymbolZeile({
   laeuft: boolean;
   fuehreAus: ReturnType<typeof useSpeichern>['fuehreAus'];
 }): React.JSX.Element {
+  const router = useRouter();
   const [werte, setWerte] = useState({
     name: symbol.name,
     aktiv: symbol.active,
@@ -866,8 +870,29 @@ function SymbolZeile({
         toast.error(ergebnis.error.message);
         return;
       }
+      /*
+       * Und sofort speichern.
+       *
+       * Hier endete der Vorgang einmal mit «Bild hochgeladen. Noch
+       * speichern.» - und genau dieses «noch» ging im Betrieb verloren: die
+       * Datei lag im Upload-Verzeichnis, die Vorschau zeigte sie, in der
+       * Datenbank stand weiter das alte Bild. Ein Upload, den man bestaetigen
+       * muss, ist ein halb gespeicherter Zustand, und der sieht aus wie ein
+       * gespeicherter.
+       */
+      const gesetzt = await symbolBildAction({
+        csrfToken,
+        key: symbol.key,
+        bildPfad: ergebnis.data.dateiname,
+        bildUrl: werte.bildUrl.trim() || null,
+      });
+      if (!gesetzt.ok) {
+        toast.error(gesetzt.error?.message ?? 'Das Bild konnte nicht gespeichert werden.');
+        return;
+      }
       setWerte((vorher) => ({ ...vorher, bildPfad: ergebnis.data.dateiname }));
-      toast.success('Bild hochgeladen. Noch speichern.');
+      toast.success('Bild gespeichert.');
+      router.refresh();
     } finally {
       setLaedt(false);
     }
@@ -1018,23 +1043,7 @@ function SymbolZeile({
                 disabled={laeuft}
                 onClick={() =>
                   void fuehreAus(
-                    () =>
-                      symbolSpeichernAction({
-                        csrfToken,
-                        key: symbol.key,
-                        name: werte.name,
-                        aktiv: werte.aktiv,
-                        gewicht: werte.gewicht,
-                        glow: werte.glow,
-                        bildPfad: null,
-                        bildUrl: null,
-                        auszahlung3: werte.auszahlung3,
-                        auszahlung4: werte.auszahlung4,
-                        auszahlung5: werte.auszahlung5,
-                        premiumTage3: werte.premiumTage3,
-                        premiumTage4: werte.premiumTage4,
-                        premiumTage5: werte.premiumTage5,
-                      }),
+                    () => symbolBildAction({ csrfToken, key: symbol.key, bildPfad: null, bildUrl: null }),
                     `${werte.name} nutzt wieder das Standardsymbol.`,
                     () => setWerte((v) => ({ ...v, bildPfad: null, bildUrl: '' })),
                   )
@@ -1218,19 +1227,34 @@ function FreespinsTab({
 }: VerwaltungProps): React.JSX.Element {
   const { laeuft, fuehreAus } = useSpeichern();
   const nachKennung = useMemo(() => new Map(namen.map((eintrag) => [eintrag.discordId, eintrag])), [namen]);
+  /*
+   * Die beschenkte Person - als Person, nicht als Kennung.
+   *
+   * Hier stand ein Textfeld fuer die Discord-ID. Achtzehn Ziffern, die
+   * niemand im Kopf hat, ohne jede Rueckmeldung, ob sie zur gemeinten Person
+   * gehoeren: ein Zahlendreher verschenkte Freispiele an einen Fremden, und
+   * auffallen wuerde das erst, wenn sich jemand wundert. Jetzt wird gesucht -
+   * mit Gesicht, Namen und Benutzernamen -, und die Kennung bleibt innen.
+   */
+  const [neuPerson, setNeuPerson] = useState<Personentreffer | null>(null);
   const [neu, setNeu] = useState({
-    discordId: '',
     anzahl: 10,
     einsatz: konfiguration.wirksam.einsaetze[0] ?? 10,
     laeuftAb: '',
     grund: '',
   });
+  const [bonusPerson, setBonusPerson] = useState<Personentreffer | null>(null);
   const [bonus, setBonus] = useState({
-    discordId: '',
     einsatz: konfiguration.wirksam.einsaetze[0] ?? 10,
     laeuftAb: '',
     grund: '',
   });
+  /** Nach dem Verschenken wieder leer - die Suche setzt sich mit zurueck. */
+  const [runde, setRunde] = useState(0);
+  const suchen = useCallback(
+    (begriff: string) => xpslotPersonSuchenAction({ csrfToken, begriff }),
+    [csrfToken],
+  );
 
   if (!darfFreispiele) {
     return (
@@ -1251,13 +1275,18 @@ function FreespinsTab({
       >
         <div className="grid gap-3 sm:grid-cols-5">
           <div className="sm:col-span-2">
-            <Label className="text-xs">Discord-Kennung</Label>
-            <Input
-              className="mt-1"
-              placeholder="123456789012345678"
-              value={neu.discordId}
-              onChange={(ereignis) => setNeu((v) => ({ ...v, discordId: ereignis.target.value.trim() }))}
-            />
+            <Label className="text-xs">Person</Label>
+            <div className="mt-1">
+              <Personensuche<Personentreffer>
+                key={`frei-${runde}`}
+                suchen={suchen}
+                ausgeschlossen={[]}
+                wert={neuPerson}
+                aufWahl={setNeuPerson}
+                beschriftung="Person für die Freispiele suchen"
+                leerText="Niemand mit diesem Namen darf den Slot spielen."
+              />
+            </div>
           </div>
           <div>
             <Label className="text-xs">Anzahl</Label>
@@ -1302,19 +1331,26 @@ function FreespinsTab({
           <div className="flex items-end">
             <Button
               className="w-full"
-              disabled={laeuft || neu.discordId.length < 17}
+              disabled={laeuft || neuPerson === null}
               onClick={() =>
                 void fuehreAus(
                   () =>
                     freispieleGewaehrenAction({
                       csrfToken,
-                      discordId: neu.discordId,
+                      discordId: neuPerson?.discordId ?? '',
                       anzahl: neu.anzahl,
                       einsatz: neu.einsatz,
                       laeuftAb: neu.laeuftAb ? new Date(neu.laeuftAb) : null,
                       grund: neu.grund.trim() || null,
                     }),
                   'Freispiele gewährt.',
+                  // Danach leer: ein Formular, in dem noch die eben
+                  // beschenkte Person steht, verschenkt beim naechsten Klick
+                  // versehentlich zweimal.
+                  () => {
+                    setNeuPerson(null);
+                    setRunde((vorher) => vorher + 1);
+                  },
                 )
               }
             >
@@ -1412,13 +1448,18 @@ function FreespinsTab({
       >
         <div className="grid gap-3 sm:grid-cols-5">
           <div className="sm:col-span-2">
-            <Label className="text-xs">Discord-Kennung</Label>
-            <Input
-              className="mt-1"
-              placeholder="123456789012345678"
-              value={bonus.discordId}
-              onChange={(ereignis) => setBonus((v) => ({ ...v, discordId: ereignis.target.value.trim() }))}
-            />
+            <Label className="text-xs">Person</Label>
+            <div className="mt-1">
+              <Personensuche<Personentreffer>
+                key={`bonus-${runde}`}
+                suchen={suchen}
+                ausgeschlossen={[]}
+                wert={bonusPerson}
+                aufWahl={setBonusPerson}
+                beschriftung="Person für das Bonusspiel suchen"
+                leerText="Niemand mit diesem Namen darf den Slot spielen."
+              />
+            </div>
           </div>
           <div>
             <Label className="text-xs">Einsatz</Label>
@@ -1446,18 +1487,22 @@ function FreespinsTab({
           <div className="flex items-end">
             <Button
               className="w-full"
-              disabled={laeuft || bonus.discordId.length < 17}
+              disabled={laeuft || bonusPerson === null}
               onClick={() =>
                 void fuehreAus(
                   () =>
                     bonusSchenkenAction({
                       csrfToken,
-                      discordId: bonus.discordId,
+                      discordId: bonusPerson?.discordId ?? '',
                       einsatz: bonus.einsatz,
                       laeuftAb: bonus.laeuftAb ? new Date(bonus.laeuftAb) : null,
                       grund: bonus.grund.trim() || null,
                     }),
                   'Bonusspiel geschenkt.',
+                  () => {
+                    setBonusPerson(null);
+                    setRunde((vorher) => vorher + 1);
+                  },
                 )
               }
             >

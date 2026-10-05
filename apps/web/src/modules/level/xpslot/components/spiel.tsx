@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 import { Partikel, Walzen } from './walzen';
 import { LINIEN_ZEITEN, linienfolge } from './linienfolge';
 import { symbolBild } from '../adressen';
-import { Hochzaehlen, SlotOverlay } from './meldung';
+import { GrosserGewinn, Hochzaehlen, SlotOverlay } from './meldung';
 import { Infotafel } from './infotafel';
 import { Leiter } from './leiter';
 import { Rad } from './rad';
@@ -138,6 +138,27 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
    * Zeichenanimation der Linie gegen eine andere Uhr als die Anzeige.
    */
   const [linienDauer, setLinienDauer] = useState(LINIEN_ZEITEN.ruhig);
+  /**
+   * Alle Gewinnzellen zusammen hervorheben.
+   *
+   * ## Der Fehler, den dieser Zustand behebt
+   *
+   * Die Hervorhebung hing allein an `sichtbareLinie === null` - und `null`
+   * heisst zweimal etwas anderes: **vor** der Reihe «noch keine Linie» und
+   * **nach** ihr «alle». Zwischen Walzenstopp und erster Linie leuchteten
+   * deshalb schon alle Gewinnfelder gemeinsam auf, und die Reihe erzaehlte
+   * danach etwas, das man bereits gesehen hatte.
+   *
+   * Jetzt sagt dieser Schalter, welches der beiden `null` gemeint ist. Vor
+   * der Reihe leuchtet nichts; wer gewonnen hat, erfaehrt es Linie fuer
+   * Linie - oder beim Sprung sofort und vollstaendig.
+   */
+  const [alleZellen, setAlleZellen] = useState(false);
+  /** Die grosse Meldung - «BIG WIN», «MEGA WIN», «JACKPOT». */
+  const [grosseMeldung, setGrosseMeldung] = useState<{
+    stufe: level.xpslot.Gewinnstufe;
+    gewinn: number;
+  } | null>(null);
   const [beschaeftigt, setBeschaeftigt] = useState(false);
   const [autoRest, setAutoRest] = useState(0);
   const [schnell, setSchnell] = useState(false);
@@ -388,15 +409,18 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     melde({ art: 'stimmung', freispiel: imFreispiel });
   }, [imFreispiel, melde, ton.freigegeben]);
 
-  const trefferZellen = useMemo(
-    () =>
-      ergebnis && !laufend.some(Boolean)
-        ? ergebnis.treffer
-            .filter((treffer) => sichtbareLinie === null || treffer.linie === sichtbareLinie)
-            .flatMap((treffer) => treffer.zellen)
-        : [],
-    [ergebnis, laufend, sichtbareLinie],
-  );
+  const trefferZellen = useMemo(() => {
+    if (!ergebnis || laufend.some(Boolean)) {
+      return [];
+    }
+    if (sichtbareLinie !== null) {
+      // Genau die Zellen dieser einen Linie - nicht die des Spins.
+      return ergebnis.treffer
+        .filter((treffer) => treffer.linie === sichtbareLinie)
+        .flatMap((treffer) => treffer.zellen);
+    }
+    return alleZellen ? ergebnis.treffer.flatMap((treffer) => treffer.zellen) : [];
+  }, [alleZellen, ergebnis, laufend, sichtbareLinie]);
 
   const linienPfad = useMemo(() => {
     if (sichtbareLinie === null || !ergebnis) {
@@ -420,6 +444,8 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     sprungRef.current = null;
     setErgebnis(null);
     setSichtbareLinie(null);
+    setAlleZellen(false);
+    setGrosseMeldung(null);
     setLeiterVerloren(false);
     setLaufend(Array.from({ length: ansicht.walzen }, () => true));
     melde({ art: 'spinStarted' });
@@ -537,12 +563,19 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     melde({ art: 'reelsFinished' });
 
     /*
-     * Der Sprung ist hier verbraucht.
+     * Der Sprung gilt auch fuer die Reihe danach.
      *
-     * Was er abkuerzen sollte, ist vorbei: die Walzen stehen. Die
-     * Gewinnlinien danach laufen wieder normal - sie sind nicht das Warten,
-     * das jemand ueberspringen wollte, sondern das, worauf er gewartet hat.
+     * Hier stand das Gegenteil: der Sprung war mit dem Walzenstopp
+     * verbraucht, weil die Gewinnlinien «das sind, worauf er gewartet hat».
+     * Im Spiel ist es anders - wer waehrend des Spins noch einmal drueckt,
+     * will das Ergebnis sehen und nicht vier Sekunden Vorfuehrung. Genau das
+     * macht ein Automat mit «Fast Stop»: Walzen sofort, alles hervorgehoben,
+     * Summe da.
+     *
+     * Die Absicht wird darum **gemerkt**, bevor der Hebel zurueckgesetzt
+     * wird; der naechste Spin beginnt wieder ohne sie.
      */
+    const uebersprungen = uebersprungenRef.current;
     uebersprungenRef.current = false;
     sprungRef.current = null;
 
@@ -577,6 +610,8 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       schnell,
       wenigerBewegung,
       bonusAusgeloest: spin.bonusAusgeloest,
+      uebersprungen,
+      stufe: spin.stufe,
     });
     if (spin.bonusAusgeloest) {
       melde({ art: 'bonusTriggered', retrigger: spin.art === 'BONUS_ROUND' });
@@ -647,13 +682,17 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
      * Eine Schleife ueber `folge.schritte`, und sonst nichts: keine zweite
      * Fallunterscheidung, keine Kette unabhaengiger Zeitgeber, kein Zweig,
      * der bei vier Linien in keinen von beiden faellt. Was der Server
-     * geschickt hat, laeuft hier genau einmal durch.
+     * geschickt hat, laeuft hier genau einmal durch - es sei denn, der Plan
+     * sagt `sofortAlle`, und das sagt er nur beim Sprung.
      *
-     * Abgebrochen wird nur, wenn die Seite verlassen wurde (`lebtRef`) -
-     * nicht durch einen harmlosen Re-Render und nicht durch den Sprung, der
-     * oben nach dem Walzenstopp verbraucht wurde.
+     * Abgebrochen wird sonst nur, wenn die Seite verlassen wurde (`lebtRef`) -
+     * nicht durch einen harmlosen Re-Render.
      */
-    if (folge.schritte.length > 0) {
+    if (folge.sofortAlle) {
+      // Fast Stop: keine Reihe, sondern das ganze Bild auf einmal.
+      setSichtbareLinie(null);
+      setAlleZellen(true);
+    } else if (folge.schritte.length > 0) {
       setLinienDauer(folge.dauerMs);
       if (folge.vorlaufMs > 0) {
         await warte(folge.vorlaufMs);
@@ -662,6 +701,18 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
         }
       }
       for (const schritt of folge.schritte) {
+        /*
+         * Ein Sprung mitten in der Reihe beendet sie.
+         *
+         * Dieselbe Bitte wie oben, nur spaeter gestellt: wer waehrend der
+         * dritten von zehn Linien drueckt, will die uebrigen sieben nicht
+         * mehr sehen. Die Zellen und die Summe stehen gleich danach
+         * vollstaendig da - uebersprungen wird die Vorfuehrung, nicht das
+         * Ergebnis.
+         */
+        if (uebersprungenRef.current) {
+          break;
+        }
         setSichtbareLinie(schritt.linie);
         melde({ art: 'winLineShown', stufe: schritt.stufe });
         await warte(folge.dauerMs);
@@ -671,11 +722,35 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       }
       /*
        * Danach die Gesamtansicht: alle Gewinnzellen hervorgehoben, der
-       * Gesamtgewinn in der Gewinnzeile. Beides haengt an `sichtbareLinie`,
-       * und `null` heisst «keine einzelne Linie mehr, sondern alle».
+       * Gesamtgewinn in der Gewinnzeile.
        */
       setSichtbareLinie(null);
+      setAlleZellen(true);
       melde({ art: 'allLinesFinished' });
+      if (folge.abschlussklang) {
+        melde({ art: 'spinResult', stufe: folge.abschlussklang });
+      }
+    }
+
+    /*
+     * Die grosse Meldung - Big Win, Mega Win, Jackpot.
+     *
+     * Sie kommt **nach** der Reihe und nicht vor ihr: erst sieht man, woher
+     * der Gewinn kommt, dann wie gross er ist. Beim Sprung faellt die Reihe
+     * weg und die Meldung kommt sofort - sie ist dann das Ergebnis, nach dem
+     * gedrueckt wurde.
+     *
+     * Der Schwellenwert dafuer steht in der Konfiguration (`Big Win ab ×`,
+     * `Mega Win ab ×`) und ist serverseitig angewandt; hier kommt nur noch
+     * die Stufe an.
+     */
+    if (folge.meldung) {
+      setGrosseMeldung({ stufe: folge.meldung, gewinn: spin.gewinn });
+      await warte(folge.meldungMs);
+      if (!lebtRef.current) {
+        return { weiter: false, grund: null };
+      }
+      setGrosseMeldung(null);
     }
 
     /*
@@ -1110,10 +1185,11 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
             Waehrend der Reihe gehoert die Buehne der Linie und ihrem
             eigenen XP-Schild; die Summe darueber waere die Antwort, bevor
             die Frage fertig gestellt ist. `sichtbareLinie === null` ist
-            genau «die Reihe ist durch» - und bei einem Spin ohne Gewinnlinie
-            von Anfang an wahr.
+            `alleZellen` ist genau «die Reihe ist durch» - oder, beim
+            Sprung, «es gab keine». Vor der Reihe steht hier nichts: die
+            Summe waere die Antwort, bevor die Frage fertig gestellt ist.
           */}
-          {ergebnis && ergebnis.gewinn > 0 && !laufend.some(Boolean) && sichtbareLinie === null ? (
+          {ergebnis && ergebnis.gewinn > 0 && !laufend.some(Boolean) && alleZellen ? (
             <div className="text-center">
               <p className="slot-gewinn text-2xl font-black text-[hsl(var(--primary-bright))] sm:text-3xl">
                 +<Hochzaehlen ziel={ergebnis.gewinn} ruhig={wenigerBewegung} /> XP
@@ -1135,6 +1211,27 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
 
         {(stufe === 'gross' || stufe === 'mega' || stufe === 'jackpot') && !wenigerBewegung ? (
           <Partikel anzahl={stufe === 'jackpot' ? 18 : 12} />
+        ) : null}
+
+        {/*
+          Die grosse Meldung liegt ueber der Buehne und nicht ueber der Seite.
+
+          Sie gehoert zu dem Bild, das den Gewinn gemacht hat: man sieht die
+          hervorgehobenen Walzen durch sie hindurch. Ein Vollbild-Overlay
+          haette dieselbe Zahl gezeigt und den Zusammenhang verdeckt.
+        */}
+        {grosseMeldung ? (
+          <GrosserGewinn
+            stufe={
+              grosseMeldung.stufe === 'mega'
+                ? 'mega'
+                : grosseMeldung.stufe === 'jackpot'
+                  ? 'jackpot'
+                  : 'gross'
+            }
+            gewinn={grosseMeldung.gewinn}
+            ruhig={wenigerBewegung}
+          />
         ) : null}
       </div>
 

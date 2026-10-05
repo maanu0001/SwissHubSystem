@@ -1,6 +1,11 @@
 import { prisma } from '@swisshub/database';
 import { bootstrapConfig } from '@swisshub/config';
-import { hasPermission, loadRoleConfiguration, resolvePermissions } from '@swisshub/permissions';
+import {
+  hasAnyPermission,
+  hasPermission,
+  loadRoleConfiguration,
+  resolvePermissions,
+} from '@swisshub/permissions';
 import { suchePersonenSpiegel, type SpiegelPerson } from './members/service';
 
 /**
@@ -109,7 +114,7 @@ export interface TraegerPerson {
 const ROHMENGE = 200;
 
 export async function traegerSuche(
-  permission: string,
+  permission: string | readonly string[],
   suche: string,
   optionen: { grenze?: number } = {},
 ): Promise<TraegerPerson[]> {
@@ -137,20 +142,29 @@ export async function traegerSuche(
   return treffer;
 }
 
+/**
+ * Besitzt diese Person die Berechtigung - oder eine davon?
+ *
+ * Mehrere, weil manche Fragen mehrere Antworten haben. «Wer darf als
+ * Beteiligter im Workspace stehen» sind die mit `workspace.view` **und** die,
+ * die ohnehin alles sehen: Administration und Moderation. Eine Liste mit
+ * `hasAnyPermission` sagt das in einer Zeile; drei Aufrufe mit drei
+ * Ergebnislisten muessten danach wieder vereinigt werden.
+ */
 function darf(
   person: SpiegelPerson,
   mappings: Awaited<ReturnType<typeof loadRoleConfiguration>>['mappings'],
-  permission: string,
+  permission: string | readonly string[],
 ): boolean {
-  return hasPermission(
-    resolvePermissions(
-      {
-        discordId: person.discordId,
-        roleIds: person.roleIds,
-        isOwner: bootstrapConfig.ownerDiscordId === person.discordId,
-      },
-      mappings,
-    ),
-    permission,
+  const aufloesung = resolvePermissions(
+    {
+      discordId: person.discordId,
+      roleIds: person.roleIds,
+      isOwner: bootstrapConfig.ownerDiscordId === person.discordId,
+    },
+    mappings,
   );
+  return typeof permission === 'string'
+    ? hasPermission(aufloesung, permission)
+    : hasAnyPermission(aufloesung, [...permission]);
 }

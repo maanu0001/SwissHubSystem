@@ -615,7 +615,15 @@ describe('Standard-Assets', () => {
      * `null` schicken.
      */
     const verwaltung = lies('apps/web/src/modules/level/xpslot/components/verwaltung.tsx');
-    expect(verwaltung).toContain('bildPfad: null,\n                        bildUrl: null,');
+    /*
+     * Geschickt wird `null` - und zwar ueber die schmale Aktion, die nur das
+     * Bild anfasst. Vorher ging das Zuruecksetzen durch `symbolSpeichernAction`
+     * mit allen zwoelf Feldern und durch das RTP-Tor; ein Symbolbild hat mit
+     * der Spielbarkeit nichts zu tun.
+     */
+    expect(verwaltung).toContain(
+      'symbolBildAction({ csrfToken, key: symbol.key, bildPfad: null, bildUrl: null })',
+    );
     expect(verwaltung).toContain('Auf Standard zurücksetzen');
   });
 

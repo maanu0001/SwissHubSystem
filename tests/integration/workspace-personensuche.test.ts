@@ -20,12 +20,21 @@ useTestSchema('test_workspace_personensuche');
  * dieselbe Berechtigung.
  */
 const { prisma } = await import('@swisshub/database');
-const { traegerDerBerechtigung, traegerSuche, workspace } = await import('@swisshub/modules');
+const { moderation, traegerDerBerechtigung, traegerSuche, workspace } = await import('@swisshub/modules');
+const { hasPermission, loadRoleConfiguration, resolvePermissions } = await import('@swisshub/permissions');
 
 /** Die Rolle, die den Workspace oeffnen darf. */
 const TEAMROLLE = '900000000000000061';
 /** Eine Rolle ohne jede Berechtigung. */
 const GASTROLLE = '900000000000000062';
+/**
+ * Die Moderationsrolle - mit `moderation.execute` und **ohne** `workspace.view`.
+ *
+ * Genau so steht sie in der Vorlage «Moderator»: moderieren ja, Workspace
+ * nicht eigens zugewiesen. Daran entscheidet sich, ob ein Moderator im
+ * Beteiligten-Picker auftaucht.
+ */
+const MODROLLE = '900000000000000063';
 
 /** Wer sich angemeldet hat - und im Spiegel steht. */
 const ANGEMELDET = '100000000000000061';
@@ -77,14 +86,22 @@ describeWithDatabase('Workspace: Quelle der Beteiligten-Suche', () => {
       data: [
         { discordRoleId: TEAMROLLE, label: 'Team' },
         { discordRoleId: GASTROLLE, label: 'Gast' },
+        { discordRoleId: MODROLLE, label: 'Moderation', moderationLevel: 50 },
       ],
     });
-    await prisma.rolePermission.create({
-      data: {
-        discordRoleId: TEAMROLLE,
-        permission: workspace.WORKSPACE_PERMISSIONS.view,
-        effect: 'ALLOW',
-      },
+    await prisma.rolePermission.createMany({
+      data: [
+        {
+          discordRoleId: TEAMROLLE,
+          permission: workspace.WORKSPACE_PERMISSIONS.view,
+          effect: 'ALLOW',
+        },
+        {
+          discordRoleId: MODROLLE,
+          permission: moderation.MODERATION_PERMISSIONS.execute,
+          effect: 'ALLOW',
+        },
+      ],
     });
 
     // Eine Person, die sich angemeldet hat - die alte Quelle kennt nur sie.
@@ -167,6 +184,51 @@ describeWithDatabase('Workspace: Quelle der Beteiligten-Suche', () => {
       'Teamli03',
       'Teamli04',
     ]);
+  });
+
+  it('findet die Moderation, obwohl sie `workspace.view` nicht einzeln hat', async () => {
+    /*
+     * ## Die Zusage
+     *
+     * Moderatoren sehen jedes Projekt und jede Aufgabe - und müssen sich
+     * deshalb auch in eines eintragen lassen können. Vorher waren sie im
+     * Suchfeld nicht auffindbar: gesucht wurde nach `workspace.view`, und die
+     * brauchten sie nie, um hineinzukommen.
+     */
+    await spiegelPerson('200000000000005001', 'Mira', [MODROLLE]);
+
+    const konfiguration = await loadRoleConfiguration(true);
+    const aufloesung = resolvePermissions(
+      { discordId: '200000000000005001', roleIds: [MODROLLE], isOwner: false },
+      konfiguration.mappings,
+    );
+    // So steht es in der Vorlage: moderieren ja, Workspace nicht eigens.
+    expect(hasPermission(aufloesung, moderation.MODERATION_PERMISSIONS.execute)).toBe(true);
+    expect(hasPermission(aufloesung, workspace.WORKSPACE_PERMISSIONS.view)).toBe(false);
+    expect(hasPermission(aufloesung, workspace.WORKSPACE_PERMISSIONS.settingsManage)).toBe(false);
+
+    // Die alte Suchmenge findet sie nicht ...
+    expect(await traegerSuche(workspace.WORKSPACE_PERMISSIONS.view, 'mira')).toEqual([]);
+
+    // ... die Menge, die der Workspace jetzt benutzt, schon.
+    const beteiligung = [
+      workspace.WORKSPACE_PERMISSIONS.view,
+      workspace.WORKSPACE_PERMISSIONS.settingsManage,
+      moderation.MODERATION_PERMISSIONS.execute,
+    ];
+    const treffer = await traegerSuche(beteiligung, 'mira');
+    expect(treffer.map((person) => person.displayName)).toEqual(['Mira']);
+  });
+
+  it('lässt ein gewöhnliches Mitglied weiterhin draussen', async () => {
+    // Eine Rolle ohne jede Berechtigung bleibt eine Rolle ohne jede.
+    await spiegelPerson('200000000000005002', 'Gustav', [GASTROLLE]);
+    const beteiligung = [
+      workspace.WORKSPACE_PERMISSIONS.view,
+      workspace.WORKSPACE_PERMISSIONS.settingsManage,
+      moderation.MODERATION_PERMISSIONS.execute,
+    ];
+    expect(await traegerSuche(beteiligung, 'gustav')).toEqual([]);
   });
 
   it('gibt ohne Suchbegriff alle Berechtigten des Spiegels', async () => {

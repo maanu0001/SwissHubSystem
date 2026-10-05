@@ -366,6 +366,74 @@ export async function speichereSymbol(
   return { symbol, rtp };
 }
 
+export const symbolBildSchema = z.object({
+  key: z.string().min(1).max(40),
+  bildPfad: z.string().max(200).nullable(),
+  bildUrl: z.string().max(1000).nullable(),
+});
+
+export type SymbolBildEingabe = z.infer<typeof symbolBildSchema>;
+
+/**
+ * Nur das Bild eines Symbols - und sofort.
+ *
+ * ## Der Fehler, den das behebt
+ *
+ * Ein hochgeladenes Symbol kam nicht an. Nachgemessen: die Datei lag im
+ * Upload-Verzeichnis, der Auslieferungspfad stimmte, die Vorschau zeigte das
+ * neue Bild - und nach dem Neuladen stand das alte da. Die Ursache war kein
+ * verlorenes Byte, sondern ein zweiter Schritt: der Upload schrieb die
+ * Referenz in den **Formularzustand** des Browsers, und in die Datenbank kam
+ * sie erst, wenn jemand ausserdem «Speichern» drueckte. Die Erfolgsmeldung
+ * sagte das sogar - «Bild hochgeladen. Noch speichern.» -, nur ist eine
+ * Kachel mit acht Symbolen und zwoelf Feldern kein Ort, an dem man eine
+ * solche Fussnote liest.
+ *
+ * Jetzt ist der Upload der Speichervorgang. Diese Funktion schreibt
+ * ausschliesslich die Bildreferenz; Gewicht, Auszahlungen und Name bleiben,
+ * wie sie sind, auch wenn im Formular daneben gerade etwas anderes steht.
+ *
+ * ## Warum ohne RTP-Pruefung
+ *
+ * Weil ein Bild die Auszahlung nicht veraendert. `speichereSymbol` prueft die
+ * Spielbarkeit, und das ist dort richtig - hier waere es eine Sperre, die ein
+ * Symbolbild von einer Gewichtung abhaengig macht, die jemand anders
+ * eingestellt hat.
+ */
+export async function setzeSymbolbild(eingabe: SymbolBildEingabe, akteur: SlotAkteur): Promise<XpSlotSymbol> {
+  const vorher = await prisma.xpSlotSymbol.findUnique({ where: { key: eingabe.key } });
+  if (!vorher) {
+    throw notFound('Dieses Symbol gibt es nicht.');
+  }
+
+  const symbol = await prisma.xpSlotSymbol.update({
+    where: { key: eingabe.key },
+    data: { imagePath: eingabe.bildPfad, imageUrl: eingabe.bildUrl },
+  });
+
+  // Die ersetzte Datei geht mit: eine Datei ohne Zeile ist Muell im
+  // Upload-Verzeichnis, und der Name ist zufaellig - niemand findet sie
+  // spaeter wieder.
+  if (vorher.imagePath && vorher.imagePath !== symbol.imagePath) {
+    await loescheSymbolbild(vorher.imagePath);
+  }
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.XP_SLOT_SYMBOL_UPDATED,
+    module: LEVEL_MODULE_ID,
+    actorDiscordId: akteur.discordId,
+    actorUsername: akteur.username ?? null,
+    targetLabel: `${symbol.name} (${symbol.key})`,
+    success: true,
+    metadata: {
+      bild: symbol.imagePath ?? symbol.imageUrl ?? 'Standard',
+      vorher: vorher.imagePath ?? vorher.imageUrl ?? 'Standard',
+    },
+  });
+
+  return symbol;
+}
+
 /** Nur die Auszahlungen, fuer die Paytable-Ansicht. */
 export const paytableSchema = z.object({
   zeilen: z

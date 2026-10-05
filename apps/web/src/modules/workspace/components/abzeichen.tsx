@@ -87,28 +87,35 @@ export function Frist({
 }
 
 /**
- * Die Zuständigen als Avatarreihe.
+ * Die Zuständigen als Avatarreihe - alle.
  *
- * Höchstens vier, danach eine Zahl: fünf Bilder nebeneinander sind auf einer
- * Karte breiter als ihr Titel.
+ * ## Was hier vorher stand
+ *
+ * Höchstens vier Bilder, danach «+3». Die Begründung war die Kartenbreite,
+ * und sie war richtig gerechnet und trotzdem falsch: wer wissen will, wer
+ * zuständig ist, bekam eine Zahl statt einer Antwort. Eine Kachel
+ * «Beteiligte», die Beteiligte verschweigt, ist keine.
+ *
+ * Jetzt bricht die Reihe um. Zwei Zeilen Avatare sind sechzehn Pixel höher
+ * als eine; eine verschwiegene Person ist ein Rückfrage-Ping. `max` bleibt
+ * als Eigenschaft bestehen, damit die Aufrufstellen unverändert gültig sind -
+ * sie begrenzt nichts mehr.
  */
 export function Zustaendige({
   kennungen,
   namen,
-  max = 4,
 }: {
   kennungen: readonly string[];
   namen: Map<string, Teammitglied>;
+  /** @deprecated Ohne Wirkung - es werden immer alle gezeigt. */
   max?: number;
 }): React.JSX.Element {
   if (kennungen.length === 0) {
     return <span className="text-xs text-muted-foreground">niemand zuständig</span>;
   }
-  const sichtbar = kennungen.slice(0, max);
-  const weitere = kennungen.length - sichtbar.length;
   return (
-    <span className="flex items-center gap-1">
-      {sichtbar.map((discordId) => {
+    <span className="flex flex-wrap items-center gap-1">
+      {kennungen.map((discordId) => {
         const person = namen.get(discordId);
         return (
           <DiscordAvatar
@@ -121,7 +128,6 @@ export function Zustaendige({
           />
         );
       })}
-      {weitere > 0 ? <span className="text-xs text-muted-foreground">+{weitere}</span> : null}
     </span>
   );
 }

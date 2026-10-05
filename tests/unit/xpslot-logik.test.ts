@@ -346,6 +346,26 @@ describe('Gewinnstufen', () => {
   it('nennt einen Jackpot «jackpot», unabhängig von der Höhe', () => {
     expect(S.gewinnstufe(10, 100, schwellen, true)).toBe('jackpot');
   });
+
+  it('trennt an genau der eingestellten Schwelle', () => {
+    /*
+     * Die vier Faelle, die das Konzept nennt - bei Big 10x und Mega 25x. Sie
+     * stehen hier als Grenzfaelle, weil zwischen «9x» und «10x» die ganze
+     * Inszenierung haengt: ab der Schwelle faehrt eine grosse Meldung auf.
+     */
+    expect(S.gewinnstufe(900, 100, schwellen)).toBe('normal');
+    expect(S.gewinnstufe(1000, 100, schwellen)).toBe('gross');
+    expect(S.gewinnstufe(2400, 100, schwellen)).toBe('gross');
+    expect(S.gewinnstufe(2500, 100, schwellen)).toBe('mega');
+  });
+
+  it('richtet sich nach den eingestellten Schwellen und nicht nach festen Zahlen', () => {
+    // Dieselben Gewinne, andere Konfiguration - andere Stufen.
+    const streng = { gross: 20, mega: 50 };
+    expect(S.gewinnstufe(1000, 100, streng)).toBe('normal');
+    expect(S.gewinnstufe(2000, 100, streng)).toBe('gross');
+    expect(S.gewinnstufe(5000, 100, streng)).toBe('mega');
+  });
 });
 
 describe('Zufallsquelle', () => {

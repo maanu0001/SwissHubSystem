@@ -193,3 +193,63 @@ export function Hochzaehlen({ ziel, ruhig }: { ziel: number; ruhig: boolean }): 
    */
   return <span ref={feld}>{formatSwissNumber(ruhig ? ziel : 0)}</span>;
 }
+
+/**
+ * Die grosse Meldung fuer Big Win, Mega Win und Jackpot.
+ *
+ * ## Warum nicht `SlotOverlay`
+ *
+ * Weil die fuenf Momente dort auf einen Knopf warten - sie sagen etwas, das
+ * man zur Kenntnis nehmen muss, und bleiben stehen, bis man es getan hat. Ein
+ * grosser Gewinn ist das Gegenteil: er kommt bei jedem zehnten Spin, er
+ * gehoert zum Spielen, und ein Dialog davor waere nach dem dritten Mal eine
+ * Zumutung - und im Auto-Spin ein Abbruch.
+ *
+ * Diese Meldung faehrt auf, zaehlt ihre Zahl hoch und geht wieder, ohne dass
+ * jemand etwas tun muss. Sie nimmt keine Klicks an (`pointer-events: none`),
+ * weil darunter der Spin-Knopf liegt und der naechste Spin nicht warten soll.
+ *
+ * ## Warum Mega und Jackpot dieselbe Komponente sind
+ *
+ * Weil der Unterschied einer des Grades ist und nicht der Art: dieselbe
+ * Anordnung, mehr Glut, mehr Funken, laengere Standzeit. Drei Komponenten
+ * waeren drei Stellen, an denen dieselbe Entscheidung anders ausfaellt.
+ *
+ * Bei `prefers-reduced-motion` steht die Meldung ruhig da: kein Auffahren,
+ * keine Funken, die Zahl sofort. Sie entfaellt nicht - wer weniger Bewegung
+ * will, will trotzdem wissen, dass er gerade 45'000 XP gewonnen hat.
+ */
+const GROSS_TITEL: Readonly<Record<string, string>> = {
+  gross: 'BIG WIN',
+  mega: 'MEGA WIN',
+  jackpot: 'JACKPOT',
+};
+
+export function GrosserGewinn({
+  stufe,
+  gewinn,
+  ruhig,
+}: {
+  stufe: 'gross' | 'mega' | 'jackpot';
+  gewinn: number;
+  ruhig: boolean;
+}): React.JSX.Element {
+  return (
+    <div
+      className={cn('slot-grossgewinn', `slot-grossgewinn--${stufe}`, ruhig && 'slot-grossgewinn--ruhig')}
+      /*
+       * `role="status"` und nicht `alert`: ein Gewinn ist eine Mitteilung und
+       * keine Warnung. `aria-live="polite"` liest sie vor, ohne dem
+       * Screenreader ins Wort zu fallen.
+       */
+      role="status"
+      aria-live="polite"
+    >
+      {!ruhig ? <Partikel anzahl={stufe === 'gross' ? 16 : 26} ursprung="mitte" /> : null}
+      <p className="slot-grossgewinn__titel">{GROSS_TITEL[stufe] ?? 'BIG WIN'}</p>
+      <p className="slot-grossgewinn__zahl">
+        +<Hochzaehlen ziel={gewinn} ruhig={ruhig} /> XP
+      </p>
+    </div>
+  );
+}

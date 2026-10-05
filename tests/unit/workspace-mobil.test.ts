@@ -163,7 +163,7 @@ describe('Die Beteiligten-Kachel bedient sich an Projekt und Aufgabe gleich', ()
     expect(aufgabe).toContain('ausgeschlossen={stand}');
     expect(aufgabe).toContain('if (stand.includes(gewaehlt.discordId))');
 
-    const suche = lies('apps/web/src/modules/workspace/components/personensuche.tsx');
+    const suche = lies('apps/web/src/components/shared/personensuche.tsx');
     expect(suche).toContain('const draussen = new Set(ausgeschlossen);');
     expect(suche).toContain('treffer.filter((person) => !draussen.has(person.discordId))');
   });
@@ -174,9 +174,12 @@ describe('Die Beteiligten-Kachel bedient sich an Projekt und Aufgabe gleich', ()
      * aus dem Team oder `null` - ein eingetippter Name kann kein
      * Beteiligter werden, weil es keinen Weg gibt, auf dem er einer wuerde.
      */
-    const suche = lies('apps/web/src/modules/workspace/components/personensuche.tsx');
-    expect(suche).toContain('wert: Teammitglied | null');
-    expect(suche).toContain('aufWahl: (person: Teammitglied | null) => void');
+    const suche = lies('apps/web/src/components/shared/personensuche.tsx');
+    const anschluss = lies('apps/web/src/modules/workspace/components/personensuche.tsx');
+    // Der Typ steht im Anschluss, die Mechanik im zentralen Picker.
+    expect(anschluss).toContain('wert: Teammitglied | null');
+    expect(anschluss).toContain('aufWahl: (person: Teammitglied | null) => void');
+    expect(suche).toContain('wert: T | null');
     // Die Wahl kommt aus der Trefferliste, nicht aus dem Feld.
     expect(suche).toContain('aufWahl(wert?.discordId === person.discordId ? null : person)');
     expect(suche).not.toMatch(/aufWahl\(suche/u);

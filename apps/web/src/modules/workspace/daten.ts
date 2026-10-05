@@ -4,6 +4,7 @@ import type { AuthContext } from '@swisshub/auth';
 import {
   getModuleSettings,
   members,
+  moderation,
   traegerDerBerechtigung,
   traegerSuche,
   workspace,
@@ -37,10 +38,57 @@ import {
  * Teammitglied mit Schreibrecht jedes private Projekt liest - und die
  * Sichtbarkeit waere eine Anzeigeeinstellung.
  */
+/**
+ * Wer alles sieht - als Berechtigungsfrage und nicht als Namensliste.
+ *
+ * Zwei Schlüssel, und beide stehen für dieselbe Aussage: *diese Person hat im
+ * Workspace nichts zu suchen, was sie nicht sehen dürfte.*
+ *
+ *  - `workspace.settings.manage` - wer das Modul verwaltet, muss auch an ein
+ *    verwaistes privates Projekt herankommen, sonst gäbe es Projekte, die
+ *    niemand mehr aufräumen kann.
+ *  - `moderation.execute` - das allgemeine Recht zu moderieren. Es ist der
+ *    Schlüssel, den die Vorlagen «Moderator» und «Senior Moderator»
+ *    gemeinsam haben, und kein Mitglied und keine Community-Rolle traegt ihn.
+ *
+ * Die Administration braucht keinen eigenen Eintrag: `admin.full` beantwortet
+ * jede Berechtigungsfrage mit ja, auch diese.
+ *
+ * ## Warum keine neue Berechtigung
+ *
+ * Weil eine neue Berechtigung niemandem gehört, bis jemand sie zuweist. Auf
+ * einem Server, dessen Rollen seit Monaten eingerichtet sind, wäre
+ * `workspace.view.all` ein Schlüssel ohne Schloss - das Modul wüsste, wer
+ * alles sehen dürfte, und es wäre niemand. `moderation.execute` haben die
+ * Moderatoren bereits; damit gilt die Zusage ohne einen einzigen Klick in der
+ * Rollenverwaltung.
+ */
+export const WORKSPACE_VOLLZUGRIFF: readonly string[] = [
+  workspace.WORKSPACE_PERMISSIONS.settingsManage,
+  moderation.MODERATION_PERMISSIONS.execute,
+];
+
+/**
+ * Wer als Beteiligter in Frage kommt.
+ *
+ * Die Vollzugriffsberechtigungen gehören dazu, und zwar ausdrücklich: ein
+ * Moderator, der jedes Projekt sieht, muss sich auch in eines eintragen
+ * lassen können. Vorher war er im Suchfeld nicht auffindbar, weil er
+ * `workspace.view` nicht einzeln zugewiesen hatte - er brauchte sie nie, um
+ * hineinzukommen.
+ *
+ * Automatisch beteiligt ist dadurch niemand. Die Liste sagt, wer **wählbar**
+ * ist; eingetragen wird, wer eingetragen wird.
+ */
+const WORKSPACE_BETEILIGUNG: readonly string[] = [
+  workspace.WORKSPACE_PERMISSIONS.view,
+  ...WORKSPACE_VOLLZUGRIFF,
+];
+
 export function workspaceBetrachter(context: AuthContext): workspace.WorkspaceBetrachter {
   return {
     discordId: context.user.discordId,
-    darfAlles: can(context, workspace.WORKSPACE_PERMISSIONS.settingsManage),
+    darfAlles: WORKSPACE_VOLLZUGRIFF.some((berechtigung) => can(context, berechtigung)),
   };
 }
 
@@ -97,7 +145,7 @@ export async function workspaceEinstellungen(): Promise<workspace.WorkspaceSetti
 export async function ladeTeam(): Promise<Teammitglied[]> {
   const [kennungen, imSpiegel] = await Promise.all([
     traegerDerBerechtigung(workspace.WORKSPACE_PERMISSIONS.view),
-    traegerSuche(workspace.WORKSPACE_PERMISSIONS.view, '', { grenze: 200 }),
+    traegerSuche(WORKSPACE_BETEILIGUNG, '', { grenze: 200 }),
   ]);
 
   const liste = new Map<string, Teammitglied>();
@@ -145,7 +193,7 @@ export async function ladeTeam(): Promise<Teammitglied[]> {
  * **nichts** liefert; im Normalfall kostet er keine Abfrage.
  */
 export async function sucheTeam(begriff: string, grenze = 20): Promise<Teammitglied[]> {
-  const treffer = await traegerSuche(workspace.WORKSPACE_PERMISSIONS.view, begriff, { grenze });
+  const treffer = await traegerSuche(WORKSPACE_BETEILIGUNG, begriff, { grenze });
   if (treffer.length > 0) {
     return treffer.map((person) => ({
       discordId: person.discordId,
