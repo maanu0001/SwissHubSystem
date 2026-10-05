@@ -109,7 +109,7 @@ export default async function WorkspaceUebersichtPage(): Promise<React.JSX.Eleme
         ) : null}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Überfällig"
           value={String(zahlen.ueberfaellig)}
@@ -147,7 +147,7 @@ export default async function WorkspaceUebersichtPage(): Promise<React.JSX.Eleme
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel
           title="Überfällig"
           icon="AlarmClock"
@@ -222,7 +222,7 @@ export default async function WorkspaceUebersichtPage(): Promise<React.JSX.Eleme
             }
           />
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {projekte.slice(0, 6).map((zeile) => (
               <Link
                 key={zeile.projekt.id}
@@ -255,7 +255,7 @@ export default async function WorkspaceUebersichtPage(): Promise<React.JSX.Eleme
       </Panel>
 
       <Panel title="Schnell erledigt" icon="Zap">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <QuickAction
             title="Meine Aufgaben"
             description="Was bei dir liegt"

@@ -446,7 +446,24 @@ describeWithDatabase('Backup & Recovery gegen eine echte Datenbank', () => {
 
   // --- Restore-Test ----------------------------------------------------------
 
-  it('spielt die Sicherung wirklich in eine isolierte Datenbank ein', () => {
+  /*
+   * Dieser eine Test braucht mehr Zeit als die Vorgabe - und zwar echte.
+   *
+   * Er legt eine Sicherung an, baut daraus eine **eigene** Datenbank auf und
+   * zaehlt darin Tabellen und Zeilen: zwei `pg_dump`/`pg_restore`-Laeufe
+   * gegen einen laufenden Server. Allein gemessen rund 19 Sekunden, und das
+   * ist nicht Langsamkeit, sondern die Arbeit selbst.
+   *
+   * Im vollen Lauf mit ueber dreihundert Testdateien liegt er damit ueber den
+   * 15 Sekunden, die Vitest je Test vorgibt - und faellt an einer Frist statt
+   * an einer Aussage. Dieselbe Begruendung steht in `vitest.config.ts` fuer
+   * die Hooks; hier gilt sie fuer den Rumpf.
+   *
+   * Die Frist ist grosszuegig gewaehlt, aber nicht unendlich: ein Restore,
+   * der zwei Minuten braucht, ist ein Befund und soll als Fehlschlag
+   * ankommen. Abgeschwaecht wird dabei keine einzige Zusage.
+   */
+  it('spielt die Sicherung wirklich in eine isolierte Datenbank ein', { timeout: 120_000 }, () => {
     /*
      * Der Test, der aus einer Datei eine Sicherung macht. Bestanden ist er nur,
      * wenn die Zahl der Tabellen **und** der Datenzeilen dem entspricht, was im

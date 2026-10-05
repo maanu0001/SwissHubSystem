@@ -385,9 +385,19 @@ describeWithDatabase('Workspace: Beteiligte', () => {
     const quelle = readFileSync('apps/web/src/modules/workspace/components/projekt-steuerung.tsx', 'utf8');
     expect(quelle).toContain('const [neueRolle, setNeueRolle]');
     expect(quelle).toContain('ws-neue-rolle');
-    expect(quelle).toContain('{ discordId, rolle: neueRolle }');
+    /*
+     * Die gewaehlte Person **und** die gewaehlte Rolle.
+     *
+     * Hier stand `{ discordId, rolle: neueRolle }` - damals nahm
+     * `hinzufuegen` die Kennung als Parameter, weil ein Klick in der
+     * Kandidatenliste sofort hinzufuegte. Jetzt waehlt man erst eine Person
+     * (`gewaehlt`), dann die Rolle, dann «Hinzufuegen»; die Kennung kommt
+     * also aus dem Zustand. Dieselbe Zusage, ein Schritt mehr Absicht.
+     */
+    expect(quelle).toContain('{ discordId: gewaehlt, rolle: neueRolle }');
+    expect(quelle).toContain('const hinzufuegen = ()');
     // Die alte Form: jede neue Person kam fest als Unterstuetzung herein.
-    expect(quelle).not.toMatch(/\{ discordId, rolle: 'MEMBER' \}/u);
+    expect(quelle).not.toMatch(/rolle: 'MEMBER' \}/u);
   });
 
   it('kennt bei zuständigen Personen gar keine Rolle', () => {

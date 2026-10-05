@@ -173,7 +173,7 @@ export default async function WorkspaceProjektPage({
         ) : null}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Fortschritt"
           value={`${ansicht.fortschritt.prozent}%`}
@@ -200,7 +200,27 @@ export default async function WorkspaceProjektPage({
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/*
+        `grid-cols-1` ist hier kein Beiwerk, sondern der Fix.
+
+        ## Der Fehler, den es behebt
+
+        Hier stand `grid gap-4 lg:grid-cols-3`. Auf dem Telefon greift `lg:`
+        nicht, und ein Grid **ohne** Spaltenangabe legt eine implizite Spur
+        mit `auto` an. Das Minimum einer `auto`-Spur ist die
+        min-content-Breite ihres Inhalts - die Spur waechst also mit dem
+        breitesten Kind, statt es zu begrenzen. Gemessen bei 390 px: die
+        Spur war **490 px** breit, die Seite lief um 116 px ueber, und auf
+        der Aufgabenseite um 220 px.
+
+        `min-w-0` am Item hilft dagegen nicht, und genau das war die
+        Falle - es stand schon da. Das Minimum sitzt an der **Spur**, nicht
+        am Kind. Tailwinds `grid-cols-1` ist
+        `repeat(1, minmax(0, 1fr))`, und dieses `minmax(0, …)` ist die
+        Begrenzung. `lg:grid-cols-3` hat sie von sich aus, darum fiel es nur
+        auf Mobile auf.
+      */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel
           title="Aufgaben"
           icon="ListChecks"

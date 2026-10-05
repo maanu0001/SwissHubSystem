@@ -505,7 +505,7 @@ export function Anhaenge({
       {anhaenge.length === 0 ? (
         <p className="text-sm text-muted-foreground">Kein Anhang.</p>
       ) : (
-        <ul className="grid gap-2 sm:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {anhaenge.map((anhang) => (
             <li key={anhang.id} className="space-y-1 rounded-lg border border-border p-2">
               {/* Kein `next/image`: das Bild liegt hinter einem geschützten

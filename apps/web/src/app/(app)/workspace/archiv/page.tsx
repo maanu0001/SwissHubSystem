@@ -117,7 +117,7 @@ export default async function WorkspaceArchivPage({
                   <p className="line-clamp-2 text-sm text-muted-foreground">{zeile.projekt.description}</p>
                 ) : null}
                 <Tags tags={zeile.projekt.tags} />
-                <div className="grid gap-2 sm:max-w-sm">
+                <div className="grid grid-cols-1 gap-2 sm:max-w-sm">
                   <Fortschrittsbalken fortschritt={zeile.fortschritt} />
                 </div>
                 <Zustaendige

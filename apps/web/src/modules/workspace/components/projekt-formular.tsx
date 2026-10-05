@@ -208,7 +208,7 @@ export function ProjektFormular({
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="ws-p-status">Status</Label>
               <Select
@@ -271,7 +271,7 @@ export function ProjektFormular({
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="ws-p-akzent">Akzentfarbe</Label>
               <div className="flex items-center gap-2">
@@ -410,7 +410,7 @@ export function ProjektFormular({
                   {[...new Set(ereignisse.map((eintrag) => eintrag.gruppe))].map((gruppe) => (
                     <div key={gruppe} className="space-y-1">
                       <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{gruppe}</p>
-                      <div className="grid gap-1 sm:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                         {ereignisse
                           .filter((eintrag) => eintrag.gruppe === gruppe)
                           .map((eintrag) => (

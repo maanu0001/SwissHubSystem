@@ -1537,6 +1537,26 @@
   Linie nicht zustellen. Die Dauer kommt vom Element - sie ist dieselbe Zahl,
   mit der die Oberflaeche die Linien weiterschaltet.
 */
+/*
+ * Das XP-Schild einer Gewinnlinie - **auf** der Linie.
+ *
+ * ## Was sich geaendert hat
+ *
+ * Vorher sass das Schild ueber dem hoechsten Punkt der Linie und klappte bei
+ * Platzmangel nach unten: zwei Varianten, zwei Animationen, und bei einer
+ * Zickzack-Linie lag es diagonal versetzt daneben. Jetzt gibt es einen Ort -
+ * die Mitte der Pfadlaenge, gerechnet in `walzenbild.tsx` - und `left`/`top`
+ * zeigen genau dorthin.
+ *
+ * `translate(-50%, -50%)` zentriert das Schild **auf** diesem Punkt, in
+ * beiden Richtungen. Darum steht die Verschiebung auch in jedem
+ * Animationsschritt: eine Animation auf `transform` ersetzt die statische
+ * Angabe, und ohne sie sprang das Schild im ersten Bild um seine halbe
+ * Groesse.
+ *
+ * `pointer-events: none` ist nicht Feinschliff: das Schild liegt mitten im
+ * Spielfeld, und ein Klick auf Spin darf nicht daran haengen bleiben.
+ */
 .slot-linien-schild {
   position: absolute;
   z-index: 5;
@@ -1545,59 +1565,52 @@
   padding: 0.125rem 0.45rem;
   border-radius: 999px;
   border: 1px solid hsl(var(--primary-bright) / 0.55);
-  background: hsl(240 30% 6% / 0.82);
+  /*
+   * Dunkler und dichter als vorher.
+   *
+   * Das Schild liegt jetzt ueber den Symbolen und nicht daneben; bei 0,82
+   * Deckkraft schien das Symbol darunter durch und machte die Zahl
+   * schwerer lesbar. 0,92 plus der Schlagschatten darunter trennen es
+   * sauber ab, ohne dass die Linie verschwindet.
+   */
+  background: hsl(240 30% 5% / 0.92);
   color: hsl(var(--primary-bright));
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.01em;
   text-shadow: 0 0 10px hsl(var(--primary-bright) / 0.55);
   box-shadow:
-    0 0 0 1px hsl(240 30% 4% / 0.6),
-    0 6px 18px hsl(240 40% 2% / 0.5);
+    0 0 0 1px hsl(240 30% 4% / 0.7),
+    0 0 14px -2px hsl(var(--primary-bright) / 0.5),
+    0 6px 18px hsl(240 40% 2% / 0.55);
   animation-name: slot-schild-auf;
   animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   animation-fill-mode: both;
 }
 
+/*
+ * Ein kurzer Aufgang an der Stelle, an der es bleibt.
+ *
+ * Keine Bewegung nach oben oder unten mehr - das Schild sitzt auf der Linie
+ * und soll dort sitzen bleiben. Was sich aendert, ist Groesse und
+ * Deckkraft; der Mittelpunkt bleibt derselbe.
+ */
 @keyframes slot-schild-auf {
   0% {
     opacity: 0;
-    transform: translate(-50%, -60%) scale(0.82);
+    transform: translate(-50%, -50%) scale(0.78);
   }
   16% {
     opacity: 1;
-    transform: translate(-50%, -100%) scale(1);
+    transform: translate(-50%, -50%) scale(1);
   }
   74% {
     opacity: 1;
-    transform: translate(-50%, -100%) scale(1);
+    transform: translate(-50%, -50%) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translate(-50%, -135%) scale(0.95);
-  }
-}
-
-.slot-linien-schild--unten {
-  animation-name: slot-schild-ab;
-}
-
-@keyframes slot-schild-ab {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -40%) scale(0.82);
-  }
-  16% {
-    opacity: 1;
-    transform: translate(-50%, 0) scale(1);
-  }
-  74% {
-    opacity: 1;
-    transform: translate(-50%, 0) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(-50%, 35%) scale(0.95);
+    transform: translate(-50%, -50%) scale(0.94);
   }
 }
 
@@ -1606,15 +1619,15 @@
    * Weniger Bewegung heisst hier: das Schild steht still da, solange die
    * Linie steht. Die Aussage bleibt - nur das Auf- und Abfahren faellt weg.
    */
-  .slot-linien-schild,
-  .slot-linien-schild--unten {
+  .slot-linien-schild {
     animation: none;
     opacity: 1;
-    transform: translate(-50%, -100%);
-  }
-
-  .slot-linien-schild--unten {
-    transform: translate(-50%, 0);
+    /*
+      Dieselbe Verschiebung wie in der Animation: das Schild sitzt mittig
+      auf der Linie. Die Variante «nach unten geklappt» gibt es nicht mehr -
+      es gibt nur noch einen Ort, und der ist die Mitte der Linie.
+    */
+    transform: translate(-50%, -50%);
   }
 }
 

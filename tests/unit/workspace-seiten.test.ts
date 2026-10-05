@@ -156,11 +156,41 @@ describe('Workspace: Beteiligte', () => {
   it('kennt an der Aufgabe keine Rollen - alle sind verantwortlich', () => {
     const kachel = lies(AUFGABE_BETEILIGTE);
     expect(kachel).toContain('workspaceZustaendigeSetzenAction');
-    expect(kachel).toContain('Beteiligte speichern');
     // Keine Projektrolle an der Aufgabe.
     expect(kachel).not.toContain('WorkspaceMemberRole');
     expect(kachel).not.toContain('Projektleitung');
     expect(lies(AUFGABENSEITE)).toContain('Alle Beteiligten sind verantwortlich.');
+  });
+
+  it('speichert an der Aufgabe je Handlung sofort - ohne Speicherknopf', () => {
+    /*
+     * ## Was hier vorher stand
+     *
+     * `expect(kachel).toContain('Beteiligte speichern')`. Die Kachel war
+     * eine Wolke aus Haekchen mit einem Speicherknopf darunter, und der
+     * hatte einen Grund: bei «A raus, B rein» entstand sonst zwischendurch
+     * eine Aufgabe ohne Beteiligte.
+     *
+     * Jetzt ist es ein Hinzufuegen und ein Entfernen je Klick, und damit
+     * stellt sich die Frage nicht mehr - der Zwischenzustand entsteht nur,
+     * wenn jemand ihn ausdruecklich herstellt. Der Preis des Knopfes war,
+     * dass man ihn vergessen konnte; das faellt weg.
+     *
+     * Die Zusage ist deshalb jetzt die umgekehrte: **kein** Speicherknopf,
+     * und jede der beiden Handlungen ruft fuer sich.
+     */
+    const kachel = lies(AUFGABE_BETEILIGTE);
+    expect(kachel).not.toContain('Beteiligte speichern');
+    expect(kachel).toContain('const hinzufuegen = ()');
+    expect(kachel).toContain('const entfernen = (discordId: string)');
+    /*
+     * Beide gehen ueber denselben Speicherweg, und zwar genau zweimal:
+     * einmal aus `hinzufuegen`, einmal aus `entfernen`. Die Action nimmt die
+     * ganze Liste und nicht einen Unterschied - eine Liste ist ein Zustand,
+     * und zwei gleichzeitige Aenderungen koennen sich dabei nicht halb
+     * ueberlagern.
+     */
+    expect([...kachel.matchAll(/ speichere\(/gu)]).toHaveLength(2);
   });
 
   it('hat die Beteiligten aus «Ändern» herausgelöst', () => {

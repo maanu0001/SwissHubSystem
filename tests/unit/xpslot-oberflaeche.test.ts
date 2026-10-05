@@ -852,13 +852,42 @@ describe('Die XP je Gewinnlinie', () => {
     expect(spiel).toContain('.find((treffer) => treffer.linie === sichtbareLinie)?.gewinn');
   });
 
-  it('setzt das Schild aus der gemessenen Geometrie an die Linie', () => {
+  it('setzt das Schild mittig auf die Linie, aus derselben Geometrie', () => {
+    /*
+     * ## Die Zusage ist strenger geworden
+     *
+     * Hier stand, dass das Schild **ueber** dem hoechsten Punkt der Linie
+     * sitzt und nach unten ausweicht, wenn oben kein Platz ist. Das waren
+     * drei Faelle mit drei Positionen, und keine davon lag auf der Linie:
+     * bei einer V-Linie stand es ueber einem Ende und waagrecht in der
+     * Mitte, also diagonal versetzt.
+     *
+     * Jetzt gibt es einen Ort - die Mitte der Pfadlaenge -, und darum auch
+     * keine Ausweichvariante mehr. Die Rechnung dafuer ist in
+     * `xpslot-linienschild.test.ts` einzeln geprueft.
+     */
     expect(walzen).toContain('function LinienSchild');
+    expect(walzen).toContain('export function pfadMitte');
     // Dieselben Punkte wie der Pfad - sonst stuende es daneben.
     expect(walzen).toContain('zellen.map((index) => mitten[index])');
+    expect(walzen).toContain('const mitte = pfadMitte(punkte)');
     expect(walzen).toContain('slot-linien-schild');
-    // Und es weicht nach unten aus, wenn oben kein Platz ist.
-    expect(walzen).toContain('nachUnten');
+    // Und keine Ausweichvariante mehr - weder im Bauteil noch im Stylesheet.
+    expect(walzen).not.toContain('nachUnten');
+    expect(lies(CSS)).not.toContain('slot-linien-schild--unten');
+  });
+
+  it('misst beim Anzeigen nicht - die Punkte liegen vor', () => {
+    /*
+     * Der naheliegende Weg zur Pfadmitte waere `getTotalLength()` plus
+     * `getPointAtLength()`. Beides sind Messungen am gerenderten SVG, und
+     * eine Messung beim Anzeigen einer Gewinnlinie ist genau das, was
+     * waehrend der Linienfolge nicht passieren darf.
+     */
+    const baum = ohneKommentare(lies(WALZENBILD));
+    expect(baum).not.toContain('getTotalLength');
+    expect(baum).not.toContain('getPointAtLength');
+    expect(baum).not.toContain('getBoundingClientRect');
   });
 
   it('lässt das Schild wieder verschwinden', () => {
@@ -867,7 +896,18 @@ describe('Die XP je Gewinnlinie', () => {
     expect(walzen).toContain('animationDuration: `${dauerMs}ms`');
     const css = lies(CSS);
     expect(css).toContain('@keyframes slot-schild-auf');
-    expect(css).toContain('@keyframes slot-schild-ab');
+    /*
+     * Die Animation bewegt das Schild nicht mehr von der Linie weg: sie
+     * aendert Groesse und Deckkraft, und der Mittelpunkt bleibt derselbe.
+     * Darum steht `translate(-50%, -50%)` in **jedem** Schritt - ohne das
+     * wuerde die Animation die statische Zentrierung ersetzen und das Schild
+     * im ersten Bild um seine halbe Groesse springen.
+     */
+    const auf = css.slice(css.indexOf('@keyframes slot-schild-auf'));
+    const block = auf.slice(0, auf.indexOf('\n}'));
+    const schritte = [...block.matchAll(/transform:/gu)];
+    expect(schritte.length).toBeGreaterThanOrEqual(4);
+    expect([...block.matchAll(/translate\(-50%, -50%\)/gu)]).toHaveLength(schritte.length);
   });
 
   it('spielt je Linie einen Klang und keinen für die Summe', () => {

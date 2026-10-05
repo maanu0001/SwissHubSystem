@@ -124,7 +124,12 @@ export default async function WorkspaceAufgabePage({
         ) : null}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/*
+        `grid-cols-1` begrenzt die Spur - warum, steht in der Projektseite.
+        Kurz: eine implizite `auto`-Spur waechst auf die min-content-Breite
+        ihres Inhalts, und hier waren das 594 px bei 390 px Bildschirm.
+      */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           <Panel title="Beschreibung" icon="ScrollText">
             {ansicht.aufgabe.description ? (

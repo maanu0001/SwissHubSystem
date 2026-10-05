@@ -127,7 +127,10 @@ export function Board({
 
   return (
     <div
-      className={cn('grid gap-3 sm:grid-cols-2 xl:grid-cols-4', laeuft && 'pointer-events-none opacity-70')}
+      className={cn(
+        'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4',
+        laeuft && 'pointer-events-none opacity-70',
+      )}
     >
       {spalten.map(({ spalte, karten }) => (
         <section

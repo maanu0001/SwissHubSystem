@@ -3,13 +3,13 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Archive, Plus, Search, UserMinus } from 'lucide-react';
+import { Archive, UserMinus, UserPlus } from 'lucide-react';
 import type { WorkspaceMemberRole } from '@swisshub/database';
 import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { Personensuche } from './personensuche';
 import { ROLLE_LABEL } from '../labels';
 import {
   workspaceMitgliederSetzenAction,
@@ -45,9 +45,23 @@ import type { Teammitglied } from '../daten';
  *  3. **Nichts war sofort da.** Jede Änderung brauchte den Knopf; wer ihn
  *     vergass, hatte nichts geändert.
  *
- * Jetzt oben die Beteiligten mit Gesicht, Namen, Benutzernamen und Rolle, je
- * Zeile ein Entfernen-Knopf - und darunter die Suche, die nur anbietet, wer
- * noch nicht dabei ist. Jede Handlung speichert sofort.
+ * ## Die Ordnung der Kachel
+ *
+ * Oben das Hinzufuegen, darunter die Liste - in dieser Reihenfolge, weil die
+ * Kachel eine Handlung anbietet und danach ihr Ergebnis zeigt:
+ *
+ *   1. ein Suchfeld fuer **eine** Person,
+ *   2. daneben die Rolle, mit der sie hereinkommt,
+ *   3. darunter «Hinzufuegen»,
+ *   4. und dann alle Beteiligten mit Gesicht, Name, Funktion und einem
+ *      Entfernen-Knopf je Zeile.
+ *
+ * Auf einem Telefon stehen Suchfeld, Rolle und Knopf untereinander, jeweils
+ * auf voller Breite. Das ist nicht Kosmetik: bei 390 px passen drei
+ * Bedienelemente nicht in eine Zeile, und der Versuch war messbar - die
+ * Zeile schob die Seite um 116 px auf.
+ *
+ * Jede Handlung speichert sofort; einen Speicherknopf gibt es nicht.
  *
  * ## Warum die Leitung kein eigener Knopf ist
  *
@@ -57,9 +71,6 @@ import type { Teammitglied } from '../daten';
  * gar nicht anbietet. Darum bleibt die Rolle ein Auswahlfeld, und die letzte
  * Leitung lässt sich nicht herabstufen.
  */
-
-/** Ab wie vielen Kandidaten die Suche erscheint. Darunter ist sie Möbel. */
-const SUCHE_AB = 8;
 
 export function Mitgliederverwaltung({
   csrfToken,
@@ -74,7 +85,8 @@ export function Mitgliederverwaltung({
 }): React.JSX.Element {
   const router = useRouter();
   const [laeuft, starte] = useTransition();
-  const [suche, setSuche] = useState('');
+  /** Wer als naechstes dazukommt - genau eine Person, oder niemand. */
+  const [gewaehlt, setGewaehlt] = useState<string | null>(null);
   /**
    * Die Rolle, mit der die naechste Person dazukommt.
    *
@@ -106,19 +118,18 @@ export function Mitgliederverwaltung({
 
   const nachKennung = useMemo(() => new Map(team.map((eintrag) => [eintrag.discordId, eintrag])), [team]);
 
-  /** Wer noch nicht dabei ist - und zur Suche passt. */
+  /**
+   * Wer noch nicht dabei ist.
+   *
+   * Das Filtern nach dem Suchbegriff macht die Personensuche selbst; hier
+   * wird nur entfernt, wer schon beteiligt ist. Das ist die Zusage «keine
+   * Duplikate», und sie steht hier und nicht in einer Pruefung beim
+   * Hinzufuegen: was man nicht waehlen kann, kann man nicht doppelt waehlen.
+   */
   const kandidaten = useMemo(() => {
     const dabei = new Set(stand.map((eintrag) => eintrag.discordId));
-    const begriff = suche.trim().toLowerCase();
-    return team
-      .filter((eintrag) => !dabei.has(eintrag.discordId))
-      .filter(
-        (eintrag) =>
-          begriff === '' ||
-          eintrag.name.toLowerCase().includes(begriff) ||
-          (eintrag.username ?? '').toLowerCase().includes(begriff),
-      );
-  }, [stand, suche, team]);
+    return team.filter((eintrag) => !dabei.has(eintrag.discordId));
+  }, [stand, team]);
 
   const leitungen = stand.filter((eintrag) => eintrag.rolle === 'LEAD').length;
 
@@ -156,16 +167,21 @@ export function Mitgliederverwaltung({
     });
   };
 
-  const hinzufuegen = (discordId: string): void => {
+  const hinzufuegen = (): void => {
+    if (!gewaehlt) {
+      toast.error('Wähle zuerst eine Person aus.');
+      return;
+    }
     // Kein doppeltes Hinzufügen: wer dabei ist, steht nicht in `kandidaten` -
     // und hier noch einmal geprüft, weil zwei schnelle Klicks schneller sind
     // als ein Neuaufbau der Liste.
-    if (stand.some((eintrag) => eintrag.discordId === discordId)) {
+    if (stand.some((eintrag) => eintrag.discordId === gewaehlt)) {
       return;
     }
-    const name = nachKennung.get(discordId)?.name ?? 'Die Person';
+    const name = nachKennung.get(gewaehlt)?.name ?? 'Die Person';
+    setGewaehlt(null);
     speichere(
-      [...stand, { discordId, rolle: neueRolle }],
+      [...stand, { discordId: gewaehlt, rolle: neueRolle }],
       `${name} ist jetzt beteiligt - als ${ROLLE_LABEL[neueRolle]}.`,
     );
   };
@@ -186,150 +202,165 @@ export function Mitgliederverwaltung({
   };
 
   return (
-    <div className={cn('space-y-4', laeuft && 'pointer-events-none opacity-70')}>
-      {/* --- Wer dabei ist --- */}
-      {stand.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Noch niemand beteiligt.</p>
-      ) : (
-        <ul className="space-y-2">
-          {stand.map((eintrag) => {
-            const person = nachKennung.get(eintrag.discordId);
-            const letzteLeitung = eintrag.rolle === 'LEAD' && leitungen === 1;
-            return (
-              <li key={eintrag.discordId} className="flex items-center gap-2">
-                <DiscordAvatar
-                  discordId={eintrag.discordId}
-                  avatarHash={person?.avatarHash ?? null}
-                  name={person?.name ?? eintrag.discordId}
-                  size={32}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm">{person?.name ?? eintrag.discordId}</span>
-                  {/*
-                    Der Benutzername nur, wenn er etwas hinzufügt. «anna ·
-                    anna» ist keine Auskunft.
-                  */}
-                  {person?.username && person.username !== person.name ? (
-                    <span className="block truncate text-[11px] text-muted-foreground">
-                      @{person.username}
-                    </span>
-                  ) : null}
-                  {!person ? (
-                    <span className="block truncate text-[11px] text-warning">
-                      darf den Workspace nicht mehr öffnen
-                    </span>
-                  ) : null}
-                </span>
-                <Select
-                  value={eintrag.rolle}
-                  onValueChange={(wert): void => rolleSetzen(eintrag.discordId, wert as WorkspaceMemberRole)}
-                >
-                  <SelectTrigger className="w-36 shrink-0" aria-label="Rolle im Projekt">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="MEMBER">{ROLLE_LABEL.MEMBER}</SelectItem>
-                    <SelectItem value="LEAD">{ROLLE_LABEL.LEAD}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0 text-muted-foreground hover:text-destructive"
-                  disabled={letzteLeitung}
-                  title={
-                    letzteLeitung
-                      ? 'Die letzte Projektleitung lässt sich nicht entfernen.'
-                      : 'Aus dem Projekt entfernen'
-                  }
-                  onClick={(): void => entfernen(eintrag.discordId)}
-                >
-                  <UserMinus aria-hidden="true" className="size-4" />
-                  <span className="sr-only">
-                    {person?.name ?? eintrag.discordId} aus dem Projekt entfernen
-                  </span>
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {/* --- Wer dazukommen kann --- */}
-      <div className="space-y-2 border-t border-border pt-3">
-        <p className="text-xs font-medium">Beteiligte hinzufügen</p>
-
+    <div className={cn('min-w-0 space-y-4', laeuft && 'pointer-events-none opacity-70')}>
+      {/* ---------- 1. Hinzufuegen: Person, Rolle, Knopf ---------- */}
+      <div className="min-w-0 space-y-2">
         {/*
-          Erst die Rolle, dann die Person.
+          Zwei Spalten ab `sm`, eine darunter.
 
-          Die Reihenfolge ist Absicht: die Rolle gilt fuer jeden folgenden
-          Klick, und wer sie oben sieht, bevor er in die Liste greift, waehlt
-          nicht versehentlich falsch.
+          `minmax(0,1fr)` fuer die Suchspalte ist der Punkt: ohne die Null als
+          Minimum waechst die Spalte auf die min-content-Breite des
+          Eingabefelds, und das ist breiter als ein Telefon. Mit `grid-cols-1`
+          als Grundlage stehen Suche und Rolle darunter einfach
+          untereinander - jede auf voller Breite, keine gequetschte Zeile.
         */}
-        <div className="space-y-1">
-          <label htmlFor="ws-neue-rolle" className="text-[11px] text-muted-foreground">
-            Rolle für neue Beteiligte
-          </label>
-          <Select value={neueRolle} onValueChange={(wert): void => setNeueRolle(wert as WorkspaceMemberRole)}>
-            <SelectTrigger id="ws-neue-rolle" className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="MEMBER">{ROLLE_LABEL.MEMBER}</SelectItem>
-              <SelectItem value="LEAD">{ROLLE_LABEL.LEAD}</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <Personensuche
+            team={kandidaten}
+            wert={gewaehlt}
+            aufWahl={setGewaehlt}
+            beschriftung="Person für das Projekt suchen"
+            leerText={
+              kandidaten.length === 0
+                ? 'Alle, die den Workspace öffnen dürfen, sind beteiligt.'
+                : 'Niemand passt zu dieser Suche.'
+            }
+          />
+
+          <div className="min-w-0 space-y-1 sm:w-44">
+            <label htmlFor="ws-neue-rolle" className="block text-[11px] text-muted-foreground">
+              Funktion
+            </label>
+            <Select
+              value={neueRolle}
+              onValueChange={(wert): void => setNeueRolle(wert as WorkspaceMemberRole)}
+            >
+              {/*
+                `w-full` und kein `w-36`: eine feste Breite ist auf einem
+                Telefon zu viel und auf dem Schreibtisch willkuerlich. Die
+                Spalte gibt die Breite vor, ab `sm` ueber `sm:w-44`.
+              */}
+              <SelectTrigger id="ws-neue-rolle" className="h-9 w-full min-w-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="MEMBER">{ROLLE_LABEL.MEMBER}</SelectItem>
+                <SelectItem value="LEAD">{ROLLE_LABEL.LEAD}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        {team.length >= SUCHE_AB ? (
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <Input
-              value={suche}
-              onChange={(ereignis): void => setSuche(ereignis.target.value)}
-              placeholder="Name oder Benutzername"
-              aria-label="Teammitglied suchen"
-              className="pl-9"
-            />
-          </div>
-        ) : null}
+        {/*
+          Der Knopf darunter, auf dem Telefon ueber die ganze Breite.
 
-        {kandidaten.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            {suche.trim() === ''
-              ? 'Alle, die den Workspace öffnen dürfen, sind beteiligt.'
-              : 'Niemand passt zu dieser Suche.'}
-          </p>
+          Er ist absichtlich nicht deaktiviert, wenn niemand gewaehlt ist:
+          ein Knopf, der nichts tut und nicht sagt warum, laesst einen
+          raten. Geklickt ohne Auswahl sagt er es.
+        */}
+        <Button
+          type="button"
+          size="sm"
+          className="w-full sm:w-auto"
+          onClick={hinzufuegen}
+          aria-disabled={gewaehlt === null}
+        >
+          <UserPlus aria-hidden="true" className="size-4" />
+          Hinzufügen
+        </Button>
+      </div>
+
+      {/* ---------- 2. Wer dabei ist ---------- */}
+      <div className="min-w-0 space-y-2 border-t border-border pt-3">
+        <p className="text-xs font-medium">Beteiligte</p>
+
+        {stand.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Noch niemand beteiligt.</p>
         ) : (
-          <ul className="max-h-56 space-y-1 overflow-y-auto">
-            {kandidaten.map((person) => (
-              <li key={person.discordId}>
-                <button
-                  type="button"
-                  onClick={(): void => hinzufuegen(person.discordId)}
-                  className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition-colors hover:bg-muted"
+          <ul className="min-w-0 space-y-2">
+            {stand.map((eintrag) => {
+              const person = nachKennung.get(eintrag.discordId);
+              const letzteLeitung = eintrag.rolle === 'LEAD' && leitungen === 1;
+              return (
+                /*
+                  Eine Zeile, die umbricht.
+
+                  Vorher stand hier eine Zeile aus vier Dingen: Gesicht,
+                  Name, ein Auswahlfeld mit `w-36 shrink-0` und ein Knopf.
+                  Bei 390 px passte das nicht, und weil das Auswahlfeld
+                  nicht schrumpfen durfte, schob es die Seite auf - gemessen
+                  85 px ueber den Rand hinaus.
+
+                  Jetzt zwei Zeilen auf dem Telefon: oben die Person, unten
+                  Funktion und Entfernen. Ab `sm` wieder alles in einer.
+                */
+                <li
+                  key={eintrag.discordId}
+                  className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-border/60 p-2 sm:flex-nowrap sm:border-0 sm:p-0"
                 >
                   <DiscordAvatar
-                    discordId={person.discordId}
-                    avatarHash={person.avatarHash}
-                    name={person.name}
-                    size={28}
+                    discordId={eintrag.discordId}
+                    avatarHash={person?.avatarHash ?? null}
+                    name={person?.name ?? eintrag.discordId}
+                    size={32}
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{person.name}</span>
-                    {person.username && person.username !== person.name ? (
+                  <span className="min-w-0 flex-1 basis-40">
+                    <span className="block truncate text-sm">{person?.name ?? eintrag.discordId}</span>
+                    {/*
+                      Der Benutzername nur, wenn er etwas hinzufügt. «anna ·
+                      anna» ist keine Auskunft.
+                    */}
+                    {person?.username && person.username !== person.name ? (
                       <span className="block truncate text-[11px] text-muted-foreground">
                         @{person.username}
                       </span>
                     ) : null}
+                    {!person ? (
+                      <span className="block truncate text-[11px] text-warning">
+                        darf den Workspace nicht mehr öffnen
+                      </span>
+                    ) : null}
                   </span>
-                  <Plus aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-                </button>
-              </li>
-            ))}
+
+                  <div className="flex min-w-0 flex-1 basis-full items-center gap-2 sm:flex-none sm:basis-auto">
+                    <Select
+                      value={eintrag.rolle}
+                      onValueChange={(wert): void =>
+                        rolleSetzen(eintrag.discordId, wert as WorkspaceMemberRole)
+                      }
+                    >
+                      <SelectTrigger
+                        className="h-9 min-w-0 flex-1 sm:w-40 sm:flex-none"
+                        aria-label={`Funktion von ${person?.name ?? eintrag.discordId}`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MEMBER">{ROLLE_LABEL.MEMBER}</SelectItem>
+                        <SelectItem value="LEAD">{ROLLE_LABEL.LEAD}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      disabled={letzteLeitung}
+                      title={
+                        letzteLeitung
+                          ? 'Die letzte Projektleitung lässt sich nicht entfernen.'
+                          : 'Aus dem Projekt entfernen'
+                      }
+                      onClick={(): void => entfernen(eintrag.discordId)}
+                    >
+                      <UserMinus aria-hidden="true" className="size-4" />
+                      <span className="sr-only">
+                        {person?.name ?? eintrag.discordId} aus dem Projekt entfernen
+                      </span>
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
 

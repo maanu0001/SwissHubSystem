@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { UserMinus, UserPlus } from 'lucide-react';
+import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { ZustaendigWahl } from './zustaendig-wahl';
+import { Personensuche } from './personensuche';
 import { workspaceZustaendigeSetzenAction } from '../actions';
 import type { Teammitglied } from '../daten';
 
@@ -26,13 +28,31 @@ import type { Teammitglied } from '../daten';
  * und keine Unterstützung - diese Unterscheidung gehört ins Projekt, wo
  * jemand entscheidet, und nicht an die Aufgabe, wo jemand arbeitet. Wer hier
  * steht, ist zuständig; stehen drei Leute da, sind drei Leute zuständig.
+ * Darum zeigt die Liste auch keine Funktion an: es gibt keine.
  *
- * ## Warum ein Speicherknopf
+ * ## Die Ordnung der Kachel
  *
- * Weil eine Zuweisung eine Entscheidung über mehrere Kästchen ist. Jeden
- * Klick einzeln zu schicken hiesse, bei «A raus, B rein» zwischendurch eine
- * Aufgabe ohne Beteiligte herzustellen - und B eine Meldung zu schicken,
- * bevor man fertig überlegt hat.
+ * Wie im Projekt, nur ohne die Rolle:
+ *
+ *   1. ein Suchfeld für **eine** Person,
+ *   2. daneben «Hinzufügen»,
+ *   3. darunter alle Beteiligten mit Gesicht, Name und einem
+ *      Entfernen-Knopf je Zeile.
+ *
+ * Auf einem Telefon steht der Knopf unter dem Suchfeld, beide auf voller
+ * Breite.
+ *
+ * ## Warum der Speicherknopf weg ist
+ *
+ * Hier stand eine Wolke aus Häkchen und darunter «Beteiligte speichern». Das
+ * hatte einen Grund - bei «A raus, B rein» entstand sonst zwischendurch eine
+ * Aufgabe ohne Beteiligte - und einen Preis: wer den Knopf vergass, hatte
+ * nichts geändert, und das merkte er erst später.
+ *
+ * Mit je einer Handlung pro Klick stellt sich die Frage nicht mehr: ein
+ * Hinzufügen fügt hinzu, ein Entfernen entfernt, und beides ist sofort
+ * gespeichert. Der Zwischenzustand «niemand zuständig» entsteht dabei nur,
+ * wenn jemand ihn ausdrücklich herstellt - und das darf er.
  */
 export function AufgabeBeteiligte({
   csrfToken,
@@ -49,10 +69,112 @@ export function AufgabeBeteiligte({
 }): React.JSX.Element {
   const router = useRouter();
   const [laeuft, starte] = useTransition();
-  const [gewaehlt, setGewaehlt] = useState<string[]>([...beteiligte]);
+  /**
+   * Der Stand liegt lokal, damit die Liste sofort stimmt.
+   *
+   * Die Antwort des Servers ist die Wahrheit, und `router.refresh()` holt
+   * sie - aber das dauert einen Moment, und in diesem Moment soll die Zeile
+   * schon weg sein. Scheitert die Handlung, wird der lokale Stand
+   * zurückgesetzt.
+   */
+  const [stand, setStand] = useState<string[]>([...beteiligte]);
+  const [gewaehlt, setGewaehlt] = useState<string | null>(null);
 
-  const geaendert =
-    gewaehlt.length !== beteiligte.length || gewaehlt.some((kennung) => !beteiligte.includes(kennung));
+  const nachKennung = useMemo(() => new Map(team.map((eintrag) => [eintrag.discordId, eintrag])), [team]);
+
+  /**
+   * Wer noch nicht dabei ist.
+   *
+   * Das ist die Zusage «keine Duplikate», und sie steht hier und nicht in
+   * einer Prüfung beim Hinzufügen: was man nicht wählen kann, kann man nicht
+   * doppelt wählen.
+   */
+  const kandidaten = useMemo(
+    () => team.filter((eintrag) => !stand.includes(eintrag.discordId)),
+    [stand, team],
+  );
+
+  const speichere = (naechster: string[], meldung: string): void => {
+    const vorher = stand;
+    setStand(naechster);
+    starte(async () => {
+      const antwort = await workspaceZustaendigeSetzenAction({
+        csrfToken,
+        taskId,
+        discordIds: naechster,
+      });
+      if (!antwort.ok) {
+        setStand(vorher);
+        toast.error(antwort.error?.message ?? 'Das hat nicht geklappt.');
+        return;
+      }
+      toast.success(meldung);
+      router.refresh();
+    });
+  };
+
+  const hinzufuegen = (): void => {
+    if (!gewaehlt) {
+      toast.error('Wähle zuerst eine Person aus.');
+      return;
+    }
+    if (stand.includes(gewaehlt)) {
+      return;
+    }
+    const name = nachKennung.get(gewaehlt)?.name ?? 'Die Person';
+    setGewaehlt(null);
+    speichere([...stand, gewaehlt], `${name} ist jetzt beteiligt.`);
+  };
+
+  const entfernen = (discordId: string): void => {
+    const name = nachKennung.get(discordId)?.name ?? 'Die Person';
+    speichere(
+      stand.filter((eintrag) => eintrag !== discordId),
+      `${name} ist nicht mehr beteiligt.`,
+    );
+  };
+
+  /** Die Liste - mit oder ohne Entfernen-Knopf. */
+  const liste = (
+    <ul className="min-w-0 space-y-2">
+      {stand.map((discordId) => {
+        const person = nachKennung.get(discordId);
+        return (
+          <li key={discordId} className="flex min-w-0 items-center gap-2">
+            <DiscordAvatar
+              discordId={discordId}
+              avatarHash={person?.avatarHash ?? null}
+              name={person?.name ?? discordId}
+              size={32}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm">{person?.name ?? discordId}</span>
+              {person?.username && person.username !== person.name ? (
+                <span className="block truncate text-[11px] text-muted-foreground">@{person.username}</span>
+              ) : null}
+              {!person ? (
+                <span className="block truncate text-[11px] text-warning">
+                  darf den Workspace nicht mehr öffnen
+                </span>
+              ) : null}
+            </span>
+            {darfBearbeiten ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0 text-muted-foreground hover:text-destructive"
+                title="Von der Aufgabe entfernen"
+                onClick={(): void => entfernen(discordId)}
+              >
+                <UserMinus aria-hidden="true" className="size-4" />
+                <span className="sr-only">{person?.name ?? discordId} von der Aufgabe entfernen</span>
+              </Button>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
 
   if (!darfBearbeiten) {
     /*
@@ -62,54 +184,56 @@ export function AufgabeBeteiligte({
      * eine leere Kachel wäre die schlechtere Auskunft.
      */
     return (
-      <div className="space-y-2">
-        <ZustaendigWahl
-          team={team}
-          gewaehlt={gewaehlt}
-          aufAendern={(): void => undefined}
-          disabled
-          hinweis="Zum Ändern der Beteiligten fehlt dir die Berechtigung."
-        />
+      <div className="min-w-0 space-y-2">
+        {stand.length === 0 ? <p className="text-xs text-muted-foreground">Niemand beteiligt.</p> : liste}
+        <p className="text-[11px] text-muted-foreground">
+          Zum Ändern der Beteiligten fehlt dir die Berechtigung.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className={cn('space-y-3', laeuft && 'pointer-events-none opacity-70')}>
-      <ZustaendigWahl
-        team={team}
-        gewaehlt={gewaehlt}
-        aufAendern={(discordId): void =>
-          setGewaehlt((bisher) =>
-            bisher.includes(discordId)
-              ? bisher.filter((eintrag) => eintrag !== discordId)
-              : [...bisher, discordId],
-          )
-        }
-      />
-
-      {geaendert ? (
-        <Button
-          size="sm"
-          onClick={(): void =>
-            starte(async () => {
-              const antwort = await workspaceZustaendigeSetzenAction({
-                csrfToken,
-                taskId,
-                discordIds: gewaehlt,
-              });
-              if (!antwort.ok) {
-                toast.error(antwort.error?.message ?? 'Das hat nicht geklappt.');
-                return;
-              }
-              toast.success('Beteiligte gespeichert.');
-              router.refresh();
-            })
+    <div className={cn('min-w-0 space-y-4', laeuft && 'pointer-events-none opacity-70')}>
+      {/* ---------- 1. Hinzufügen: Person, Knopf ---------- */}
+      <div className="min-w-0 space-y-2">
+        <Personensuche
+          team={kandidaten}
+          wert={gewaehlt}
+          aufWahl={setGewaehlt}
+          beschriftung="Person für die Aufgabe suchen"
+          leerText={
+            kandidaten.length === 0
+              ? 'Alle, die den Workspace öffnen dürfen, sind beteiligt.'
+              : 'Niemand passt zu dieser Suche.'
           }
-        >
-          Beteiligte speichern
+        />
+        {/*
+          Auf dem Telefon über die ganze Breite, ab `sm` so breit wie sein
+          Text. Eine feste Breite wäre an beiden Stellen falsch.
+        */}
+        <Button type="button" size="sm" className="w-full sm:w-auto" onClick={hinzufuegen}>
+          <UserPlus aria-hidden="true" className="size-4" />
+          Hinzufügen
         </Button>
-      ) : null}
+      </div>
+
+      {/* ---------- 2. Wer dabei ist ---------- */}
+      <div className="min-w-0 space-y-2 border-t border-border pt-3">
+        <p className="text-xs font-medium">Beteiligte</p>
+        {stand.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            Niemand beteiligt. Diese Aufgabe liegt damit bei niemandem - und steht bei niemandem unter «Meine
+            Aufgaben».
+          </p>
+        ) : (
+          liste
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Alle Beteiligten sind gleichwertig verantwortlich - an einer Aufgabe gibt es keine Funktionen. Die
+          Aufgabe erscheint bei jedem von ihnen unter «Meine Aufgaben».
+        </p>
+      </div>
     </div>
   );
 }

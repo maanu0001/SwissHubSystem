@@ -222,14 +222,21 @@ export function WalzenBild({
         <Gewinnlinie zellen={linie} mitten={mitten} kasten={kasten} />
       ) : null}
 
-      {/* Und das Schild mit dem XP-Wert genau dieser Linie. */}
+      {/*
+        Und das Schild mit dem XP-Wert genau dieser Linie - mittig auf ihr.
+
+        Der `key` enthaelt Linie und Betrag: beim Wechsel zur naechsten Linie
+        entsteht damit ein **neues** Element, und die Einblendanimation laeuft
+        von vorn. Ohne das behielte React dasselbe Element, die Animation
+        waere schon gelaufen, und das Schild sprang ohne Uebergang an die
+        neue Stelle.
+      */}
       {linie && linienGewinn !== null && linienGewinn > 0 && mitten.length > 0 && kasten !== null ? (
         <LinienSchild
           key={`${linie.join('-')}:${linienGewinn}`}
           zellen={linie}
           mitten={mitten}
           kasten={kasten}
-          reihen={reihen}
           gewinn={linienGewinn}
           dauerMs={linienDauerMs}
         />
@@ -306,19 +313,98 @@ export function Gewinnlinie({
 }
 
 /**
+ * Der Punkt genau in der Mitte eines Pfades - nach Laenge, nicht nach Kasten.
+ *
+ * ## Warum nicht der Mittelwert der Punkte
+ *
+ * Weil das etwas anderes ist. Der Mittelwert der x-Werte liegt bei einer
+ * Linie, die ueber fuenf Walzen laeuft, zufaellig in der Naehe der Mitte -
+ * bei einer V-Linie aber liegt er waagrecht richtig und senkrecht irgendwo
+ * zwischen oben und unten, also **neben** der Linie. Genau das war am alten
+ * Schild zu sehen.
+ *
+ * Gesucht ist der Punkt, den man erreicht, wenn man die halbe Pfadlaenge
+ * entlanggeht. Dafuer werden die Segmentlaengen addiert, bis die Haelfte
+ * erreicht ist, und im letzten Segment linear interpoliert.
+ *
+ * ## Warum gerechnet und nicht gemessen
+ *
+ * Der Weg ueber das SVG waere `getTotalLength()` und
+ * `getPointAtLength(laenge / 2)`. Beides sind Messungen am gerenderten
+ * Element - und eine Messung beim Anzeigen einer Gewinnlinie ist genau das,
+ * was hier nicht passieren darf: die Linien laufen nacheinander, waehrend
+ * daneben Trefferzellen pulsen und die Summe hochzaehlt, und ein erzwungenes
+ * Layout mitten darin ist der Ruck, den man spuert.
+ *
+ * Die Punkte liegen ohnehin schon vor - sie kommen aus derselben Messung,
+ * aus der auch der Pfad entsteht. Dieselbe Rechnung, kein DOM-Zugriff, und
+ * sie laeuft einmal je Linie statt in jedem Bild.
+ */
+export function pfadMitte(punkte: readonly Mitte[]): Mitte | null {
+  if (punkte.length === 0) {
+    return null;
+  }
+  if (punkte.length === 1) {
+    return punkte[0]!;
+  }
+
+  const laengen: number[] = [];
+  let gesamt = 0;
+  for (let index = 1; index < punkte.length; index += 1) {
+    const a = punkte[index - 1]!;
+    const b = punkte[index]!;
+    const laenge = Math.hypot(b.x - a.x, b.y - a.y);
+    laengen.push(laenge);
+    gesamt += laenge;
+  }
+  if (gesamt === 0) {
+    return punkte[0]!;
+  }
+
+  let rest = gesamt / 2;
+  for (let index = 0; index < laengen.length; index += 1) {
+    const laenge = laengen[index]!;
+    if (rest <= laenge) {
+      const a = punkte[index]!;
+      const b = punkte[index + 1]!;
+      // `laenge` ist hier nie 0: dann waere `rest <= 0`, und das faengt die
+      // Abfrage darueber ab - ausser bei `rest === 0`, wo der Anteil 0 ist
+      // und `a` herauskommt.
+      const anteil = laenge === 0 ? 0 : rest / laenge;
+      return { x: a.x + (b.x - a.x) * anteil, y: a.y + (b.y - a.y) * anteil };
+    }
+    rest -= laenge;
+  }
+  return punkte.at(-1)!;
+}
+
+/**
  * Das XP-Schild einer einzelnen Gewinnlinie.
  *
  * ## Wo es steht
  *
- * Ueber dem hoechsten Punkt der Linie, waagrecht in deren Mitte - und zwar
- * aus denselben gemessenen Punkten, aus denen der Pfad entsteht. Deshalb
- * sitzt es auf jedem Geraet an der Linie und nicht irgendwo in der Naehe.
+ * **Auf der Linie, in ihrer Mitte.** Nicht daneben, nicht darueber - der
+ * Wert gehoert zu dieser Linie, und am wenigsten missverstaendlich ist er
+ * dort, wo die Linie ist. Der Punkt kommt aus {@link pfadMitte}, also aus
+ * der halben Pfadlaenge, und damit aus derselben Geometrie wie der Pfad
+ * selbst.
  *
- * Reicht der Platz oben nicht - bei einer Linie, die in der obersten Reihe
- * verlaeuft -, klappt es nach unten. Ein Schild, das halb aus der Buehne
- * ragt, waere schlimmer als eines, das eine Zeile tiefer steht; und ueber den
- * Symbolen der Linie selbst darf es nicht liegen, sonst verdeckt es genau
- * das, was es erklaert.
+ * ## Der Fehler, den das behebt
+ *
+ * Hier stand das Schild **ueber dem hoechsten Punkt** der Linie, waagrecht
+ * am Mittelwert der x-Werte. Bei einer waagrechten Linie sah das richtig
+ * aus; bei einer V- oder Zickzack-Linie lag es ueber einem Ende und
+ * waagrecht in der Mitte - also diagonal versetzt zur Linie, und bei einer
+ * Linie durch die oberste Reihe klappte es nach unten und stand dann ueber
+ * einer anderen Reihe. Drei Faelle, drei Positionen, keine davon auf der
+ * Linie.
+ *
+ * ## Warum es in der Buehne bleibt
+ *
+ * Der Punkt wird in den Kasten des Rasters eingerueckt - mindestens eine
+ * halbe geschaetzte Schildbreite vom Rand, oben und unten eine Zeile Platz.
+ * Ohne das ragte ein Schild an einer Eckzelle halb aus dem Panel, und auf
+ * einem Telefon ist der Rand naeher als man denkt.
  *
  * ## Warum die Dauer von aussen kommt
  *
@@ -330,14 +416,12 @@ function LinienSchild({
   zellen,
   mitten,
   kasten,
-  reihen,
   gewinn,
   dauerMs,
 }: {
   zellen: readonly number[];
   mitten: readonly Mitte[];
   kasten: Kasten;
-  reihen: number;
   gewinn: number;
   dauerMs: number;
 }): React.JSX.Element | null {
@@ -346,19 +430,29 @@ function LinienSchild({
     return null;
   }
 
-  const zelle = kasten.hoehe / Math.max(1, reihen);
-  const mitteX = punkte.reduce((summe, punkt) => summe + punkt.x, 0) / punkte.length;
-  const oben = Math.min(...punkte.map((punkt) => punkt.y)) - zelle * 0.5 - 4;
-  const unten = Math.max(...punkte.map((punkt) => punkt.y)) + zelle * 0.5 + 4;
-  // Unter 26 Pixeln ragt das Schild oben heraus - dann nach unten.
-  const nachUnten = oben < 26;
+  const mitte = pfadMitte(punkte);
+  if (!mitte) {
+    return null;
+  }
+
+  /*
+   * Die halbe Schildbreite, geschaetzt aus der Zeichenzahl.
+   *
+   * Gemessen waere genauer und waere eine Messung - siehe oben. Geschaetzt
+   * genuegt: das Schild soll nicht aus der Buehne ragen, und dafuer reicht
+   * eine Schranke, die etwas zu grosszuegig ist. Rund 7 px je Zeichen bei
+   * 0,72 rem fetter Schrift, plus Innenabstand und Rahmen.
+   */
+  const zeichen = `+${formatSwissNumber(gewinn)} XP`.length;
+  const halbeBreite = Math.min(kasten.breite / 2, zeichen * 3.6 + 10);
+  const halbeHoehe = 11;
 
   return (
     <span
-      className={cn('slot-linien-schild', nachUnten && 'slot-linien-schild--unten')}
+      className="slot-linien-schild"
       style={{
-        left: `${Math.max(44, Math.min(kasten.breite - 44, mitteX)).toFixed(1)}px`,
-        top: `${(nachUnten ? unten : oben).toFixed(1)}px`,
+        left: `${Math.max(halbeBreite, Math.min(kasten.breite - halbeBreite, mitte.x)).toFixed(1)}px`,
+        top: `${Math.max(halbeHoehe, Math.min(kasten.hoehe - halbeHoehe, mitte.y)).toFixed(1)}px`,
         animationDuration: `${dauerMs}ms`,
       }}
       aria-hidden="true"
