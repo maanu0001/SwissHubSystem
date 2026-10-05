@@ -30,6 +30,17 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
     await pushSchema();
     // Legt Konfiguration und die acht Standardsymbole an.
     await level.xpslot.leseKonfiguration();
+    /*
+     * Und raeumt die Bildreferenzen ab.
+     *
+     * `pushSchema` bringt das Schema auf den Stand, nicht die Zeilen: das
+     * Testschema behaelt die Daten des letzten Laufs. Der erste Test prueft
+     * den Weg von «kein Bild» zu «eigenes Bild», und diese Vorbedingung war
+     * beim zweiten Lauf nicht mehr wahr - das Bild stand noch vom ersten da.
+     * Ein Test, der nur einmal gruen ist, prueft den Lauf und nicht den Code;
+     * der Startzustand wird darum hergestellt und nicht angenommen.
+     */
+    await prisma.xpSlotSymbol.updateMany({ data: { imagePath: null, imageUrl: null } });
   });
 
   it('schreibt die Referenz und liest sie wieder', async () => {
