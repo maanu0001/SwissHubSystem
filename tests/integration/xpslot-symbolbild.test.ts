@@ -1,10 +1,26 @@
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { beforeAll, expect, it } from 'vitest';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import { describeWithDatabase, pushSchema, useTestSchema } from '../helpers/database';
 
 useTestSchema('test_xpslot_symbolbild');
+
+/*
+ * Ein eigenes Upload-Verzeichnis, gesetzt vor dem Import.
+ *
+ * `UPLOAD_DIR` wird beim Laden des Moduls gelesen und zeigt sonst auf
+ * `/var/lib/swisshub/uploads`. Hier lief der Test damit durch, auf dem
+ * CI-Runner nicht: dort ist der Pfad nicht beschreibbar, und `mkdir` warf
+ * EACCES. Der Fehlschlag lag also in der Umgebung des Tests und nicht in dem,
+ * was er prueft - er haette auf jedem Rechner ohne diesen Pfad gescheitert.
+ *
+ * Dasselbe Vorgehen wie in `branding-upload.test.ts`: Verzeichnis anlegen,
+ * Umgebungsvariable setzen, erst danach importieren.
+ */
+const uploadVerzeichnis = await mkdtemp(join(tmpdir(), 'swisshub-slotsymbol-'));
+process.env.SWISSHUB_UPLOAD_DIR = uploadVerzeichnis;
 
 /**
  * Ein eigenes Symbolbild bleibt eigen.
@@ -27,6 +43,17 @@ const { level } = await import('@swisshub/modules');
 const AKTEUR = { discordId: '100000000000000071', username: 'symboltest' };
 const BILD = 'slotsymbol-00112233445566778899aabbccddeeff.png';
 const ZWEITES = 'slotsymbol-ffeeddccbbaa99887766554433221100.png';
+
+/*
+ * Und wieder weg damit.
+ *
+ * `process.env` gehoert dem Worker und nicht dieser Datei: bliebe die
+ * Variable stehen, zeigte eine andere Testdatei im selben Worker auf ein
+ * Verzeichnis, von dem sie nichts weiss.
+ */
+afterAll(() => {
+  delete process.env.SWISSHUB_UPLOAD_DIR;
+});
 
 describeWithDatabase('XP-Slot: Symbolbild', () => {
   beforeAll(async () => {
@@ -167,7 +194,8 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
     const ziel = S.symbolbildPfad(BILD);
     expect(ziel, 'der Dateiname muss dem Muster entsprechen').not.toBeNull();
 
-    await mkdir(dirname(ziel!), { recursive: true });
+    // Das Verzeichnis gehoert diesem Test - siehe oben.
+    expect(ziel!.startsWith(uploadVerzeichnis)).toBe(true);
     await writeFile(ziel!, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
     await S.setzeSymbolbild({ key: 'bonus', bildPfad: BILD, bildUrl: null }, AKTEUR);
