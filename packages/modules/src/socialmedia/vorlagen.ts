@@ -17,7 +17,7 @@
  *   nebeneinander nicht nach Geschwistern aus.
  * - **Der Typ** bestimmt, was in die Inhaltsflaeche kommt: eine Begegnung
  *   zeigt zwei Namen gegeneinander, ein Resultat dieselben zwei mit Punkten,
- *   ein Turnierbaum einen Baum, eine Ankuendigung Fließtext. Das ist der
+ *   ein Turnierbaum einen Baum, eine Ankuendigung Fliesstext. Das ist der
  *   Inhaltsblock, und er ist pro Typ ein anderer.
  *
  * Eine neue Vorlage ist damit entweder ein neuer Eintrag in dieser Liste oder

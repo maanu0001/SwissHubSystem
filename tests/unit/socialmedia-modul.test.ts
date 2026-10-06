@@ -10,19 +10,31 @@ import {
 } from '@swisshub/modules';
 
 /**
- * Social Media: ein Zugriffspunkt, kein zweites Exportsystem.
+ * Social Media: ein Zugriffspunkt - und seit dem Post Creator ein Arbeitsplatz.
  *
- * ## Was hier tatsaechlich geprueft wird
+ * ## Die Grenze hat sich verschoben, und zwar absichtlich
  *
- * Die drei Zusicherungen, die den Bereich von einer Duplizierung unterscheiden:
+ * Dieser Bereich besass urspruenglich **nichts**: keine Tabelle, keine Server
+ * Action, keinen Entwurfszustand. Das war richtig, solange er nur zeigte, was
+ * in «SwissHub fragt», «Clip of the Week» und «Wrapped» ohnehin entsteht.
  *
- *   1. **Es besitzt nichts.** Keine eigene Tabelle, keine Server Action, kein
- *      Entwurfszustand. Was es zeigt, liest es; was man dort tun kann, tut man
- *      im Ursprungsmodul. Ein zweiter Ort mit eigenen Entwuerfen waere ein
- *      zweiter Ort, an dem ein Entwurf anders aussieht als im Studio.
- *   2. **Es zeichnet nichts.** Die Grafiken entstehen in `social-folie.tsx` und
- *      den `/api/.../grafik`-Routen. Eine zweite Zeichenstelle waere eine
- *      zweite Gestalt derselben Grafik.
+ * Der Post Creator aendert das an genau einer Stelle: ein freier Post hat kein
+ * Ursprungsmodul. Er entsteht hier, also gehoert er hierher - mit eigener
+ * Tabelle (`SocialPost`) und eigenen Server Actions.
+ *
+ * Was **nicht** gewandert ist, ist das Eigentum an fremden Daten. Die vier
+ * Uebersichtsseiten lesen weiterhin und schreiben nichts; eine Frage, ein Clip
+ * und ein Rueckblick liegen weiterhin in ihrem Modul. Genau das haelt dieser
+ * Test fest - nicht mehr «besitzt nichts», sondern «besitzt nur das Eigene».
+ *
+ * Drei Zusicherungen bleiben:
+ *
+ *   1. **Es kopiert nichts.** Die Uebersichtsseiten und `server/socialmedia.ts`
+ *      schreiben in keine Tabelle, und die Post-Actions fassen ausschliesslich
+ *      `socialPost` an.
+ *   2. **Es zeichnet nur an einer Stelle.** Die Uebersichtsseiten zeichnen
+ *      gar nicht; der Post Creator zeichnet in `post-folie.tsx`, und Vorschau
+ *      wie Export gehen durch dieselbe Route.
  *   3. **Kein Lesezeichen bricht.** Der Eintrag «Wrapped Studio» ist aus der
  *      Seitenleiste verschwunden, die Adresse `/system/wrapped` nicht.
  */
@@ -57,8 +69,32 @@ describe('Social Media: die Registrierung', () => {
     expect(definition?.navigation[0]?.titlePrefix).toBe('/social-media');
   });
 
-  it('verlangt genau eine Berechtigung: den Bereich sehen', () => {
-    expect(definition?.permissions.map((eintrag) => eintrag.key)).toEqual(['socialmedia.view']);
+  it('trennt «Bereich sehen» von dem, was man im Post Creator tun darf (§50)', () => {
+    /*
+     * Sechs Rechte und nicht eines.
+     *
+     * Vorher war es eines, weil alles Tun in einem anderen Modul lag. Mit dem
+     * Post Creator liegt es hier - und dann ist «darf mitarbeiten» etwas
+     * anderes als «darf aufraeumen». Die Liste steht hier vollstaendig, damit
+     * ein neu erfundenes Recht auffaellt, statt sich dazuzusetzen.
+     */
+    expect(definition?.permissions.map((eintrag) => eintrag.key)).toEqual([
+      'socialmedia.view',
+      'socialmedia.posts.view',
+      'socialmedia.posts.create',
+      'socialmedia.posts.edit',
+      'socialmedia.posts.export',
+      'socialmedia.posts.delete',
+    ]);
+  });
+
+  it('markiert nur das Löschen als kritisch', () => {
+    // Eine Vorlage anzulegen ist Alltag; einen Post endgueltig zu loeschen ist
+    // die eine Richtung ohne Rueckweg.
+    const kritisch = definition?.permissions
+      .filter((eintrag) => eintrag.critical)
+      .map((eintrag) => eintrag.key);
+    expect(kritisch).toEqual(['socialmedia.posts.delete']);
   });
 
   it('erscheint in der Navigation, wenn das Recht da ist', () => {
@@ -75,14 +111,55 @@ describe('Social Media: die Registrierung', () => {
   });
 });
 
-describe('Social Media: es besitzt und zeichnet nichts', () => {
-  it('bringt keine eigene Prisma-Tabelle mit', () => {
+describe('Social Media: es besitzt nur das Eigene', () => {
+  it('hält keine Kopie einer Frage, eines Clips oder eines Rückblicks', () => {
+    /*
+     * Die Zusicherung, auf die es ankommt.
+     *
+     * `SocialPost` darf es geben - das ist der freie Post, der hier entsteht.
+     * Was es nicht geben darf, ist eine zweite Tabelle fuer Daten, die schon
+     * jemandem gehoeren: dann gaebe es zwei Antworten auf die Frage, was in
+     * einer Abstimmung stand.
+     */
     const schema = readFileSync('packages/database/prisma/schema.prisma', 'utf8');
-    expect(schema).not.toMatch(/model SocialMedia/u);
+    expect(schema).toMatch(/model SocialPost \{/u);
+    for (const verboten of [
+      /model SocialMediaFrage/u,
+      /model SocialMediaClip/u,
+      /model SocialMediaWrapped/u,
+      /model SocialMediaEntwurf/u,
+    ]) {
+      expect(schema, String(verboten)).not.toMatch(verboten);
+    }
   });
 
-  it('hat keine Server Actions - es wird nichts geschrieben', () => {
-    expect(existsSync('apps/web/src/modules/socialmedia/actions.ts')).toBe(false);
+  it('fasst in seinen Server Actions nur die eigene Tabelle an', () => {
+    /*
+     * Es gibt jetzt Server Actions - der Post Creator schreibt. Die Frage ist
+     * nicht mehr «ob», sondern «woran»: alles, was sie anfassen, laeuft ueber
+     * den Dienst `socialmedia.*`, und der kennt nur `socialPost`.
+     *
+     * Ein direkter Prisma-Zugriff auf eine fremde Tabelle waere genau der
+     * Schritt, mit dem aus dem Arbeitsplatz ein zweites Datenmodul wird.
+     */
+    const quelle = readFileSync('apps/web/src/modules/socialmedia/actions.ts', 'utf8');
+    for (const fremd of [
+      'prisma.fragtAbstimmung',
+      'prisma.fragtEntwurf',
+      'prisma.clipCompetition',
+      'prisma.wrappedCampaign',
+      'prisma.tournament',
+    ]) {
+      expect(quelle, fremd).not.toContain(fremd);
+    }
+  });
+
+  it('liest den Turnierbaum, statt ihn zu speichern (§45)', () => {
+    // Am Post steht die Kennung des Turniers, nie seine Paarungen. Sonst
+    // zeigte ein Export von heute den Stand von vorgestern.
+    const dienst = readFileSync('packages/modules/src/socialmedia/posts.ts', 'utf8');
+    expect(dienst).toContain('tournamentId');
+    expect(dienst).not.toContain('prisma.tournamentMatch');
   });
 
   const quellen = [

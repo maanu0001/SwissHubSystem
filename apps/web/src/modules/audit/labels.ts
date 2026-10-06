@@ -320,6 +320,26 @@ export const AUDIT_LABELS: Readonly<Record<string, string>> = {
   PREMIUM_MANUAL_SYNC: 'Premium von Hand abgeglichen',
   PREMIUM_STUEBLI_REMOVED: 'Stübli entfernt',
   PREMIUM_STUEBLI_REPAIR: 'Stübli repariert',
+  PREMIUM_GRANT_CREATED: 'Premium vergeben',
+  PREMIUM_GRANT_EXTENDED: 'Premium verlängert',
+  PREMIUM_GRANT_REPLACED: 'Premium-Laufzeit ersetzt',
+  PREMIUM_GRANT_REVOKED: 'Premium-Vergabe widerrufen',
+
+  // --- Zahlungen -------------------------------------------------------------
+  //
+  // Getrennt von den allgemeinen Integrationen: wer wissen will, wann zuletzt
+  // am Zahlungsanbieter etwas geändert wurde, soll das nicht aus einer Liste
+  // von «Integration geändert» heraussuchen müssen.
+  PAYMENT_PROVIDER_CHANGED: 'Zahlungsanbieter gewechselt',
+  PAYMENT_MODE_CHANGED: 'Zahlungsmodus geändert',
+  PAYMENT_CREDENTIAL_CHANGED: 'Zahlungs-Zugangsdaten geändert',
+  PAYMENT_CONNECTION_TESTED: 'Zahlungsverbindung geprüft',
+  PAYMENT_PRODUCT_LINKED: 'Angebot mit Anbieter verknüpft',
+
+  // --- Social Media ----------------------------------------------------------
+  SOCIAL_POST_CREATED: 'Post erstellt',
+  SOCIAL_POST_ARCHIVED: 'Post abgelegt',
+  SOCIAL_POST_DELETED: 'Post gelöscht',
 
   // --- Integrationen ---------------------------------------------------------
   INTEGRATION_SETTINGS_UPDATED: 'Integration geändert',
