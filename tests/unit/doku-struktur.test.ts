@@ -267,3 +267,39 @@ describe('Doku: Modultabelle', () => {
     expect(quelle.toLowerCase()).not.toContain('spielersuche');
   });
 });
+
+describe('Doku: Abschnitte ohne Inhalt', () => {
+  it('kein Abschnitt besteht nur aus einem Modulknopf', () => {
+    /*
+     * Ein Modulknopf verschwindet ohne Berechtigung (§61). Ist er der einzige
+     * Block seines Abschnitts, bleibt eine Überschrift ohne Inhalt stehen -
+     * samt Eintrag in «Auf dieser Seite», der auf nichts zeigt.
+     *
+     * Gefunden wurde das nicht hier, sondern am gebauten Server: zwei Seiten
+     * hatten einen Abschnitt «Kalender öffnen» bzw. «Berechtigungen öffnen»
+     * mit genau einem Knopf darin. Für den Grossteil des Teams waren das zwei
+     * leere Kapitel. Die Knöpfe stehen jetzt in den Abschnitten, zu deren
+     * Inhalt sie gehören.
+     */
+    const leer: string[] = [];
+
+    for (const werk of WERKE) {
+      for (const { seite } of alleSeiten(werk)) {
+        const abschnitte = [
+          ...seite.abschnitte.map((abschnitt) => ({ anker: abschnitt.anker, blocks: abschnitt.blocks })),
+          ...seite.abschnitte.flatMap((abschnitt) =>
+            (abschnitt.unter ?? []).map((unter) => ({ anker: unter.anker, blocks: unter.blocks })),
+          ),
+        ];
+        for (const abschnitt of abschnitte) {
+          const ohneKnopf = abschnitt.blocks.filter((block) => block.art !== 'modulknopf');
+          if (ohneKnopf.length === 0) {
+            leer.push(`${werk.id}/${seite.slug}#${abschnitt.anker}`);
+          }
+        }
+      }
+    }
+
+    expect(leer).toEqual([]);
+  });
+});

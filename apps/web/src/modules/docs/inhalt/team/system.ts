@@ -59,12 +59,6 @@ export const kalender: DokuSeite = {
           ton: 'wichtig',
           text: 'Der QR-Code eines Tickets gehört der Person, die es hat. Ein weitergegebener Code lässt jemand anderen hinein - Screenshots gehören deshalb nicht in offene Kanäle.',
         },
-      ],
-    },
-    {
-      anker: 'knopf',
-      titel: 'Kalender öffnen',
-      blocks: [
         {
           art: 'modulknopf',
           href: '/kalender',
@@ -151,12 +145,6 @@ export const berechtigungen: DokuSeite = {
           art: 'absatz',
           text: 'Wird ein Modul entfernt, bleiben seine Rechte manchmal an Rollen hängen. Beim Speichern werden solche Reste erkannt und still weggelassen; die Konfiguration wird deswegen nicht abgelehnt. Im Protokoll steht, was entfernt wurde.',
         },
-      ],
-    },
-    {
-      anker: 'knopf',
-      titel: 'Berechtigungen öffnen',
-      blocks: [
         {
           art: 'modulknopf',
           href: '/server/permissions',
