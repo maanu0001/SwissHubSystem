@@ -271,6 +271,7 @@ model User {
 
   sessions             Session[]
   identityCache        DiscordIdentityCache?
+  premiumGrants        PremiumGrant[]
   /// Premium-Abonnements. Bewusst am bestehenden Benutzer statt an einem
   /// zweiten Konto - Premium ist ein Modul, kein eigenes Produkt.
   premiumSubscriptions PremiumSubscription[]
@@ -467,17 +468,17 @@ model ServerRoleCategory {
   /// posten. Nach drei Rollenaenderungen stuenden vier Menues im Kanal, und
   /// die ersten drei waeren veraltet - sie wuerden aber weiter bedient.
   /// Soll das Embed aktiv sein?
-  embedAktiv Boolean @default(false)
+  embedAktiv          Boolean   @default(false)
   /// Wohin es gehoert. `null` heisst: noch kein Kanal gewaehlt.
-  embedChannelId String?
+  embedChannelId      String?
   /// Die Nachricht, die aktualisiert wird. `null` heisst: noch nicht
   /// veroeffentlicht.
-  embedMessageId String?
+  embedMessageId      String?
   /// Titel und Text des Embeds - leer heisst: Gruppenname und Hinweis.
-  embedTitel        String?
-  embedBeschreibung String?
+  embedTitel          String?
+  embedBeschreibung   String?
   /// Die Farbe als `#rrggbb`. Leer nimmt die Markenfarbe.
-  embedFarbe String?
+  embedFarbe          String?
   /// Wann die Nachricht zuletzt geschrieben wurde.
   embedAktualisiertAm DateTime?
 
@@ -2359,11 +2360,21 @@ enum PremiumSubscriptionStatus {
   EXPIRED
 }
 
+/// Der normalisierte Zahlungsstatus (§23).
+///
+/// Anbieterstati werden darauf abgebildet und nie durchgereicht: Stripe sagt
+/// `succeeded`, PayPal `COMPLETED`, Datatrans `settled` - alle drei sind hier
+/// `PAID`. Eine Oberflaeche, die den Rohstatus zeigt, muesste bei jedem
+/// Anbieterwechsel neu lernen, was «gut» heisst.
 enum PremiumPaymentStatus {
   PENDING
   PAID
   FAILED
+  /// Vom Zahlenden oder vom Anbieter abgebrochen, bevor Geld floss.
+  CANCELLED
   REFUNDED
+  /// Die Checkout-Sitzung ist verfallen, ohne dass jemand bezahlt hat.
+  EXPIRED
 }
 
 /// Hat Discord den gewuenschten Zustand erreicht?
@@ -2395,27 +2406,40 @@ enum PremiumEventStatus {
 /// Ein buchbares Angebot. Bewusst in der Datenbank statt im Code: Preise und
 /// Texte aendern sich, ohne dass dafuer ein Deployment noetig sein soll.
 model PremiumProduct {
-  id              String               @id @default(cuid())
-  slug            String               @unique
-  name            String
-  description     String
+  id                String               @id @default(cuid())
+  slug              String               @unique
+  name              String
+  description       String
   /// Preis in Rappen. Niemals Gleitkomma - CHF 5.00 sind 500.
-  priceMinor      Int
-  currency        String               @default("CHF")
+  priceMinor        Int
+  currency          String               @default("CHF")
   /// Aufzaehlung fuer die Produktkarte.
-  features        Json                 @default("[]")
+  features          Json                 @default("[]")
   /// Welche Anspruechen das Angebot gewaehrt.
-  entitlements    PremiumEntitlement[]
-  active          Boolean              @default(true)
-  sortOrder       Int                  @default(0)
+  entitlements      PremiumEntitlement[]
+  active            Boolean              @default(true)
+  sortOrder         Int                  @default(0)
   /// Preis-ID beim Zahlungsanbieter (z.B. Stripe Price). Erst nach der
   /// Einrichtung des Anbieters gesetzt.
-  providerPriceId String?
+  providerPriceId   String?
+  /// Produkt-ID beim Zahlungsanbieter, falls er Produkte und Preise trennt.
+  ///
+  /// Beide sind ausdruecklich **nicht** die Wahrheit ueber das Angebot (§25):
+  /// die interne `id` ist es. Wechselt der Anbieter, werden diese beiden Felder
+  /// leer und alles andere bleibt, wie es ist.
+  providerProductId String?
+  /// Die Laufzeit, die dieses Angebot gewaehrt - in Tagen.
+  ///
+  /// Bisher kannte das Angebot keine Dauer: der Anbieter bestimmte die Periode.
+  /// Fuer eine manuelle Vergabe und fuer die Preisangabe «CHF 5 / 30 Tage»
+  /// braucht es sie hier. `null` heisst: der Anbieter entscheidet (Abo).
+  durationDays      Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   subscriptions PremiumSubscription[]
+  grants        PremiumGrant[]
 
   @@index([active, sortOrder])
 }
@@ -2465,6 +2489,7 @@ model PremiumSubscription {
 
   payments  PremiumPayment[]
   resources PremiumDiscordResource[]
+  grants    PremiumGrant[]
 
   @@unique([activeUserKey])
   @@unique([providerSubscriptionId])
@@ -2546,6 +2571,96 @@ model PremiumDiscordResource {
   @@unique([userId, resourceType])
   @@index([state])
   @@index([discordResourceId])
+}
+
+/// Die Einheit, in der eine manuelle Vergabe gemessen wurde.
+///
+/// Gespeichert wird, was der Admin eingegeben hat - nicht die ausgerechneten
+/// Tage. «3 Monate» ist eine andere Aussage als «90 Tage», und in der
+/// Historie soll stehen, was jemand gemeint hat.
+enum PremiumGrantUnit {
+  DAYS
+  WEEKS
+  MONTHS
+}
+
+/// Was die Vergabe mit einer bestehenden Laufzeit gemacht hat.
+enum PremiumGrantMode {
+  /// Es gab noch keine Laufzeit.
+  NEW
+  /// Die neue Dauer wurde auf das bestehende Ende addiert.
+  EXTEND
+  /// Das Ende wurde ab jetzt neu gesetzt; die Restlaufzeit entfiel.
+  REPLACE
+}
+
+enum PremiumGrantStatus {
+  ACTIVE
+  /// Vorzeitig durch die Verwaltung beendet.
+  REVOKED
+  /// Die Laufzeit ist regulaer abgelaufen.
+  EXPIRED
+}
+
+/// Eine manuelle Premium-Vergabe durch die Verwaltung.
+///
+/// ## Warum eine eigene Tabelle und kein zweiter Lebenszyklus
+///
+/// Der **Anspruch** bleibt das Abonnement: `PremiumSubscription` mit
+/// `currentPeriodEnd` in der Zukunft, und damit greift alles, was es schon
+/// gibt - der Discord-Sync holt die Rolle, `findExpiredSubscriptions` raeumt
+/// nach Ablauf auf, das Stuebli entsteht ueber dieselbe Provisionierung. Diese
+/// Tabelle ist kein zweites Entitlement, sondern das Protokoll der
+/// **Handlung**: wer hat wem was fuer wie lange gegeben, warum, und was ist
+/// dabei mit einer bestehenden Laufzeit passiert.
+///
+/// Das Audit Log allein genuegt dafuer nicht: es ist nach Zeit geordnet und
+/// nicht filterbar nach «alle Vergaben an diese Person», und es kennt keinen
+/// Zustand - eine widerrufene Vergabe bliebe darin ein Eintrag «vergeben».
+/// Hier steht beides nebeneinander, und die Historie bleibt auch nach dem
+/// Widerruf vollstaendig (§11: keine Historie loeschen).
+model PremiumGrant {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Wie ueberall im System: der Bot arbeitet mit Discord-IDs.
+  discordId String
+
+  productId String
+  product   PremiumProduct @relation(fields: [productId], references: [id])
+
+  /// Das Abonnement, das daraus entstand oder verlaengert wurde.
+  ///
+  /// `SetNull` und nicht `Cascade`: ein geloeschtes Abonnement darf die
+  /// Vergabegeschichte nicht mitnehmen.
+  subscriptionId String?
+  subscription   PremiumSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  /// Die eingegebene Dauer - Zahl und Einheit getrennt, siehe `PremiumGrantUnit`.
+  amount Int
+  unit   PremiumGrantUnit
+
+  startsAt DateTime
+  endsAt   DateTime
+  mode     PremiumGrantMode
+
+  /// Der Grund, den der Admin angegeben hat. Steht in der Historie.
+  reason String?
+
+  grantedByDiscordId String?
+  grantedByUsername  String?
+
+  status             PremiumGrantStatus @default(ACTIVE)
+  revokedAt          DateTime?
+  revokedByDiscordId String?
+  revokedReason      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([productId])
 }
 
 // ===========================================================================
@@ -10991,7 +11106,7 @@ model XpSlotFreespinPackage {
   /// aus diesem Paket kamen. Sie wird serverseitig bei jedem Freispiel
   /// hochgezaehlt - im Browser aufzusummieren hiesse, einer Zahl zu glauben,
   /// die ein Neuladen zuruecksetzt.
-  packageWin Int @default(0)
+  packageWin  Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

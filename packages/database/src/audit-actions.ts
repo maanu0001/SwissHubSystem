@@ -178,6 +178,34 @@ export const AUDIT_ACTIONS = {
   PREMIUM_STUEBLI_REMOVED: 'PREMIUM_STUEBLI_REMOVED',
   PREMIUM_PLAN_UPDATED: 'PREMIUM_PLAN_UPDATED',
   PREMIUM_CHECKOUT_STARTED: 'PREMIUM_CHECKOUT_STARTED',
+
+  // --- Manuelle Vergabe durch die Verwaltung (§12) -------------------------
+  //
+  // Vier Schluessel und nicht einer: «vergeben», «verlaengert» und «ersetzt»
+  // sind drei verschiedene Handlungen mit drei verschiedenen Folgen fuer eine
+  // bestehende Laufzeit, und wer das Protokoll liest, will sie unterscheiden
+  // koennen, ohne in die Metadaten zu schauen.
+  PREMIUM_GRANT_CREATED: 'PREMIUM_GRANT_CREATED',
+  PREMIUM_GRANT_EXTENDED: 'PREMIUM_GRANT_EXTENDED',
+  PREMIUM_GRANT_REPLACED: 'PREMIUM_GRANT_REPLACED',
+  PREMIUM_GRANT_REVOKED: 'PREMIUM_GRANT_REVOKED',
+
+  // --- Zahlungsintegration (§51) -------------------------------------------
+  //
+  // Niemals ein Geheimnis im Protokoll - nur **dass** eines gesetzt wurde.
+  PAYMENT_PROVIDER_CHANGED: 'PAYMENT_PROVIDER_CHANGED',
+  PAYMENT_MODE_CHANGED: 'PAYMENT_MODE_CHANGED',
+  PAYMENT_CREDENTIAL_CHANGED: 'PAYMENT_CREDENTIAL_CHANGED',
+  PAYMENT_CONNECTION_TESTED: 'PAYMENT_CONNECTION_TESTED',
+  PAYMENT_PRODUCT_LINKED: 'PAYMENT_PRODUCT_LINKED',
+
+  // --- Post Creator (§52) ---------------------------------------------------
+  //
+  // Drei Schluessel, nicht jede Textaenderung: ein Protokoll, das jeden
+  // Tastendruck im Editor mitschreibt, ist keines mehr.
+  SOCIAL_POST_CREATED: 'SOCIAL_POST_CREATED',
+  SOCIAL_POST_ARCHIVED: 'SOCIAL_POST_ARCHIVED',
+  SOCIAL_POST_DELETED: 'SOCIAL_POST_DELETED',
   MEMBERS_SEARCHED: 'MEMBERS_SEARCHED',
 
   // --- Ticket-System -------------------------------------------------------

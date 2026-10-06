@@ -29,6 +29,18 @@ export const PREMIUM_PERMISSIONS = {
   productsManage: 'premium.products.manage',
   paymentsView: 'premium.payments.view',
   subscriptionsManage: 'premium.subscriptions.manage',
+  /**
+   * Premium von Hand vergeben, widerrufen und die Vergaben einsehen.
+   *
+   * Drei Schluessel und nicht einer: Premium **zu vergeben** heisst, eine
+   * Leistung zu verschenken, die sonst Geld kostet - das ist die schwerste
+   * der drei Handlungen und gehoert nicht automatisch zu «ich darf die Liste
+   * sehen». Und wer widerrufen darf, nimmt jemandem etwas weg; auch das ist
+   * eine eigene Entscheidung.
+   */
+  grantsView: 'premium.grants.view',
+  grantsCreate: 'premium.grants.create',
+  grantsRevoke: 'premium.grants.revoke',
   discordSync: 'premium.discord.sync',
   stuebliManage: 'premium.stuebli.manage',
   settings: 'premium.settings',
@@ -280,6 +292,27 @@ export const premiumModule: ModuleDefinition = registerModule({
       key: PREMIUM_PERMISSIONS.subscriptionsManage,
       label: 'Abonnements verwalten',
       description: 'Abonnements administrativ beenden und Schonfristen setzen.',
+      module: PREMIUM_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: PREMIUM_PERMISSIONS.grantsView,
+      label: 'Vergaben einsehen',
+      description: 'Die Historie der von Hand vergebenen Premium-Leistungen ansehen.',
+      module: PREMIUM_MODULE_ID,
+    },
+    {
+      key: PREMIUM_PERMISSIONS.grantsCreate,
+      label: 'Premium vergeben',
+      description:
+        'Premium, Stübli oder ein Bundle von Hand an eine Person vergeben - mit frei gewählter Laufzeit. Verschenkt eine Leistung, die sonst Geld kostet.',
+      module: PREMIUM_MODULE_ID,
+      critical: true,
+    },
+    {
+      key: PREMIUM_PERMISSIONS.grantsRevoke,
+      label: 'Vergabe widerrufen',
+      description: 'Eine von Hand vergebene Leistung vorzeitig beenden.',
       module: PREMIUM_MODULE_ID,
       critical: true,
     },

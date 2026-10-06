@@ -2,6 +2,7 @@ export * from './config';
 export * from './entitlements';
 export * from './products';
 export * from './service';
+export * from './vergabe';
 export * from './discord';
 export * from './queries';
 export * from './reconcile';

@@ -5,7 +5,15 @@ import { AUDIT_ACTIONS, prisma, safeRecordAudit } from '@swisshub/database';
 import { appUrl } from '@swisshub/config';
 import { premium } from '@swisshub/modules';
 import { AppError } from '@swisshub/shared';
+import { revalidatePath } from 'next/cache';
 import { defineAction } from '@/server/action';
+
+/** Die Seiten, die eine Vergabe veraendert. */
+function revalidiereVergaben(): void {
+  revalidatePath('/premium/vergeben');
+  revalidatePath('/premium/abos');
+  revalidatePath('/premium/uebersicht');
+}
 
 /**
  * Server Actions des Premium-Moduls.
@@ -289,5 +297,184 @@ export const repairStuebliAction = defineAction(
       kanalAngelegt: ergebnis.channelCreated !== null,
       kanalRepariert: ergebnis.channelRepaired,
     };
+  },
+);
+
+// ===========================================================================
+// Manuelle Vergabe (§1-§11)
+//
+// Drei Aktionen und eine Suche. Die Rechnung selbst steht im Modulkern
+// (`premium/vergabe.ts`) - hier ist nur die Grenze zum Browser: Berechtigung,
+// Ratengrenze, Validierung, Protokoll.
+// ===========================================================================
+
+const DAUER_EINHEIT = z.enum(['DAYS', 'WEEKS', 'MONTHS']);
+
+/**
+ * Wer fuer eine Vergabe in Frage kommt (§2).
+ *
+ * Gesucht wird im Mitgliederspiegel ueber `traegerSuche` - dieselbe Quelle wie
+ * die Beteiligtensuche des Workspace und die Geschenksuche des XP-Slots. Eine
+ * Kennung gibt niemand ein; intern wird weiterhin mit ihr gearbeitet.
+ *
+ * Die geforderte Berechtigung ist `premium.self`: wem Premium vergeben wird,
+ * muss sein Abo auch ansehen koennen. Jemandem etwas zu schenken, das er nie
+ * sieht, waere eine Vergabe ins Leere.
+ */
+export const premiumPersonSuchenAction = defineAction(
+  {
+    name: 'premium.person.suchen',
+    module: 'premium',
+    permission: premium.PREMIUM_PERMISSIONS.grantsCreate,
+    schema: z.object({ begriff: z.string().trim().max(100) }),
+    rateLimit: 'premiumSuche',
+    freshness: 'cached',
+  },
+  async ({ input }) => {
+    const { traegerSuche } = await import('@swisshub/modules');
+    const treffer = await traegerSuche(premium.PREMIUM_PERMISSIONS.self, input.begriff, {
+      grenze: 20,
+    });
+    return {
+      treffer: treffer.map((person) => ({
+        discordId: person.discordId,
+        name: person.displayName,
+        username: person.username,
+        avatarHash: person.avatarHash,
+      })),
+    };
+  },
+);
+
+/**
+ * Was eine Vergabe bewirken wuerde (§9).
+ *
+ * Eine eigene Aktion und kein Nebenprodukt der Vergabe: die Oberflaeche zeigt
+ * das resultierende Enddatum, **bevor** jemand auf «Vergeben» drueckt. Ohne
+ * sie waere «Ersetzen» eine Entscheidung im Blindflug - man saehe erst
+ * hinterher, dass man 42 Tage Restlaufzeit weggeworfen hat.
+ *
+ * `cached` und ohne Schreibrecht: es passiert nichts.
+ */
+export const premiumVergabeVorschauAction = defineAction(
+  {
+    name: 'premium.vergabe.vorschau',
+    module: 'premium',
+    permission: premium.PREMIUM_PERMISSIONS.grantsCreate,
+    schema: z.object({
+      discordId: z.string().min(1).max(32),
+      productId: z.string().cuid(),
+      amount: z.number().int().min(1).max(730),
+      unit: DAUER_EINHEIT,
+      modus: z.enum(['extend', 'replace']),
+      startsAt: z.string().datetime().nullable().optional(),
+    }),
+    rateLimit: 'premiumSuche',
+    freshness: 'cached',
+  },
+  async ({ input }) => {
+    const vorschau = await premium.vorschauVergabe({
+      discordId: input.discordId,
+      productId: input.productId,
+      amount: input.amount,
+      unit: input.unit,
+      modus: input.modus,
+      startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
+    });
+    return {
+      produktName: vorschau.product.name,
+      leistungen: vorschau.leistungen,
+      bestehend: vorschau.bestehend
+        ? {
+            produktName: vorschau.bestehend.produktName,
+            status: vorschau.bestehend.status,
+            endsAt: vorschau.bestehend.endsAt?.toISOString() ?? null,
+            bezahlt: vorschau.bestehend.bezahlt,
+          }
+        : null,
+      startsAt: vorschau.startsAt.toISOString(),
+      endsAt: vorschau.endsAt.toISOString(),
+      mode: vorschau.mode,
+      verworfeneTage: vorschau.verworfeneTage,
+    };
+  },
+);
+
+/** Premium, Stübli oder ein Bundle von Hand vergeben (§1, §3-§7). */
+export const premiumVergebenAction = defineAction(
+  {
+    name: 'premium.vergabe.erteilen',
+    module: 'premium',
+    permission: premium.PREMIUM_PERMISSIONS.grantsCreate,
+    schema: z.object({
+      discordId: z.string().min(1).max(32),
+      productId: z.string().cuid(),
+      amount: z.number().int().min(1).max(730),
+      unit: DAUER_EINHEIT,
+      modus: z.enum(['extend', 'replace']),
+      startsAt: z.string().datetime().nullable().optional(),
+      grund: z.string().trim().max(500).nullable().optional(),
+    }),
+    rateLimit: 'premiumVergabe',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const ergebnis = await premium.vergebePremium({
+      discordId: input.discordId,
+      productId: input.productId,
+      amount: input.amount,
+      unit: input.unit,
+      modus: input.modus,
+      startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
+      reason: input.grund ?? null,
+      actor: { discordId: ctx.user.discordId, username: ctx.user.username },
+    });
+
+    /*
+     * Discord bekommt die Rolle sofort und nicht erst beim naechsten Takt.
+     *
+     * Der regelmaessige Abgleich holt es ohnehin nach - aber ein Admin, der
+     * gerade vergeben hat, schaut auf Discord und erwartet die Rolle. Ein
+     * Fehlschlag ist deshalb keiner fuer die Vergabe: `discordSyncStatus`
+     * steht auf `PENDING`, und der Abgleich versucht es wieder.
+     */
+    const sync = await premium
+      .syncDiscordEntitlements(ergebnis.subscription.userId)
+      .catch(() => ({ ok: false, error: 'Der Abgleich folgt beim nächsten Durchlauf.' }));
+
+    revalidiereVergaben();
+    return {
+      grantId: ergebnis.grant.id,
+      mode: ergebnis.mode,
+      endsAt: ergebnis.grant.endsAt.toISOString(),
+      discordOk: sync.ok,
+      discordFehler: sync.ok ? null : (sync.error ?? null),
+    };
+  },
+);
+
+/** Eine Vergabe vorzeitig beenden (§11). */
+export const premiumVergabeWiderrufenAction = defineAction(
+  {
+    name: 'premium.vergabe.widerrufen',
+    module: 'premium',
+    permission: premium.PREMIUM_PERMISSIONS.grantsRevoke,
+    schema: z.object({
+      grantId: z.string().cuid(),
+      grund: z.string().trim().min(1).max(500),
+    }),
+    rateLimit: 'premiumVergabe',
+    freshness: 'critical',
+  },
+  async ({ ctx, input }) => {
+    const grant = await premium.widerrufeVergabe(
+      input.grantId,
+      { discordId: ctx.user.discordId, username: ctx.user.username },
+      input.grund,
+    );
+    // Dieselbe Deprovisionierung wie bei jeder anderen Beendigung.
+    await premium.syncDiscordEntitlements(grant.userId).catch(() => undefined);
+    revalidiereVergaben();
+    return { widerrufen: true };
   },
 );

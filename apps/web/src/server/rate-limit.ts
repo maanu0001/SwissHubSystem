@@ -343,6 +343,20 @@ export const RATE_LIMITS = {
    * eine Abfrage ist, und trotzdem eine Grenze gegen eine Schleife.
    */
   workspaceSuche: { limit: 120, windowMs: 5 * 60 * 1000 },
+  /**
+   * Die Suche nach einer Person fuer eine Premium-Vergabe.
+   *
+   * Dieselbe Groessenordnung wie die Workspace-Suche: ein Suchfeld, das bei
+   * jedem Zeichen fragt, braucht Luft - und eine Grenze, damit es nicht zum
+   * Werkzeug wird, die Mitgliederliste abzuschoepfen.
+   */
+  premiumSuche: { limit: 120, windowMs: 5 * 60 * 1000 },
+  /** Eine Vergabe ist eine seltene Handlung mit Folgen - entsprechend knapp. */
+  premiumVergabe: { limit: 20, windowMs: 5 * 60 * 1000 },
+  /** Der Post Creator speichert mit Debounce; das darf oft passieren. */
+  postCreator: { limit: 240, windowMs: 5 * 60 * 1000 },
+  /** Ein Bild zu zeichnen kostet Rechenzeit - wie beim Wrapped-Export. */
+  postExport: { limit: 60, windowMs: 5 * 60 * 1000 },
   /*
    * Clipdateien hochladen - eng.
    *

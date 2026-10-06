@@ -13,6 +13,7 @@ const SYMBOLE: Record<PremiumSectionIcon, string> = {
   overview: 'LayoutGrid',
   subscriptions: 'Users',
   products: 'Package',
+  grants: 'Gift',
   payments: 'CreditCard',
   stuebli: 'Mic',
   settings: 'Settings',

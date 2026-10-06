@@ -36,6 +36,11 @@ export function premiumSections(context: AuthContext): PremiumSection[] {
     // eine Falle - man klickt den falschen.
     sections.push({ href: '/premium/produkte', label: 'Produkte', icon: 'products' });
   }
+  if (can(context, p.grantsView)) {
+    // Zwischen «Abonnements» und «Produkte»: die Vergabe erzeugt ein
+    // Abonnement und braucht ein Angebot - sie gehoert zwischen beide.
+    sections.push({ href: '/premium/vergeben', label: 'Vergeben', icon: 'grants' });
+  }
   if (can(context, p.paymentsView)) {
     sections.push({ href: '/premium/zahlungen', label: 'Zahlungen', icon: 'payments' });
   }
