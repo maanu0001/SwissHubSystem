@@ -13,6 +13,7 @@ import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
 import {
   WORKSPACE_ZUGANG,
+  ladeBeteiligte,
   ladeTeam,
   namenKarte,
   workspaceBetrachter,
@@ -75,10 +76,20 @@ export default async function WorkspaceProjektPage({
     notFound();
   }
 
-  const [aufgaben, verlauf, team, zahlen, links, anhaenge, meilensteine] = await Promise.all([
+  const [aufgaben, verlauf, team, beteiligte, zahlen, links, anhaenge, meilensteine] = await Promise.all([
     workspace.ladeAufgaben(guildId, betrachter, { projectId, mitArchivierten: true, grenze: 200 }),
     workspace.ladeVerlauf({ projectId }, betrachter, 20),
     ladeTeam(),
+    /*
+     * Die Eingetragenen getrennt von den Waehlbaren.
+     *
+     * `ladeTeam` sagt, wer dazukommen kann - gedeckelt und nach Namen
+     * sortiert. Wer schon Projektleitung oder Unterstuetzung ist, gehoert
+     * angezeigt, ob er in dieser Liste auftaucht oder nicht; und ob er das
+     * Modul oeffnen darf, wird gerechnet und nicht aus dem Fehlen in `team`
+     * geschlossen.
+     */
+    ladeBeteiligte(ansicht.mitglieder.map((mitglied) => mitglied.discordId)),
     workspace.ladeUebersichtszahlen(guildId, betrachter, {
       jetzt,
       baldTage: einstellungen.baldFaelligTage,
@@ -280,6 +291,7 @@ export default async function WorkspaceProjektPage({
                 csrfToken={csrfToken}
                 projectId={ansicht.projekt.id}
                 mitglieder={ansicht.mitglieder}
+                beteiligtePersonen={[...beteiligte.values()]}
                 team={team}
               />
             ) : (

@@ -91,7 +91,7 @@ export * as emoji from './emoji';
 export * as serverrollen from './serverrollen';
 export * as socialmedia from './socialmedia';
 export * as workspace from './workspace';
-export { traegerDerBerechtigung, traegerSuche, type TraegerPerson } from './traeger';
+export { traegerDerBerechtigung, traegerPruefung, traegerSuche, type TraegerPerson } from './traeger';
 export * as streamer from './streamer';
 export * as wrapped from './wrapped';
 export * as spielwahl from './spielwahl';

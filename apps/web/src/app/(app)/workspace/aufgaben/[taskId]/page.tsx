@@ -11,6 +11,7 @@ import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { workspaceNavigation } from '@/modules/workspace/navigation';
 import {
   WORKSPACE_ZUGANG,
+  ladeBeteiligte,
   ladeTeam,
   namenKarte,
   workspaceBetrachter,
@@ -53,19 +54,29 @@ export default async function WorkspaceAufgabePage({
     notFound();
   }
 
-  const [verlauf, projekte, team, zahlen, kommentare, punkte, links, anhaenge] = await Promise.all([
-    workspace.ladeVerlauf({ taskId }, betrachter, 30),
-    workspace.ladeAktiveProjekte(guildId, betrachter),
-    ladeTeam(),
-    workspace.ladeUebersichtszahlen(guildId, betrachter, {
-      jetzt,
-      baldTage: einstellungen.baldFaelligTage,
-    }),
-    workspace.ladeKommentare(taskId, betrachter),
-    workspace.ladeCheckliste(taskId, betrachter),
-    workspace.ladeLinks({ taskId }, betrachter),
-    workspace.ladeAnhaenge({ taskId }, betrachter),
-  ]);
+  const [verlauf, projekte, team, beteiligte, zahlen, kommentare, punkte, links, anhaenge] =
+    await Promise.all([
+      workspace.ladeVerlauf({ taskId }, betrachter, 30),
+      workspace.ladeAktiveProjekte(guildId, betrachter),
+      ladeTeam(),
+      /*
+       * Die Eingetragenen getrennt von den Waehlbaren.
+       *
+       * `ladeTeam` sagt, wer dazukommen kann - gedeckelt und nach Namen
+       * sortiert. Wer schon drinsteht, gehoert angezeigt, ob er in dieser
+       * Liste auftaucht oder nicht; und ob er das Modul oeffnen darf, wird
+       * gerechnet und nicht aus dem Fehlen in `team` geschlossen.
+       */
+      ladeBeteiligte(ansicht.zustaendige),
+      workspace.ladeUebersichtszahlen(guildId, betrachter, {
+        jetzt,
+        baldTage: einstellungen.baldFaelligTage,
+      }),
+      workspace.ladeKommentare(taskId, betrachter),
+      workspace.ladeCheckliste(taskId, betrachter),
+      workspace.ladeLinks({ taskId }, betrachter),
+      workspace.ladeAnhaenge({ taskId }, betrachter),
+    ]);
 
   /*
    * Alle Namen der Seite in einer Karte.
@@ -182,6 +193,7 @@ export default async function WorkspaceAufgabePage({
               csrfToken={csrfToken}
               taskId={ansicht.aufgabe.id}
               beteiligte={ansicht.zustaendige}
+              beteiligtePersonen={[...beteiligte.values()]}
               team={team}
               darfBearbeiten={darfBearbeiten}
             />

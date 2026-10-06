@@ -5,6 +5,7 @@ import { bootstrapConfig } from '@swisshub/config';
 import { prisma } from '@swisshub/database';
 import {
   PERMISSION_PRESETS,
+  aufloeseAltlasten,
   findPresetDrift,
   isRecoveryNeeded,
   listPermissions,
@@ -12,6 +13,7 @@ import {
 import { listModuleDefinitions } from '@swisshub/modules';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PermissionMatrix } from '@/modules/configuration/components/permission-matrix';
+import { permissionGesundheit } from '@/modules/configuration/permission-gesundheit';
 import { csrfTokenFor, hasSetupAccess, requirePagePermission } from '@/server/auth';
 import { loadDiscordOptions } from '@/server/configuration';
 
@@ -29,7 +31,7 @@ export default async function ServerPermissionsPage(): Promise<React.JSX.Element
   const context = await requirePagePermission('permissions.manage', { allowDuringSetup: true });
   const csrfToken = csrfTokenFor(context);
 
-  const [options, managedRoles, recoveryNeeded, setupAccess] = await Promise.all([
+  const [options, managedRoles, recoveryNeeded, setupAccess, gesundheit] = await Promise.all([
     loadDiscordOptions(),
     prisma.managedRole.findMany({
       orderBy: { moderationLevel: 'desc' },
@@ -37,6 +39,7 @@ export default async function ServerPermissionsPage(): Promise<React.JSX.Element
     }),
     isRecoveryNeeded(),
     hasSetupAccess(),
+    permissionGesundheit(),
   ]);
 
   const moduleLabels: Record<string, string> = { core: 'Grundfunktionen' };
@@ -67,6 +70,63 @@ export default async function ServerPermissionsPage(): Promise<React.JSX.Element
             <p className="text-xs text-muted-foreground">
               Alternativ auf dem Server: <code>npm run grant:admin -- &lt;ROLLEN_ID&gt;</code>
             </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/*
+        Der Zustand der Rechtedaten - nur wenn es etwas zu sagen gibt.
+
+        Eine Kachel, die «alles in Ordnung» meldet, liest nach drei Wochen
+        niemand mehr. Darum steht hier nichts, solange nichts ist.
+      */}
+      {gesundheit.altlasten.length > 0 || gesundheit.unbenannt.length > 0 ? (
+        <Card className={gesundheit.unbenannt.length > 0 ? 'border-warning/40' : undefined}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle className="size-4 text-warning" aria-hidden="true" />
+              Alte Berechtigungen in den Rollendaten
+            </CardTitle>
+            <CardDescription>
+              {gesundheit.registriert} Berechtigungen sind registriert, {gesundheit.zuordnungen} Zuordnungen
+              gespeichert. Diese Schlüssel kennt die Registry nicht mehr - sie blockieren nichts und
+              verschwinden, sobald die betroffene Rolle das nächste Mal gespeichert wird.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {gesundheit.altlasten.length > 0 ? (
+              <ul className="space-y-1">
+                {gesundheit.altlasten.map((eintrag) => (
+                  <li key={eintrag.key} className="flex flex-wrap items-baseline gap-x-2">
+                    <code className="text-xs">{eintrag.key}</code>
+                    <span className="text-xs text-muted-foreground">
+                      {eintrag.zeilen} {eintrag.zeilen === 1 ? 'Zeile' : 'Zeilen'} · {eintrag.grund}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {gesundheit.unbenannt.length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-warning">
+                  Nicht benannt - weder registriert noch als entfernt vermerkt:
+                </p>
+                <ul className="space-y-1">
+                  {gesundheit.unbenannt.map((eintrag) => (
+                    <li key={eintrag.key} className="flex flex-wrap items-baseline gap-x-2">
+                      <code className="text-xs">{eintrag.key}</code>
+                      <span className="text-xs text-muted-foreground">
+                        {eintrag.zeilen} {eintrag.zeilen === 1 ? 'Zeile' : 'Zeilen'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-muted-foreground">
+                  Entweder war ein Modul beim Nachsehen nicht geladen, oder etwas schreibt einen Namen, den es
+                  nicht gibt.
+                </p>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}
@@ -110,12 +170,28 @@ export default async function ServerPermissionsPage(): Promise<React.JSX.Element
             managed={managedRoles.map((role) => ({
               discordRoleId: role.discordRoleId,
               label: role.label,
-              permissions: role.permissions
-                .filter((entry) => entry.effect === 'ALLOW')
-                .map((entry) => entry.permission),
-              deniedPermissions: role.permissions
-                .filter((entry) => entry.effect === 'DENY')
-                .map((entry) => entry.permission),
+              /*
+               * Was die Datenbank hergibt, aber nur das, was es noch gibt.
+               *
+               * Hier wurden die Zuordnungen einer Rolle unveraendert in die
+               * Oberflaeche gegeben. Schluessel entfernter Module kamen mit,
+               * hatten in der Matrix kein Haekchen - und fuhren beim
+               * Speichern trotzdem mit zurueck zum Server, der die ganze
+               * Konfiguration deshalb ablehnte. Sichtbar war nur die Folge:
+               * «Unbekannte Berechtigung: members.view.spielersuche.own».
+               *
+               * `aufloeseAltlasten` ist dieselbe Funktion, die die
+               * Server-Aktion benutzt. Dass hier und dort dasselbe entschieden
+               * wird, ist der Grund, aus dem die Vorschau («29 von 366») und
+               * das, was danach in der Datenbank steht, nicht auseinanderlaufen
+               * koennen: beide zaehlen dieselbe Liste.
+               */
+              permissions: aufloeseAltlasten(
+                role.permissions.filter((entry) => entry.effect === 'ALLOW').map((entry) => entry.permission),
+              ).gueltig,
+              deniedPermissions: aufloeseAltlasten(
+                role.permissions.filter((entry) => entry.effect === 'DENY').map((entry) => entry.permission),
+              ).gueltig,
               isProtected: role.isProtected,
               keepOnJail: role.keepOnJail,
               moderationLevel: role.moderationLevel,

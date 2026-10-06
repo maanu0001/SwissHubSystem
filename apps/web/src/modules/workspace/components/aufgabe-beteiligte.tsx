@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Personensuche } from './personensuche';
 import { workspaceZustaendigeSetzenAction } from '../actions';
-import type { Teammitglied } from '../daten';
+import type { Beteiligter, Teammitglied } from '../daten';
 
 /**
  * Die Beteiligten einer Aufgabe.
@@ -58,12 +58,31 @@ export function AufgabeBeteiligte({
   csrfToken,
   taskId,
   beteiligte,
+  beteiligtePersonen,
   team,
   darfBearbeiten,
 }: {
   csrfToken: string;
   taskId: string;
   beteiligte: readonly string[];
+  /**
+   * Der Zugang der eingetragenen Beteiligten - serverseitig berechnet.
+   *
+   * ## Der Fehler, den das behebt
+   *
+   * Hier stand «darf den Workspace nicht mehr oeffnen» unter jedem Namen,
+   * den die Komponente in `team` nicht fand. Das war ein Schluss aus einer
+   * Abwesenheit und keine Auskunft: `team` ist die Liste der **waehlbaren**
+   * Personen, bei 200 gedeckelt und nach Anzeigename sortiert. Wer dahinter
+   * lag, nicht gespiegelt war oder den Server verlassen hatte, fehlte darin,
+   * ohne irgendein Recht verloren zu haben - und bekam trotzdem eine Aussage
+   * ueber seine Rechte.
+   *
+   * Jetzt kommt die Antwort aus `ladeBeteiligte`: an denselben Rollen und mit
+   * derselben Engine geprueft wie der Riegel vor der Seite, und zwar fuer
+   * genau diese Kennungen.
+   */
+  beteiligtePersonen: Beteiligter[];
   team: Teammitglied[];
   darfBearbeiten: boolean;
 }): React.JSX.Element {
@@ -92,12 +111,27 @@ export function AufgabeBeteiligte({
   const [dazu, setDazu] = useState<Record<string, Teammitglied>>({});
 
   const nachKennung = useMemo(() => {
-    const karte = new Map(team.map((eintrag) => [eintrag.discordId, eintrag]));
+    const karte = new Map<string, Teammitglied>(team.map((eintrag) => [eintrag.discordId, eintrag]));
+    /*
+     * Die Eingetragenen zuerst - und zwar so, dass sie `team` ueberschreiben:
+     * ihr Name ist fuer diese Liste aufgeloest worden und steht nicht unter
+     * dem Vorbehalt, dass die Person auch waehlbar waere.
+     */
+    for (const person of beteiligtePersonen) {
+      karte.set(person.discordId, person);
+    }
     for (const [discordId, person] of Object.entries(dazu)) {
       karte.set(discordId, person);
     }
     return karte;
-  }, [dazu, team]);
+  }, [beteiligtePersonen, dazu, team]);
+
+  /** Wer das Modul nicht oeffnen darf - berechnet, nicht erschlossen. */
+  const ohneZugang = useMemo(
+    () =>
+      new Set(beteiligtePersonen.filter((person) => !person.darfOeffnen).map((person) => person.discordId)),
+    [beteiligtePersonen],
+  );
 
   const speichere = (naechster: string[], meldung: string): void => {
     const vorher = stand;
@@ -159,7 +193,7 @@ export function AufgabeBeteiligte({
               {person?.username && person.username !== person.name ? (
                 <span className="block truncate text-[11px] text-muted-foreground">@{person.username}</span>
               ) : null}
-              {!person ? (
+              {ohneZugang.has(discordId) ? (
                 <span className="block truncate text-[11px] text-warning">
                   darf den Workspace nicht mehr öffnen
                 </span>

@@ -151,8 +151,15 @@ describe('Die Speicheraktion nimmt Ausnahmen entgegen und prueft sie', () => {
   });
 
   it('weist unbekannte Schluessel in beiden Listen ab', () => {
-    expect(quelle).toContain('[...input.permissions, ...input.deniedPermissions].filter');
-    expect(quelle).toContain('isKnownPermission(permission)');
+    /*
+     * Die Pruefung liegt jetzt in `aufloeseAltlasten`, und sie unterscheidet
+     * drei Faelle statt zwei: bekannt, benannte Altlast, unbekannt. Nur der
+     * dritte ist ein Fehler - aber er bleibt einer, in beiden Listen.
+     */
+    expect(quelle).toContain('aufloeseAltlasten(input.permissions)');
+    expect(quelle).toContain('aufloeseAltlasten(input.deniedPermissions)');
+    expect(quelle).toContain('[...erlaubt.unbekannt, ...verweigert.unbekannt]');
+    expect(quelle).toContain('Unbekannte Berechtigung');
   });
 
   it('weist denselben Schluessel in beiden Listen ab', () => {
@@ -160,7 +167,15 @@ describe('Die Speicheraktion nimmt Ausnahmen entgegen und prueft sie', () => {
   });
 
   it('reicht die Ausnahmen an den Aussperrschutz weiter', () => {
-    expect(quelle).toContain('checkLockout(input.discordRoleId, input.permissions, input.deniedPermissions)');
+    /*
+     * Und zwar die aufgeloesten Listen, nicht die Eingabe.
+     *
+     * Der Aussperrschutz zaehlt, wer `permissions.manage` noch hat. Rechnete
+     * er auf der Rohliste, zaehlte er einen entfernten Schluessel mit, den
+     * die Transaktion danach wegraeumt - und liesse eine Aussperrung durch,
+     * die er verhindern soll.
+     */
+    expect(quelle).toContain('checkLockout(input.discordRoleId, permissions, deniedPermissions)');
   });
 
   it('schreibt die Wirkung auch beim Aktualisieren mit', () => {

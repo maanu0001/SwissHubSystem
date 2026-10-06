@@ -775,8 +775,6 @@ function PremiumSymbolKasten({
                   aktiv: werte.aktiv,
                   gewicht: werte.gewicht,
                   glow: symbol.glow,
-                  bildPfad: symbol.imagePath,
-                  bildUrl: symbol.imageUrl,
                   auszahlung3: symbol.payout3Bp,
                   auszahlung4: symbol.payout4Bp,
                   auszahlung5: symbol.payout5Bp,
@@ -1001,6 +999,16 @@ function SymbolZeile({
             </div>
           ) : null}
 
+          {/*
+            Das Bild gehoert `symbolBildAction` - auch die Adresse.
+
+            Frueher reiste die Bildreferenz im grossen Symbolspeichern mit.
+            Das ging schief, sobald zwei Karten dieselbe Zeile bearbeiteten:
+            wer hier hochlud und danach auf der Premiumkarte speicherte,
+            schrieb den Stand vom Seitenaufbau zurueck. Darum hat das Bild
+            jetzt genau einen Weg in die Datenbank, und dieser Weg speichert
+            sofort - beim Hochladen, beim Zuruecksetzen und hier.
+          */}
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex-1">
               <Label className="text-xs">Bildadresse (Alternative zum Hochladen)</Label>
@@ -1011,6 +1019,29 @@ function SymbolZeile({
                 onChange={(ereignis) => setWerte((v) => ({ ...v, bildUrl: ereignis.target.value }))}
               />
             </div>
+            {werte.bildUrl.trim() !== (symbol.imageUrl ?? '') ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={laeuft}
+                onClick={() =>
+                  void fuehreAus(
+                    () =>
+                      symbolBildAction({
+                        csrfToken,
+                        key: symbol.key,
+                        bildPfad: werte.bildPfad,
+                        bildUrl: werte.bildUrl.trim() || null,
+                      }),
+                    'Bildadresse übernommen.',
+                    () => router.refresh(),
+                  )
+                }
+              >
+                <Save aria-hidden="true" />
+                Bildadresse übernehmen
+              </Button>
+            ) : null}
             <label className={cn('cursor-pointer', laedt && 'pointer-events-none opacity-50')}>
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-muted">
                 <Upload aria-hidden="true" className="size-3.5" />
@@ -1066,8 +1097,6 @@ function SymbolZeile({
                       aktiv: werte.aktiv,
                       gewicht: werte.gewicht,
                       glow: werte.glow,
-                      bildPfad: werte.bildPfad,
-                      bildUrl: werte.bildUrl.trim() || null,
                       auszahlung3: werte.auszahlung3,
                       auszahlung4: werte.auszahlung4,
                       auszahlung5: werte.auszahlung5,

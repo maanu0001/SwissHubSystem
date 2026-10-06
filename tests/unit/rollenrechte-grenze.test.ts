@@ -40,7 +40,7 @@ describe('Die Obergrenze kommt aus der Registry', () => {
   it('weist unbekannte Schlüssel weiterhin ab', () => {
     // Die gelockerte Grenze ist keine Einladung, beliebige Zeichenketten zu
     // schicken.
-    expect(quelle).toContain('isKnownPermission(permission)');
+    expect(quelle).toContain('aufloeseAltlasten(input.permissions)');
     expect(quelle).toContain('Unbekannte Berechtigung');
   });
 });

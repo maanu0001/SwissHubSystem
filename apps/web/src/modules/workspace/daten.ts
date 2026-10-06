@@ -6,6 +6,7 @@ import {
   members,
   moderation,
   traegerDerBerechtigung,
+  traegerPruefung,
   traegerSuche,
   workspace,
 } from '@swisshub/modules';
@@ -262,6 +263,70 @@ export async function personenZuListe(kennungen: readonly string[]): Promise<Tea
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name, 'de-CH'));
+}
+
+/**
+ * Ein Beteiligter, so wie die Oberfläche ihn braucht.
+ *
+ * `darfOeffnen` ist eine **berechnete** Auskunft und keine abgeleitete:
+ * serverseitig an denselben Rollen und derselben Engine geprüft, mit der auch
+ * der Riegel vor der Seite prüft.
+ */
+export interface Beteiligter extends Teammitglied {
+  darfOeffnen: boolean;
+}
+
+/**
+ * Die Beteiligten einer Seite - mit Namen und mit der Wahrheit über ihren
+ * Zugang.
+ *
+ * ## Der Fehler, den das behebt
+ *
+ * Unter den Beteiligten eines Projekts stand «darf den Workspace nicht mehr
+ * öffnen» - auch bei Leuten, die ihn sehr wohl öffnen durften. Der Hinweis
+ * stand nicht da, weil jemand nachgesehen hätte, sondern weil die Komponente
+ * ihn unter jeden Namen schrieb, den sie in `team` nicht fand. `team` ist die
+ * Liste der **wählbaren** Personen: bei 200 gedeckelt, nach Anzeigename
+ * sortiert und auf dem Mitgliederspiegel aufgebaut. Wer dahinter lag, nicht
+ * gespiegelt war oder den Server verlassen hatte, fehlte darin - und bekam
+ * eine Aussage über seine Rechte, die niemand geprüft hatte.
+ *
+ * Beteiligte sind Metadaten des Workspace: Projektleitung, Unterstützung,
+ * Verantwortliche einer Aufgabe. Sie stehen in der Liste, weil jemand sie
+ * eingetragen hat, und ihr Name gehört angezeigt, ob sie das Modul öffnen
+ * dürfen oder nicht. Darum zwei getrennte Auskünfte statt einer geratenen:
+ * der Name kommt aus `namenKarte` (Spiegel, dann angemeldete Benutzer), und
+ * `darfOeffnen` aus `traegerPruefung` über genau diese Kennungen.
+ */
+export async function ladeBeteiligte(
+  kennungen: ReadonlyArray<string | null | undefined>,
+): Promise<Map<string, Beteiligter>> {
+  const gesucht = [...new Set(kennungen.filter((kennung): kennung is string => Boolean(kennung)))];
+  if (gesucht.length === 0) {
+    return new Map();
+  }
+  const [namen, zugang] = await Promise.all([
+    namenKarte(gesucht),
+    traegerPruefung(gesucht, WORKSPACE_ZUGANG),
+  ]);
+
+  const karte = new Map<string, Beteiligter>();
+  for (const discordId of gesucht) {
+    const person = namen.get(discordId);
+    karte.set(discordId, {
+      discordId,
+      /*
+       * Ohne Treffer die Kennung - sie ist hässlich und wahr. Ein
+       * Platzhalter sähe nach einem Namen aus.
+       */
+      name: person?.name ?? discordId,
+      username: person?.username ?? null,
+      avatarHash: person?.avatarHash ?? null,
+      ehemalig: person?.ehemalig ?? true,
+      darfOeffnen: zugang.get(discordId) ?? false,
+    });
+  }
+  return karte;
 }
 
 /**

@@ -292,8 +292,6 @@ export const symbolSchema = z.object({
   gewicht: z.number().int().min(0).max(1000),
   glow: z.boolean(),
   beschreibungFehlt: z.boolean().optional(),
-  bildPfad: z.string().max(200).nullable(),
-  bildUrl: z.string().max(1000).nullable(),
   auszahlung3: z.number().int().min(0).max(10_000_000),
   auszahlung4: z.number().int().min(0).max(10_000_000),
   auszahlung5: z.number().int().min(0).max(10_000_000),
@@ -305,11 +303,24 @@ export const symbolSchema = z.object({
 export type SymbolEingabe = z.infer<typeof symbolSchema>;
 
 /**
- * Speichert ein Symbol.
+ * Speichert ein Symbol - alles aussser dem Bild.
  *
- * Die Rolle kommt nicht aus der Eingabe - sie steht im Code und bleibt. Das
- * Bild wird ersetzt, und das alte geloescht; eine Datei ohne Zeile ist Muell
- * im Upload-Verzeichnis.
+ * Die Rolle kommt nicht aus der Eingabe - sie steht im Code und bleibt.
+ *
+ * ## Warum hier kein Bild steht
+ *
+ * Weil zwei Oberflaechen dieselbe Zeile bearbeiten: die Symbolkarte und die
+ * Premiumkarte. Beide schickten den vollen Datensatz, und beide schickten
+ * dabei die Bildreferenz mit, die beim Seitenaufbau gueltig war. Wer ein
+ * Symbol hochlud und danach auf der anderen Karte speicherte, schrieb damit
+ * den alten Stand zurueck - und weil die ersetzte Datei mitgeloescht wurde,
+ * war die neue PNG nicht bloss unverlinkt, sondern weg. Das ist der Grund,
+ * aus dem ein Upload «nach dem Speichern wieder verschwand».
+ *
+ * Das Bild hat deshalb genau einen Besitzer: `setzeSymbolbild`. Diese
+ * Funktion kann es nicht mehr anfassen, auch nicht versehentlich, auch nicht
+ * aus einem veralteten Formular. Ein Feld, das niemand aus zweiter Hand
+ * schreiben kann, kann auch niemand aus zweiter Hand verlieren.
  */
 export async function speichereSymbol(
   eingabe: SymbolEingabe,
@@ -327,8 +338,6 @@ export async function speichereSymbol(
       active: eingabe.aktiv,
       weight: eingabe.gewicht,
       glow: eingabe.glow,
-      imagePath: eingabe.bildPfad,
-      imageUrl: eingabe.bildUrl,
       payout3Bp: eingabe.auszahlung3,
       payout4Bp: eingabe.auszahlung4,
       payout5Bp: eingabe.auszahlung5,
@@ -337,10 +346,6 @@ export async function speichereSymbol(
       premiumDays5: eingabe.premiumTage5,
     },
   });
-
-  if (vorher.imagePath && vorher.imagePath !== symbol.imagePath) {
-    await loescheSymbolbild(vorher.imagePath);
-  }
 
   const konfiguration = await leseKonfiguration();
   const rtp = rtpVon(konfiguration);

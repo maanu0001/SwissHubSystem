@@ -6,10 +6,10 @@ import { AUDIT_ACTIONS, prisma, safeRecordAudit } from '@swisshub/database';
 import { clearGuildIdCache } from '@swisshub/discord';
 import { bootstrapConfig } from '@swisshub/config';
 import {
+  aufloeseAltlasten,
   checkLockout,
   getPermissionPreset,
   invalidateRoleConfiguration,
-  isKnownPermission,
   isRecoveryNeeded,
   listPermissions,
   resolvePreset,
@@ -249,14 +249,46 @@ export const setRolePermissionsAction = defineAction(
   async ({ ctx, input, metadata }) => {
     await assertConfigurationAccess(ctx, 'permissions.manage');
 
-    const unknown = [...input.permissions, ...input.deniedPermissions].filter(
-      (permission) => !isKnownPermission(permission),
-    );
-    if (unknown.length > 0) {
+    /*
+     * Altlasten aufloesen, bevor irgendetwas geprueft oder geschrieben wird.
+     *
+     * ## Der Fehler, den das behebt
+     *
+     * Hier stand eine Pruefung, die jeden Schluessel abwies, den die Registry
+     * nicht kennt - und damit jede Rollen-Konfiguration, in deren Zeilen noch
+     * ein Recht eines entfernten Moduls stand. Die Meldung lautete
+     * «Unbekannte Berechtigung: members.view.spielersuche.own», und sie kam
+     * auch dann, wenn man etwas voellig anderes aenderte. Eine Rolle liess
+     * sich nicht mehr speichern, weil in ihr eine Zeile von letztem Jahr
+     * stand.
+     *
+     * Jetzt entscheidet `aufloeseAltlasten`, und es entscheidet in drei
+     * Richtungen statt in zwei: bekannte Schluessel bleiben, bekannte
+     * Altlasten mit Nachfolger werden umgeschrieben, bekannte Altlasten ohne
+     * Nachfolger fallen weg - und nur ein Schluessel, der weder bekannt noch
+     * benannt ist, bleibt ein Fehler. Das ist der Tippfehler im Code und der
+     * manipulierte Aufruf von aussen; der soll weiterhin auffallen.
+     *
+     * Wichtig ist, dass ab hier **nur noch** die aufgeloesten Listen benutzt
+     * werden - fuer den Widerspruch, den Aussperrschutz, das Loeschen, das
+     * Schreiben und das Audit. Wuerde eine Stelle weiter `input` lesen, kaeme
+     * die Altlast dort wieder herein, und das Ergebnis waere ein Teil-Save:
+     * die Haelfte neu, die Haelfte alt.
+     */
+    const erlaubt = aufloeseAltlasten(input.permissions);
+    const verweigert = aufloeseAltlasten(input.deniedPermissions);
+    const unbekannt = [...erlaubt.unbekannt, ...verweigert.unbekannt];
+    if (unbekannt.length > 0) {
       throw new AppError('VALIDATION_FAILED', {
-        userMessage: `Unbekannte Berechtigung: ${unknown.join(', ')}`,
+        userMessage: `Unbekannte Berechtigung: ${unbekannt.join(', ')}`,
       });
     }
+    const permissions = erlaubt.gueltig;
+    const deniedPermissions = verweigert.gueltig;
+    const altlasten = {
+      migriert: [...erlaubt.migriert, ...verweigert.migriert],
+      entfernt: [...erlaubt.entfernt, ...verweigert.entfernt],
+    };
 
     /*
      * Erlaubt und verweigert schliessen sich aus.
@@ -268,9 +300,7 @@ export const setRolePermissionsAction = defineAction(
      * Sicherheitsmodell. Also hier abweisen, statt still eine Seite zu
      * gewinnen zu lassen.
      */
-    const widerspruch = input.permissions.filter((permission) =>
-      input.deniedPermissions.includes(permission),
-    );
+    const widerspruch = permissions.filter((permission) => deniedPermissions.includes(permission));
     if (widerspruch.length > 0) {
       throw new AppError('VALIDATION_FAILED', {
         userMessage: `Gleichzeitig erlaubt und verweigert: ${widerspruch.join(', ')}`,
@@ -279,7 +309,7 @@ export const setRolePermissionsAction = defineAction(
 
     await assertRoleIsSynced(input.discordRoleId);
 
-    const lockout = await checkLockout(input.discordRoleId, input.permissions, input.deniedPermissions);
+    const lockout = await checkLockout(input.discordRoleId, permissions, deniedPermissions);
     if (lockout.wouldLockOut) {
       throw new AppError('FORBIDDEN', { userMessage: lockout.reason });
     }
@@ -310,7 +340,7 @@ export const setRolePermissionsAction = defineAction(
       await tx.rolePermission.deleteMany({
         where: {
           discordRoleId: input.discordRoleId,
-          permission: { notIn: [...input.permissions, ...input.deniedPermissions] },
+          permission: { notIn: [...permissions, ...deniedPermissions] },
         },
       });
 
@@ -321,8 +351,8 @@ export const setRolePermissionsAction = defineAction(
        * ja, also faellt sie weder unter `deleteMany` noch unter `create`.
        */
       for (const [effect, keys] of [
-        ['ALLOW', input.permissions],
-        ['DENY', input.deniedPermissions],
+        ['ALLOW', permissions],
+        ['DENY', deniedPermissions],
       ] as const) {
         for (const permission of keys) {
           await tx.rolePermission.upsert({
@@ -358,8 +388,18 @@ export const setRolePermissionsAction = defineAction(
           .filter((entry) => entry.effect === 'DENY')
           .map((entry) => entry.permission)
           .sort(),
-        after: [...input.permissions].sort(),
-        afterDenied: [...input.deniedPermissions].sort(),
+        after: [...permissions].sort(),
+        afterDenied: [...deniedPermissions].sort(),
+        /*
+         * Was die Aufraeumung angefasst hat, steht im Audit.
+         *
+         * Sonst waere es eine stille Aenderung an Rechtedaten: die Zeile
+         * verschwindet, und niemand kann spaeter nachlesen, wer sie wann
+         * weggeraeumt hat. Leere Listen werden nicht weggelassen - «nichts
+         * migriert» ist eine Aussage.
+         */
+        migriert: altlasten.migriert,
+        entfernt: [...altlasten.entfernt].sort(),
         isProtected: input.isProtected,
         moderationLevel: input.moderationLevel,
       },

@@ -143,6 +143,96 @@ export async function traegerSuche(
 }
 
 /**
+ * Besitzen **diese** Personen die Berechtigung?
+ *
+ * ## Die dritte Frage
+ *
+ * Oben stehen zwei: «darf diese Person das» (`can()` auf der Sitzung) und
+ * «wer alles darf das» (`traegerDerBerechtigung`, `traegerSuche`). Diese hier
+ * ist die dritte: *von diesen benannten Leuten - wer darf?*
+ *
+ * ## Der Fehler, den das behebt
+ *
+ * Im Workspace stand unter Beteiligten «darf den Workspace nicht mehr
+ * oeffnen». Das war keine Auskunft, sondern ein Schluss aus einer
+ * Abwesenheit: die Oberflaeche bekam die Liste der **waehlbaren** Leute und
+ * schrieb den Hinweis unter jeden Namen, der darin nicht vorkam. Diese Liste
+ * ist aber gedeckelt und nach Anzeigenamen sortiert - wer dahinter liegt,
+ * fehlte darin, ohne irgendein Recht verloren zu haben. Auch der Rest der
+ * Menge war die falsche Grundlage: «kommt als neuer Beteiligter in Frage»
+ * und «darf das Modul oeffnen» sind nicht dieselbe Frage.
+ *
+ * Gefragt wird jetzt nach genau den Kennungen, um die es geht. Das sind ein
+ * paar pro Projekt, die Antwort kommt aus denselben Rollen und derselben
+ * `resolvePermissions` wie jede andere Pruefung - und sie ist eine Antwort
+ * und keine Vermutung.
+ *
+ * Die Rollen kommen aus dem Mitgliederspiegel, mit Rueckfall auf die
+ * aufgeloesten Rollen eines angemeldeten Benutzers. `leftAt` wird nicht
+ * gefiltert: wer den Server verlassen hat, hat immer noch die Rollen, die er
+ * hatte, und ob er fort ist, ist eine andere Auskunft als ob er darf.
+ *
+ * Eine Kennung, zu der sich nichts finden laesst, bekommt `false` - ohne
+ * Rollen gibt es keine Berechtigung. Der Aufrufer weiss selbst, dass er nach
+ * ihr gefragt hat.
+ */
+export async function traegerPruefung(
+  kennungen: readonly string[],
+  permission: string | readonly string[],
+): Promise<Map<string, boolean>> {
+  const ergebnis = new Map<string, boolean>();
+  const gesucht = [...new Set(kennungen)].filter((kennung) => kennung.length > 0);
+  if (gesucht.length === 0) {
+    return ergebnis;
+  }
+
+  const [konfiguration, imSpiegel, angemeldete] = await Promise.all([
+    loadRoleConfiguration(),
+    prisma.discordMemberCache.findMany({
+      where: { discordId: { in: gesucht } },
+      select: { discordId: true, roleIds: true },
+    }),
+    prisma.user.findMany({
+      where: { discordId: { in: gesucht } },
+      select: { discordId: true, identityCache: { select: { roleIds: true } } },
+    }),
+  ]);
+
+  const rollen = new Map<string, string[]>();
+  for (const zeile of angemeldete) {
+    rollen.set(zeile.discordId, zeile.identityCache?.roleIds ?? []);
+  }
+  // Der Spiegel danach: er ist die frischere Auskunft ueber die Rollen auf
+  // dem Server, und die aufgeloesten Rollen einer Sitzung koennen alt sein.
+  for (const zeile of imSpiegel) {
+    rollen.set(zeile.discordId, zeile.roleIds);
+  }
+
+  for (const discordId of gesucht) {
+    const roleIds = rollen.get(discordId);
+    if (!roleIds) {
+      ergebnis.set(discordId, false);
+      continue;
+    }
+    const aufloesung = resolvePermissions(
+      {
+        discordId,
+        roleIds,
+        isOwner: bootstrapConfig.ownerDiscordId === discordId,
+      },
+      konfiguration.mappings,
+    );
+    ergebnis.set(
+      discordId,
+      typeof permission === 'string'
+        ? hasPermission(aufloesung, permission)
+        : hasAnyPermission(aufloesung, [...permission]),
+    );
+  }
+  return ergebnis;
+}
+
+/**
  * Besitzt diese Person die Berechtigung - oder eine davon?
  *
  * Mehrere, weil manche Fragen mehrere Antworten haben. «Wer darf als

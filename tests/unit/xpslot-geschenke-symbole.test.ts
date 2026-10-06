@@ -80,6 +80,45 @@ describe('XP-Slot: Symbolbild persistiert sofort', () => {
     expect(kern).toContain('await loescheSymbolbild(vorher.imagePath)');
   });
 
+  it('hat für das Bild genau einen Schreiber', () => {
+    /*
+     * Der zweite Teil desselben Fehlers.
+     *
+     * Der Upload speicherte schon selbst - und das Bild verschwand weiter.
+     * Zwei Oberflächen bearbeiten dieselbe Zeile, die Symbolkarte und die
+     * Premiumkarte, und beide schickten den vollen Datensatz samt der
+     * Bildreferenz vom Seitenaufbau. Wer hochlud und danach irgendetwas
+     * anderes speicherte, schrieb den alten Stand zurück; weil die
+     * verdrängte Datei mitging, war die neue PNG danach von der Platte weg.
+     *
+     * `speichereSymbol` kann das Bild deshalb nicht mehr anfassen. Es steht
+     * nicht in seinem Schema, nicht in seinem Update, und keine der beiden
+     * Karten schickt es mehr. Ein Feld mit einem Schreiber kann niemand aus
+     * zweiter Hand verlieren.
+     */
+    const stelle = kern.indexOf('export async function speichereSymbol');
+    const ende = kern.indexOf('export const symbolBildSchema', stelle);
+    const rumpf = kern.slice(stelle, ende);
+    expect(rumpf).not.toContain('imagePath');
+    expect(rumpf).not.toContain('imageUrl');
+    expect(rumpf).not.toContain('loescheSymbolbild');
+
+    const schemaStelle = kern.indexOf('export const symbolSchema');
+    const schemaEnde = kern.indexOf('export type SymbolEingabe', schemaStelle);
+    const schema = kern.slice(schemaStelle, schemaEnde);
+    expect(schema).not.toContain('bildPfad');
+    expect(schema).not.toContain('bildUrl');
+
+    // Und keine der beiden Karten schickt es noch mit.
+    const aufrufe = verwaltung.split('symbolSpeichernAction({').slice(1);
+    expect(aufrufe.length).toBe(2);
+    for (const aufruf of aufrufe) {
+      const kopf = aufruf.slice(0, aufruf.indexOf('})'));
+      expect(kopf).not.toContain('bildPfad');
+      expect(kopf).not.toContain('bildUrl');
+    }
+  });
+
   it('lässt die Spielbarkeit aus dem Spiel', () => {
     /*
      * `speichereSymbol` prüft die RTP und lehnt ab, wenn der Slot unspielbar

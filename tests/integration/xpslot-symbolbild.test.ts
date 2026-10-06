@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { beforeAll, expect, it } from 'vitest';
 import { describeWithDatabase, pushSchema, useTestSchema } from '../helpers/database';
 
@@ -107,6 +110,89 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
     const eintraege = await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 1 });
     expect(eintraege[0]?.actorDiscordId).toBe(AKTEUR.discordId);
     expect(JSON.stringify(eintraege[0]?.metadata ?? {})).toContain(BILD);
+  });
+
+  /*
+   * Der zweite Teil desselben Fehlers.
+   *
+   * Der Upload speicherte seit der letzten Runde selbst - und das Bild
+   * verschwand trotzdem weiter. Nachgemessen: zwei Oberflaechen bearbeiten
+   * dieselbe Zeile, die Symbolkarte und die Premiumkarte, und beide schickten
+   * den vollen Datensatz samt der Bildreferenz, die beim **Seitenaufbau**
+   * gegolten hatte. Wer hochlud und danach irgendetwas anderes am Symbol
+   * speicherte, schrieb den alten Stand zurueck. Schlimmer noch: weil
+   * `speichereSymbol` die verdraengte Datei mitloeschte, war die frisch
+   * hochgeladene PNG danach nicht bloss unverlinkt, sondern von der Platte
+   * verschwunden.
+   *
+   * `speichereSymbol` kann das Bild jetzt nicht mehr anfassen. Diese Tests
+   * halten das fest - der erste am Verweis, der zweite an der Datei.
+   */
+  it('verliert das Bild nicht, wenn danach die uebrigen Felder gespeichert werden', async () => {
+    const S = level.xpslot;
+    await S.setzeSymbolbild({ key: 'premium', bildPfad: BILD, bildUrl: null }, AKTEUR);
+
+    const stand = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'premium' } });
+
+    // Genau das, was die Premiumkarte schickt: Gewicht und Tage aus dem
+    // Formular, alles andere aus dem Stand von vorher.
+    await S.speichereSymbol(
+      {
+        key: 'premium',
+        name: stand.name,
+        aktiv: stand.active,
+        gewicht: stand.weight,
+        glow: stand.glow,
+        auszahlung3: stand.payout3Bp,
+        auszahlung4: stand.payout4Bp,
+        auszahlung5: stand.payout5Bp,
+        premiumTage3: stand.premiumDays3,
+        premiumTage4: stand.premiumDays4,
+        premiumTage5: stand.premiumDays5,
+      },
+      AKTEUR,
+    );
+
+    const nachher = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'premium' } });
+    expect(nachher.imagePath).toBe(BILD);
+
+    // Und so, wie der Slot die Konfiguration liest - dieselbe Quelle wie die
+    // Vorschau, es gibt keine zweite.
+    const konfiguration = await S.leseKonfiguration();
+    expect(konfiguration.symbole.find((eintrag) => eintrag.key === 'premium')?.imagePath).toBe(BILD);
+  });
+
+  it('laesst die hochgeladene Datei liegen, wenn die uebrigen Felder gespeichert werden', async () => {
+    const S = level.xpslot;
+    const ziel = S.symbolbildPfad(BILD);
+    expect(ziel, 'der Dateiname muss dem Muster entsprechen').not.toBeNull();
+
+    await mkdir(dirname(ziel!), { recursive: true });
+    await writeFile(ziel!, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    await S.setzeSymbolbild({ key: 'bonus', bildPfad: BILD, bildUrl: null }, AKTEUR);
+    const stand = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'bonus' } });
+
+    await S.speichereSymbol(
+      {
+        key: 'bonus',
+        name: stand.name,
+        aktiv: stand.active,
+        gewicht: stand.weight,
+        glow: stand.glow,
+        auszahlung3: stand.payout3Bp,
+        auszahlung4: stand.payout4Bp,
+        auszahlung5: stand.payout5Bp,
+        premiumTage3: stand.premiumDays3,
+        premiumTage4: stand.premiumDays4,
+        premiumTage5: stand.premiumDays5,
+      },
+      AKTEUR,
+    );
+
+    // Vorher wurde die Datei hier geloescht, weil das Speichern eine andere
+    // Referenz verdraengte als die, die tatsaechlich in der Zeile stand.
+    expect(existsSync(ziel!), 'die hochgeladene PNG muss liegen bleiben').toBe(true);
   });
 
   it('lehnt ein Symbol ab, das es nicht gibt', async () => {

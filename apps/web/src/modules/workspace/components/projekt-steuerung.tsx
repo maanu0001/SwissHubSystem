@@ -16,7 +16,7 @@ import {
   workspaceProjektArchivierenAction,
   workspaceProjektZurueckholenAction,
 } from '../actions';
-import type { Teammitglied } from '../daten';
+import type { Beteiligter, Teammitglied } from '../daten';
 
 /**
  * Mitglieder, Archivieren, Zurückholen.
@@ -76,11 +76,29 @@ export function Mitgliederverwaltung({
   csrfToken,
   projectId,
   mitglieder,
+  beteiligtePersonen,
   team,
 }: {
   csrfToken: string;
   projectId: string;
   mitglieder: ReadonlyArray<{ discordId: string; rolle: WorkspaceMemberRole }>;
+  /**
+   * Der Zugang der eingetragenen Beteiligten - serverseitig berechnet.
+   *
+   * ## Der Fehler, den das behebt
+   *
+   * Hier stand «darf den Workspace nicht mehr oeffnen» unter jedem Namen,
+   * den die Komponente in `team` nicht fand. Das war ein Schluss aus einer
+   * Abwesenheit und keine Auskunft: `team` ist die Liste der **waehlbaren**
+   * Personen, bei 200 gedeckelt und nach Anzeigename sortiert. Wer dahinter
+   * lag, nicht gespiegelt war oder den Server verlassen hatte, fehlte darin,
+   * ohne irgendein Recht verloren zu haben.
+   *
+   * Jetzt kommt die Antwort aus `ladeBeteiligte`: an denselben Rollen und mit
+   * derselben Engine geprueft wie der Riegel vor der Seite, und zwar fuer
+   * genau diese Kennungen.
+   */
+  beteiligtePersonen: Beteiligter[];
   team: Teammitglied[];
 }): React.JSX.Element {
   const router = useRouter();
@@ -141,12 +159,26 @@ export function Mitgliederverwaltung({
   );
 
   const nachKennung = useMemo(() => {
-    const karte = new Map(team.map((eintrag) => [eintrag.discordId, eintrag]));
+    const karte = new Map<string, Teammitglied>(team.map((eintrag) => [eintrag.discordId, eintrag]));
+    /*
+     * Die Eingetragenen ueberschreiben `team`: ihr Name ist fuer diese Liste
+     * aufgeloest worden und haengt nicht daran, dass sie auch waehlbar waeren.
+     */
+    for (const person of beteiligtePersonen) {
+      karte.set(person.discordId, person);
+    }
     for (const [discordId, person] of Object.entries(dazu)) {
       karte.set(discordId, person);
     }
     return karte;
-  }, [dazu, team]);
+  }, [beteiligtePersonen, dazu, team]);
+
+  /** Wer das Modul nicht oeffnen darf - berechnet, nicht erschlossen. */
+  const ohneZugang = useMemo(
+    () =>
+      new Set(beteiligtePersonen.filter((person) => !person.darfOeffnen).map((person) => person.discordId)),
+    [beteiligtePersonen],
+  );
 
   /**
    * Wer nicht mehr in Frage kommt.
@@ -342,7 +374,7 @@ export function Mitgliederverwaltung({
                         @{person.username}
                       </span>
                     ) : null}
-                    {!person ? (
+                    {ohneZugang.has(eintrag.discordId) ? (
                       <span className="block truncate text-[11px] text-warning">
                         darf den Workspace nicht mehr öffnen
                       </span>
