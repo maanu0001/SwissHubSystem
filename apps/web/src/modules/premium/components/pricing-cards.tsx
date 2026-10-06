@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Check, Crown } from 'lucide-react';
 import type { PremiumProduct } from '@swisshub/database';
-import { formatChf } from '@swisshub/shared';
+import { formatGeldbetrag } from '@swisshub/shared';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -11,6 +11,16 @@ export interface PricingCardsProps {
   /** Slug des bereits gebuchten Angebots - `null`, wenn keines läuft. */
   currentSlug: string | null;
   loggedIn: boolean;
+  /**
+   * Kann gerade gekauft werden? (§27)
+   *
+   * `false`, solange kein Zahlungsanbieter vollstaendig konfiguriert ist. Die
+   * Angebote bleiben dann sichtbar - sie sind ja echt -, nur der Knopf fuehrt
+   * nicht in einen Checkout, der die Buchung ablehnen muesste.
+   */
+  kaufbar: boolean;
+  /** Warum nicht - in einem Satz, ohne Innereien. */
+  grund: string | null;
 }
 
 const featuresOf = (product: PremiumProduct): string[] =>
@@ -30,6 +40,8 @@ export function PricingCards({
   highlightedSlug,
   currentSlug,
   loggedIn,
+  kaufbar,
+  grund,
 }: PricingCardsProps): React.JSX.Element {
   return (
     <div className="grid gap-5 lg:grid-cols-3">
@@ -68,8 +80,12 @@ export function PricingCards({
             </header>
 
             <p className="mt-5 flex items-baseline gap-2">
-              <span className="text-3xl font-semibold tabular-nums">{formatChf(product.priceMinor)}</span>
-              <span className="text-sm text-muted-foreground">pro Monat</span>
+              <span className="text-3xl font-semibold tabular-nums">
+                {formatGeldbetrag(product.priceMinor, product.currency)}
+              </span>
+              <span className="text-sm text-muted-foreground">
+                {product.durationDays === null ? 'pro Monat' : `für ${product.durationDays} Tage`}
+              </span>
             </p>
 
             <ul className="mt-5 flex-1 space-y-2 text-sm">
@@ -93,6 +109,24 @@ export function PricingCards({
                 <Link href="/premium/me" className={cn(buttonVariants({ variant: 'outline' }), 'w-full')}>
                   Wechsel über mein Abo
                 </Link>
+              ) : !kaufbar ? (
+                /*
+                  Deaktiviert und nicht verschwiegen (§27).
+
+                  Ein Knopf, der in einen Fehler fuehrt, ist schlechter als
+                  einer, der vorher sagt, dass er nicht geht. Deshalb ein
+                  `span` statt eines Links: nichts anzuklicken, und
+                  `aria-disabled` sagt es auch der Vorlesesoftware.
+                */
+                <span
+                  aria-disabled="true"
+                  className={cn(
+                    buttonVariants({ variant: 'outline' }),
+                    'w-full cursor-not-allowed opacity-60',
+                  )}
+                >
+                  Derzeit nicht buchbar
+                </span>
               ) : (
                 <Link
                   href={
@@ -109,6 +143,12 @@ export function PricingCards({
           </article>
         );
       })}
+      {!kaufbar ? (
+        <p className="text-sm text-muted-foreground lg:col-span-3">
+          {grund ?? 'Der Kauf von Premium ist derzeit nicht verfügbar.'} Bestehende Abonnemente laufen
+          unverändert weiter.
+        </p>
+      ) : null}
     </div>
   );
 }

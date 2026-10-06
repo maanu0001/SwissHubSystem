@@ -1,20 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Bot, Clapperboard, KeyRound, Plug, Radio, Sparkles, TriangleAlert } from 'lucide-react';
+import { Bot, Clapperboard, CreditCard, KeyRound, Plug, Radio, Sparkles, TriangleAlert } from 'lucide-react';
 import { can } from '@swisshub/auth';
-import { ai, streamer } from '@swisshub/modules';
-import {
-  AI_INTEGRATION_ID,
-  DISCORD_INTEGRATION_ID,
-  INTEGRATIONS,
-  TWITCH_INTEGRATION_ID,
-  YOUTUBE_INTEGRATION_ID,
-  checkIntegrations,
-  listBots,
-  listEnvCandidates,
-  readAllStatus,
-  type IntegrationHealth,
-} from '@swisshub/secrets';
+import { ai, premium, streamer } from '@swisshub/modules';
+import { AI_INTEGRATION_ID, DISCORD_INTEGRATION_ID, INTEGRATIONS, PAYMENT_INTEGRATION_ID, TWITCH_INTEGRATION_ID, YOUTUBE_INTEGRATION_ID, checkIntegrations, listBots, listEnvCandidates, readAllStatus, type IntegrationHealth } from '@swisshub/secrets';
 import { Panel } from '@/components/shared/panel';
 import { Button } from '@/components/ui/button';
 import { HealthBadge } from '@/modules/integrations/components/shared';
@@ -41,14 +30,16 @@ export default async function IntegrationenPage(): Promise<React.JSX.Element> {
   const csrfToken = csrfTokenFor(context);
   const darfImportieren = can(context, 'integrations.secrets.manage');
 
-  const [bericht, status, bots, aiSettings, streamerEinstellungen, kandidaten] = await Promise.all([
-    checkIntegrations(),
-    readAllStatus(),
-    listBots().catch(() => []),
-    ai.readAiSettings(),
-    streamer.leseStreamerEinstellungen(),
-    darfImportieren ? listEnvCandidates() : Promise.resolve([]),
-  ]);
+  const [bericht, status, bots, aiSettings, streamerEinstellungen, zahlungen, kandidaten] =
+    await Promise.all([
+      checkIntegrations(),
+      readAllStatus(),
+      listBots().catch(() => []),
+      ai.readAiSettings(),
+      streamer.leseStreamerEinstellungen(),
+      premium.ladeKonfiguration(),
+      darfImportieren ? listEnvCandidates() : Promise.resolve([]),
+    ]);
 
   const statusVon = (providerId: string): IntegrationHealth => {
     const eintrag = bericht.eintraege.find((zeile) => zeile.integrationId === providerId);
@@ -104,6 +95,21 @@ export default async function IntegrationenPage(): Promise<React.JSX.Element> {
       zusatz: streamerEinstellungen.youtubeAktiv
         ? `Live-Erkennung alle ${streamerEinstellungen.youtubeIntervallMinuten} Min.`
         : 'Live-Erkennung ausgeschaltet',
+    },
+    /*
+     * Zahlungen.
+     *
+     * Der Zusatz nennt Anbieter und Modus - die beiden Angaben, nach denen
+     * man hier sucht. «Kein Anbieter» ist dabei kein Fehler, sondern ein
+     * Zustand, in dem Premium ohne Checkout laeuft (§27).
+     */
+    {
+      id: PAYMENT_INTEGRATION_ID,
+      icon: <CreditCard />,
+      href: '/system/integrationen/zahlungen',
+      zusatz: zahlungen.profil
+        ? `${zahlungen.profil.label} · ${zahlungen.modus}${zahlungen.bereit ? '' : ' · nicht bereit'}`
+        : 'Kein Anbieter – Checkout deaktiviert',
     },
   ];
 

@@ -4,30 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { AUDIT_ACTIONS, safeRecordAudit } from '@swisshub/database';
 import { conflict, forbidden } from '@swisshub/shared';
-import { ai, streamer } from '@swisshub/modules';
-import {
-  AI_INTEGRATION_ID,
-  DISCORD_INTEGRATION_ID,
-  TWITCH_INTEGRATION_ID,
-  YOUTUBE_INTEGRATION_ID,
-  deleteSecret,
-  getField,
-  getIntegration,
-  getSecret,
-  importFromEnvironment,
-  refreshIntegrationRuntime,
-  setSecret,
-  validateBotToken,
-  validateOAuthCredentials,
-  writeStatus,
-  createBot,
-  deleteBot,
-  updateBot,
-  rotateBotToken,
-  checkBot,
-  snowflakeOderLeer,
-  httpsOderLeer,
-} from '@swisshub/secrets';
+import { ai, premium, streamer } from '@swisshub/modules';
+import { AI_INTEGRATION_ID, DISCORD_INTEGRATION_ID, PAYMENT_INTEGRATION_ID, TWITCH_INTEGRATION_ID, YOUTUBE_INTEGRATION_ID, checkBot, createBot, deleteBot, deleteSecret, getField, getIntegration, getSecret, httpsOderLeer, importFromEnvironment, refreshIntegrationRuntime, rotateBotToken, setSecret, snowflakeOderLeer, updateBot, validateBotToken, validateOAuthCredentials, writeStatus } from '@swisshub/secrets';
 import { can } from '@swisshub/auth';
 import type { AuthContext } from '@swisshub/auth';
 import { defineAction } from '@/server/action';
@@ -167,6 +145,30 @@ export const setSecretAction = defineAction(
       integration: input.integrationId,
       feld: input.key,
     });
+    /*
+     * Zahlungen bekommen zusaetzlich einen eigenen Protokolleintrag (§51).
+     *
+     * Nicht statt des allgemeinen, sondern daneben: wer das Audit Log nach
+     * «was ist mit unseren Zahlungen passiert» durchsucht, soll nicht alle
+     * Integrationsaenderungen durchsehen muessen. Und die drei Vorgaenge
+     * unterscheiden sich in ihrer Schwere - ein Anbieterwechsel ist eine
+     * andere Nachricht als ein erneuertes Secret.
+     *
+     * Der **Wert** steht in keinem der beiden Eintraege. Bei `provider` und
+     * `mode` ist er die Nachricht selbst und kein Geheimnis; bei allem
+     * anderen steht nur, welches Feld sich geaendert hat.
+     */
+    if (input.integrationId === PAYMENT_INTEGRATION_ID) {
+      if (input.key === 'provider') {
+        await protokolliere(ctx, AUDIT_ACTIONS.PAYMENT_PROVIDER_CHANGED, {
+          anbieter: input.value,
+        });
+      } else if (input.key === 'mode') {
+        await protokolliere(ctx, AUDIT_ACTIONS.PAYMENT_MODE_CHANGED, { modus: input.value });
+      } else {
+        await protokolliere(ctx, AUDIT_ACTIONS.PAYMENT_CREDENTIAL_CHANGED, { feld: input.key });
+      }
+    }
     revalidateIntegrations();
     // `display` ist die Maske, nicht der Wert.
     return { ok: true as const, display };
@@ -297,6 +299,17 @@ export const testIntegrationAction = defineAction(
        * auch den Tagesstand.
        */
       ergebnis = await streamer.testeYouTube();
+    } else if (input.integrationId === PAYMENT_INTEGRATION_ID) {
+      /*
+       * Erreichbarkeit und Zugangsdaten - keine Zahlung (§20).
+       *
+       * Bei Stripe ein Aufruf auf `/v1/balance`: er sagt, ob der Schluessel
+       * gilt, und bewegt keinen Rappen. Dazu prueft er, ob Schluessel und
+       * Modus zusammenpassen - ein Livekey bei Modus TEST ist die
+       * gefaehrlichere Verwechslung, weil dann echt kassiert wird, waehrend
+       * das Dashboard «Test» anzeigt.
+       */
+      ergebnis = await premium.testeVerbindung();
     } else {
       throw conflict('Für diese Integration gibt es keinen Test.');
     }
@@ -306,6 +319,18 @@ export const testIntegrationAction = defineAction(
       integration: input.integrationId,
       erfolgreich: ergebnis.ok,
     });
+    if (input.integrationId === PAYMENT_INTEGRATION_ID) {
+      /*
+       * `detail` darf ins Protokoll, weil `testeVerbindung` nur Codes und
+       * Saetze liefert - nie den Rohtext des Anbieters. Manche Anbieter
+       * spiegeln den gesendeten Schluessel in ihrer Fehlermeldung zurueck,
+       * und der stuende dann hier.
+       */
+      await protokolliere(ctx, AUDIT_ACTIONS.PAYMENT_CONNECTION_TESTED, {
+        erfolgreich: ergebnis.ok,
+        detail: ergebnis.detail,
+      });
+    }
     revalidateIntegrations();
     return ergebnis;
   },

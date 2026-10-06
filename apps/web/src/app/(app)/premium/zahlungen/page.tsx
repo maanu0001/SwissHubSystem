@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { premium } from '@swisshub/modules';
-import { formatChf, formatDateTime } from '@swisshub/shared';
+import { formatDateTime, formatGeldbetrag } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/shared/states';
 import { Pagination } from '@/components/shared/pagination';
@@ -82,7 +82,9 @@ export default async function PremiumPaymentsPage({
                   </td>
                   <td className="px-5 py-3">{zahlung.username ?? '–'}</td>
                   <td className="px-5 py-3">{zahlung.productName ?? '–'}</td>
-                  <td className="px-5 py-3 tabular-nums">{formatChf(zahlung.amountMinor)}</td>
+                  <td className="px-5 py-3 tabular-nums">
+                    {formatGeldbetrag(zahlung.amountMinor, zahlung.currency)}
+                  </td>
                   <td className="px-5 py-3 text-muted-foreground">{zahlung.provider}</td>
                   <td className="px-5 py-3">
                     <Badge

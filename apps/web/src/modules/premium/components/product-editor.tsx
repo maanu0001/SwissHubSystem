@@ -33,7 +33,11 @@ export interface ProductFormValue {
   entitlements: string[];
   active: boolean;
   sortOrder: number;
+  currency: string;
+  /** `null`: der Anbieter bestimmt die Periode (Abo). */
+  durationDays: number | null;
   providerPriceId: string | null;
+  providerProductId: string | null;
 }
 
 /**
@@ -57,7 +61,10 @@ export function ProductEditor({
     ...product,
     preisFranken: (product.priceMinor / 100).toFixed(2),
     merkmale: product.features.join('\n'),
+    currency: product.currency,
+    laufzeit: product.durationDays === null ? '' : String(product.durationDays),
     providerPriceId: product.providerPriceId ?? '',
+    providerProductId: product.providerProductId ?? '',
   });
 
   async function speichern(): Promise<void> {
@@ -66,6 +73,29 @@ export function ProductEditor({
     if (!Number.isFinite(rappen) || rappen < 0) {
       setError('Bitte einen gültigen Preis angeben.');
       return;
+    }
+
+    const waehrung = wert.currency.trim().toUpperCase();
+    if (!/^[A-Z]{3}$/u.test(waehrung)) {
+      setError('Bitte einen dreistelligen Währungscode angeben, z. B. CHF.');
+      return;
+    }
+
+    /*
+     * Leer heisst «keine Laufzeit», nicht «0 Tage».
+     *
+     * Die beiden Faelle sehen im Formular gleich aus und bedeuten das
+     * Gegenteil: ohne Angabe bestimmt der Anbieter die Periode; eine 0 waere
+     * ein Angebot, das im Moment des Kaufs ablaeuft.
+     */
+    const laufzeitRoh = wert.laufzeit.trim();
+    let laufzeit: number | null = null;
+    if (laufzeitRoh !== '') {
+      laufzeit = Number.parseInt(laufzeitRoh, 10);
+      if (!Number.isInteger(laufzeit) || laufzeit < 1 || laufzeit > 3650) {
+        setError('Die Laufzeit muss zwischen 1 und 3650 Tagen liegen - oder leer bleiben.');
+        return;
+      }
     }
 
     setPending(true);
@@ -82,7 +112,10 @@ export function ProductEditor({
       entitlements: wert.entitlements as never,
       active: wert.active,
       sortOrder: wert.sortOrder,
+      currency: waehrung,
+      durationDays: laufzeit,
       providerPriceId: wert.providerPriceId.trim() || undefined,
+      providerProductId: wert.providerProductId.trim() || undefined,
     });
 
     if (response.ok) {
@@ -131,7 +164,7 @@ export function ProductEditor({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor={`preis-${product.id}`}>Preis in CHF pro Monat</Label>
+              <Label htmlFor={`preis-${product.id}`}>Preis</Label>
               <Input
                 id={`preis-${product.id}`}
                 inputMode="decimal"
@@ -147,6 +180,35 @@ export function ProductEditor({
                 value={wert.sortOrder}
                 onChange={(e) => setWert({ ...wert, sortOrder: Number(e.target.value) })}
               />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor={`waehrung-${product.id}`}>Währung</Label>
+              <Input
+                id={`waehrung-${product.id}`}
+                value={wert.currency}
+                maxLength={3}
+                autoCapitalize="characters"
+                onChange={(e) => setWert({ ...wert, currency: e.target.value.toUpperCase() })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Dreistelliger Code. CHF ist die Vorgabe - festgelegt ist sie nicht.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`laufzeit-${product.id}`}>Laufzeit in Tagen</Label>
+              <Input
+                id={`laufzeit-${product.id}`}
+                inputMode="numeric"
+                placeholder="leer = Abo"
+                value={wert.laufzeit}
+                onChange={(e) => setWert({ ...wert, laufzeit: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leer lassen für ein laufendes Abo - dann bestimmt der Anbieter die Periode.
+              </p>
             </div>
           </div>
 
@@ -187,18 +249,37 @@ export function ProductEditor({
             ))}
           </fieldset>
 
-          <div className="space-y-2">
-            <Label htmlFor={`preisid-${product.id}`}>Preis-ID des Zahlungsanbieters</Label>
-            <Input
-              id={`preisid-${product.id}`}
-              placeholder="price_..."
-              value={wert.providerPriceId}
-              onChange={(e) => setWert({ ...wert, providerPriceId: e.target.value })}
-            />
+          <fieldset className="space-y-3 rounded-lg border border-border p-3">
+            <legend className="px-1 text-sm font-medium">Verknüpfung mit dem Zahlungsanbieter</legend>
             <p className="text-xs text-muted-foreground">
-              Ohne diese ID lässt sich für das Angebot kein Checkout starten.
+              Diese IDs verweisen auf den Anbieter - die Wahrheit über das Angebot steht hier in SwissHub.
+              Wechselt der Anbieter, werden beide Felder leer und alles andere bleibt, wie es ist.
             </p>
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor={`preisid-${product.id}`}>Preis-ID</Label>
+              <Input
+                id={`preisid-${product.id}`}
+                placeholder="price_..."
+                value={wert.providerPriceId}
+                onChange={(e) => setWert({ ...wert, providerPriceId: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Ohne diese ID lässt sich für das Angebot kein Checkout starten.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`produktid-${product.id}`}>Produkt-ID (optional)</Label>
+              <Input
+                id={`produktid-${product.id}`}
+                placeholder="prod_..."
+                value={wert.providerProductId}
+                onChange={(e) => setWert({ ...wert, providerProductId: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Nur nötig bei Anbietern, die Produkt und Preis getrennt führen.
+              </p>
+            </div>
+          </fieldset>
 
           <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
             <Label htmlFor={`aktiv-${product.id}`}>Auf der Premium-Seite anbieten</Label>

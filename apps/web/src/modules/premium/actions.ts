@@ -40,7 +40,24 @@ export const startCheckoutAction = defineAction(
       throw new AppError('NOT_FOUND', { userMessage: 'Dieses Angebot steht nicht zur Verfügung.' });
     }
 
-    const provider = premium.resolvePaymentProvider();
+    /*
+     * Erst fragen, ob ueberhaupt kassiert werden kann (§27).
+     *
+     * Vorher warf `resolvePaymentProvider()` einen harten Fehler, wenn kein
+     * Anbieter konfiguriert war - der Besucher sah «Es ist ein Fehler
+     * aufgetreten». Jetzt steht hier die Frage und darunter eine Antwort, die
+     * erklaert, warum gerade nicht gekauft werden kann. Kein Fehlerzustand,
+     * sondern ein Zustand.
+     */
+    const aufgeloest = await premium.aufloeseAnbieter();
+    if (!aufgeloest || !aufgeloest.konfiguration.bereit) {
+      throw new AppError('CONFLICT', {
+        userMessage:
+          aufgeloest?.konfiguration.hinderungsgrund ??
+          'Der Kauf von Premium ist derzeit nicht verfügbar - es ist kein Zahlungsanbieter eingerichtet.',
+      });
+    }
+    const provider = aufgeloest.provider;
 
     // Legt das Abonnement als PENDING an - noch ohne einen einzigen Anspruch.
     const subscription = await premium.startCheckout({
@@ -234,23 +251,50 @@ export const updateProductAction = defineAction(
       entitlements: z.array(z.enum(['PREMIUM_ROLE', 'PREMIUM_STUEBLI_ROLE', 'PRIVATE_VOICE'])).max(3),
       active: z.boolean(),
       sortOrder: z.number().int().min(0).max(999),
+      /*
+       * Waehrung als Code, nicht als Auswahl.
+       *
+       * CHF bleibt die Vorgabe (§25), aber das Modell war nie auf Franken
+       * festgenagelt - nur die Oberflaeche tat so. Drei Grossbuchstaben:
+       * damit faellt «CHF 5.-» als Eingabe durch, statt als Waehrung
+       * gespeichert zu werden.
+       */
+      currency: z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z]{3}$/u, 'Bitte einen dreistelligen Währungscode angeben, z. B. CHF.'),
+      /** `null`/weglassen: der Anbieter bestimmt die Periode (Abo). */
+      durationDays: z.number().int().min(1).max(3650).nullish(),
       providerPriceId: z.string().max(120).optional(),
+      providerProductId: z.string().max(120).optional(),
     }),
     rateLimit: 'settingsWrite',
     freshness: 'critical',
   },
   async ({ ctx, input }) => {
+    const vorher = await prisma.premiumProduct.findUnique({
+      where: { id: input.productId },
+      select: { providerPriceId: true, providerProductId: true },
+    });
+
+    const preisId = input.providerPriceId?.trim() || null;
+    const produktId = input.providerProductId?.trim() || null;
+
     const aktualisiert = await prisma.premiumProduct.update({
       where: { id: input.productId },
       data: {
         name: input.name,
         description: input.description,
         priceMinor: input.priceMinor,
+        currency: input.currency,
         features: input.features,
         entitlements: input.entitlements,
         active: input.active,
         sortOrder: input.sortOrder,
-        providerPriceId: input.providerPriceId?.trim() || null,
+        durationDays: input.durationDays ?? null,
+        providerPriceId: preisId,
+        providerProductId: produktId,
       },
     });
 
@@ -261,8 +305,41 @@ export const updateProductAction = defineAction(
       actorUsername: ctx.user.username,
       targetLabel: aktualisiert.name,
       success: true,
-      metadata: { productId: aktualisiert.id, priceMinor: aktualisiert.priceMinor },
+      metadata: {
+        productId: aktualisiert.id,
+        priceMinor: aktualisiert.priceMinor,
+        currency: aktualisiert.currency,
+      },
     });
+
+    /*
+     * Die Verknuepfung mit dem Anbieter als eigener Eintrag (§25).
+     *
+     * Sie aendert, wohin eine Zahlung laeuft - das ist eine andere Frage als
+     * «der Preis hat sich geaendert» und soll getrennt nachlesbar sein. Die
+     * IDs selbst sind Kennungen, keine Geheimnisse; der Schluessel steht
+     * woanders und kommt hier nicht vor (§18).
+     */
+    const vorherPreis = vorher?.providerPriceId ?? null;
+    const vorherProdukt = vorher?.providerProductId ?? null;
+    if (vorherPreis !== preisId || vorherProdukt !== produktId) {
+      await safeRecordAudit({
+        action: AUDIT_ACTIONS.PAYMENT_PRODUCT_LINKED,
+        module: 'premium',
+        actorDiscordId: ctx.user.discordId,
+        actorUsername: ctx.user.username,
+        targetLabel: aktualisiert.name,
+        success: true,
+        metadata: {
+          productId: aktualisiert.id,
+          providerPriceId: preisId,
+          providerProductId: produktId,
+          vorherPreisId: vorherPreis,
+          vorherProduktId: vorherProdukt,
+        },
+      });
+    }
+
     return { saved: true };
   },
 );

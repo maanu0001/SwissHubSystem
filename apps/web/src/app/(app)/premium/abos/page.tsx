@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { premium } from '@swisshub/modules';
-import { formatChf, formatDateTime } from '@swisshub/shared';
+import { formatDateTime, formatGeldbetrag } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -133,7 +133,9 @@ export default async function PremiumSubscriptionsPage({
                     </Link>
                   </td>
                   <td className="px-5 py-3">{row.subscription.product.name}</td>
-                  <td className="px-5 py-3 tabular-nums">{formatChf(row.subscription.product.priceMinor)}</td>
+                  <td className="px-5 py-3 tabular-nums">
+                    {formatGeldbetrag(row.subscription.product.priceMinor, row.subscription.product.currency)}
+                  </td>
                   <td className="px-5 py-3">
                     <Badge
                       variant={

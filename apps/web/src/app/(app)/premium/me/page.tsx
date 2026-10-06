@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { premium } from '@swisshub/modules';
-import { formatChf, formatDateTime } from '@swisshub/shared';
+import { formatDateTime, formatGeldbetrag } from '@swisshub/shared';
 import { buttonVariants } from '@/components/ui/button';
 import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { EmptyState } from '@/components/shared/states';
@@ -104,7 +104,7 @@ export default async function PremiumMePage(): Promise<React.JSX.Element> {
             <h2 className="text-lg font-semibold">{abo.product.name}</h2>
             <p className="text-sm text-muted-foreground">{abo.product.description}</p>
             <p className="mt-2 text-2xl font-semibold tabular-nums">
-              {formatChf(abo.product.priceMinor)}{' '}
+              {formatGeldbetrag(abo.product.priceMinor, abo.product.currency)}{' '}
               <span className="text-sm font-normal text-muted-foreground">/ Monat</span>
             </p>
           </div>
@@ -201,7 +201,9 @@ export default async function PremiumMePage(): Promise<React.JSX.Element> {
                   <tr key={zahlung.id} className="border-b border-border/40 last:border-0">
                     <td className="px-5 py-3">{datum(zahlung.paidAt ?? zahlung.createdAt)}</td>
                     <td className="px-5 py-3">{zahlung.productName ?? '–'}</td>
-                    <td className="px-5 py-3 tabular-nums">{formatChf(zahlung.amountMinor)}</td>
+                    <td className="px-5 py-3 tabular-nums">
+                      {formatGeldbetrag(zahlung.amountMinor, zahlung.currency)}
+                    </td>
                     <td className="px-5 py-3">
                       <Badge
                         variant={

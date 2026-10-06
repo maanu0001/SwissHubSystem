@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { premium } from '@swisshub/modules';
-import { formatChf } from '@swisshub/shared';
+import { formatGeldbetrag } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/shared/states';
 import { PremiumSectionNav } from '@/modules/premium/components/section-nav';
@@ -43,8 +43,10 @@ export default async function PremiumProductsPage(): Promise<React.JSX.Element> 
               </header>
 
               <p className="mt-3 text-2xl font-semibold tabular-nums">
-                {formatChf(produkt.priceMinor)}
-                <span className="ml-1 text-sm font-normal text-muted-foreground">/ Monat</span>
+                {formatGeldbetrag(produkt.priceMinor, produkt.currency)}
+                <span className="ml-1 text-sm font-normal text-muted-foreground">
+                  {produkt.durationDays === null ? '/ Monat' : `/ ${produkt.durationDays} Tage`}
+                </span>
               </p>
 
               <ul className="mt-3 flex flex-wrap gap-1.5">
@@ -73,7 +75,10 @@ export default async function PremiumProductsPage(): Promise<React.JSX.Element> 
                   entitlements: produkt.entitlements,
                   active: produkt.active,
                   sortOrder: produkt.sortOrder,
+                  currency: produkt.currency,
+                  durationDays: produkt.durationDays,
                   providerPriceId: produkt.providerPriceId,
+                  providerProductId: produkt.providerProductId,
                 }}
               />
             </article>

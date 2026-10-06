@@ -37,7 +37,13 @@ export default async function PremiumPage(): Promise<React.JSX.Element> {
     );
   }
 
-  const [produkte, context] = await Promise.all([premium.listActiveProducts(), getOptionalAuthContext()]);
+  const [produkte, context, kauf] = await Promise.all([
+    premium.listActiveProducts(),
+    getOptionalAuthContext(),
+    // §27: ohne vollstaendig konfigurierten Anbieter bleibt der Kauf zu -
+    // die Seite selbst bleibt es nicht.
+    premium.checkoutVerfuegbar(),
+  ]);
 
   const laufendes = context?.user
     ? await premium.getActiveSubscription(context.user.id).catch(() => null)
@@ -62,27 +68,37 @@ export default async function PremiumPage(): Promise<React.JSX.Element> {
           highlightedSlug={premium.HIGHLIGHTED_SLUG}
           currentSlug={aktuellerSlug}
           loggedIn={Boolean(context?.isMember)}
+          kaufbar={kauf.ok}
+          grund={kauf.grund}
         />
       )}
 
       <ProductComparison />
 
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">So funktioniert es</h2>
-        <ol className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {SCHRITTE.map((schritt, index) => (
-            <li key={schritt.titel} className="rounded-xl border border-border bg-card p-5">
-              <span className="icon-chip mb-3 flex size-9 items-center justify-center [&_svg]:size-4">
-                <schritt.icon aria-hidden="true" />
-              </span>
-              <p className="text-sm font-semibold">
-                {index + 1}. {schritt.titel}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">{schritt.text}</p>
-            </li>
-          ))}
-        </ol>
-      </section>
+      {/*
+        Die Schritte beschreiben einen Weg, der nur offen ist, wenn ein
+        Anbieter bereitsteht. Sonst stuende hier eine Anleitung fuer etwas,
+        das man nicht tun kann - also weg damit, statt sie zu zeigen und
+        unten zu dementieren.
+      */}
+      {kauf.ok ? (
+        <section className="space-y-4">
+          <h2 className="text-xl font-semibold">So funktioniert es</h2>
+          <ol className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {SCHRITTE.map((schritt, index) => (
+              <li key={schritt.titel} className="rounded-xl border border-border bg-card p-5">
+                <span className="icon-chip mb-3 flex size-9 items-center justify-center [&_svg]:size-4">
+                  <schritt.icon aria-hidden="true" />
+                </span>
+                <p className="text-sm font-semibold">
+                  {index + 1}. {schritt.titel}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{schritt.text}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
 
       <PremiumFaq />
     </div>

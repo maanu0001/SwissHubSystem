@@ -49,3 +49,23 @@ export function formatChf(minor: number): string {
   }
   return `${vorzeichen}CHF ${formatSwissNumber(Math.abs(franken))}.${String(rappen).padStart(2, '0')}`;
 }
+
+/**
+ * Geldbetrag in einer beliebigen Waehrung (§25).
+ *
+ * `formatChf` bleibt, was es ist - die Schweizer Schreibweise mit dem
+ * Gedankenstrich -, und fuer CHF faellt diese Funktion auch darauf zurueck.
+ * Gebraucht wird sie dort, wo die Waehrung am Angebot haengt statt im Code:
+ * das Datenmodell kennt `currency` seit je, nur die Anzeige tat so, als
+ * gaebe es nur Franken.
+ */
+export function formatGeldbetrag(minor: number, currency: string): string {
+  const code = currency.trim().toUpperCase();
+  if (code === 'CHF' || code === '') {
+    return formatChf(minor);
+  }
+  const ganz = Math.trunc(Math.abs(minor) / 100);
+  const rest = Math.abs(minor % 100);
+  const vorzeichen = minor < 0 ? '-' : '';
+  return `${vorzeichen}${code} ${formatSwissNumber(ganz)}.${String(rest).padStart(2, '0')}`;
+}

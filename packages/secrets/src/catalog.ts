@@ -295,42 +295,147 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
     ],
   },
   {
+    /*
+     * Zahlungen (§17).
+     *
+     * ## Warum ein Eintrag fuer alle Anbieter und nicht einer je Anbieter
+     *
+     * Weil hoechstens einer gleichzeitig gilt. Acht Eintraege nebeneinander
+     * waeren acht halb gefuellte Formulare und die Frage, welches davon
+     * gerade kassiert - und die Antwort stuende an keiner Stelle. Hier steht
+     * sie: `provider` sagt, welcher, `mode` sagt, wie scharf, und die
+     * uebrigen Felder gehoeren dem gewaehlten.
+     *
+     * Welche Felder ein Anbieter **braucht**, steht nicht hier, sondern im
+     * Profil in `premium/payments/katalog.ts` - zusammen mit seinen
+     * Faehigkeiten. Diese Liste ist die Vereinigung aller Felder, die
+     * irgendein Anbieter kennt; das Dashboard zeigt davon nur die, die der
+     * gewaehlte Anbieter verlangt.
+     */
     id: PAYMENT_INTEGRATION_ID,
-    label: 'Zahlungsanbieter',
-    description: 'Zugangsdaten des Anbieters für SwissHub Premium.',
+    label: 'Zahlungen',
+    description:
+      'Der Zahlungsanbieter für SwissHub Premium: Anbieter, Test- oder Livemodus und Zugangsdaten.',
     icon: 'CreditCard',
     scope: 'GLOBAL',
     essential: false,
-    testable: false,
+    testable: true,
     fields: [
+      {
+        key: 'enabled',
+        label: 'Zahlungen aktiviert',
+        description:
+          'Aus: Premium läuft weiter für Admin-Vergaben und bestehende Abos, aber der Checkout ist nicht verfügbar.',
+        secret: false,
+        type: 'boolean',
+        schema: z.enum(['true', 'false']),
+        default: false,
+      },
       {
         key: 'provider',
         label: 'Anbieter',
+        description:
+          'Wer das Geld entgegennimmt. Welche Felder unten nötig sind, hängt davon ab - ebenso, was SwissHub damit kann.',
         secret: false,
         type: 'select',
         options: [
-          { value: 'mock', label: 'Mock (nur Entwicklung)' },
           { value: 'stripe', label: 'Stripe' },
+          { value: 'paypal', label: 'PayPal' },
+          { value: 'mollie', label: 'Mollie' },
+          { value: 'sumup', label: 'SumUp' },
+          { value: 'wallee', label: 'Wallee' },
+          { value: 'datatrans', label: 'Datatrans' },
+          { value: 'saferpay', label: 'Worldline / Saferpay' },
+          { value: 'generic', label: 'Eigener Anbieter' },
+          { value: 'mock', label: 'Mock (nur Entwicklung)' },
         ],
-        schema: z.enum(['mock', 'stripe']),
-        default: 'mock',
+        schema: z.enum([
+          'stripe',
+          'paypal',
+          'mollie',
+          'sumup',
+          'wallee',
+          'datatrans',
+          'saferpay',
+          'generic',
+          'mock',
+        ]),
         envKey: 'PAYMENT_PROVIDER',
       },
       {
+        key: 'mode',
+        label: 'Modus',
+        description:
+          'TEST läuft gegen die Testumgebung des Anbieters - dort fliesst kein Geld. LIVE kassiert echt.',
+        secret: false,
+        type: 'select',
+        options: [
+          { value: 'TEST', label: 'Test' },
+          { value: 'LIVE', label: 'Live' },
+        ],
+        schema: z.enum(['TEST', 'LIVE']),
+        default: 'TEST',
+      },
+      {
         key: 'apiKey',
-        label: 'API Key',
+        label: 'API Key / Benutzer',
+        description: 'Bei PayPal die Client ID, bei Wallee der Application User, bei Saferpay der API-Benutzer.',
         secret: true,
         type: 'password',
         schema: geheimnis(8, 'wird benötigt'),
         envKey: 'PAYMENT_API_KEY',
       },
       {
+        key: 'apiSecret',
+        label: 'API Secret / Passwort',
+        description: 'Der zweite Teil, wo der Anbieter zwei verlangt.',
+        secret: true,
+        type: 'password',
+        schema: geheimnis(8, 'wird benötigt'),
+      },
+      {
         key: 'webhookSecret',
         label: 'Webhook Secret',
+        description:
+          'Damit wird die Signatur eingehender Ereignisse geprüft. Ohne gültige Signatur wird kein Ereignis verarbeitet.',
         secret: true,
         type: 'password',
         schema: geheimnis(8, 'wird benötigt'),
         envKey: 'PAYMENT_WEBHOOK_SECRET',
+      },
+      {
+        key: 'merchantId',
+        label: 'Merchant / Space ID',
+        description: 'Bei Datatrans die Merchant ID, bei Wallee die Space ID, bei Saferpay die Customer ID.',
+        secret: false,
+        type: 'text',
+        schema: z
+          .string()
+          .trim()
+          .max(120)
+          .regex(/^[\w.-]*$/u, 'nur Buchstaben, Zahlen, Punkt, Unterstrich und Bindestrich'),
+      },
+      {
+        key: 'baseUrl',
+        label: 'Base URL',
+        description:
+          'Nur für «Eigener Anbieter»: die https-Adresse seiner Schnittstelle. Interne Adressen sind nicht erlaubt.',
+        secret: false,
+        type: 'url',
+        schema: httpsOderLeer,
+      },
+      {
+        key: 'checkoutPath',
+        label: 'Checkout Endpoint',
+        description:
+          'Nur für «Eigener Anbieter»: der Pfad hinter der Base URL, etwa «v1/checkout». Kein vollständiger Link.',
+        secret: false,
+        type: 'text',
+        schema: z
+          .string()
+          .trim()
+          .max(200)
+          .regex(/^[\w\-./]*$/u, 'nur ein Pfad - Buchstaben, Zahlen, Punkt, Bindestrich, Schrägstrich'),
       },
     ],
   },

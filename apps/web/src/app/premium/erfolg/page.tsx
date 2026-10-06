@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { premium } from '@swisshub/modules';
-import { formatChf } from '@swisshub/shared';
+import { formatGeldbetrag } from '@swisshub/shared';
 import { buttonVariants } from '@/components/ui/button';
 import { getOptionalAuthContext } from '@/server/auth';
 import { cn } from '@/lib/utils';
@@ -65,7 +65,9 @@ export default async function PremiumSuccessPage(): Promise<React.JSX.Element> {
           </div>
           <div className="flex items-center justify-between">
             <dt className="text-muted-foreground">Preis</dt>
-            <dd className="tabular-nums">{formatChf(abo.product.priceMinor)} / Monat</dd>
+            <dd className="tabular-nums">
+              {formatGeldbetrag(abo.product.priceMinor, abo.product.currency)} / Monat
+            </dd>
           </div>
           <div className="flex items-center justify-between">
             <dt className="text-muted-foreground">Status</dt>

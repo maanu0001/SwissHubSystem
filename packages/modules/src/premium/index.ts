@@ -8,5 +8,7 @@ export * from './queries';
 export * from './reconcile';
 export * from './payments/types';
 export * from './payments/provider';
+export * from './payments/katalog';
+export * from './payments/konfiguration';
 export { handleWebhook, type WebhookOutcome } from './payments/webhook.service';
 export { MockProvider } from './payments/providers/mock.provider';

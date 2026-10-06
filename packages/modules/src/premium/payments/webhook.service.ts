@@ -2,7 +2,7 @@ import { prisma } from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
 import { activateSubscription, markPaymentFailed } from '../service';
 import { syncDiscordEntitlements } from '../discord';
-import { resolvePaymentProvider } from './provider';
+import { aufloeseAnbieter } from './provider';
 import type { ProviderEvent } from './types';
 
 const logger = createLogger('premium:webhook');
@@ -30,7 +30,24 @@ export interface WebhookOutcome {
  *     regelmaessige Abgleich nachholt.
  */
 export async function handleWebhook(rawBody: string, signature: string): Promise<WebhookOutcome> {
-  const provider = resolvePaymentProvider();
+  /*
+   * Den Anbieter aus der gespeicherten Konfiguration (§21).
+   *
+   * Vorher kam er aus der Umgebung. Das hiess: wer im Dashboard den Anbieter
+   * wechselt, haette weiterhin die Signatur des alten geprueft - und jedes
+   * Ereignis des neuen abgewiesen, ohne dass jemand erkennt, warum.
+   *
+   * Ohne konfigurierten Anbieter wird abgewiesen und **nicht** durchgewunken:
+   * ein Webhook, den niemand pruefen kann, ist keiner. Der Rueckfall auf die
+   * Umgebung steckt in `getSecret` - eine Installation mit `PAYMENT_*` in der
+   * Umgebung verhaelt sich unveraendert.
+   */
+  const aufgeloest = await aufloeseAnbieter();
+  if (!aufgeloest) {
+    logger.warn('Webhook ohne konfigurierten Zahlungsanbieter - abgewiesen.');
+    throw new Error('Es ist kein Zahlungsanbieter konfiguriert.');
+  }
+  const provider = aufgeloest.provider;
 
   let event: ProviderEvent;
   try {

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import { isModuleEnabled, premium } from '@swisshub/modules';
-import { formatChf } from '@swisshub/shared';
+import { formatGeldbetrag } from '@swisshub/shared';
 import { buttonVariants } from '@/components/ui/button';
 import { ErrorState } from '@/components/shared/states';
 import { CheckoutButton } from '@/modules/premium/components/checkout-button';
@@ -46,6 +46,37 @@ export default async function CheckoutPage({
     );
   }
 
+  /*
+   * §27: Kein Zahlungsanbieter - und trotzdem kein Fehler.
+   *
+   * Der Besucher hat nichts falsch gemacht; es ist bei uns gerade nichts
+   * eingerichtet. Das ist eine Auskunft, keine Fehlermeldung, und sie kommt
+   * vor dem Knopf statt hinter ihm: `startCheckoutAction` wuerde hier
+   * zuverlaessig ablehnen, aber erst nach dem Klick.
+   */
+  const kauf = await premium.checkoutVerfuegbar();
+  if (!kauf.ok) {
+    return (
+      <div className="mx-auto max-w-lg space-y-6">
+        <Link
+          href="/premium"
+          className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'text-muted-foreground')}
+        >
+          <ArrowLeft aria-hidden="true" />
+          Zurück zur Übersicht
+        </Link>
+        <div className="rounded-xl border border-border bg-card p-6">
+          <h1 className="text-xl font-semibold">{produkt.name}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{produkt.description}</p>
+          <p className="mt-5 border-t border-border/60 pt-4 text-sm">
+            {kauf.grund ?? 'Der Kauf von Premium ist derzeit nicht verfügbar.'} Sobald das eingerichtet ist,
+            lässt sich dieses Angebot hier buchen - bestehende Abonnemente laufen unverändert weiter.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const laufend = await premium.getActiveSubscription(context.user.id);
   if (laufend && premium.grantsEntitlements(laufend.status)) {
     return (
@@ -78,7 +109,10 @@ export default async function CheckoutPage({
         <dl className="mt-5 space-y-2 border-y border-border/60 py-4 text-sm">
           <div className="flex items-center justify-between">
             <dt className="text-muted-foreground">Preis</dt>
-            <dd className="font-semibold tabular-nums">{formatChf(produkt.priceMinor)} / Monat</dd>
+            <dd className="font-semibold tabular-nums">
+              {formatGeldbetrag(produkt.priceMinor, produkt.currency)}
+              {produkt.durationDays === null ? ' / Monat' : ` / ${produkt.durationDays} Tage`}
+            </dd>
           </div>
           <div className="flex items-center justify-between">
             <dt className="text-muted-foreground">Abrechnung</dt>
