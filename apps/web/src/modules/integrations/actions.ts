@@ -177,19 +177,51 @@ export const setSecretAction = defineAction(
      * unterscheiden sich in ihrer Schwere - ein Anbieterwechsel ist eine
      * andere Nachricht als ein erneuertes Secret.
      *
-     * Der **Wert** steht in keinem der beiden Eintraege. Bei `provider` und
-     * `mode` ist er die Nachricht selbst und kein Geheimnis; bei allem
-     * anderen steht nur, welches Feld sich geaendert hat.
+     * ## Warum hier nicht `input.value` steht
+     *
+     * Der erste Entwurf schrieb bei `provider` und `mode` den eingegebenen
+     * Wert ins Protokoll - mit dem Argument, dass «stripe» und «LIVE» keine
+     * Geheimnisse sind. Das stimmt, und es ist trotzdem falsch gebaut: diese
+     * **eine** Aktion schreibt jedes Feld jeder Integration, auch den
+     * API-Schluessel. Zwischen dem Schluessel und dem Audit-Log stuende dann
+     * nur ein `if` auf einen Feldnamen - eine Bedingung, die beim naechsten
+     * Umbau jemand verschiebt.
+     *
+     * `tests/unit/integrations-security.test.ts` verbietet den Griff auf
+     * `input.value` in dieser Datei deshalb pauschal, und die Regel ist
+     * besser als meine Begruendung dagegen.
+     *
+     * Protokolliert wird stattdessen der **Zustand danach**, gelesen aus der
+     * Konfiguration. Das ist nicht dieselbe Angabe mit anderem Namen: es ist
+     * das, was tatsaechlich gilt, nachdem geschrieben wurde - und genau das
+     * gehoert in ein Audit.
      */
     if (input.integrationId === PAYMENT_INTEGRATION_ID) {
+      /*
+       * Die Objektliterale stehen mehrzeilig, und das ist nicht Geschmack.
+       *
+       * Der Waechter in `integrations-security.test.ts` schneidet einen
+       * `protokolliere`-Aufruf am `\n});` ab. Einzeilig geschrieben findet er
+       * dieses Ende nicht und liest in den naechsten Aufruf hinein - der Test
+       * meldet dann einen Treffer, der gar nicht in diesem Aufruf steht.
+       *
+       * Die ganze Datei schreibt sie deshalb mehrzeilig. Wer das aendert,
+       * macht den Waechter blind.
+       */
       if (input.key === 'provider') {
+        const stand = await premium.ladeKonfiguration();
         await protokolliere(ctx, AUDIT_ACTIONS.PAYMENT_PROVIDER_CHANGED, {
-          anbieter: input.value,
+          anbieter: stand.providerId,
         });
       } else if (input.key === 'mode') {
-        await protokolliere(ctx, AUDIT_ACTIONS.PAYMENT_MODE_CHANGED, { modus: input.value });
+        const stand = await premium.ladeKonfiguration();
+        await protokolliere(ctx, AUDIT_ACTIONS.PAYMENT_MODE_CHANGED, {
+          modus: stand.modus,
+        });
       } else {
-        await protokolliere(ctx, AUDIT_ACTIONS.PAYMENT_CREDENTIAL_CHANGED, { feld: input.key });
+        await protokolliere(ctx, AUDIT_ACTIONS.PAYMENT_CREDENTIAL_CHANGED, {
+          feld: input.key,
+        });
       }
     }
     revalidateIntegrations();

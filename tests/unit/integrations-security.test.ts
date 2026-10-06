@@ -199,6 +199,8 @@ describe('Integrationskatalog', () => {
       ['ai', 'apiKey'],
       ['music', 'runtimeKey'],
       ['payment', 'apiKey'],
+      // Der zweite Teil, wo ein Anbieter zwei verlangt (Wallee, Datatrans).
+      ['payment', 'apiSecret'],
       ['payment', 'webhookSecret'],
       ['twitch', 'clientSecret'],
       ['youtube', 'apiKey'],
