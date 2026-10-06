@@ -379,7 +379,8 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
       {
         key: 'apiKey',
         label: 'API Key / Benutzer',
-        description: 'Bei PayPal die Client ID, bei Wallee der Application User, bei Saferpay der API-Benutzer.',
+        description:
+          'Bei PayPal die Client ID, bei Wallee der Application User, bei Saferpay der API-Benutzer.',
         secret: true,
         type: 'password',
         schema: geheimnis(8, 'wird benötigt'),

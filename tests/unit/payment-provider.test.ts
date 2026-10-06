@@ -196,9 +196,7 @@ describe('Eigener Anbieter: Basis und Pfad zusammensetzen', () => {
      * `//intern.example.com/x` als neuen Host und würde die Basis
      * verwerfen - samt ihrer SSRF-Prüfung.
      */
-    expect(() =>
-      premium.checkoutAdresse('https://api.example.com', '//169.254.169.254/latest'),
-    ).toThrow();
+    expect(() => premium.checkoutAdresse('https://api.example.com', '//169.254.169.254/latest')).toThrow();
     expect(() =>
       premium.checkoutAdresse('https://api.example.com', 'https://intern.example.com/x'),
     ).toThrow();

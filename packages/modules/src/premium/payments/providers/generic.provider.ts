@@ -199,9 +199,7 @@ export class GenericProvider implements PaymentProvider {
 
     const nutzlast = JSON.parse(rawBody) as Record<string, unknown>;
     const art = typeof nutzlast.type === 'string' ? nutzlast.type : 'unknown';
-    const status = normalisiereStatus(
-      typeof nutzlast.status === 'string' ? nutzlast.status : null,
-    );
+    const status = normalisiereStatus(typeof nutzlast.status === 'string' ? nutzlast.status : null);
 
     /*
      * Die Abbildung auf die Ereignisarten, die das Modul versteht.

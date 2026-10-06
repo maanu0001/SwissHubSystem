@@ -3,7 +3,19 @@ import Link from 'next/link';
 import { Bot, Clapperboard, CreditCard, KeyRound, Plug, Radio, Sparkles, TriangleAlert } from 'lucide-react';
 import { can } from '@swisshub/auth';
 import { ai, premium, streamer } from '@swisshub/modules';
-import { AI_INTEGRATION_ID, DISCORD_INTEGRATION_ID, INTEGRATIONS, PAYMENT_INTEGRATION_ID, TWITCH_INTEGRATION_ID, YOUTUBE_INTEGRATION_ID, checkIntegrations, listBots, listEnvCandidates, readAllStatus, type IntegrationHealth } from '@swisshub/secrets';
+import {
+  AI_INTEGRATION_ID,
+  DISCORD_INTEGRATION_ID,
+  INTEGRATIONS,
+  PAYMENT_INTEGRATION_ID,
+  TWITCH_INTEGRATION_ID,
+  YOUTUBE_INTEGRATION_ID,
+  checkIntegrations,
+  listBots,
+  listEnvCandidates,
+  readAllStatus,
+  type IntegrationHealth,
+} from '@swisshub/secrets';
 import { Panel } from '@/components/shared/panel';
 import { Button } from '@/components/ui/button';
 import { HealthBadge } from '@/modules/integrations/components/shared';
@@ -30,8 +42,8 @@ export default async function IntegrationenPage(): Promise<React.JSX.Element> {
   const csrfToken = csrfTokenFor(context);
   const darfImportieren = can(context, 'integrations.secrets.manage');
 
-  const [bericht, status, bots, aiSettings, streamerEinstellungen, zahlungen, kandidaten] =
-    await Promise.all([
+  const [bericht, status, bots, aiSettings, streamerEinstellungen, zahlungen, kandidaten] = await Promise.all(
+    [
       checkIntegrations(),
       readAllStatus(),
       listBots().catch(() => []),
@@ -39,7 +51,8 @@ export default async function IntegrationenPage(): Promise<React.JSX.Element> {
       streamer.leseStreamerEinstellungen(),
       premium.ladeKonfiguration(),
       darfImportieren ? listEnvCandidates() : Promise.resolve([]),
-    ]);
+    ],
+  );
 
   const statusVon = (providerId: string): IntegrationHealth => {
     const eintrag = bericht.eintraege.find((zeile) => zeile.integrationId === providerId);

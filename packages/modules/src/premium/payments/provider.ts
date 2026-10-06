@@ -222,9 +222,7 @@ export async function testeVerbindung(): Promise<TestErgebnis> {
   if (konfiguration.fehlend.length > 0) {
     return {
       ok: false,
-      detail: `Es fehlen Zugangsdaten: ${konfiguration.fehlend
-        .map((feld) => String(feld))
-        .join(', ')}.`,
+      detail: `Es fehlen Zugangsdaten: ${konfiguration.fehlend.map((feld) => String(feld)).join(', ')}.`,
     };
   }
 

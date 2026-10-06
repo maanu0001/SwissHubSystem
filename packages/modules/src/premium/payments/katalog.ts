@@ -52,12 +52,7 @@ export interface ProviderCapabilities {
 
 /** Welche Felder ein Anbieter braucht - jenseits der gemeinsamen. */
 export type ProviderFeldSchluessel =
-  | 'apiKey'
-  | 'apiSecret'
-  | 'webhookSecret'
-  | 'merchantId'
-  | 'baseUrl'
-  | 'checkoutPath';
+  'apiKey' | 'apiSecret' | 'webhookSecret' | 'merchantId' | 'baseUrl' | 'checkoutPath';
 
 export interface ProviderProfil {
   id: string;
@@ -181,8 +176,7 @@ export const PROVIDER_PROFILE: readonly ProviderProfil[] = [
   {
     id: 'sumup',
     label: 'SumUp',
-    beschreibung:
-      'Schweizer Kartenzahlung, stark im Ladengeschaeft. Einzelzahlungen - keine Abonnements.',
+    beschreibung: 'Schweizer Kartenzahlung, stark im Ladengeschaeft. Einzelzahlungen - keine Abonnements.',
     dokumentation: 'https://developer.sumup.com/api-keys',
     capabilities: {
       checkout: true,
@@ -206,8 +200,7 @@ export const PROVIDER_PROFILE: readonly ProviderProfil[] = [
   {
     id: 'wallee',
     label: 'Wallee',
-    beschreibung:
-      'Schweizer Zahlungsplattform mit TWINT und Karten. Abonnements ueber Subscription-Dienst.',
+    beschreibung: 'Schweizer Zahlungsplattform mit TWINT und Karten. Abonnements ueber Subscription-Dienst.',
     dokumentation: 'https://app-wallee.com/space/select?target=/application-user/list',
     capabilities: {
       checkout: true,
@@ -366,13 +359,7 @@ export type PaymentModus = 'TEST' | 'LIVE';
  * Typ, damit ein Adapter ihn nennen kann, ohne das Datenbankpaket zu
  * importieren.
  */
-export type NormalisierterStatus =
-  | 'PENDING'
-  | 'PAID'
-  | 'FAILED'
-  | 'CANCELLED'
-  | 'REFUNDED'
-  | 'EXPIRED';
+export type NormalisierterStatus = 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'REFUNDED' | 'EXPIRED';
 
 /**
  * Anbieterstati auf unsere abbilden.
