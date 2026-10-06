@@ -464,7 +464,7 @@ export const media: DokuSeite = {
           art: 'fluss',
           stationen: [
             { label: 'Route Handler', detail: 'Sitzung, CSRF, Limit, Recht' },
-            { label: 'storeLogoUpload', detail: 'Format, Grösse, Maße' },
+            { label: 'storeLogoUpload', detail: 'Format, Grösse, Masse' },
             { label: 'UPLOAD_DIR', detail: 'Datei mit erzeugtem Namen' },
             { label: 'Datenbank', detail: 'nur die Referenz' },
           ],
@@ -483,7 +483,7 @@ export const media: DokuSeite = {
           art: 'liste',
           punkte: [
             '**Magic Bytes**, nicht die Endung und nicht der gemeldete MIME-Typ. `detectImageFormat` liest die ersten Bytes - eine `.png`, die keine ist, fällt hier durch.',
-            '**Grösse** und **Maße** gegen Grenzen je Upload-Art (`maxBytes`, `minSize`, `maxSize`).',
+            '**Grösse** und **Masse** gegen Grenzen je Upload-Art (`maxBytes`, `minSize`, `maxSize`).',
             '**Der Dateiname wird erzeugt**, nie übernommen: `<art>-<32 hex>.<ext>`. `assertSafeFileName` prüft ihn beim Ausliefern noch einmal gegen dasselbe Muster.',
           ],
         },

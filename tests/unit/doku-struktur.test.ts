@@ -214,7 +214,7 @@ describe('Doku: Modultabelle', () => {
    * veralten, sobald ein Modul dazukommt oder ein Recht wegfällt - und zwar
    * lautlos: eine falsche Zahl in einer Tabelle sieht aus wie eine richtige.
    *
-   * Maßgeblich ist `definition.permissions` - das, was das Modul selbst
+   * Massgeblich ist `definition.permissions` - das, was das Modul selbst
    * anmeldet. Nicht die globale Registry nach `module`-Feld gefiltert: dort
    * steht ein Schlüssel auch dann unter einem Modul, wenn ein anderes ihn
    * anbietet (die Einstellungen etwa reichen `system.docs.*` mit, die in der

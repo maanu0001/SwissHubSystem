@@ -100,6 +100,21 @@ describe('Server Actions', () => {
     expect(actions.length).toBeGreaterThan(40);
   });
 
+  /**
+   * Inhaltsdateien der Dokumentation.
+   *
+   * Sie **beschreiben** Server Actions und zitieren `defineAction(` in
+   * Codebeispielen; sie definieren keine. Fuer eine Suche im Dateitext sieht
+   * das identisch aus - der Guard hat sie zuerst als unerfasste Aktionsdateien
+   * gemeldet.
+   *
+   * Der Ausschluss ist kein Loch: der Test darunter weist nach, dass unter
+   * `modules/docs/` keine einzige Datei die `'use server'`-Direktive traegt.
+   * Legt dort jemand doch eine Aktion ab, faellt das auf, statt stillschweigend
+   * aus dieser Pruefung zu verschwinden.
+   */
+  const DOKU_INHALT = 'apps/web/src/modules/docs/';
+
   it('laesst keine Aktionsdatei aus', () => {
     /*
      * Die Gegenprobe zum Muster oben.
@@ -110,6 +125,7 @@ describe('Server Actions', () => {
      * unvollstaendiges Dateimuster ein Waechter, der schweigt.
      */
     const alle = globSync('apps/web/src/modules/**/*.ts', { cwd: process.cwd() })
+      .filter((datei) => !datei.startsWith(DOKU_INHALT))
       .filter((datei) => {
         const inhalt = readFileSync(join(process.cwd(), datei), 'utf8');
         return inhalt.includes('defineAction(') || inhalt.includes('defineOeffentlicheAktion(');
@@ -117,6 +133,29 @@ describe('Server Actions', () => {
       .sort();
 
     expect(alle.filter((datei) => !FILES.includes(datei) && !GAST_FILES.includes(datei))).toEqual([]);
+  });
+
+  it('die Dokumentation definiert keine Server Actions', () => {
+    /*
+     * Die Zusicherung, die den Ausschluss oben traegt. Die Dokumentation ist
+     * Darstellung und Inhalt - sie schreibt nichts, also braucht sie keine
+     * Aktion. Sollte dort je eine entstehen, gehoert sie in ihr Modul und
+     * nicht hierher, und dieser Test sagt es.
+     */
+    const mitDirektive = globSync('apps/web/src/modules/docs/**/*.{ts,tsx}', { cwd: process.cwd() })
+      .filter((datei) => {
+        const inhalt = readFileSync(join(process.cwd(), datei), 'utf8');
+        return inhalt.includes("'use server'") || inhalt.includes('"use server"');
+      })
+      .sort();
+
+    expect(mitDirektive).toEqual([]);
+
+    // Gegenprobe: der Glob findet die Doku-Dateien ueberhaupt - sonst waere
+    // die leere Liste oben eine Aussage ueber ein leeres Verzeichnis.
+    expect(
+      globSync('apps/web/src/modules/docs/**/*.{ts,tsx}', { cwd: process.cwd() }).length,
+    ).toBeGreaterThan(10);
   });
 
   it.each(actions.map((a) => [`${a.file.split('/').at(-2)}/${a.name}`, a] as const))(
