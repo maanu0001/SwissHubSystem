@@ -1,4 +1,5 @@
-import { branding, socialmedia } from '@swisshub/modules';
+import { branding } from '@swisshub/modules';
+import type { socialmedia } from '@swisshub/modules';
 import type { PostBilder } from './post-folie';
 
 /**
