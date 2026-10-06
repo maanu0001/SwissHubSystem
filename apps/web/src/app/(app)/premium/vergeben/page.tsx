@@ -12,6 +12,7 @@ import { VergabeWiderruf } from '@/modules/premium/components/vergabe-widerruf';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { premiumSections } from '@/server/premium';
 import { namenKarte } from '@/modules/workspace/daten';
+import { DokuHinweis } from '@/modules/docs/components/doku-link';
 
 export const metadata: Metadata = { title: 'Premium vergeben' };
 export const dynamic = 'force-dynamic';
@@ -87,6 +88,8 @@ export default async function PremiumVergebenPage({
   return (
     <div className="space-y-6">
       <PremiumSectionNav sections={premiumSections(context)} />
+
+      <DokuHinweis slug="premium" />
 
       {darfVergeben ? (
         <Panel

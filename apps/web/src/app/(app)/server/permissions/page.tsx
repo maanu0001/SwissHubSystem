@@ -16,6 +16,7 @@ import { PermissionMatrix } from '@/modules/configuration/components/permission-
 import { permissionGesundheit } from '@/modules/configuration/permission-gesundheit';
 import { csrfTokenFor, hasSetupAccess, requirePagePermission } from '@/server/auth';
 import { loadDiscordOptions } from '@/server/configuration';
+import { DokuHinweis } from '@/modules/docs/components/doku-link';
 
 export const metadata: Metadata = { title: 'Berechtigungen' };
 export const dynamic = 'force-dynamic';
@@ -49,6 +50,8 @@ export default async function ServerPermissionsPage(): Promise<React.JSX.Element
 
   return (
     <>
+      <DokuHinweis slug="berechtigungen" />
+
       {recoveryNeeded ? (
         <Card className="border-destructive/40">
           <CardHeader>

@@ -239,6 +239,32 @@ export const CORE_PERMISSIONS: PermissionDefinition[] = [
     module: 'core',
     critical: true,
   },
+  /**
+   * Die interne Dokumentation.
+   *
+   * Zwei Berechtigungen und nicht eine, weil es zwei Leserkreise sind. Die
+   * Team-Dokumentation erklaert, wie man mit den Modulen arbeitet - das soll
+   * jede Rolle lesen koennen, die mit ihnen arbeitet. Die
+   * Entwickler-Dokumentation beschreibt Architektur, Deployment und die
+   * Stellen, an denen das System empfindlich ist; sie gehoert in dieselbe
+   * Naehe wie `system.manage`.
+   *
+   * Beide sind Leserechte. Geschrieben wird die Doku im Repository, nicht in
+   * der Oberflaeche - es gibt deshalb keine Schreibberechtigung, die eine
+   * Handlung beschreiben wuerde, die es nicht gibt.
+   */
+  {
+    key: 'system.docs.team.view',
+    label: 'Team-Dokumentation ansehen',
+    description: 'Die Anwendungsdokumentation für das Team: wie die Module benutzt werden.',
+    module: 'core',
+  },
+  {
+    key: 'system.docs.developer.view',
+    label: 'Entwickler-Dokumentation ansehen',
+    description: 'Die technische Dokumentation: Architektur, Datenbank, Permission Engine, Deployment.',
+    module: 'core',
+  },
   {
     key: ADMIN_FULL,
     label: 'Vollzugriff',

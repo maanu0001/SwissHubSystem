@@ -10,6 +10,7 @@ import { RollenVerwaltung } from '@/modules/serverrollen/components/rollen-verwa
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { loadDiscordOptions } from '@/server/configuration';
 import { cn } from '@/lib/utils';
+import { DokuHinweis } from '@/modules/docs/components/doku-link';
 
 export const metadata: Metadata = { title: 'Serverrollen' };
 export const dynamic = 'force-dynamic';
@@ -56,6 +57,7 @@ export default async function ServerrollenVerwaltungsSeite(): Promise<React.JSX.
           Rollen erklären, in Gruppen sortieren und zur Selbstvergabe freigeben. Name und Farbe kommen von
           Discord - hier steht nur, was Discord nicht kennt.
         </p>
+        <DokuHinweis slug="serverrollen" />
         {oeffentlich ? (
           <Link
             href="/serverrollen"

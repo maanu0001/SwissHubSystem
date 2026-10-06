@@ -30,6 +30,7 @@ import {
 import { AufgabeFormular } from '@/modules/workspace/components/aufgabe-formular';
 import { ProjektFormular } from '@/modules/workspace/components/projekt-formular';
 import { loadDiscordOptions } from '@/server/configuration';
+import { DokuHinweis } from '@/modules/docs/components/doku-link';
 
 export const metadata: Metadata = { title: 'Workspace' };
 export const dynamic = 'force-dynamic';
@@ -95,6 +96,8 @@ export default async function WorkspaceUebersichtPage(): Promise<React.JSX.Eleme
         aktiv="uebersicht"
         label="Bereiche im Workspace"
       />
+
+      <DokuHinweis slug="workspace" />
 
       <div className="flex flex-wrap items-center gap-2">
         {darfAufgaben ? (

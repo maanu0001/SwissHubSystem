@@ -19,6 +19,7 @@ import {
 import { ModerationSectionNav } from '@/modules/moderation/components/section-nav';
 import { ModerationDialog } from '@/modules/moderation/components/moderation-dialog';
 import { ActionTypeBadge } from '@/modules/moderation/components/action-type-badge';
+import { DokuHinweis } from '@/modules/docs/components/doku-link';
 
 export const metadata: Metadata = { title: 'Moderation' };
 export const dynamic = 'force-dynamic';
@@ -58,6 +59,8 @@ export default async function ModerationPage(): Promise<React.JSX.Element> {
   return (
     <>
       <ModerationSectionNav sections={moderationSections(context)} />
+
+      <DokuHinweis slug="moderation" />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">

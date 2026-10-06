@@ -319,6 +319,7 @@ registerModule({
       entry.key === 'system.manage' ||
       entry.key === 'backup.view' ||
       entry.key === 'branding.manage' ||
+      entry.key.startsWith('system.docs.') ||
       entry.key === 'admin.full',
   ),
   navigation: [
@@ -386,6 +387,37 @@ registerModule({
       icon: 'Settings',
       group: 'system',
       order: 82,
+    },
+    /*
+     * Die beiden Dokumentationen - bewusst am Ende.
+     *
+     * `order` 90 und 91 liegen hinter allem anderen im System-Bereich; die
+     * hoechste Zahl davor ist 83. Nachschlagen ist etwas, das man tut, wenn
+     * man im Menue nicht gefunden hat, was man suchte - dann liest man es
+     * ohnehin von unten.
+     *
+     * Jeder Eintrag haengt an seiner eigenen Berechtigung: wer nur die
+     * Team-Dokumentation lesen darf, sieht genau einen der beiden. Der Riegel
+     * sitzt trotzdem auf der Seite - diese Zeile entscheidet nur, ob der Link
+     * erscheint.
+     */
+    {
+      href: '/system/docs/entwickler',
+      label: 'Entwickler-Dokumentation',
+      description: 'Architektur, Datenbank, Permission Engine, Deployment',
+      permission: 'system.docs.developer.view',
+      icon: 'Code2',
+      group: 'system',
+      order: 90,
+    },
+    {
+      href: '/system/docs/team',
+      label: 'Team-Dokumentation',
+      description: 'Wie die Module benutzt werden - Schritt für Schritt',
+      permission: 'system.docs.team.view',
+      icon: 'BookOpen',
+      group: 'system',
+      order: 91,
     },
   ],
 });

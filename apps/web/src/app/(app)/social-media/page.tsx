@@ -14,6 +14,7 @@ import {
   ladeSocialMediaZahlen,
   socialMediaBereiche,
 } from '@/server/socialmedia';
+import { DokuHinweis } from '@/modules/docs/components/doku-link';
 
 export const metadata: Metadata = { title: 'Social Media' };
 export const dynamic = 'force-dynamic';
@@ -59,6 +60,8 @@ export default async function SocialMediaPage(): Promise<React.JSX.Element> {
         aktiv="uebersicht"
         label="Bereiche in Social Media"
       />
+
+      <DokuHinweis slug="social-media" />
 
       {stand.fragtOffen || stand.clipsOffen || stand.wrappedOffen ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

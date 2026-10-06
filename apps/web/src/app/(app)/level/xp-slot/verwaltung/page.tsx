@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { csrfTokenFor, requirePagePermission } from '@/server/auth';
 import { levelSections } from '@/server/level';
 import '@/modules/level/xpslot/xpslot.css';
+import { DokuHinweis } from '@/modules/docs/components/doku-link';
 
 export const metadata: Metadata = { title: 'XP-Slot verwalten' };
 export const dynamic = 'force-dynamic';
@@ -86,6 +87,8 @@ export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
   return (
     <>
       <LevelSectionNav sections={levelSections(context)} />
+
+      <DokuHinweis slug="level-system" />
 
       <PageHeader
         title="XP-Slot verwalten"
