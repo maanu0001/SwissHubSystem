@@ -272,6 +272,7 @@ model User {
   sessions             Session[]
   identityCache        DiscordIdentityCache?
   premiumGrants        PremiumGrant[]
+  socialPosts           SocialPost[]
   /// Premium-Abonnements. Bewusst am bestehenden Benutzer statt an einem
   /// zweiten Konto - Premium ist ein Modul, kein eigenes Produkt.
   premiumSubscriptions PremiumSubscription[]
@@ -11344,4 +11345,85 @@ model XpSlotDaily {
 
   @@unique([discordId, day])
   @@index([day])
+}
+
+// ============================================================================
+// Social Media - Post Creator
+// ============================================================================
+
+/// Wo ein Post im Arbeitsablauf steht.
+///
+/// Drei Zustaende und nicht mehr: in Arbeit, fertig zum Posten, abgelegt.
+/// Ausdruecklich **kein** `VEROEFFENTLICHT`: ob etwas wirklich auf Instagram
+/// landete, weiss SwissHub nicht - es exportiert eine Datei und sieht nicht,
+/// was danach passiert. Ein Status, den niemand verlaesslich setzen kann,
+/// waere eine Spalte, die luegt.
+enum SocialPostStatus {
+  DRAFT
+  READY
+  ARCHIVED
+}
+
+/// Ein Beitrag im Post Creator.
+///
+/// ## Warum das Modul jetzt doch etwas besitzt
+///
+/// Der Social-Media-Bereich war bisher ausdruecklich ein Zugriffspunkt ohne
+/// eigene Daten - jede Zahl kam aus dem Modul, dem sie gehoert. Das bleibt
+/// fuer Fragen, Clips und Rueckblicke so. Ein freier Post hat aber kein
+/// Ursprungsmodul: er entsteht hier, und es gibt keinen anderen Ort, dem er
+/// gehoeren koennte.
+///
+/// Was weiterhin **nicht** hier liegt, sind die Daten, die ein Post zeigt:
+/// ein Turnierbaum liest das Turnier, statt es abzuschreiben. Gespeichert
+/// wird die Kennung, nicht die Kopie.
+model SocialPost {
+  id      String @id @default(cuid())
+  guildId String
+
+  /// Der Arbeitstitel - nicht die Ueberschrift auf dem Bild.
+  ///
+  /// Zwei verschiedene Dinge: in der Bibliothek sucht man nach «Turnier
+  /// Oktober», auf dem Bild steht «CS2 CUP». Sie gleichzusetzen hiesse, dass
+  /// eine Umbenennung in der Liste das Bild aendert.
+  title String
+
+  /// Der Post-Typ als Registry-Schluessel, z.B. `event` oder `bracket`.
+  ///
+  /// Eine Zeichenkette und kein Enum: die Liste soll erweiterbar sein, ohne
+  /// dass jede neue Vorlage eine Migration braucht (§31). Geprueft wird sie
+  /// gegen die Registry im Code - die ist die Wahrheit darueber, was es gibt.
+  postType String
+
+  /// Die Design-Variante innerhalb des Typs, z.B. `bold`.
+  design String
+
+  /// Die Felder, die der Editor gesetzt hat.
+  ///
+  /// Strukturiertes JSON, kein Freitextblob: beim Speichern laeuft es durch
+  /// ein Schema, das nur bekannte Schluessel durchlaesst und Adressen prueft.
+  /// Was hier steht, ist genau das, was die Zeichenquelle liest - Vorschau
+  /// und Export nehmen denselben Datensatz (§38).
+  renderConfig Json @default("{}")
+
+  status SocialPostStatus @default(DRAFT)
+
+  /// Wer ihn angelegt hat. `SetNull`, damit ein geloeschtes Konto nicht den
+  /// Post mitnimmt - die Arbeit gehoert dem Server, nicht dem Account.
+  createdById        String?
+  createdBy          User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdByDiscordId String?
+  createdByUsername  String?
+
+  /// Wer ihn zuletzt angefasst hat - fuer die Bibliothek, nicht als Audit.
+  updatedByUsername String?
+
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Die Bibliothek sortiert nach «zuletzt bearbeitet» und filtert nach Status.
+  @@index([guildId, status, updatedAt])
+  @@index([guildId, postType])
 }

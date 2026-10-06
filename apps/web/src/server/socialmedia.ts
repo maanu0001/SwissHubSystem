@@ -40,6 +40,14 @@ export interface SocialMediaStand {
   fragtOffen: boolean;
   clipsOffen: boolean;
   wrappedOffen: boolean;
+  /**
+   * Darf diese Person den Post Creator oeffnen?
+   *
+   * Anders als die drei darueber haengt er an **diesem** Modul: der Post
+   * Creator hat kein Ursprungsmodul, er entsteht hier. Deshalb genuegt das
+   * Recht dieses Moduls - und es braucht keinen Schalter eines anderen.
+   */
+  postCreatorOffen: boolean;
 }
 
 /**
@@ -65,6 +73,7 @@ export async function ladeSocialMediaStand(context: AuthContext, guildId: string
     fragtOffen: fragtAn && can(context, fragt.FRAGT_PERMISSIONS.studio),
     clipsOffen: clipsAn && can(context, clips.CLIPS_PERMISSIONS.view),
     wrappedOffen: wrappedAn && can(context, wrapped.WRAPPED_PERMISSIONS.studioView),
+    postCreatorOffen: aktiv && can(context, socialmedia.SOCIAL_MEDIA_PERMISSIONS.postView),
   };
 }
 
@@ -91,6 +100,22 @@ export function socialMediaBereiche(stand: SocialMediaStand): ModulNavigationEin
   }
   if (stand.wrappedOffen) {
     bereiche.push({ key: 'wrapped', label: 'Wrapped', href: '/social-media/wrapped', icon: 'Gift' });
+  }
+  if (stand.postCreatorOffen) {
+    /*
+     * Der Post Creator steht am Ende und nicht am Anfang.
+     *
+     * Die drei davor sind Ausgaenge in andere Module - sie zeigen, was dort
+     * fertig liegt. Dieser Reiter ist der Arbeitsplatz fuer alles, was keinen
+     * Anlass in einem Modul hat, und damit der breitere, aber nicht der
+     * erste Griff.
+     */
+    bereiche.push({
+      key: 'post-creator',
+      label: 'Post Creator',
+      href: '/social-media/post-creator',
+      icon: 'Image',
+    });
   }
   return bereiche;
 }

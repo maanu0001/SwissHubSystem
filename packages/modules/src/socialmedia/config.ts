@@ -49,6 +49,21 @@ export const SOCIAL_MEDIA_MODULE_ID = 'socialmedia';
 
 export const SOCIAL_MEDIA_PERMISSIONS = {
   view: 'socialmedia.view',
+  /*
+   * Die Rechte des Post Creators (§50).
+   *
+   * Getrennt und nicht eines: wer Posts gestalten darf, darf deshalb nicht
+   * auch loeschen, und wer exportiert, muss nicht bearbeiten duerfen. Das ist
+   * der Unterschied zwischen «darf mitarbeiten» und «darf aufraeumen».
+   *
+   * `postExport` ist ausdruecklich eigenes Recht: ein Export verlaesst das
+   * System als Datei und ist der Schritt, nach dem etwas oeffentlich wird.
+   */
+  postView: 'socialmedia.posts.view',
+  postCreate: 'socialmedia.posts.create',
+  postEdit: 'socialmedia.posts.edit',
+  postExport: 'socialmedia.posts.export',
+  postDelete: 'socialmedia.posts.delete',
 } as const;
 
 export const socialMediaModule: ModuleDefinition = registerModule({
@@ -75,6 +90,37 @@ export const socialMediaModule: ModuleDefinition = registerModule({
       description:
         'Den Social-Media-Bereich öffnen. Was dort bearbeitet werden darf, entscheiden weiterhin die Rechte des jeweiligen Moduls.',
       module: SOCIAL_MEDIA_MODULE_ID,
+    },
+    {
+      key: SOCIAL_MEDIA_PERMISSIONS.postView,
+      label: 'Posts ansehen',
+      description: 'Die Bibliothek des Post Creators öffnen und Posts anschauen.',
+      module: SOCIAL_MEDIA_MODULE_ID,
+    },
+    {
+      key: SOCIAL_MEDIA_PERMISSIONS.postCreate,
+      label: 'Posts erstellen',
+      description: 'Neue Posts aus einer Vorlage anlegen.',
+      module: SOCIAL_MEDIA_MODULE_ID,
+    },
+    {
+      key: SOCIAL_MEDIA_PERMISSIONS.postEdit,
+      label: 'Posts bearbeiten',
+      description: 'Bestehende Posts ändern, duplizieren und als fertig markieren.',
+      module: SOCIAL_MEDIA_MODULE_ID,
+    },
+    {
+      key: SOCIAL_MEDIA_PERMISSIONS.postExport,
+      label: 'Posts exportieren',
+      description: 'Posts als PNG herunterladen - der Schritt, nach dem eine Grafik das System verlässt.',
+      module: SOCIAL_MEDIA_MODULE_ID,
+    },
+    {
+      key: SOCIAL_MEDIA_PERMISSIONS.postDelete,
+      label: 'Posts ablegen und löschen',
+      description: 'Posts archivieren, zurückholen und endgültig löschen.',
+      module: SOCIAL_MEDIA_MODULE_ID,
+      critical: true,
     },
   ],
   navigation: [

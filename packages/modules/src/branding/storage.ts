@@ -194,6 +194,15 @@ export const UPLOAD_KINDS = [
    * die sagt, welche Praefixe im Upload-Verzeichnis vorkommen duerfen.
    */
   'slotsound',
+  /**
+   * Bilder des Post Creators - Motiv, Hintergrund, Logo, Sponsorenzeichen.
+   *
+   * Dieselbe Pruefung wie jedes andere Bild hier: PNG, JPG oder WEBP, erkannt
+   * an den Bytes. Ein eigener Namensraum und nicht `logo`, damit sich ein
+   * Postmotiv von einem Serverlogo unterscheiden laesst - wer die Bilder eines
+   * Moduls aufraeumt, soll nicht die eines anderen treffen.
+   */
+  'socialpost',
 ] as const;
 export type UploadKind = (typeof UPLOAD_KINDS)[number];
 
@@ -384,8 +393,16 @@ export async function deleteUpload(fileName: string): Promise<void> {
   await rm(target, { force: true });
 }
 
-/** Erlaubt ausschliesslich die selbst erzeugten Namen. */
-function assertSafeFileName(fileName: string): LogoFormat {
+/**
+ * Erlaubt ausschliesslich die selbst erzeugten Namen.
+ *
+ * Exportiert, damit andere Module gegen **diese** Pruefung pruefen koennen,
+ * statt eine eigene zu schreiben: der Post Creator nimmt Bildnamen aus einem
+ * Formular an und muss wissen, ob sie aus diesem Verzeichnis stammen. Eine
+ * zweite Pruefung waere die, die beim naechsten neuen Namensraum nicht
+ * nachgezogen wird.
+ */
+export function assertSafeFileName(fileName: string): LogoFormat {
   // Der Namensraum steht in `UPLOAD_KINDS`; die Pruefung leitet sich davon
   // ab, damit ein neuer Namensraum nicht an zwei Stellen nachgetragen werden
   // muss - und die zweite dann vergessen wird.

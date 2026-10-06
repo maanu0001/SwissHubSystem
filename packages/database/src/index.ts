@@ -246,6 +246,8 @@ export type {
   PremiumGrantMode,
   PremiumGrantStatus,
   PremiumGrantUnit,
+  SocialPost,
+  SocialPostStatus,
   PremiumPaymentStatus,
   PremiumProduct,
   PremiumResourceState,
