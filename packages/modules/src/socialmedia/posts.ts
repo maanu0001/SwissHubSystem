@@ -115,6 +115,29 @@ function text(wert: unknown, grenze: number): string | undefined {
   return sauber === '' ? undefined : sauber;
 }
 
+/**
+ * Ein mehrzeiliges Feld - Zeilenumbrueche bleiben erhalten.
+ *
+ * ## Warum das eine eigene Funktion braucht
+ *
+ * `sanitizeText` faltet ohne `keepNewlines` jede Folge von Leerraum zu einem
+ * Leerzeichen, Zeilenumbrueche eingeschlossen. Fuer eine Ueberschrift ist das
+ * richtig. Fuer das Textfeld war es der Fehler: sein Hinweis sagt «Eine Zeile
+ * je Punkt», die Zeichenquelle macht aus jeder Zeile einen Aufzaehlungspunkt -
+ * und beim Speichern wurden alle Zeilen zu einer einzigen zusammengezogen.
+ *
+ * Zu sehen war das erst im fertigen Export, nicht im Editor: dort stand der
+ * Text ja noch so da, wie er getippt wurde. Aufgefallen ist es beim Rendern
+ * eines echten gespeicherten Posts.
+ */
+function mehrzeilig(wert: unknown, grenze: number): string | undefined {
+  if (typeof wert !== 'string') {
+    return undefined;
+  }
+  const sauber = sanitizeText(wert, grenze, { keepNewlines: true }).trim();
+  return sauber === '' ? undefined : sauber;
+}
+
 /** `jjjj-mm-tt` oder nichts. Kein `Date`: ein Datum ohne Zeit ist keine Zeitangabe. */
 function datum(wert: unknown): string | undefined {
   if (typeof wert !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(wert.trim())) {
@@ -222,7 +245,7 @@ export function normalisiereInhalt(typId: string, roh: unknown): PostInhalt {
 
   if (erlaubt('titel')) ergebnis.titel = text(quelle['titel'], 90);
   if (erlaubt('untertitel')) ergebnis.untertitel = text(quelle['untertitel'], 90);
-  if (erlaubt('text')) ergebnis.text = text(quelle['text'], 420);
+  if (erlaubt('text')) ergebnis.text = mehrzeilig(quelle['text'], 420);
   if (erlaubt('cta')) ergebnis.cta = text(quelle['cta'], 48);
   if (erlaubt('datum')) ergebnis.datum = datum(quelle['datum']);
   if (erlaubt('zeit')) ergebnis.zeit = zeit(quelle['zeit']);
