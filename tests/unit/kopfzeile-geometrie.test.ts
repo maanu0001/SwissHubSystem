@@ -142,6 +142,40 @@ describe('Kopfzeile: zugängliche Namen', () => {
   });
 });
 
+describe('Inhaltsbereich: dieselbe Aussparung wie die Kopfzeile', () => {
+  const schale = lies('app-shell.tsx');
+
+  it('haelt den Inhalt quer aus der Aussparung heraus', () => {
+    /*
+     * Quer gehalten liegt die Notch links oder rechts **neben** dem Inhalt:
+     * unter `lg` ist die Seitenleiste ausgeblendet, der Inhalt nimmt die
+     * volle Breite, und bei `px-4` begann er 16 Pixel vom Rand - also
+     * darunter. Die Kopfzeile hatte das geloest, der Inhalt nicht.
+     */
+    expect(schale).toContain('max(1rem,env(safe-area-inset-left))');
+    expect(schale).toContain('max(1rem,env(safe-area-inset-right))');
+    expect(schale).toContain('env(safe-area-inset-bottom)');
+  });
+
+  it('addiert die Aussparung nicht zum normalen Rand', () => {
+    // Dieselbe Regel wie in der Kopfzeile: `max()`, nie `calc(... + ...)`.
+    expect(schale).not.toMatch(/calc\([^)]*env\(safe-area/u);
+  });
+
+  it('setzt oben und unten getrennt statt ueber `py`', () => {
+    // `py-6` und `pb-[...]` haben dieselbe Spezifitaet - welches gewinnt,
+    // entscheidet die Reihenfolge im Stylesheet, nicht die im Attribut.
+    expect(schale).toContain('pt-6');
+    expect(schale).not.toContain('py-6');
+  });
+
+  it('behaelt die bisherigen Abstaende dort, wo es keine Aussparung gibt', () => {
+    // 16 / 24 / 32 Pixel - genau die Werte, die vorher gemessen wurden.
+    expect(schale).toContain('sm:pl-[max(1.5rem,env(safe-area-inset-left))]');
+    expect(schale).toContain('lg:pl-[max(2rem,env(safe-area-inset-left))]');
+  });
+});
+
 describe('Drawer: feste Breite, kein Verschieben des Inhalts', () => {
   const nav = lies('mobile-nav.tsx');
 

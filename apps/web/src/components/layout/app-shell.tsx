@@ -1,4 +1,5 @@
 import { PermissionProvider } from '@/components/shared/permission-guard';
+import { cn } from '@/lib/utils';
 import { PreviewBanner } from '@/modules/preview/components/preview-banner';
 import { Sidebar } from './sidebar';
 import { AppHeader, type HeaderTitle } from './app-header';
@@ -75,7 +76,33 @@ export function AppShell({
             benachrichtigungen={benachrichtigungen}
           />
 
-          <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          {/*
+            Der Inhalt haelt denselben Abstand wie die Kopfzeile - und
+            respektiert dieselbe Aussparung.
+
+            Quer gehalten liegt die Notch eines iPhones links oder rechts
+            **neben** dem Inhalt, nicht darueber: die Seitenleiste ist unter
+            `lg` ausgeblendet, der Inhalt nimmt die volle Breite, und bei
+            `px-4` begann er 16 Pixel vom Rand - also unter der Aussparung.
+
+            `max()` statt `calc(... + ...)`: ohne Aussparung ist der Wert null
+            und es bleibt bei den 16 Pixeln; mit Aussparung gewinnt sie. Das
+            ist dieselbe Regel wie in der Kopfzeile, und aus demselben Grund -
+            addiert stuende der Inhalt quer doppelt so weit innen wie
+            hochkant.
+          */}
+          <main
+            className={cn(
+              // `pt-6` und nicht `py-6`: ein `pb-*` daneben und ein `py-*`
+              // haben dieselbe Spezifitaet, und welches gewinnt, entscheidet
+              // die Reihenfolge im Stylesheet - nicht die im Attribut.
+              'flex-1 pt-6',
+              'pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]',
+              'sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))]',
+              'lg:pl-[max(2rem,env(safe-area-inset-left))] lg:pr-[max(2rem,env(safe-area-inset-right))]',
+              'pb-[max(1.5rem,env(safe-area-inset-bottom))]',
+            )}
+          >
             <div className="mx-auto w-full max-w-[1600px] space-y-6">{children}</div>
           </main>
         </div>
