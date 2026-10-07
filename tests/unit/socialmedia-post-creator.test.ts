@@ -53,7 +53,11 @@ const INHALT = {
   branding: true,
 };
 
-function baue(design: socialmedia.PostDesign, format: socialmedia.PostFormat = 'quadrat'): string[] {
+function baue(
+  design: socialmedia.PostDesign,
+  format: socialmedia.PostFormat = 'quadrat',
+  bilder: Record<string, string> = {},
+): string[] {
   const typ = socialmedia.postTyp('info')!;
   return stile(
     zeichnePost({
@@ -63,7 +67,7 @@ function baue(design: socialmedia.PostDesign, format: socialmedia.PostFormat = '
       design,
       format,
       inhalt: INHALT,
-      bilder: {},
+      bilder,
       baum: null,
     }),
   );
@@ -170,11 +174,26 @@ describe('Post Creator: die Designs sind echte Layouts (§32)', () => {
   });
 
   it('baut nur im Spotlight runde Flächen', () => {
-    const hatKreise = (design: socialmedia.PostDesign): boolean =>
-      eigenschaft(baue(design), 'border-radius').filter((wert) => wert.startsWith('9999')).length >= 3;
-    expect(hatKreise('spotlight')).toBe(true);
+    /*
+     * Geprueft wird **mit** Motiv, und die Schwelle ist eins.
+     *
+     * Vorher stand hier «mindestens drei», und das zaehlte nicht die
+     * Bildmaske, sondern den Lichthof: vier konzentrische Kreise in
+     * Akzentfarbe, die hinter dem Motiv lagen. Die sind entfernt - sie
+     * gliederten nichts und hatten im Bild sichtbare Kanten.
+     *
+     * Die Aussage des Tests bleibt dieselbe und wird sogar genauer: das
+     * Runde ist das Merkmal dieses Geruests, und es ist die Maske um das
+     * Motiv. Ohne Motiv gibt es nichts Rundes - deshalb muss eines dabei
+     * sein, sonst prueft die Zusicherung eine Abwesenheit in allen sechs.
+     */
+    const MOTIV = { bild: 'data:image/png;base64,AAAA' };
+    const rundeFlaechen = (design: socialmedia.PostDesign): number =>
+      eigenschaft(baue(design, 'quadrat', MOTIV), 'border-radius').filter((wert) => wert.startsWith('9999'))
+        .length;
+    expect(rundeFlaechen('spotlight')).toBeGreaterThanOrEqual(1);
     for (const design of ['clean', 'bold', 'minimal', 'tournament', 'dark'] as const) {
-      expect(hatKreise(design), design).toBe(false);
+      expect(rundeFlaechen(design), design).toBe(0);
     }
   });
 
