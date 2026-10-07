@@ -57,7 +57,18 @@ export function UserMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex items-center gap-3 rounded-xl border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          /*
+           * Auf dem Telefon nur Avatar und Pfeil.
+           *
+           * Der Knopf war 82 Pixel breit, und die nahm er dem Seitentitel -
+           * der dadurch bei «Das…» endete. Name und Rolle stehen ohnehin erst
+           * ab `sm`; auf dem Telefon blieben davon nur Innenabstand und ein
+           * Abstand zwischen zwei Dingen, zwischen denen nichts stand.
+           *
+           * `h-10` wie die beiden Nachbarn: drei gleich hohe Flaechen in einer
+           * Reihe sehen ruhig aus, drei verschieden hohe nicht.
+           */
+          className="flex h-10 shrink-0 items-center gap-1 rounded-lg border border-transparent px-0.5 text-left transition-colors hover:border-border hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:gap-3 sm:px-2"
           aria-label="Benutzermenü öffnen"
         >
           {/*
@@ -82,8 +93,8 @@ export function UserMenu({
             discordId={discordId}
             avatarHash={avatarHash}
             name={displayName}
-            size={36}
-            className="ring-2 ring-primary/60"
+            size={32}
+            className="ring-2 ring-primary/60 sm:size-9"
           />
           <span className="hidden flex-col leading-tight sm:flex">
             <span className="text-sm font-semibold">{displayName}</span>

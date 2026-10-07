@@ -6,6 +6,7 @@ import { CornerDownLeft, Search, UserRound } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { NavIcon } from './nav-icon';
 import { cn } from '@/lib/utils';
+import { KOPF_KNOPF, KOPF_SYMBOL } from '@/lib/kopfzeile-geometrie';
 import { ausGruppen, passt } from './palette-suche';
 import type { NavigationGroup } from './sidebar-nav';
 
@@ -117,8 +118,16 @@ export function CommandPalette({
       <button
         type="button"
         onClick={() => setOffen(true)}
-        className="hidden h-9 items-center gap-2 rounded-lg border border-border/70 bg-card/50 pl-3 pr-2 text-sm text-muted-foreground transition-colors hover:border-border hover:text-foreground md:flex"
-        aria-label="Suchen und navigieren"
+        className="hidden h-10 shrink-0 items-center gap-2 rounded-lg border border-border/70 bg-card/50 pl-3 pr-2 text-sm text-muted-foreground transition-colors hover:border-border hover:text-foreground md:flex"
+        /*
+         * Keine `aria-label` hier.
+         *
+         * Dieser Knopf traegt sichtbaren Text - «Suchen …» - und war trotzdem
+         * mit demselben Namen beschriftet wie die Symbolvariante daneben. Zwei
+         * Elemente mit demselben zugaenglichen Namen, von denen je nach Breite
+         * eines unsichtbar ist: eine Vorlesehilfe findet dann zwei «Suchen und
+         * navigieren», und wer per Name sucht, trifft das verborgene.
+         */
       >
         <Search className="size-4" aria-hidden="true" />
         <span className="pr-6">Suchen …</span>
@@ -129,10 +138,10 @@ export function CommandPalette({
       <button
         type="button"
         onClick={() => setOffen(true)}
-        className="grid size-10 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground md:hidden"
+        className={cn(KOPF_KNOPF, 'md:hidden')}
         aria-label="Suchen und navigieren"
       >
-        <Search className="size-5" aria-hidden="true" />
+        <Search className={KOPF_SYMBOL} aria-hidden="true" />
       </button>
 
       <Dialog open={offen} onOpenChange={setOffen}>

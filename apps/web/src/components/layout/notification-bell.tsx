@@ -25,6 +25,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { markiereAlleGelesenAction, markiereGelesenAction } from '@/modules/notifications/actions';
 import { cn } from '@/lib/utils';
+import { KOPF_KNOPF, KOPF_SYMBOL } from '@/lib/kopfzeile-geometrie';
 
 export interface GlockenEintragAnsicht {
   id: string;
@@ -109,9 +110,9 @@ export function NotificationBell({
         disabled
         aria-label="Persönliche Benachrichtigungen werden in der Vorschau nicht angezeigt."
         title="Persönliche Benachrichtigungen werden in der Vorschau nicht angezeigt."
-        className="relative rounded-xl border border-transparent p-2 text-muted-foreground opacity-50"
+        className={cn(KOPF_KNOPF, 'relative opacity-50')}
       >
-        <Bell className="size-5" aria-hidden="true" />
+        <Bell className={KOPF_SYMBOL} aria-hidden="true" />
       </button>
     );
   }
@@ -136,10 +137,10 @@ export function NotificationBell({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="relative rounded-xl border border-transparent p-2 text-muted-foreground transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(KOPF_KNOPF, 'relative')}
           aria-label={ungelesen > 0 ? `Benachrichtigungen, ${ungelesen} ungelesen` : 'Benachrichtigungen'}
         >
-          <Bell className="size-5" aria-hidden="true" />
+          <Bell className={KOPF_SYMBOL} aria-hidden="true" />
           {ungelesen > 0 ? (
             <span className="absolute -right-0.5 -top-0.5 flex min-w-[1.25rem] items-center justify-center rounded-full bg-primary px-1 text-[0.65rem] font-semibold leading-5 text-primary-foreground">
               {ungelesen > 99 ? '99+' : ungelesen}

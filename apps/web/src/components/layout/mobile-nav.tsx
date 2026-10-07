@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import { Menu } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
+import { KOPF_KNOPF, KOPF_SYMBOL } from '@/lib/kopfzeile-geometrie';
 import { BrandMark } from '@/components/shared/brand-mark';
 import { SidebarNav, type NavigationGroup } from './sidebar-nav';
 
@@ -28,9 +29,9 @@ export function MobileNav({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="size-10 lg:hidden" aria-label="Navigation öffnen">
-          <Menu aria-hidden="true" />
-        </Button>
+        <button type="button" className={cn(KOPF_KNOPF, 'lg:hidden')} aria-label="Navigation öffnen">
+          <Menu className={KOPF_SYMBOL} aria-hidden="true" />
+        </button>
       </DialogTrigger>
       <DialogContent className="left-0 top-0 h-dvh w-[19rem] max-w-[85vw] translate-x-0 translate-y-0 overflow-y-auto rounded-none border-y-0 border-l-0 bg-sidebar p-5 scrollbar-slim sm:rounded-none">
         <DialogTitle className="sr-only">Navigation</DialogTitle>
