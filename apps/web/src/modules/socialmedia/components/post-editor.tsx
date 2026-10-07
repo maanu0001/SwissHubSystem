@@ -76,6 +76,9 @@ type Werte = Record<string, unknown>;
 
 const ENTPRELLUNG_MS = 900;
 
+/** Dieselbe Obergrenze wie `MAX_SPONSOREN` im Modulkern - mehr nimmt er nicht an. */
+const MAX_PARTNERZEICHEN = 6;
+
 const bildAdresse = (dateiname: string): string => `/api/social-media/asset/${encodeURIComponent(dateiname)}`;
 
 export function PostEditor({
@@ -129,8 +132,17 @@ export function PostEditor({
     }
   }, [typ, design]);
 
+  /**
+   * Speichern.
+   *
+   * `inhalt` ist ein Parameter und nicht nur die Closure-Variable: direkt nach
+   * einem Upload muss der eben erhaltene Dateiname mitgehen, und der steht zu
+   * diesem Zeitpunkt noch nicht in `werte` - React verarbeitet die Aenderung
+   * erst beim naechsten Rendern. Ohne diesen Weg speicherte der Aufruf den
+   * Stand **vor** dem Upload und das Bild waere wieder verschwunden.
+   */
   const speichern = useCallback(
-    async (status?: 'DRAFT' | 'READY'): Promise<boolean> => {
+    async (status?: 'DRAFT' | 'READY', inhalt?: Record<string, unknown>): Promise<boolean> => {
       setSpeichert(true);
       const antwort = await postSpeichernAction({
         csrfToken,
@@ -138,7 +150,7 @@ export function PostEditor({
         title: titel.trim() === '' ? 'Ohne Titel' : titel.trim(),
         postType: typId,
         design,
-        inhalt: werte,
+        inhalt: inhalt ?? werte,
         ...(status ? { status } : {}),
       });
       setSpeichert(false);
@@ -168,6 +180,18 @@ export function PostEditor({
    */
   const speichernRef = useRef(speichern);
   speichernRef.current = speichern;
+
+  /*
+   * Der aktuelle Stand als Referenz.
+   *
+   * Dieselbe Bauart wie `speichernRef` daneben und aus demselben Grund: nach
+   * einem `await` ist die Closure-Variable der Stand von vorher. Eine Referenz
+   * liest den von jetzt - und anders als ein Seiteneffekt in der
+   * Funktionsform eines `setState` ist sie das auch dann, wenn React den
+   * Aufruf wiederholt.
+   */
+  const werteRef = useRef(werte);
+  werteRef.current = werte;
   useEffect(() => {
     if (!schmutzig || !darfBearbeiten || ansicht.status === 'ARCHIVED') {
       return;
@@ -196,27 +220,104 @@ export function PostEditor({
     setSchmutzig(true);
   }
 
+  /**
+   * Ein Bild hochladen und sofort sichern.
+   *
+   * ## Warum hier mehr steht als ein `fetch`
+   *
+   * Die Serverkette ist in Ordnung - Upload, Speicherung und Auslieferung
+   * wurden gegen den gebauten Server geprueft und liefern das Bild byteweise
+   * zurueck. Unzuverlaessig war der Weg **danach**, und zwar an vier Stellen:
+   *
+   * 1. **Ohne `try`.** Brach die Verbindung ab oder antwortete ein Proxy
+   *    selbst, flog der Fehler ins Leere: `laedt` blieb gesetzt, der Knopf
+   *    drehte sich weiter, und es erschien keine Meldung. Fuer den Benutzer
+   *    sah das aus wie ein Upload, der nie fertig wird.
+   * 2. **`json()` ohne Pruefung.** Eine Fehlerseite eines Proxys ist HTML.
+   *    `await antwort.json()` warf dann mitten in der Funktion - mit genau
+   *    derselben Folge wie oben, und zusaetzlich ohne brauchbare Ursache.
+   * 3. **Veraltete Werte.** `werte` kam aus der Closure des Klicks. Wer zwei
+   *    Partnerzeichen kurz hintereinander waehlte, verlor das erste: der
+   *    zweite Aufruf las die Liste von vorher und schrieb sie zurueck.
+   *    Dasselbe fuer die beiden Teamzeichen.
+   * 4. **Kein sofortiges Speichern.** Gespeichert wurde erst durch den
+   *    Autosave, 900 Millisekunden spaeter. Die Vorschau haengt am
+   *    gespeicherten Stand - es passierte also sichtbar nichts, und wer in
+   *    dieser Zeit die Seite verliess, hatte eine Datei auf der Platte, auf
+   *    die kein Post zeigte.
+   *
+   * Darum: ein Zustandswechsel ueber die Funktionsform (nie aus der Closure),
+   * und mit dem Ergebnis sofort speichern - der Dateiname geht als Parameter
+   * mit, weil `werte` ihn erst beim naechsten Rendern kennt.
+   */
   async function bildHochladen(feld: string, datei: File, stelle?: number): Promise<void> {
     setLaedt(`${feld}-${stelle ?? 0}`);
-    const form = new FormData();
-    form.set('csrfToken', csrfToken);
-    form.set('datei', datei);
-    const antwort = await fetch('/api/social-media/upload', { method: 'POST', body: form });
-    const ergebnis = (await antwort.json()) as
-      { ok: true; data: { dateiname: string } } | { ok: false; error: { message: string } };
-    setLaedt(null);
-    if (!ergebnis.ok) {
-      toast.error(ergebnis.error.message);
-      return;
-    }
-    if (feld === 'sponsoren') {
-      const bisher = Array.isArray(werte['sponsoren']) ? (werte['sponsoren'] as string[]) : [];
-      setzeFeld('sponsoren', [...bisher, ergebnis.data.dateiname].slice(0, 6));
-    } else if (feld === 'logoA' || feld === 'logoB') {
-      const paar = (werte['teams'] as Record<string, unknown> | undefined) ?? {};
-      setzeFeld('teams', { ...paar, [feld]: ergebnis.data.dateiname });
-    } else {
-      setzeFeld(feld, ergebnis.data.dateiname);
+    try {
+      const form = new FormData();
+      form.set('csrfToken', csrfToken);
+      form.set('datei', datei);
+      const antwort = await fetch('/api/social-media/upload', { method: 'POST', body: form });
+
+      /*
+       * Erst nachsehen, was da ankam.
+       *
+       * Nur eine JSON-Antwort ist eine Antwort dieser Route. Alles andere -
+       * eine Fehlerseite, ein abgeschnittener Koerper - wird zu einer Meldung,
+       * die den Statuscode nennt, statt zu einem Absturz ohne Hinweis.
+       */
+      const art = antwort.headers.get('content-type') ?? '';
+      if (!art.includes('application/json')) {
+        toast.error(
+          antwort.status === 413
+            ? 'Das Bild ist zu gross für den Server.'
+            : `Der Server hat unerwartet geantwortet (${antwort.status}).`,
+        );
+        return;
+      }
+
+      const ergebnis = (await antwort.json()) as
+        { ok: true; data: { dateiname: string } } | { ok: false; error: { message: string } };
+      if (!ergebnis.ok) {
+        toast.error(ergebnis.error.message);
+        return;
+      }
+
+      const neuerName = ergebnis.data.dateiname;
+      const vorher = werteRef.current;
+      let naechste: Record<string, unknown>;
+      if (feld === 'sponsoren') {
+        const bisher = Array.isArray(vorher['sponsoren']) ? (vorher['sponsoren'] as string[]) : [];
+        naechste = { ...vorher, sponsoren: [...bisher, neuerName].slice(0, MAX_PARTNERZEICHEN) };
+      } else if (feld === 'logoA' || feld === 'logoB') {
+        const paar = (vorher['teams'] as Record<string, unknown> | undefined) ?? {};
+        naechste = { ...vorher, teams: { ...paar, [feld]: neuerName } };
+      } else {
+        naechste = { ...vorher, [feld]: neuerName };
+      }
+      setWerte(naechste);
+      werteRef.current = naechste;
+
+      /*
+       * Erst als ungesichert markieren, dann sichern.
+       *
+       * Scheitert das Speichern, bleibt `schmutzig` stehen - der Autosave
+       * versucht es erneut und die Warnung vor dem Verlassen greift. Ohne das
+       * waere ein fehlgeschlagener Upload ein Verlust, den niemand bemerkt.
+       */
+      setSchmutzig(true);
+      // Sofort und nicht erst durch den Autosave: die Vorschau zeigt den
+      // gespeicherten Stand, und bis dahin sieht niemand, dass etwas
+      // passiert ist.
+      await speichernRef.current(undefined, naechste);
+    } catch (fehler) {
+      toast.error('Das Bild konnte nicht hochgeladen werden. Verbindung prüfen und erneut versuchen.');
+      // Die Ursache gehoert in die Konsole, nicht in die Meldung - dort steht,
+      // was die Person tun kann.
+      console.error('Post-Upload gescheitert', fehler);
+    } finally {
+      // `finally`, damit der Knopf sich auch dann nicht weiterdreht, wenn oben
+      // etwas geworfen hat.
+      setLaedt(null);
     }
   }
 
@@ -619,10 +720,17 @@ function Feld({
               </Button>
             </span>
           ))}
-          {liste.length < 6 ? (
+          {liste.length < MAX_PARTNERZEICHEN ? (
             <Button asChild variant="outline" size="sm">
               <label className="cursor-pointer">
-                <Upload aria-hidden="true" />
+                {/* Derselbe Schluessel wie beim Hochladen: ohne diese Anzeige
+                    passierte sichtbar nichts, waehrend die Datei unterwegs
+                    war - und genau das liest sich als «geht nicht». */}
+                {laedt === `${feld}-${liste.length}` ? (
+                  <Loader2 className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <Upload aria-hidden="true" />
+                )}
                 Hinzufügen
                 <input
                   type="file"
