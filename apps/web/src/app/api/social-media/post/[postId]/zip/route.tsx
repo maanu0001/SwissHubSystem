@@ -8,6 +8,7 @@ import { getActionAuthContext } from '@/server/auth';
 import { enforceRateLimit } from '@/server/rate-limit';
 import { POST_MASSE, postDateiname, zeichnePost } from '@/modules/socialmedia/post-folie';
 import { ladeBilder } from '@/modules/socialmedia/bilder';
+import { ladeSchriften } from '@/modules/socialmedia/mitgeliefert';
 
 const log = createLogger('web:socialmedia-zip');
 
@@ -73,11 +74,13 @@ export async function GET(
    * drei Dateien denselben Stand zeigen, auch wenn waehrend des Exports ein
    * Match entschieden wird.
    */
-  const [bilder, baum] = await Promise.all([
+  const [bilder, baum, schriften] = await Promise.all([
     ladeBilder(inhalt),
     inhalt.bracket
       ? socialmedia.ladeTurnierBaum(inhalt.bracket.tournamentId, guildId)
       : Promise.resolve(null),
+    // Einmal fuer alle drei Formate - aus demselben Grund wie die Bilder.
+    ladeSchriften(),
   ]);
 
   const design = socialmedia.postDesign(typ.id, post.design);
@@ -105,7 +108,7 @@ export async function GET(
         bilder,
         baum,
       }),
-      { width: mass.breite, height: mass.hoehe },
+      { width: mass.breite, height: mass.hoehe, ...(schriften ? { fonts: schriften } : {}) },
     );
     const inhaltBytes = new Uint8Array(await bild.arrayBuffer());
     if (inhaltBytes.byteLength === 0) {

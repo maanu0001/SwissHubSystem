@@ -207,6 +207,15 @@ export interface PostBilder {
   bild?: string;
   hintergrundbild?: string;
   logo?: string;
+  /**
+   * Das mitgelieferte SwissHub-Signet.
+   *
+   * Steht neben `logo`, nicht an dessen Stelle: `logo` ist das hochgeladene
+   * Zeichen eines Teams oder Partners und schlaegt das Signet, wenn es da
+   * ist. Ohne Upload ist das Signet die Vorgabe - und das ist der Normalfall,
+   * denn ein Post des Servers traegt das Zeichen des Servers.
+   */
+  signet?: string;
   sponsoren?: string[];
   teamLogoA?: string;
   teamLogoB?: string;
@@ -226,16 +235,36 @@ export interface PostAuftrag {
 
 // --- Bausteine ---------------------------------------------------------------
 
-/** Das Zeichen oben - hochgeladenes Logo, sonst das gezeichnete Signet. */
+/**
+ * Das Zeichen oben.
+ *
+ * ## Drei Faelle, in dieser Reihenfolge
+ *
+ * 1. Ein **hochgeladenes** Logo - das Zeichen eines Teams oder Partners.
+ *    Es steht allein: neben einem fremden Zeichen waere das SwissHub-Signet
+ *    eine Behauptung ueber die Urheberschaft, die der Post nicht aufstellt.
+ * 2. Das **SwissHub-Signet** mit Wortmarke. Der Normalfall, und das ist
+ *    Absicht: ein Post des Servers traegt das Zeichen des Servers, ohne dass
+ *    jemand es einschalten muss.
+ * 3. Nur die **gezeichnete Wortmarke** - wenn die Signetdatei nicht lesbar
+ *    war. Ein Post ohne jedes Zeichen waere der schlechtere Rueckfall.
+ *
+ * Signet und Wortmarke sind ein Block und keine zwei Elemente nebeneinander:
+ * der Abstand zwischen ihnen ist fest, die Wortmarke sitzt auf der optischen
+ * Mitte des Signets, und beide skalieren mit derselben Zahl. So bleibt das
+ * Verhaeltnis in allen drei Formaten dasselbe.
+ */
 function Marke({
   buehne,
   farben,
   logo,
+  signet,
   zeigen,
 }: {
   buehne: Buehne;
   farben: Farben;
   logo: string | undefined;
+  signet: string | undefined;
   zeigen: boolean;
 }): React.JSX.Element | null {
   if (!zeigen) {
@@ -251,28 +280,55 @@ function Marke({
       </div>
     );
   }
+
+  const wortmarke = (
+    <div
+      style={{
+        display: 'flex',
+        fontSize: Math.round(27 * buehne.skala),
+        fontWeight: 800,
+        letterSpacing: Math.round(4 * buehne.skala),
+        color: farben.schrift,
+      }}
+    >
+      {gross('SwissHub')}
+    </div>
+  );
+
+  if (signet) {
+    const zeichen = Math.round(52 * buehne.skala);
+    return (
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- siehe oben. */}
+        <img
+          src={signet}
+          alt=""
+          width={zeichen}
+          height={zeichen}
+          style={{
+            width: zeichen,
+            height: zeichen,
+            objectFit: 'contain',
+            marginRight: Math.round(16 * buehne.skala),
+          }}
+        />
+        {wortmarke}
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
       <div
         style={{
           display: 'flex',
-          width: Math.round(10 * buehne.skala),
-          height: Math.round(36 * buehne.skala),
+          width: Math.round(8 * buehne.skala),
+          height: Math.round(34 * buehne.skala),
           backgroundColor: farben.akzentHell,
+          marginRight: Math.round(16 * buehne.skala),
         }}
       />
-      <div
-        style={{
-          display: 'flex',
-          marginLeft: Math.round(18 * buehne.skala),
-          fontSize: Math.round(26 * buehne.skala),
-          fontWeight: 700,
-          letterSpacing: Math.round(7 * buehne.skala),
-          color: farben.schrift,
-        }}
-      >
-        {gross('SwissHub')}
-      </div>
+      {wortmarke}
     </div>
   );
 }
@@ -305,7 +361,15 @@ function Fuss({
           }}
         />
       ) : null}
-      <div style={{ display: 'flex', fontSize: groesse, letterSpacing: 3, color: farben.gedaempft }}>
+      <div
+        style={{
+          display: 'flex',
+          fontSize: groesse,
+          fontWeight: 600,
+          letterSpacing: 2,
+          color: farben.leise,
+        }}
+      >
         {gross(text)}
       </div>
     </div>
@@ -333,15 +397,23 @@ function Aufruf({
       style={{
         display: 'flex',
         alignSelf: 'flex-start',
-        paddingTop: Math.round(16 * buehne.skala),
-        paddingBottom: Math.round(16 * buehne.skala),
-        paddingLeft: Math.round(34 * buehne.skala),
-        paddingRight: Math.round(34 * buehne.skala),
+        paddingTop: Math.round(18 * buehne.skala),
+        paddingBottom: Math.round(18 * buehne.skala),
+        paddingLeft: Math.round(32 * buehne.skala),
+        paddingRight: Math.round(32 * buehne.skala),
         backgroundColor: aufFarbe ? WEISS : farben.akzent,
-        borderRadius: 999,
-        fontSize: Math.round(30 * buehne.skala),
-        fontWeight: 700,
-        letterSpacing: 2,
+        /*
+         * Eckig, nicht rund.
+         *
+         * Die volle Pille (`borderRadius: 999`) ist die Form, die jeder
+         * Baukasten vorgibt, und genau deshalb sieht sie nach Baukasten aus.
+         * Ein leicht gebrochener Kasten sitzt ruhiger neben den geraden
+         * Kanten, aus denen die Geruste sonst bestehen.
+         */
+        borderRadius: 8,
+        fontSize: Math.round(28 * buehne.skala),
+        fontWeight: 800,
+        letterSpacing: 1,
         color: aufFarbe ? farben.akzent : farben.aufAkzent,
       }}
     >
@@ -367,8 +439,9 @@ function Fakt({
       <div
         style={{
           display: 'flex',
-          fontSize: Math.round(20 * buehne.skala),
-          letterSpacing: 4,
+          fontSize: Math.round(19 * buehne.skala),
+          fontWeight: 600,
+          letterSpacing: 3,
           color: farben.leise,
         }}
       >
@@ -377,9 +450,9 @@ function Fakt({
       <div
         style={{
           display: 'flex',
-          marginTop: Math.round(8 * buehne.skala),
+          marginTop: Math.round(10 * buehne.skala),
           fontSize: Math.round(36 * buehne.skala),
-          fontWeight: 700,
+          fontWeight: 800,
           color: farben.schrift,
         }}
       >
@@ -444,10 +517,19 @@ function Titelblock({
         <div
           style={{
             display: 'flex',
-            fontSize: Math.round(26 * buehne.skala),
-            letterSpacing: 6,
+            fontSize: Math.round(23 * buehne.skala),
+            /*
+             * Halbfett und enger gesperrt.
+             *
+             * Sechs Punkte Sperrung bei Normalschrift liessen den Kicker
+             * auseinanderfallen - er las sich als Buchstabenreihe, nicht als
+             * Zeile. Halbfett traegt die Sperrung; drei Punkte genuegen dann,
+             * um ihn von der Ueberschrift abzusetzen.
+             */
+            fontWeight: 600,
+            letterSpacing: 3,
             color: farben.akzentHell,
-            marginBottom: Math.round(18 * buehne.skala),
+            marginBottom: Math.round(20 * buehne.skala),
             textAlign: zentriert ? 'center' : 'left',
           }}
         >
@@ -459,7 +541,12 @@ function Titelblock({
           style={{
             display: 'flex',
             fontSize: groesse,
-            lineHeight: 1.03,
+            /*
+             * 1.03 war fuer eine Normalschrift gerechnet. Im echten fetten
+             * Schnitt stossen die Zeilen dabei aneinander - 1.08 ist der Wert,
+             * bei dem zwei Zeilen noch als Block wirken, aber nicht kleben.
+             */
+            lineHeight: 1.08,
             fontWeight: 800,
             color: farben.schrift,
             maxWidth: breite,
@@ -507,10 +594,10 @@ function Punkte({
             <div
               style={{
                 display: 'flex',
-                width: Math.round(12 * buehne.skala),
-                height: Math.round(12 * buehne.skala),
-                marginTop: Math.round(groesse * 0.42),
-                marginRight: Math.round(20 * buehne.skala),
+                width: Math.round(9 * buehne.skala),
+                height: Math.round(9 * buehne.skala),
+                marginTop: Math.round(groesse * 0.52),
+                marginRight: Math.round(22 * buehne.skala),
                 backgroundColor: farben.akzentHell,
               }}
             />
@@ -1104,6 +1191,7 @@ function Clean({ buehne, farben, auftrag }: GeruestArgs): React.JSX.Element {
           buehne={buehne}
           farben={farben}
           logo={auftrag.bilder.logo}
+          signet={auftrag.bilder.signet}
           zeigen={auftrag.inhalt.branding !== false}
         />
         {/* Eine feine Akzentlinie statt einer Flaeche - das ruhigste Mittel,
@@ -1162,20 +1250,27 @@ function Bold({ buehne, farben, auftrag }: GeruestArgs): React.JSX.Element {
         Der Keil.
 
         Ein gedrehtes Rechteck, das unten links aus dem Bild laeuft - Satori
-        kennt kein `clip-path`, und eine Drehung ist das, was bleibt. Die
-        Masse sind so gewaehlt, dass die Kante quer durch die untere Haelfte
-        geht und an keiner Seite eine Luecke entsteht.
+        kennt kein `clip-path`, und eine Drehung ist das, was bleibt.
+
+        Er lag frueher bei 0.52 und um 12 Grad gedreht. Im Bild schnitt seine
+        Kante dadurch mitten durch die letzte Zeile der Ueberschrift und durch
+        die Aufzaehlung: derselbe Text stand zur Haelfte auf Schwarz und zur
+        Haelfte auf Rot. Eine Flaeche, die den Inhalt zerteilt statt ihn zu
+        tragen, ist genau die unruhige Komposition, um die es hier geht.
+
+        Jetzt beginnt er tiefer und steht flacher. Er liest sich als Sockel,
+        auf dem der Inhalt steht - und nicht als Schnitt quer durchs Bild.
       */}
       <div
         style={{
           display: 'flex',
           position: 'absolute',
           left: -Math.round(buehne.breite * 0.3),
-          top: Math.round(buehne.hoehe * 0.52),
+          top: Math.round(buehne.hoehe * 0.72),
           width: Math.round(buehne.breite * 1.6),
           height: buehne.hoehe,
           backgroundColor: farben.akzent,
-          transform: 'rotate(-12deg)',
+          transform: 'rotate(-7deg)',
         }}
       />
       <div
@@ -1193,6 +1288,7 @@ function Bold({ buehne, farben, auftrag }: GeruestArgs): React.JSX.Element {
           buehne={buehne}
           farben={farben}
           logo={auftrag.bilder.logo}
+          signet={auftrag.bilder.signet}
           zeigen={auftrag.inhalt.branding !== false}
         />
         <div style={{ display: 'flex', flex: 1, alignItems: 'center' }}>
@@ -1267,6 +1363,7 @@ function Minimal({ buehne, farben, auftrag }: GeruestArgs): React.JSX.Element {
             buehne={buehne}
             farben={farben}
             logo={auftrag.bilder.logo}
+            signet={auftrag.bilder.signet}
             zeigen={auftrag.inhalt.branding !== false}
           />
         </div>
@@ -1351,6 +1448,7 @@ function Tournament({ buehne, farben, auftrag }: GeruestArgs): React.JSX.Element
           buehne={buehne}
           farben={farben}
           logo={auftrag.bilder.logo}
+          signet={auftrag.bilder.signet}
           zeigen={auftrag.inhalt.branding !== false}
         />
         <div
@@ -1479,6 +1577,7 @@ function Dark({ buehne, farben, auftrag }: GeruestArgs): React.JSX.Element {
           buehne={buehne}
           farben={farben}
           logo={auftrag.bilder.logo}
+          signet={auftrag.bilder.signet}
           zeigen={auftrag.inhalt.branding !== false}
         />
         <div style={{ display: 'flex', flex: 1, alignItems: 'center' }}>
@@ -1536,34 +1635,20 @@ function Spotlight({ buehne, farben, auftrag }: GeruestArgs): React.JSX.Element 
     >
       <Hintergrund bild={auftrag.bilder.hintergrundbild} dunkel />
       {/*
-        Der Lichthof: vier konzentrische Kreise mit wenig Deckkraft.
+        Hier lag ein «Lichthof»: vier konzentrische Kreise in Akzentfarbe mit
+        wenig Deckkraft, zusammen ueber die ganze Flaeche.
 
-        Satori kennt keinen Radialgradienten. Zwei Kreise waren die erste
-        Fassung, und im Bild sah man sie als zwei Ringe mit harter Kante -
-        das wirkte wie ein Fehler, nicht wie Licht. Vier Stufen mit kleinen
-        Spruengen in der Deckkraft laufen weich genug aus, dass keine Kante
-        mehr auffaellt.
+        Er ist entfernt, und das ist die Hauptaenderung an diesem Geruest. Er
+        sollte Licht andeuten, aber Satori kennt keinen Radialgradienten - was
+        herauskam, waren vier Ringe mit sichtbaren Kanten, die zufaellig im
+        Bild lagen und nichts gliederten. Genau diese Art Form laesst eine
+        Grafik automatisch erzeugt aussehen: sie ist da, weil sie sich zeichnen
+        liess, nicht weil der Inhalt sie braucht.
+
+        An ihre Stelle tritt nichts. Ein dunkler Grund, ein rundes Motiv und
+        ein Namensschild sind drei Elemente, und drei Elemente ordnen sich von
+        selbst - ein viertes haette nur etwas zu verdecken.
       */}
-      {[
-        { faktor: 2.2, deckung: 0.06 },
-        { faktor: 1.8, deckung: 0.09 },
-        { faktor: 1.45, deckung: 0.13 },
-        { faktor: 1.16, deckung: 0.18 },
-      ].map((ring) => (
-        <div
-          key={ring.faktor}
-          style={{
-            display: 'flex',
-            position: 'absolute',
-            top: Math.round(buehne.hoehe * 0.26 - (kreis * ring.faktor) / 2),
-            width: Math.round(kreis * ring.faktor),
-            height: Math.round(kreis * ring.faktor),
-            borderRadius: 9999,
-            backgroundColor: farben.akzent,
-            opacity: ring.deckung,
-          }}
-        />
-      ))}
 
       <div
         style={{
@@ -1578,6 +1663,7 @@ function Spotlight({ buehne, farben, auftrag }: GeruestArgs): React.JSX.Element 
           buehne={buehne}
           farben={farben}
           logo={auftrag.bilder.logo}
+          signet={auftrag.bilder.signet}
           zeigen={auftrag.inhalt.branding !== false}
         />
       </div>
@@ -1614,19 +1700,16 @@ function Spotlight({ buehne, farben, auftrag }: GeruestArgs): React.JSX.Element 
           </div>
         ) : null}
         {/*
-          Das Namensschild - es ueberlappt die untere Kante des Kreises.
-
-          Ein negativer oberer Rand statt absoluter Platzierung: so bleibt der
-          Fluss erhalten, auch wenn kein Bild da ist und der Kreis fehlt.
-        */}
-        {/*
           Das Namensschild.
 
           Mit Motiv ist es ein Kasten, der dessen untere Kante ueberlappt -
-          daher der negative obere Rand und der deckende Grund. Ohne Motiv
-          gaebe derselbe Kasten einen leeren Rahmen um den Text, und das sah
-          im Bild nach vergessenem Platzhalter aus; dann steht der Text frei
-          im Lichthof.
+          daher der negative obere Rand und der deckende Grund. Ein negativer
+          Rand und keine absolute Platzierung: so bleibt der Fluss erhalten,
+          auch wenn kein Bild da ist und der Kreis fehlt.
+
+          Ohne Motiv gaebe derselbe Kasten einen leeren Rahmen um den Text,
+          und das sah im Bild nach vergessenem Platzhalter aus; dann steht der
+          Text frei auf dem Grund.
         */}
         <div
           style={{

@@ -1,5 +1,6 @@
 import { branding } from '@swisshub/modules';
 import type { socialmedia } from '@swisshub/modules';
+import { ladeSignet } from './mitgeliefert';
 import type { PostBilder } from './post-folie';
 
 /**
@@ -44,12 +45,24 @@ async function alsDatenUri(dateiname: string | undefined): Promise<string | unde
  * waehrend des Exports etwas austauscht.
  */
 export async function ladeBilder(inhalt: socialmedia.PostInhalt): Promise<PostBilder> {
-  const [bild, hintergrundbild, logo, teamLogoA, teamLogoB, ...sponsoren] = await Promise.all([
+  const [bild, hintergrundbild, logo, teamLogoA, teamLogoB, signet, ...sponsoren] = await Promise.all([
     alsDatenUri(inhalt.bild),
     alsDatenUri(inhalt.hintergrundbild),
     alsDatenUri(inhalt.logo),
     alsDatenUri(inhalt.teams?.logoA),
     alsDatenUri(inhalt.teams?.logoB),
+    /*
+     * Das SwissHub-Signet kommt **immer** mit.
+     *
+     * Nicht weil jeder Post es zeigt, sondern damit die Zeichenquelle die
+     * Entscheidung treffen kann, ohne selbst Dateien zu lesen - sie beschreibt
+     * ein Bild und faehrt nicht auf die Platte. Ob es erscheint, entscheidet
+     * der Schalter `branding`; womit es erscheint, entscheidet sich hier.
+     *
+     * Es laeuft durch dieselbe Funktion wie jedes andere Motiv und wird zur
+     * selben Art Wert: eine zweite Bildpipeline gibt es nicht.
+     */
+    ladeSignet(),
     ...(inhalt.sponsoren ?? []).map((name) => alsDatenUri(name)),
   ]);
 
@@ -61,6 +74,7 @@ export async function ladeBilder(inhalt: socialmedia.PostInhalt): Promise<PostBi
     ...(logo ? { logo } : {}),
     ...(teamLogoA ? { teamLogoA } : {}),
     ...(teamLogoB ? { teamLogoB } : {}),
+    ...(signet ? { signet } : {}),
     ...(vorhandeneSponsoren.length > 0 ? { sponsoren: vorhandeneSponsoren } : {}),
   };
 }

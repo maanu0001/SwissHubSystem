@@ -7,6 +7,7 @@ import { getActionAuthContext } from '@/server/auth';
 import { enforceRateLimit } from '@/server/rate-limit';
 import { POST_MASSE, postDateiname, zeichnePost } from '@/modules/socialmedia/post-folie';
 import { ladeBilder } from '@/modules/socialmedia/bilder';
+import { ladeSchriften } from '@/modules/socialmedia/mitgeliefert';
 
 /**
  * Ein Post als PNG - und zugleich die Vorschau im Editor (§38, §47).
@@ -80,7 +81,7 @@ export async function GET(
   }
 
   const inhalt = socialmedia.leseInhalt(post);
-  const [bilder, baum] = await Promise.all([
+  const [bilder, baum, schriften] = await Promise.all([
     ladeBilder(inhalt),
     /*
      * Der Baum wird **gelesen**, nicht aus dem Post genommen (§45).
@@ -91,6 +92,15 @@ export async function GET(
     inhalt.bracket
       ? socialmedia.ladeTurnierBaum(inhalt.bracket.tournamentId, guildId)
       : Promise.resolve(null),
+    /*
+     * Die Schriftschnitte.
+     *
+     * Ohne sie kennt `next/og` genau einen - Noto Sans Regular - und
+     * verwirft jedes `fontWeight` still. Eine Ueberschrift saehe dann aus wie
+     * ihr Fliesstext, nur groesser. Gelesen wird einmal je Prozess, der
+     * zweite Export bekommt dieselben Puffer.
+     */
+    ladeSchriften(),
   ]);
 
   const mass = POST_MASSE[format as socialmedia.PostFormat];
@@ -105,7 +115,7 @@ export async function GET(
       bilder,
       baum,
     }),
-    { width: mass.breite, height: mass.hoehe },
+    { width: mass.breite, height: mass.hoehe, ...(schriften ? { fonts: schriften } : {}) },
   );
 
   const antwort = new NextResponse(bild.body, bild);
