@@ -185,7 +185,12 @@ describe('Doku-Darstellung: mobil', () => {
   it('blendet die Seitengliederung auf schmalen Geräten aus', () => {
     // «Auf dieser Seite» ist eine dritte Spalte. Auf einem Telefon wäre sie
     // eine zweite Navigation vor dem Text, den sie gliedert.
-    expect(lies('auf-dieser-seite.tsx')).toContain('hidden xl:block');
+    //
+    // Der Breakpoint ist `2xl` und nicht `xl`: auf 1366px standen sonst drei
+    // Spalten nebeneinander und dem Artikel blieben 41 Zeichen pro Zeile.
+    // Warum sie trotzdem nicht reicht, um Platz zu sparen, steht in
+    // `doku-responsive.test.ts` - dort hängt das `hidden` am Wrapper.
+    expect(lies('auf-dieser-seite.tsx')).toContain('hidden 2xl:block');
   });
 
   it('hat keine feste Breite in Pixeln, die ein Telefon sprengt', () => {

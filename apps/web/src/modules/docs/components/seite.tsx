@@ -184,7 +184,8 @@ export async function DokuSeiteAnsicht({
       </article>
 
       {/*
-        `hidden xl:block` am Wrapper und nicht nur im Inhalt: ein Element, das
+        `hidden 2xl:block` am Wrapper und nicht nur im Inhalt: ein Element,
+        das
         sich nur selbst versteckt, belegt als Flex-Kind weiterhin seine
         Breite. Genau daran lag die zu schmale Lesespalte.
       */}
