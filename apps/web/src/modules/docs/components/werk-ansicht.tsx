@@ -32,9 +32,19 @@ function Geruest({ werk, children }: { werk: DokuWerk; children: React.ReactNode
   }));
 
   return (
-    <div className="flex min-w-0 flex-col gap-6 lg:flex-row lg:gap-8">
-      <div className="min-w-0 space-y-3 lg:w-64 lg:shrink-0">
-        <DokuSuche index={index} platzhalter={`In ${werk.titel} suchen`} />
+    /*
+     * Eine Spalte bis `lg`, zwei darueber - und auf dem Telefon liegen Suche
+     * und Inhalts-Knopf **nebeneinander** statt uebereinander. Untereinander
+     * kosteten sie zwei Zeilen plus Abstand, bevor der Artikel anfing; auf
+     * einem 844px hohen Bildschirm ist das ein knappes Zehntel der Hoehe fuer
+     * zwei Bedienelemente.
+     */
+    <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:gap-8">
+      <div className="flex min-w-0 items-center gap-2 lg:block lg:w-64 lg:shrink-0 lg:space-y-3">
+        {/* `min-w-0` am Suchfeld: ohne das schiebt sein Inhalt die Zeile auf. */}
+        <div className="min-w-0 flex-1">
+          <DokuSuche index={index} platzhalter={`In ${werk.titel} suchen`} />
+        </div>
         <DokuNavigation kategorien={kategorien} titel={werk.titel} />
       </div>
       <div className="min-w-0 flex-1">{children}</div>
@@ -46,14 +56,16 @@ function Geruest({ werk, children }: { werk: DokuWerk; children: React.ReactNode
 export function DokuStart({ werk }: { werk: DokuWerk }): React.JSX.Element {
   return (
     <Geruest werk={werk}>
-      <div className="min-w-0 max-w-3xl space-y-6">
+      <div className="min-w-0 max-w-3xl space-y-5 sm:space-y-6">
         <header className="space-y-2">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <BookOpen className="size-4" aria-hidden="true" />
             <span>Dokumentation</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{werk.titel}</h1>
-          <p className="text-muted-foreground">{werk.kurz}</p>
+          <h1 className="text-[2rem] font-semibold leading-[1.15] tracking-tight sm:text-3xl sm:leading-tight">
+            {werk.titel}
+          </h1>
+          <p className="text-base leading-7 text-muted-foreground sm:text-[0.95rem]">{werk.kurz}</p>
         </header>
 
         <div className="grid min-w-0 gap-4 sm:grid-cols-2">

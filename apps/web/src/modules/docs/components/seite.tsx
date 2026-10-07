@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ChevronRight, Link2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Link2 } from 'lucide-react';
 import { can } from '@swisshub/auth';
 import { requireAuth } from '@/server/auth';
 import { Block } from './blocks';
@@ -36,8 +36,13 @@ function Ueberschrift({
         ebene === 2
           ? // `scroll-mt`: ohne das verschwindet die Ueberschrift beim Sprung
             // auf einen Anker hinter der festen Kopfzeile.
-            'group scroll-mt-24 text-lg font-semibold tracking-tight'
-          : 'group scroll-mt-24 text-[0.95rem] font-semibold'
+            //
+            // Die Groesse steigt auf dem Telefon, nicht auf dem Rechner: 22px
+            // unter einer 32px-H1 und ueber 16px Text ist eine Stufenfolge,
+            // die man beim Scrollen sieht. Auf dem Rechner bleibt es bei
+            // 18px - dort traegt die schmalere Spalte die Gliederung mit.
+            'group scroll-mt-24 text-[1.375rem] font-semibold leading-snug tracking-tight sm:text-lg'
+          : 'group scroll-mt-24 text-[1.0625rem] font-semibold leading-snug sm:text-[0.95rem]'
       }
     >
       <a href={`#${anker}`} className="inline-flex items-center gap-1.5">
@@ -71,32 +76,84 @@ export async function DokuSeiteAnsicht({
   const toc = inhaltsverzeichnis(seite);
 
   return (
-    <div className="flex min-w-0 gap-8">
-      <article className="min-w-0 max-w-3xl flex-1 space-y-6">
-        {/* Brotkrumen: Werk → Kategorie → Seite. */}
-        <nav aria-label="Pfad" className="flex min-w-0 flex-wrap items-center gap-1 text-xs">
-          <Link href={werk.basis} className="text-muted-foreground hover:text-foreground">
-            {werk.titel}
+    /*
+     * Eine Spalte bis `xl`, zwei darueber.
+     *
+     * ## Was hier kaputt war
+     *
+     * Hier stand `flex min-w-0 gap-8` ohne Breakpoint, daneben ein
+     * `<aside className="w-56 shrink-0">`. Die Randspalte war damit auf
+     * **jeder** Breite 224px breit und gab wegen `shrink-0` nie nach - auch
+     * dann, wenn ihr Inhalt (`AufDieserSeite`, intern `hidden xl:block`) gar
+     * nichts anzeigte. Auf einem 390px-Telefon blieben nach 16px Shell-Padding
+     * je Seite, 224px Randspalte und 32px Abstand rund **100px** fuer den
+     * Text uebrig. Das war die Wortkaskade: eine unsichtbare Spalte, die
+     * Platz reservierte.
+     *
+     * Deshalb steckt die Randspalte jetzt selbst in `hidden xl:block`. Unter
+     * `xl` ist sie nicht unsichtbar, sondern **nicht da** - sie kann keinen
+     * Platz belegen, den sie nicht nutzt. Derselbe Breakpoint wie im Inhalt
+     * der Komponente, damit nicht eine Ebene zeigt, was die andere versteckt.
+     */
+    <div className="flex min-w-0 flex-col xl:flex-row xl:gap-8">
+      {/*
+        `max-w-3xl` greift erst ab 768px und begrenzt daher nur die Lesebreite
+        am Rechner. Auf dem Telefon bindet es nicht - dort entscheidet
+        `w-full`, und der Text nutzt die Breite, die da ist.
+      */}
+      <article className="w-full min-w-0 max-w-3xl flex-1 space-y-5 sm:space-y-6">
+        {/*
+          Brotkrumen in zwei Fassungen.
+
+          Am Rechner der ganze Pfad. Auf dem Telefon nur ein Rueckweg: drei
+          Glieder brauchten dort zwei bis drei Zeilen, und das Blatt des Pfades
+          stand ohnehin unmittelbar darunter als H1. Eine Zeile, die wiederholt,
+          was die naechste sagt, ist verlorener Platz.
+        */}
+        <nav aria-label="Pfad" className="min-w-0">
+          <Link
+            href={werk.basis}
+            className="inline-flex min-h-8 min-w-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground sm:hidden"
+          >
+            <ChevronLeft aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="truncate">{werk.titel}</span>
           </Link>
-          <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-muted-foreground/60" />
-          <span className="text-muted-foreground">{kategorie.titel}</span>
-          <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-muted-foreground/60" />
-          <span className="min-w-0 truncate font-medium text-foreground">{seite.titel}</span>
+
+          <span className="hidden min-w-0 flex-wrap items-center gap-1 text-xs sm:flex">
+            <Link href={werk.basis} className="text-muted-foreground hover:text-foreground">
+              {werk.titel}
+            </Link>
+            <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-muted-foreground/60" />
+            <span className="text-muted-foreground">{kategorie.titel}</span>
+            <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-muted-foreground/60" />
+            <span className="min-w-0 truncate font-medium text-foreground">{seite.titel}</span>
+          </span>
         </nav>
 
         <header className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{seite.titel}</h1>
-          <p className="text-[0.95rem] leading-7 text-muted-foreground">{seite.kurz}</p>
+          <h1 className="text-[2rem] font-semibold leading-[1.15] tracking-tight sm:text-2xl sm:leading-tight">
+            {seite.titel}
+          </h1>
+          <p className="text-base leading-7 text-muted-foreground sm:text-[0.95rem]">{seite.kurz}</p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             {seite.bereich ? (
               <span className="rounded-md bg-muted/60 px-1.5 py-0.5">Bereich: {seite.bereich}</span>
             ) : null}
-            <span>Zuletzt aktualisiert: {seite.aktualisiert}</span>
+            {/*
+              Auf dem Telefon nur «Aktualisiert», am Rechner der ganze Satz.
+              Dasselbe Datum, ein Wort weniger - das reicht, damit die Zeile
+              neben dem Bereichs-Chip nicht umbricht.
+            */}
+            <span>
+              <span className="sm:hidden">Aktualisiert: </span>
+              <span className="hidden sm:inline">Zuletzt aktualisiert: </span>
+              {seite.aktualisiert}
+            </span>
           </div>
         </header>
 
         {seite.abschnitte.map((abschnitt) => (
-          <section key={abschnitt.anker} className="space-y-3 border-t border-border/40 pt-5">
+          <section key={abschnitt.anker} className="space-y-3 border-t border-border/40 pt-4 sm:pt-5">
             <Ueberschrift anker={abschnitt.anker} titel={abschnitt.titel} ebene={2} />
             {abschnitt.blocks.map((block, index) => (
               <Block key={index} block={block} darf={darf} />
@@ -113,7 +170,12 @@ export async function DokuSeiteAnsicht({
         ))}
       </article>
 
-      <aside className="w-56 shrink-0">
+      {/*
+        `hidden xl:block` am Wrapper und nicht nur im Inhalt: ein Element, das
+        sich nur selbst versteckt, belegt als Flex-Kind weiterhin seine
+        Breite. Genau daran lag die zu schmale Lesespalte.
+      */}
+      <aside className="hidden xl:block xl:w-56 xl:shrink-0">
         <AufDieserSeite eintraege={toc} />
       </aside>
     </div>

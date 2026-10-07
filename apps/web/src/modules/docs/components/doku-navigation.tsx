@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
@@ -50,7 +50,12 @@ function Liste({
                     onClick={onNavigate}
                     aria-current={aktiv ? 'page' : undefined}
                     className={cn(
-                      'block min-w-0 truncate rounded-md px-2 py-1.5 text-sm transition-colors',
+                      // `min-h-11` und kein `truncate`: im Schubfach ist Platz
+                      // in der Hoehe, nicht in der Breite. Ein Kapitelname wie
+                      // «Permission Engine» abzuschneiden macht zwei Eintraege
+                      // ununterscheidbar; zweizeilig bleibt er lesbar, und
+                      // 44px Hoehe trifft ein Daumen sicher.
+                      'flex min-h-11 min-w-0 items-center rounded-md px-2 py-1.5 text-sm leading-snug transition-colors lg:min-h-0',
                       aktiv
                         ? // Der Streifen links macht den aktiven Eintrag auch
                           // dann erkennbar, wenn Rot schlecht zu sehen ist.
@@ -79,41 +84,107 @@ export function DokuNavigation({
 }): React.JSX.Element {
   const pfad = usePathname();
   const [offen, setOffen] = useState(false);
+  const knopf = useRef<HTMLButtonElement | null>(null);
+  const schliessen = useRef<HTMLButtonElement | null>(null);
+
+  /*
+   * Was ein offenes Schubfach braucht, damit es sich wie eines verhaelt.
+   *
+   * **ESC** schliesst es. Auf dem Rechner ist das die erste Taste, die man
+   * drueckt; dass das Schubfach dort selten erscheint, macht es nicht
+   * weniger erwartbar.
+   *
+   * **Die Seite scrollt nicht mit.** Ohne `overflow: hidden` am Dokument
+   * laeuft die Wischbewegung im Schubfach am Ende auf die Seite dahinter
+   * ueber - man scrollt den Artikel, den man gerade nicht sieht.
+   *
+   * **Der Fokus wandert hinein und zurueck.** Ein Schubfach, das sich
+   * oeffnet, ohne den Fokus mitzunehmen, laesst die Tastatur hinter dem
+   * Vorhang stehen; beim Schliessen gehoert er an den Knopf zurueck, der es
+   * geoeffnet hat, und nicht an den Anfang des Dokuments.
+   */
+  useEffect(() => {
+    if (!offen) {
+      return;
+    }
+    const vorher = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    schliessen.current?.focus();
+
+    const taste = (ereignis: KeyboardEvent): void => {
+      if (ereignis.key === 'Escape') {
+        setOffen(false);
+      }
+    };
+    document.addEventListener('keydown', taste);
+
+    return () => {
+      document.removeEventListener('keydown', taste);
+      document.body.style.overflow = vorher;
+      knopf.current?.focus();
+    };
+  }, [offen]);
+
+  /*
+   * Ein Seitenwechsel schliesst das Schubfach - auch wenn er nicht aus einem
+   * Klick darin kam. Der Zurueck-Knopf des Browsers wechselt die Seite, ohne
+   * `onNavigate` auszuloesen; ohne diese Zeile stuende das Schubfach danach
+   * offen vor einer Seite, die man nicht angefordert hat.
+   */
+  useEffect(() => {
+    setOffen(false);
+  }, [pfad]);
 
   return (
     <>
       {/* Telefon und Tablet: ein Knopf, der ein Schubfach aufzieht. */}
       <div className="lg:hidden">
         <button
+          ref={knopf}
           type="button"
           onClick={() => setOffen(true)}
-          className="inline-flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2 text-sm font-medium"
+          className="inline-flex size-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-border/60 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:w-auto sm:px-3"
           aria-expanded={offen}
+          aria-haspopup="dialog"
+          aria-label="Inhalt der Dokumentation"
         >
-          <Menu className="size-4" aria-hidden="true" />
-          Inhalt
+          <Menu className="size-[1.1rem] shrink-0" aria-hidden="true" />
+          {/*
+            Das Wort erst ab `sm`. Auf 360px steht der Knopf neben dem
+            Suchfeld, und jedes Zeichen hier fehlt dort - als quadratischer
+            Knopf mit Symbol bleibt er 44px gross und nimmt trotzdem kaum
+            Breite.
+          */}
+          <span className="hidden sm:inline">Inhalt</span>
         </button>
         {offen ? (
-          <div className="fixed inset-0 z-50 flex">
+          <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label={titel}>
             <button
               type="button"
               aria-label="Inhalt schliessen"
               onClick={() => setOffen(false)}
               className="absolute inset-0 bg-background/80 backdrop-blur-sm"
             />
-            <div className="relative ml-auto flex h-full w-[min(20rem,85vw)] flex-col border-l border-border bg-card">
-              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            {/*
+              `pb-[env(safe-area-inset-bottom)]` und `pr-[env(safe-area-inset-right)]`:
+              auf einem iPhone liegt unten die Browserleiste und im Querformat
+              rechts die Rundung. Ohne die Insets endet der letzte Eintrag der
+              Liste darunter und ist nicht antippbar.
+            */}
+            <div className="relative ml-auto flex h-full w-[min(20rem,85vw)] flex-col border-l border-border bg-card pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]">
+              <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
                 <p className="min-w-0 truncate text-sm font-semibold">{titel}</p>
                 <button
+                  ref={schliessen}
                   type="button"
                   onClick={() => setOffen(false)}
                   aria-label="Schliessen"
-                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  className="grid size-9 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   <X className="size-4" aria-hidden="true" />
                 </button>
               </div>
-              <div className="min-w-0 flex-1 overflow-y-auto p-3">
+              <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain p-3">
                 <Liste kategorien={kategorien} pfad={pfad} onNavigate={() => setOffen(false)} />
               </div>
             </div>

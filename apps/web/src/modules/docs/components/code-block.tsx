@@ -56,7 +56,7 @@ export function CodeBlock({
   };
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-muted/30">
+    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-border/60 bg-muted/30">
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5">
         <span className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
           {titel ?? sprache}
@@ -75,7 +75,7 @@ export function CodeBlock({
           {kopiert ? 'Kopiert' : 'Kopieren'}
         </button>
       </div>
-      <pre className="overflow-x-auto px-3 py-3 text-[12.5px] leading-relaxed">
+      <pre className="max-w-full overflow-x-auto px-2.5 py-2.5 text-[11.5px] leading-relaxed sm:px-3 sm:py-3 sm:text-[12.5px]">
         <code className="whitespace-pre font-mono">
           {token.map((stueck, index) => (
             <span key={index} className={cn(FARBE[stueck.art])}>
@@ -97,8 +97,10 @@ export function CodeBlock({
 export function BefehlZeile({ befehl }: { befehl: string }): React.JSX.Element {
   const [kopiert, setKopiert] = useState(false);
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-      <code className="min-w-0 flex-1 overflow-x-auto whitespace-pre font-mono text-[12.5px]">{befehl}</code>
+    <div className="flex w-full min-w-0 max-w-full items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-2 sm:px-3">
+      <code className="min-w-0 flex-1 overflow-x-auto whitespace-pre font-mono text-[11.5px] sm:text-[12.5px]">
+        {befehl}
+      </code>
       <button
         type="button"
         onClick={() => {

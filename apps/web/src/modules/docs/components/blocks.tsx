@@ -22,7 +22,7 @@ export function Inline({ text }: { text: string }): React.JSX.Element {
           return (
             <code
               key={index}
-              className="rounded bg-muted/60 px-1 py-0.5 font-mono text-[0.86em] text-primary-bright"
+              className="rounded bg-muted/60 px-1 py-0.5 font-mono text-[0.86em] text-primary-bright [overflow-wrap:anywhere]"
             >
               {teil.text}
             </code>
@@ -157,7 +157,7 @@ export function Block({
   switch (block.art) {
     case 'absatz':
       return (
-        <p className="text-[0.95rem] leading-7 text-muted-foreground">
+        <p className="text-base leading-7 text-muted-foreground sm:text-[0.95rem]">
           <Inline text={block.text} />
         </p>
       );
@@ -167,7 +167,7 @@ export function Block({
       return (
         <Tag
           className={cn(
-            'space-y-1.5 pl-5 text-[0.95rem] leading-7 text-muted-foreground',
+            'space-y-1.5 pl-4 text-base leading-7 text-muted-foreground sm:pl-5 sm:text-[0.95rem]',
             block.geordnet === true ? 'list-decimal' : 'list-disc',
           )}
         >
@@ -193,7 +193,7 @@ export function Block({
        * die nicht zusammengehoeren.
        */
       return (
-        <div className="min-w-0 overflow-hidden rounded-xl border border-border/60">
+        <div className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-border/60">
           <div className="w-full overflow-x-auto">
             <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
               <thead>
@@ -231,7 +231,7 @@ export function Block({
       const art = HINWEIS[block.ton];
       const Icon = art.icon;
       return (
-        <div className={cn('min-w-0 rounded-xl border p-3', art.rahmen)}>
+        <div className={cn('min-w-0 rounded-xl border p-2.5 sm:p-3', art.rahmen)}>
           <div className="flex items-center gap-2">
             <span
               className={cn(
@@ -259,7 +259,7 @@ export function Block({
                 {index + 1}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">
+                <p className="text-[0.95rem] font-medium sm:text-sm">
                   <Inline text={punkt.titel} />
                 </p>
                 {punkt.text ? (
@@ -284,7 +284,7 @@ export function Block({
               <dt className="shrink-0 font-mono text-[12.5px] font-medium text-primary-bright sm:w-52">
                 {eintrag.name}
               </dt>
-              <dd className="mt-0.5 min-w-0 flex-1 text-[0.9rem] leading-6 text-muted-foreground sm:mt-0">
+              <dd className="mt-0.5 min-w-0 flex-1 text-[0.95rem] leading-6 text-muted-foreground sm:mt-0 sm:text-[0.9rem]">
                 <Inline text={eintrag.text} />
               </dd>
             </div>

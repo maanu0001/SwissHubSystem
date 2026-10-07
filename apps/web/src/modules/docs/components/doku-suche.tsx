@@ -31,7 +31,20 @@ export function DokuSuche({
   const gesucht = anfrage.trim().length > 0;
 
   return (
-    <div className="min-w-0">
+    /*
+     * `relative`: die Trefferliste haengt als Overlay am Feld und nicht im
+     * Fluss darunter.
+     *
+     * Im Fluss wuchs sie dem Umfeld in die Hoehe - auf dem Telefon steht das
+     * Feld neben dem Inhalts-Knopf, und eine Liste in dieser Zeile hatte die
+     * Zeile auf halbe Bildschirmhoehe aufgezogen, bevor der Artikel anfing.
+     *
+     * Der Bezugspunkt ist bewusst das Feld und nicht ein Container weiter
+     * oben: so liegt die Liste genau unter dem, was man getippt hat, und auf
+     * dem Rechner unter der Spalte, in der sie steht. `max-h` plus eigenes
+     * Scrollen haelt sie im Viewport, auch bei zwoelf Treffern auf 360px.
+     */
+    <div className="relative min-w-0">
       <div className="relative">
         <Search
           aria-hidden="true"
@@ -43,7 +56,7 @@ export function DokuSuche({
           onChange={(ereignis) => setAnfrage(ereignis.target.value)}
           placeholder={platzhalter}
           aria-label="Dokumentation durchsuchen"
-          className="h-10 w-full rounded-lg border border-border/60 bg-card/60 pl-9 pr-9 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60"
+          className="h-11 w-full min-w-0 rounded-lg border border-border/60 bg-card/60 pl-9 pr-9 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60 sm:h-10"
         />
         {gesucht ? (
           <button
@@ -58,7 +71,7 @@ export function DokuSuche({
       </div>
 
       {gesucht ? (
-        <div className="mt-2 overflow-hidden rounded-xl border border-border/60 bg-card">
+        <div className="absolute inset-x-0 top-full z-40 mt-2 max-h-[min(60vh,28rem)] overflow-y-auto overscroll-contain rounded-xl border border-border/60 bg-card shadow-lg">
           {treffer.length === 0 ? (
             /*
              * Kein Treffer ist ein Ergebnis und kein Fehler.
@@ -76,9 +89,9 @@ export function DokuSuche({
                   <Link
                     href={eintrag.href}
                     onClick={() => setAnfrage('')}
-                    className="block min-w-0 px-3 py-2.5 transition-colors hover:bg-muted/50"
+                    className="block min-w-0 px-3 py-3 transition-colors hover:bg-muted/50 sm:py-2.5"
                   >
-                    <p className="min-w-0 truncate text-sm font-medium">{eintrag.titel}</p>
+                    <p className="min-w-0 text-sm font-medium leading-snug">{eintrag.titel}</p>
                     <p className="min-w-0 truncate text-[11px] text-primary-bright">{eintrag.bereich}</p>
                     <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-snug text-muted-foreground">
                       {eintrag.vorschau}
