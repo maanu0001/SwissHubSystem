@@ -7,6 +7,7 @@ import {
   readUpload,
   storeLogoUpload,
   type LogoFormat,
+  UPLOAD_GRENZEN,
 } from '../branding/storage';
 import { LEVEL_MODULE_ID, LEVEL_PERMISSIONS } from './config';
 import { normalisiereTextfarbe, pruefeKartenkontrast } from './kartenfarbe';
@@ -30,7 +31,7 @@ const log = createLogger('level.custom-card');
  */
 
 /** Dieselbe Grenze wie beim Kartenhintergrund. */
-export const MAX_CUSTOM_CARD_BYTES = 8 * 1024 * 1024;
+export const MAX_CUSTOM_CARD_BYTES = UPLOAD_GRENZEN.usercard.maxBytes;
 
 /** Empfohlene Abmessungen - die der erzeugten Karte. */
 export const CUSTOM_CARD_SIZE = { width: 900, height: 225 } as const;

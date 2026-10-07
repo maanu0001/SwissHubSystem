@@ -2,7 +2,7 @@ import { AUDIT_ACTIONS, prisma, safeRecordAudit } from '@swisshub/database';
 import type { CalendarEvent, CalendarPaymentStatus, CalendarRegistration } from '@swisshub/database';
 import { createLogger } from '@swisshub/logger';
 import { AppError, conflict } from '@swisshub/shared';
-import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload } from '../branding/storage';
+import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload, UPLOAD_GRENZEN } from '../branding/storage';
 import { CALENDAR_MODULE_ID, CALENDAR_PERMISSIONS } from './config';
 import { erledigeTickets, oeffneTickets } from './tickets';
 import { requireEvent } from './service';
@@ -15,7 +15,7 @@ import type { CalendarActor } from './schemas';
  * Kantenlaenge wiegt ein paar Dutzend Kilobyte. Wer mehr hochlaedt, hat ein
  * Foto ausgewaehlt und keinen Code.
  */
-export const MAX_QR_BYTES = 2 * 1024 * 1024;
+export const MAX_QR_BYTES = UPLOAD_GRENZEN.twintqr.maxBytes;
 
 const logger = createLogger('calendar:zahlungen');
 

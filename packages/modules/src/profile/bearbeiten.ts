@@ -1,6 +1,6 @@
 import { AUDIT_ACTIONS, prisma, safeRecordAudit, type Prisma } from '@swisshub/database';
 import { AppError } from '@swisshub/shared';
-import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload } from '../branding/storage';
+import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload, UPLOAD_GRENZEN } from '../branding/storage';
 import { getGame } from '../games/katalog';
 import { SHOWCASE_PLAETZE, showcaseArt } from './showcase';
 import {
@@ -748,7 +748,7 @@ async function verweisGueltig(
 }
 
 /** Hoechstens 4 MB und mindestens Bannergroesse - ein 40x40-Bild ist kein Banner. */
-const BANNER_GRENZEN = { maxBytes: 4 * 1024 * 1024, minSize: 400, maxSize: 4000 };
+const BANNER_GRENZEN = UPLOAD_GRENZEN.profilbanner;
 
 export async function speichereBanner(
   discordId: string,

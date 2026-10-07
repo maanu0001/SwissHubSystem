@@ -1,7 +1,7 @@
 import { AUDIT_ACTIONS, prisma, recordAudit } from '@swisshub/database';
 import { AppError } from '@swisshub/shared';
 import { z } from 'zod';
-import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload } from '../branding/storage';
+import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload, UPLOAD_GRENZEN } from '../branding/storage';
 import { WRAPPED_MODULE_ID } from './config';
 import type { AusgabeAkteur } from './ausgabe';
 
@@ -29,7 +29,7 @@ import type { AusgabeAkteur } from './ausgabe';
  * vergessene Pruefung liefert eine als PNG deklarierte HTML-Datei aus.
  */
 
-export const MAX_MOMENT_BYTES = 6 * 1024 * 1024;
+export const MAX_MOMENT_BYTES = UPLOAD_GRENZEN.wrappedmoment.maxBytes;
 const BILD_GRENZEN = { maxBytes: MAX_MOMENT_BYTES, minSize: 400, maxSize: 6000 };
 
 export const momentSchema = z.object({

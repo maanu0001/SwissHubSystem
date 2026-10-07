@@ -7,6 +7,7 @@ import {
   readUpload,
   storeLogoUpload,
   type LogoFormat,
+  UPLOAD_GRENZEN,
 } from '../branding/storage';
 import { readModuleSettings } from '../settings/service';
 import { LEVEL_MODULE_ID, type LevelSettings } from './config';
@@ -33,7 +34,7 @@ export const isCardBannerSlot = (value: string): value is CardBannerSlot =>
   (CARD_BANNER_SLOTS as readonly string[]).includes(value);
 
 /** 8 MB - die Karte ist 900 Pixel breit, mehr braucht kein Hintergrund. */
-export const MAX_CARD_BANNER_BYTES = 8 * 1024 * 1024;
+export const MAX_CARD_BANNER_BYTES = UPLOAD_GRENZEN.levelcard.maxBytes;
 
 const SETTING_KEY: Record<CardBannerSlot, 'cardBannerPath' | 'cardPrestigeBannerPath'> = {
   normal: 'cardBannerPath',

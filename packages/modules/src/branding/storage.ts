@@ -21,8 +21,13 @@ const log = createLogger('branding:storage');
  */
 export const UPLOAD_DIR = process.env.SWISSHUB_UPLOAD_DIR ?? '/var/lib/swisshub/uploads';
 
-/** 5 MB - grosszügig für ein Logo, klein genug gegen Missbrauch. */
-export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+/**
+ * Die Vorgabe, wenn ein Aufrufer keine eigene Grenze mitgibt.
+ *
+ * Steht hier nur noch als Rueckfall - die wirklichen Grenzen stehen in
+ * `UPLOAD_GRENZEN`, je Namensraum.
+ */
+export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 export type LogoFormat = 'png' | 'jpeg' | 'webp';
 
@@ -206,6 +211,68 @@ export const UPLOAD_KINDS = [
 ] as const;
 export type UploadKind = (typeof UPLOAD_KINDS)[number];
 
+/** Was ein Namensraum an Datei und an Massen zulaesst. */
+export interface UploadGrenze {
+  maxBytes: number;
+  minSize: number;
+  maxSize: number;
+}
+
+const MB = 1024 * 1024;
+
+/**
+ * Die Grenzen je Namensraum - an einer Stelle.
+ *
+ * ## Warum die Zahlen so aussehen
+ *
+ * Sie sind nicht grosszuegig, sie sind **realistisch**. Ein Bild, das heute
+ * aus einem Grafikprogramm kommt, hat 3000 bis 6000 Pixel Kantenlaenge und
+ * als PNG mit Transparenz schnell zweistellige Megabyte. Eine Grenze von
+ * 2 MB lehnt damit nicht den Missbrauch ab, sondern den Normalfall - und der
+ * Mensch davor haelt die Anwendung fuer kaputt, nicht seine Datei fuer gross.
+ *
+ * Nach oben begrenzt bleibt es trotzdem, und zwar verschieden je Zweck:
+ *
+ * - **socialpost** traegt die Last eines Exports in 1080 x 1920 und soll
+ *   hochwertige Vorlagen annehmen - 24 MB und 8000 Pixel.
+ * - **slotsymbol** sitzt im Spiel in einer Zelle von rund 100 Pixeln. Gross
+ *   genug fuer jedes vernuenftige Original (12 MB, 4096 Pixel), aber kein
+ *   Grund fuer ein Plakat.
+ * - **twintqr** ist ein QR-Code. Vier Megabyte sind dafuer schon viel.
+ * - **clip** und die beiden Altlasten-Importe stehen nicht hier: sie tragen
+ *   keine Bilder und kennen ihre Grenzen selbst.
+ *
+ * ## Warum nicht einfach 100 MB fuer alles
+ *
+ * Weil die Grenze zwei Dinge zugleich tut: sie laesst den Normalfall durch
+ * **und** sie sagt, was dieser Namensraum ist. «Bis 100 MB» sagt nichts.
+ *
+ * Diese Zahlen muessen ausserdem zu `middlewareClientMaxBodySize` in
+ * `next.config.ts` passen - sonst kappt Next den Koerper, bevor die Pruefung
+ * hier ihn je sieht. Ein Test haelt beides zusammen.
+ */
+export const UPLOAD_GRENZEN: Readonly<Record<UploadKind, UploadGrenze>> = {
+  logo: { maxBytes: 8 * MB, minSize: 16, maxSize: 4096 },
+  levelcard: { maxBytes: 16 * MB, minSize: 100, maxSize: 6000 },
+  usercard: { maxBytes: 16 * MB, minSize: 100, maxSize: 6000 },
+  gamecover: { maxBytes: 12 * MB, minSize: 64, maxSize: 4096 },
+  profilbanner: { maxBytes: 12 * MB, minSize: 400, maxSize: 6000 },
+  wrappedmoment: { maxBytes: 16 * MB, minSize: 400, maxSize: 8000 },
+  twintqr: { maxBytes: 4 * MB, minSize: 120, maxSize: 4096 },
+  // Traegt keine Bilder - die Grenze steht in `clips/video-speicher.ts`.
+  clip: { maxBytes: 8 * MB, minSize: 16, maxSize: 4096 },
+  workspace: { maxBytes: 16 * MB, minSize: 16, maxSize: 8000 },
+  slotsymbol: { maxBytes: 12 * MB, minSize: 32, maxSize: 4096 },
+  // Traegt keine Bilder - die Grenzen stehen in `xpslot/klang-speicher.ts`.
+  slotsound: { maxBytes: 8 * MB, minSize: 16, maxSize: 4096 },
+  socialpost: { maxBytes: 24 * MB, minSize: 64, maxSize: 8000 },
+};
+
+/** Die groesste Bilddatei, die irgendein Namensraum annimmt. */
+export const GROESSTE_BILDGRENZE = Math.max(
+  ...Object.values(UPLOAD_GRENZEN).map((grenze) => grenze.maxBytes),
+);
+
 /**
  * Ein neuer Dateiname.
  *
@@ -310,10 +377,19 @@ export async function storeLogoUpload(
   if (data.byteLength === 0) {
     throw new AppError('VALIDATION_FAILED', { userMessage: 'Die Datei ist leer.' });
   }
-  const maxBytes = limits.maxBytes ?? MAX_UPLOAD_BYTES;
+  /*
+   * Die Grenze kommt aus der Tabelle - der Aufrufer darf sie uebersteuern.
+   *
+   * Vorher stand in jeder Aufrufstelle eine eigene Zahl, und sie wichen
+   * voneinander ab, ohne dass irgendwo stand warum: 2 MB fuer ein
+   * Slot-Symbol, 8 fuer ein Postmotiv, 5 fuer einen Anhang. Jetzt steht die
+   * Zahl bei dem Namensraum, zu dem sie gehoert.
+   */
+  const grenze = UPLOAD_GRENZEN[kind];
+  const maxBytes = limits.maxBytes ?? grenze?.maxBytes ?? MAX_UPLOAD_BYTES;
   if (data.byteLength > maxBytes) {
     throw new AppError('VALIDATION_FAILED', {
-      userMessage: `Die Datei ist zu gross (maximal ${Math.round(maxBytes / 1024 / 1024)} MB).`,
+      userMessage: `Die Datei ist zu gross. Maximal erlaubt: ${Math.round(maxBytes / 1024 / 1024)} MB.`,
     });
   }
 
@@ -331,8 +407,8 @@ export async function storeLogoUpload(
     });
   }
 
-  const minSize = limits.minSize ?? 16;
-  const maxSize = limits.maxSize ?? 4096;
+  const minSize = limits.minSize ?? grenze?.minSize ?? 16;
+  const maxSize = limits.maxSize ?? grenze?.maxSize ?? 4096;
   const size = readImageSize(data, format);
   if (size && (size.width < minSize || size.height < minSize)) {
     throw new AppError('VALIDATION_FAILED', {

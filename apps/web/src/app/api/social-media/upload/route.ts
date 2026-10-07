@@ -6,6 +6,7 @@ import { createLogger } from '@swisshub/logger';
 import { AppError, fail, ok, toAppError } from '@swisshub/shared';
 import { getActionAuthContext, getRequestMetadata } from '@/server/auth';
 import { enforceRateLimit } from '@/server/rate-limit';
+import { leseFormular } from '@/server/upload';
 
 const log = createLogger('web:socialmedia-upload');
 
@@ -41,13 +42,22 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest): Promise<Response> {
   try {
-    const form = await request.formData();
+    /*
+     * Erst anmelden, dann den Koerper lesen.
+     *
+     * Vorher stand `formData()` in der ersten Zeile, und damit las der Server
+     * bis zu zweiunddreissig Megabyte von jemandem, der gar nicht angemeldet
+     * ist. Die Sitzungspruefung braucht das Formular nicht - nur die
+     * CSRF-Pruefung tut das, und die kommt danach.
+     */
     const metadata = await getRequestMetadata();
     const context = await getActionAuthContext('critical');
     if (!context) {
       throw new AppError('UNAUTHENTICATED');
     }
     assertMembership(context, { ...metadata, path: 'socialmedia.upload' });
+
+    const form = await leseFormular(request, branding.UPLOAD_GRENZEN.socialpost.maxBytes / 1024 / 1024);
 
     const csrfToken = form.get('csrfToken');
     if (typeof csrfToken !== 'string' || !verifyCsrfToken(context.sessionId, csrfToken)) {
@@ -76,21 +86,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     const bytes = new Uint8Array(await datei.arrayBuffer());
-    const gespeichert = await branding.storeLogoUpload(bytes, datei.type || null, 'socialpost', {
-      /*
-       * Acht Megabyte und bis 4096 Pixel.
-       *
-       * Grosszuegiger als ein Logo, weil ein Hintergrundbild eine Flaeche von
-       * 1080 x 1920 fuellen soll und ein Foto vom Telefon leicht drei
-       * Megabyte hat. Nach oben begrenzt bleibt es trotzdem: Satori legt das
-       * Bild beim Rendern in den Speicher, und ein 40-Megapixel-Bild in einem
-       * Container, der auch die WebApp bedient, ist kein Export, sondern ein
-       * Ausfall.
-       */
-      maxBytes: 8 * 1024 * 1024,
-      minSize: 64,
-      maxSize: 4096,
-    });
+    // Die Grenze steht bei ihrem Namensraum in `UPLOAD_GRENZEN` - ein Post
+    // nimmt die groesste von allen, weil er in 1080 x 1920 exportiert.
+    const gespeichert = await branding.storeLogoUpload(bytes, datei.type || null, 'socialpost');
 
     return NextResponse.json(
       ok({

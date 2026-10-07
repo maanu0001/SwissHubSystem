@@ -2,7 +2,7 @@ import { AUDIT_ACTIONS, Prisma, prisma, safeRecordAudit } from '@swisshub/databa
 import { createLogger } from '@swisshub/logger';
 import { AppError, conflict } from '@swisshub/shared';
 import type { Game } from '@swisshub/database';
-import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload } from '../branding/storage';
+import { CONTENT_TYPE, deleteUpload, readUpload, storeLogoUpload, UPLOAD_GRENZEN } from '../branding/storage';
 import { GAMES_PERMISSION } from './config';
 import type { GameBearbeitenEingabe, GameEingabe } from './schemas';
 
@@ -41,7 +41,7 @@ export interface GameActor {
 }
 
 /** Hoechstgroesse eines Covers - dieselbe Grenze wie beim Kartenhintergrund. */
-export const MAX_COVER_BYTES = 8 * 1024 * 1024;
+export const MAX_COVER_BYTES = UPLOAD_GRENZEN.gamecover.maxBytes;
 
 /** Empfohlene Abmessungen: das uebliche Seitenverhaeltnis eines Store-Artworks. */
 export const COVER_SIZE = { width: 920, height: 430 } as const;
@@ -249,8 +249,6 @@ export async function speichereCover(
 
   const stored = await storeLogoUpload(data, declaredMimeType, 'gamecover', {
     maxBytes: MAX_COVER_BYTES,
-    minSize: 64,
-    maxSize: 4096,
   });
 
   await prisma.game.update({ where: { id: gameId }, data: { coverPath: stored.fileName } });

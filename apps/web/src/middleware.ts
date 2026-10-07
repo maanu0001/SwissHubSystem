@@ -194,11 +194,35 @@ export function middleware(request: NextRequest): NextResponse {
   return response;
 }
 
+/*
+ * Die drei Routen, die grosse Dateien entgegennehmen - und warum sie hier
+ * ausgenommen sind.
+ *
+ * Sobald eine Middleware fuer eine Anfrage laeuft, klont Next deren Koerper,
+ * damit die Middleware ihn lesen kann und die Route ihn danach noch einmal
+ * bekommt. Das bedeutet: er liegt zweimal im Speicher, und oberhalb von
+ * `middlewareClientMaxBodySize` wird er abgeschnitten statt abgelehnt.
+ *
+ * Fuer einen Clip von hundert Megabyte ist beides falsch. Diese drei Routen
+ * brauchen von der Middleware ohnehin nichts: sie geben JSON zurueck, keine
+ * Seite, und sie pruefen Sitzung, CSRF, Rate Limit und Berechtigung selbst.
+ * Die CSP-Nonce ist fuer eine JSON-Antwort bedeutungslos; die uebrigen
+ * Sicherheitsheader kommen aus `next.config.ts` und gelten weiterhin.
+ *
+ * Die Bild-Uploads stehen bewusst **nicht** hier: sie bleiben unter der
+ * Grenze, und je weniger Ausnahmen, desto weniger laesst sich vergessen.
+ * Ein Test prueft genau das - jede Route, die `formData()` liest, muss
+ * entweder unter der Grenze bleiben oder in dieser Liste stehen.
+ */
+export const GROSSE_UPLOADS = ['/api/clips/upload', '/api/level/import', '/api/jail/import'] as const;
+
 export const config = {
   matcher: [
-    // Statische Assets und Bilder brauchen keine CSP-Verarbeitung.
+    // Statische Assets und Bilder brauchen keine CSP-Verarbeitung; die drei
+    // Routen mit grossen Dateien ebenso wenig (siehe `GROSSE_UPLOADS`).
     {
-      source: '/((?!_next/static|_next/image|favicon.ico|branding/).*)',
+      source:
+        '/((?!_next/static|_next/image|favicon.ico|branding/|api/clips/upload|api/level/import|api/jail/import).*)',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },

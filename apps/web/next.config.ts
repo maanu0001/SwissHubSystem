@@ -87,6 +87,42 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '1mb',
     },
+    /**
+     * Wie viel Anfragekoerper die Middleware durchlaesst.
+     *
+     * ## Der Fehler, den diese Zeile behebt
+     *
+     * Sobald eine Middleware existiert - und diese Anwendung hat eine, fuer
+     * die CSP-Nonce -, klont Next den Koerper jeder Anfrage, damit die
+     * Middleware ihn lesen und die Route ihn danach noch einmal bekommen
+     * kann. Dieser Klon hat eine Vorgabe von **10 MB**, und oberhalb davon
+     * wird er nicht abgelehnt, sondern **abgeschnitten**: die Route erhaelt
+     * einen halben Multipart-Koerper, `request.formData()` wirft «Failed to
+     * parse body as FormData», und daraus wird ein INTERNAL - also
+     * «Aktion konnte nicht ausgefuehrt werden. Bitte versuche es spaeter
+     * erneut.»
+     *
+     * Gemessen am gebauten Server: eine 11,4 MB grosse PNG kam mit genau
+     * dieser Meldung zurueck, waehrend eine 4,1 MB grosse durchging. Die
+     * Pruefung in `storeLogoUpload` sah die Datei nie - sie haette sonst
+     * gesagt, wie gross sie sein darf.
+     *
+     * Betroffen war nicht nur der Post Creator: der Clip-Upload (bis 500 MB),
+     * der Level-Import (64 MB) und der Jail-Import (32 MB) erlauben seit je
+     * mehr als 10 MB und konnten es nie halten.
+     *
+     * ## Warum diese Zahl
+     *
+     * Sie muss ueber der groessten Grenze liegen, die ein Bild-Upload
+     * zulaesst (`GROESSTE_BILDGRENZE`, zurzeit 24 MB). Die drei Routen mit
+     * den wirklich grossen Dateien gehen die Middleware gar nicht erst an -
+     * sie sind in `middleware.ts` ausgenommen, damit ein 100-MB-Clip nicht
+     * zusaetzlich im Speicher dupliziert wird.
+     *
+     * Ein Test haelt beide Seiten zusammen: jede Route, die `formData()`
+     * liest, muss entweder unter dieser Zahl bleiben oder ausgenommen sein.
+     */
+    middlewareClientMaxBodySize: '32mb',
   },
   images: {
     remotePatterns: [{ protocol: 'https', hostname: 'cdn.discordapp.com', pathname: '/**' }],
