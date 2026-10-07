@@ -68,7 +68,6 @@ function baue(
       format,
       inhalt: INHALT,
       bilder,
-      baum: null,
     }),
   );
 }
@@ -241,7 +240,6 @@ describe('Post Creator: die Formate passen das Layout an (§46)', () => {
           format,
           inhalt: { ...INHALT, teams: { a: 'Team A', b: 'Team B' } },
           bilder: {},
-          baum: null,
         }),
       );
     // Die eine Zeile, die den Unterschied macht: `flexDirection` der
@@ -259,16 +257,23 @@ describe('Post Creator: die Inhaltsprüfung (§35, §36)', () => {
   const EIN_BILD = `socialpost-${'a'.repeat(32)}.png`;
 
   it('lässt nur Felder durch, die der Typ hat', () => {
-    // «Reminder» kennt kein Motiv. Ein Bild, das trotzdem mitgeschickt wird,
-    // darf nicht in der Spalte landen - sonst taucht es beim naechsten
-    // Typwechsel wieder auf.
-    const inhalt = socialmedia.normalisiereInhalt('reminder', {
+    /*
+     * «Update» kennt keinen Hintergrund. Einer, der trotzdem mitgeschickt
+     * wird, darf nicht in der Spalte landen - sonst taucht er beim naechsten
+     * Typwechsel wieder auf.
+     *
+     * Vorher stand hier «Reminder» und `bild`. Der Typ hat inzwischen ein
+     * Motiv, und damit prueft die Zeile nichts mehr: das Feld faellt nicht
+     * weg, weil es erlaubt ist. Ein Test, der zufaellig gruen ist, ist kein
+     * Test - deshalb ein Paar, bei dem das Feld dem Typ wirklich fehlt.
+     */
+    const inhalt = socialmedia.normalisiereInhalt('update', {
       titel: 'Gleich geht es los',
-      bild: EIN_BILD,
+      hintergrundbild: EIN_BILD,
       erfundenesFeld: 'hallo',
     });
     expect(inhalt.titel).toBe('Gleich geht es los');
-    expect(inhalt.bild).toBeUndefined();
+    expect(inhalt.hintergrundbild).toBeUndefined();
     expect(Object.keys(inhalt)).not.toContain('erfundenesFeld');
   });
 
@@ -340,12 +345,37 @@ describe('Post Creator: die Inhaltsprüfung (§35, §36)', () => {
     expect(inhalt.sponsoren?.length).toBe(6);
   });
 
-  it('speichert beim Turnierbaum nur die Kennung, nie die Paarungen (§45)', () => {
+  it('speichert den Turnierbaum als eigenen Stand des Posts', () => {
+    /*
+     * Die umgekehrte Zusage von frueher.
+     *
+     * Hier stand einmal: «speichert nur die Kennung, nie die Paarungen» - der
+     * Baum wurde beim Zeichnen aus dem Turnier gelesen. Das klang sauber und
+     * hiess in der Praxis: ohne Turniereintrag kein Turnierbaum-Post, und mit
+     * einem kein Eingriff ins Bild. Ein Post ist aber eine Aussage zu einem
+     * Zeitpunkt. Er traegt jetzt seinen eigenen Stand; die Kennung bleibt als
+     * Herkunftsvermerk daneben stehen.
+     */
     const inhalt = socialmedia.normalisiereInhalt('bracket', {
       titel: 'x',
-      bracket: { tournamentId: 'abc123', runden: [{ matches: ['erfunden'] }] },
+      bracket: {
+        tournamentId: 'abc123',
+        runden: [
+          {
+            label: 'Final',
+            paarungen: [{ a: { name: 'Alpha', punkte: 13 }, b: { name: 'Beta', punkte: 11 }, sieger: 'a' }],
+          },
+        ],
+      },
     });
-    expect(inhalt.bracket).toEqual({ tournamentId: 'abc123' });
+    expect(inhalt.bracket?.tournamentId).toBe('abc123');
+    expect(inhalt.bracket?.runden).toHaveLength(1);
+    expect(inhalt.bracket?.runden[0]?.label).toBe('Final');
+    expect(inhalt.bracket?.runden[0]?.paarungen[0]).toEqual({
+      a: { name: 'Alpha', punkte: 13 },
+      b: { name: 'Beta', punkte: 11 },
+      sieger: 'a',
+    });
   });
 
   it('nennt die fehlenden Pflichtfelder', () => {

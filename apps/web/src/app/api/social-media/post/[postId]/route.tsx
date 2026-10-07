@@ -81,17 +81,8 @@ export async function GET(
   }
 
   const inhalt = socialmedia.leseInhalt(post);
-  const [bilder, baum, schriften] = await Promise.all([
+  const [bilder, schriften] = await Promise.all([
     ladeBilder(inhalt),
-    /*
-     * Der Baum wird **gelesen**, nicht aus dem Post genommen (§45).
-     *
-     * Am Post steht nur die Kennung des Turniers. Deshalb zeigt ein Export
-     * von heute den Stand von heute - und nicht den, der beim Anlegen galt.
-     */
-    inhalt.bracket
-      ? socialmedia.ladeTurnierBaum(inhalt.bracket.tournamentId, guildId)
-      : Promise.resolve(null),
     /*
      * Die Schriftschnitte.
      *
@@ -113,7 +104,6 @@ export async function GET(
       format: format as socialmedia.PostFormat,
       inhalt,
       bilder,
-      baum,
     }),
     { width: mass.breite, height: mass.hoehe, ...(schriften ? { fonts: schriften } : {}) },
   );

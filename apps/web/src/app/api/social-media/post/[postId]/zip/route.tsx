@@ -67,18 +67,14 @@ export async function GET(
 
   const inhalt = socialmedia.leseInhalt(post);
   /*
-   * Bilder und Baum **einmal** - nicht je Format.
+   * Bilder **einmal** - nicht je Format.
    *
-   * Drei Formate lesen dieselben Dateien und dasselbe Turnier. Es dreimal zu
-   * tun waere zweimal zu viel, und es ist ausserdem die Zusage, dass alle
-   * drei Dateien denselben Stand zeigen, auch wenn waehrend des Exports ein
-   * Match entschieden wird.
+   * Drei Formate lesen dieselben Dateien. Es dreimal zu tun waere zweimal zu
+   * viel. Der Turnierbaum steht im Post selbst und wird nirgends geladen -
+   * damit zeigen die drei Dateien ohnehin denselben Stand.
    */
-  const [bilder, baum, schriften] = await Promise.all([
+  const [bilder, schriften] = await Promise.all([
     ladeBilder(inhalt),
-    inhalt.bracket
-      ? socialmedia.ladeTurnierBaum(inhalt.bracket.tournamentId, guildId)
-      : Promise.resolve(null),
     // Einmal fuer alle drei Formate - aus demselben Grund wie die Bilder.
     ladeSchriften(),
   ]);
@@ -106,7 +102,6 @@ export async function GET(
         format,
         inhalt,
         bilder,
-        baum,
       }),
       { width: mass.breite, height: mass.hoehe, ...(schriften ? { fonts: schriften } : {}) },
     );

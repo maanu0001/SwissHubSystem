@@ -52,7 +52,6 @@ function markup(
       format,
       inhalt: INHALT,
       bilder,
-      baum: null,
     }),
   );
 }

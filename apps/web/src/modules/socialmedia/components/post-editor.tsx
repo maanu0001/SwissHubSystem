@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Download, FileArchive, Loader2, Save, Upload, X } from 'lucide-react';
+import { Check, Download, FileArchive, Loader2, Plus, Save, Trash2, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -78,6 +78,17 @@ const ENTPRELLUNG_MS = 900;
 
 /** Dieselbe Obergrenze wie `MAX_SPONSOREN` im Modulkern - mehr nimmt er nicht an. */
 const MAX_PARTNERZEICHEN = 6;
+
+/*
+ * Dieselben Obergrenzen wie `MAX_BAUM_RUNDEN` und `MAX_BAUM_PAARUNGEN`.
+ *
+ * Hier stehen sie als Zahl und nicht als Import: der Modulkern haengt an
+ * Prisma, und das gehoert nicht in ein Buendel, das im Browser laeuft.
+ * Dasselbe Vorgehen wie bei `MAX_PARTNERZEICHEN` oben - und wie dort prueft
+ * ein Test, dass beide Seiten dieselbe Zahl nennen.
+ */
+const MAX_BAUM_RUNDEN = 6;
+const MAX_BAUM_PAARUNGEN = 16;
 
 const bildAdresse = (dateiname: string): string => `/api/social-media/asset/${encodeURIComponent(dateiname)}`;
 
@@ -329,7 +340,18 @@ export function PostEditor({
     }
     setWerte((vorher) => ({
       ...vorher,
-      ...(typ?.felder.includes('bracket') ? { bracket: { tournamentId } } : {}),
+      /*
+       * Der Baum wird **befuellt**, nicht gebunden.
+       *
+       * Hier stand `{ tournamentId }` - die Kennung allein, und der Baum kam
+       * beim Zeichnen frisch aus dem Turnier. Das hiess: ohne Turnier kein
+       * Turnierbaum-Post, und mit Turnier kein Eingriff ins Bild. Jetzt
+       * kommen die Paarungen herein und gehoeren danach dem Post; ins Turnier
+       * schreibt nichts zurueck.
+       */
+      ...(typ?.felder.includes('bracket') && antwort.data.baum
+        ? { bracket: { ...antwort.data.baum, tournamentId } }
+        : {}),
       ...(typ?.felder.includes('titel') ? { titel: antwort.data.titel } : {}),
       ...(typ?.felder.includes('untertitel') ? { untertitel: antwort.data.untertitel } : {}),
       ...(typ?.felder.includes('datum') && antwort.data.datum ? { datum: antwort.data.datum } : {}),
@@ -435,29 +457,34 @@ export function PostEditor({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Füllt die Felder als Vorschlag. Der Turnierbaum wird beim Export frisch aus dem Turnier gelesen
-              - er ist also immer aktuell.
+              Füllt die Felder als Vorschlag - Runden und Begegnungen eingeschlossen. Alles bleibt danach
+              änderbar, und ins Turnier wird nichts zurückgeschrieben.
             </p>
           </div>
         ) : null}
 
-        {/* Die Felder dieses Typs - und nur die (§33). */}
-        {(typ?.felder ?? [])
-          .filter((feld) => feld !== 'bracket')
-          .map((feld) => (
-            <Feld
-              key={feld}
-              feld={feld}
-              beschreibung={vorlagen.felder[feld]}
-              pflicht={typ?.pflicht.includes(feld) ?? false}
-              wert={werte[feld]}
-              gesperrt={gesperrt}
-              laedt={laedt}
-              onChange={(wert) => setzeFeld(feld, wert)}
-              onUpload={(datei, stelle) => void bildHochladen(feld, datei, stelle)}
-              onTeamUpload={(seite, datei) => void bildHochladen(seite, datei)}
-            />
-          ))}
+        {/*
+          Alle Felder dieses Typs - und nur die. Auch der Turnierbaum.
+
+          Der stand hier einmal in einem `.filter(...)`, weil er nicht
+          eingebbar war, sondern aus dem Turnier kam. Damit hatte der Typ
+          «Turnier-Baum» genau ein Feld, das seinen Inhalt ausmacht, und
+          genau dieses liess sich nicht pflegen.
+        */}
+        {(typ?.felder ?? []).map((feld) => (
+          <Feld
+            key={feld}
+            feld={feld}
+            beschreibung={vorlagen.felder[feld]}
+            pflicht={typ?.pflicht.includes(feld) ?? false}
+            wert={werte[feld]}
+            gesperrt={gesperrt}
+            laedt={laedt}
+            onChange={(wert) => setzeFeld(feld, wert)}
+            onUpload={(datei, stelle) => void bildHochladen(feld, datei, stelle)}
+            onTeamUpload={(seite, datei) => void bildHochladen(seite, datei)}
+          />
+        ))}
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
           <Button onClick={() => void speichern()} disabled={gesperrt || speichert || !schmutzig}>
@@ -754,6 +781,18 @@ function Feld({
     );
   }
 
+  if (beschreibung.art === 'turnierbaum') {
+    return (
+      <BaumFeld
+        kopf={kopf}
+        fuss={fuss}
+        wert={wert as BaumWert | undefined}
+        gesperrt={gesperrt}
+        onChange={onChange}
+      />
+    );
+  }
+
   if (beschreibung.art === 'begegnung') {
     const paar = (wert as Record<string, unknown> | undefined) ?? {};
     const istPunkte = feld === 'punkte';
@@ -821,6 +860,216 @@ function Feld({
         value={typeof wert === 'string' ? wert : ''}
         onChange={(e) => onChange(e.target.value)}
       />
+      {fuss}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Der Turnierbaum
+// ---------------------------------------------------------------------------
+
+interface BaumSeiteWert {
+  name?: string;
+  punkte?: number;
+}
+interface BaumPaarungWert {
+  a?: BaumSeiteWert;
+  b?: BaumSeiteWert;
+  sieger?: 'a' | 'b';
+}
+interface BaumRundeWert {
+  label?: string;
+  paarungen?: BaumPaarungWert[];
+}
+interface BaumWert {
+  runden?: BaumRundeWert[];
+  tournamentId?: string;
+}
+
+/** Wie eine Runde heisst, wenn sie so viele Begegnungen hat. */
+function rundenVorschlag(paarungen: number): string {
+  if (paarungen === 1) return 'Final';
+  if (paarungen === 2) return 'Halbfinal';
+  if (paarungen === 4) return 'Viertelfinal';
+  if (paarungen === 8) return 'Achtelfinal';
+  return 'Runde';
+}
+
+/**
+ * Der Turnierbaum - vollstaendig von Hand.
+ *
+ * ## Warum das kein Turniermodul ist
+ *
+ * Weil es ein Bild ist. Hier wird nichts fortgeschrieben, kein Sieger ruckt
+ * in die naechste Runde, und niemand prueft, ob die Teamzahl eine
+ * Zweierpotenz ist. Vier, acht oder sechzehn Teams sind schlicht
+ * verschieden viele Begegnungen in der ersten Runde - die Struktur folgt den
+ * Daten, nicht umgekehrt.
+ *
+ * Wer einen echten Wettbewerb fuehren will, tut das im Turniermodul; von
+ * dort laesst sich der Stand mit einem Klick uebernehmen. Was danach hier
+ * steht, gehoert dem Post.
+ */
+function BaumFeld({
+  kopf,
+  fuss,
+  wert,
+  gesperrt,
+  onChange,
+}: {
+  kopf: React.ReactNode;
+  fuss: React.ReactNode;
+  wert: BaumWert | undefined;
+  gesperrt: boolean;
+  onChange: (wert: unknown) => void;
+}): React.JSX.Element {
+  const runden = wert?.runden ?? [];
+
+  const setzeRunden = (naechste: BaumRundeWert[]): void => onChange({ ...(wert ?? {}), runden: naechste });
+
+  const aendereRunde = (index: number, teil: Partial<BaumRundeWert>): void =>
+    setzeRunden(runden.map((runde, i) => (i === index ? { ...runde, ...teil } : runde)));
+
+  const aenderePaarung = (rundenIndex: number, paarIndex: number, teil: Partial<BaumPaarungWert>): void => {
+    const runde = runden[rundenIndex];
+    if (!runde) return;
+    const paarungen = (runde.paarungen ?? []).map((paar, i) =>
+      i === paarIndex ? { ...paar, ...teil } : paar,
+    );
+    aendereRunde(rundenIndex, { paarungen });
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border p-3">
+      {kopf}
+      {runden.length === 0 ? (
+        <p className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Noch keine Runde. Leg eine an - oder übernimm oben ein bestehendes Turnier.
+        </p>
+      ) : null}
+
+      {runden.map((runde, rundenIndex) => {
+        const paarungen = runde.paarungen ?? [];
+        return (
+          <div key={rundenIndex} className="space-y-2 rounded-md border border-border/70 bg-card/40 p-2.5">
+            <div className="flex items-center gap-2">
+              <Input
+                aria-label={`Name der ${rundenIndex + 1}. Runde`}
+                className="h-8"
+                disabled={gesperrt}
+                placeholder={rundenVorschlag(paarungen.length)}
+                value={runde.label ?? ''}
+                onChange={(e) => aendereRunde(rundenIndex, { label: e.target.value })}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={gesperrt}
+                aria-label={`${rundenIndex + 1}. Runde entfernen`}
+                onClick={() => setzeRunden(runden.filter((_, i) => i !== rundenIndex))}
+              >
+                <Trash2 aria-hidden="true" />
+              </Button>
+            </div>
+
+            {paarungen.map((paar, paarIndex) => (
+              <div key={paarIndex} className="grid grid-cols-[1fr_auto] items-start gap-2">
+                <div className="space-y-1.5">
+                  {(['a', 'b'] as const).map((seite) => (
+                    <div key={seite} className="flex items-center gap-1.5">
+                      {/*
+                        Der Sieger ist ein Schalter an der Seite, kein eigenes
+                        Feld: «wer hat gewonnen» ist eine Eigenschaft der
+                        Begegnung, und an der Zeile steht sie dort, wo man
+                        hinsieht. Ein zweiter Klick nimmt sie zurueck - sonst
+                        liesse sich ein versehentlich gesetzter Sieger nicht
+                        mehr loesen.
+                      */}
+                      <Button
+                        variant={paar.sieger === seite ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-8 w-8 shrink-0 p-0"
+                        disabled={gesperrt}
+                        aria-label={`${seite === 'a' ? 'Obere' : 'Untere'} Seite als Sieger markieren`}
+                        aria-pressed={paar.sieger === seite}
+                        onClick={() =>
+                          aenderePaarung(rundenIndex, paarIndex, {
+                            sieger: paar.sieger === seite ? undefined : seite,
+                          })
+                        }
+                      >
+                        <Check aria-hidden="true" />
+                      </Button>
+                      <Input
+                        className="h-8"
+                        disabled={gesperrt}
+                        placeholder={seite === 'a' ? 'Team A' : 'Team B'}
+                        aria-label={`Name ${seite === 'a' ? 'A' : 'B'}, Begegnung ${paarIndex + 1}`}
+                        value={paar[seite]?.name ?? ''}
+                        onChange={(e) =>
+                          aenderePaarung(rundenIndex, paarIndex, {
+                            [seite]: { ...(paar[seite] ?? {}), name: e.target.value },
+                          })
+                        }
+                      />
+                      <Input
+                        type="number"
+                        className="h-8 w-16 shrink-0"
+                        disabled={gesperrt}
+                        placeholder="–"
+                        aria-label={`Punkte ${seite === 'a' ? 'A' : 'B'}, Begegnung ${paarIndex + 1}`}
+                        value={paar[seite]?.punkte === undefined ? '' : String(paar[seite]?.punkte)}
+                        onChange={(e) =>
+                          aenderePaarung(rundenIndex, paarIndex, {
+                            [seite]: {
+                              ...(paar[seite] ?? {}),
+                              punkte: e.target.value === '' ? undefined : Number(e.target.value),
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={gesperrt}
+                  aria-label={`Begegnung ${paarIndex + 1} entfernen`}
+                  onClick={() =>
+                    aendereRunde(rundenIndex, {
+                      paarungen: paarungen.filter((_, i) => i !== paarIndex),
+                    })
+                  }
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </div>
+            ))}
+
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={gesperrt || paarungen.length >= MAX_BAUM_PAARUNGEN}
+              onClick={() => aendereRunde(rundenIndex, { paarungen: [...paarungen, {}] })}
+            >
+              <Plus aria-hidden="true" />
+              Begegnung
+            </Button>
+          </div>
+        );
+      })}
+
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={gesperrt || runden.length >= MAX_BAUM_RUNDEN}
+        onClick={() => setzeRunden([...runden, { paarungen: [{}] }])}
+      >
+        <Plus aria-hidden="true" />
+        Runde
+      </Button>
       {fuss}
     </div>
   );

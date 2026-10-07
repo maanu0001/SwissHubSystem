@@ -51,6 +51,42 @@ export interface Begegnung {
   logoB?: string;
 }
 
+/** Eine Seite einer Begegnung im Turnierbaum. */
+export interface BaumSeite {
+  name: string;
+  /** Punkte - oder nichts, wenn noch nicht gespielt wurde. */
+  punkte?: number;
+}
+
+/** Eine Begegnung: zwei Seiten, und wer von beiden weiter ist. */
+export interface BaumPaarung {
+  a: BaumSeite;
+  b: BaumSeite;
+  /** `'a'`, `'b'` - oder nichts, solange nichts entschieden ist. */
+  sieger?: 'a' | 'b';
+}
+
+/** Eine Runde: ein Name und ihre Begegnungen, in der gezeigten Reihenfolge. */
+export interface BaumRunde {
+  label: string;
+  paarungen: BaumPaarung[];
+}
+
+/**
+ * Der Turnierbaum eines Posts.
+ *
+ * Datengetrieben und ohne feste Teamzahl: vier, acht oder sechzehn Teams
+ * sind einfach verschieden viele Paarungen in der ersten Runde. Es gibt hier
+ * absichtlich keine Turnierlogik - kein Fortschreiben eines Siegers in die
+ * naechste Runde, keine Pruefung auf Zweierpotenzen. Das ist ein Bild, kein
+ * Wettbewerb; was darauf steht, bestimmt der Mensch, der es macht.
+ */
+export interface PostBaum {
+  runden: BaumRunde[];
+  /** Woher die Daten kamen - rein informativ, nie eine Leseanweisung. */
+  tournamentId?: string;
+}
+
 export interface PostInhalt {
   titel?: string;
   untertitel?: string;
@@ -70,8 +106,28 @@ export interface PostInhalt {
   teams?: Begegnung;
   punkte?: { a: number; b: number };
   gewinner?: string;
-  /** Nur die Kennung des Turniers - die Paarungen werden gelesen, nicht kopiert. */
-  bracket?: { tournamentId: string };
+  /** «1. Platz», «Sieger» - steht klein ueber dem Namen. */
+  platzierung?: string;
+  /**
+   * Der Turnierbaum - als eigener Stand des Posts.
+   *
+   * ## Warum eine Kopie und nicht mehr nur eine Kennung
+   *
+   * Hier stand `{ tournamentId }`, und der Baum wurde beim Zeichnen aus dem
+   * Turnier gelesen. Das klang sauber und war in der Praxis eine Sackgasse:
+   * wer keinen Turniereintrag hatte, konnte den Typ gar nicht benutzen, und
+   * wer einen hatte, konnte am Bild nichts aendern - kein Kuerzen eines
+   * Teamnamens, keine Runde weglassen, kein Stand von gestern.
+   *
+   * Ein Post ist eine Aussage zu einem Zeitpunkt. Er traegt deshalb seinen
+   * eigenen Stand. Was aus einem Turnier uebernommen wird, ist eine
+   * **Startbefuellung**; danach gehoert sie dem Post, und ins Turnier
+   * schreibt niemand zurueck.
+   *
+   * `tournamentId` bleibt daneben stehen - nur als Herkunftsvermerk, damit
+   * man spaeter noch weiss, woher die Daten kamen.
+   */
+  bracket?: PostBaum;
   fusszeile?: string;
   branding?: boolean;
 }
@@ -226,6 +282,75 @@ function punkte(wert: unknown): { a: number; b: number } | undefined {
   return a === null || b === null ? undefined : { a, b };
 }
 
+/** Grenzen fuer den Baum - gross genug fuer 16 Teams, klein genug fuers Bild. */
+export const MAX_BAUM_RUNDEN = 6;
+export const MAX_BAUM_PAARUNGEN = 16;
+
+/**
+ * Der Turnierbaum, gereinigt.
+ *
+ * Reine Funktion, kein Datenbankzugriff: ein Baum ist Text und Zahlen, und
+ * genau so laesst er sich pruefen.
+ *
+ * Eine Runde ohne Paarung faellt weg, eine Paarung ohne beide Namen faellt
+ * weg, ein Baum ohne Runde ist `undefined`. Das ist kein Streichen von
+ * Eingaben, sondern die Abgrenzung von «leer» und «nicht gesetzt»: ein Baum
+ * mit drei leeren Klammern sieht im Export aus wie ein Fehler.
+ */
+function baum(wert: unknown): PostBaum | undefined {
+  if (typeof wert !== 'object' || wert === null) {
+    return undefined;
+  }
+  const roh = wert as Record<string, unknown>;
+  const rohRunden = Array.isArray(roh['runden']) ? roh['runden'] : [];
+
+  const seite = (eingabe: unknown): BaumSeite => {
+    const quelle = (typeof eingabe === 'object' && eingabe !== null ? eingabe : {}) as Record<
+      string,
+      unknown
+    >;
+    const name = text(quelle['name'], 40) ?? '';
+    const roheZahl = quelle['punkte'];
+    const zahl = typeof roheZahl === 'number' ? roheZahl : Number.parseInt(String(roheZahl ?? ''), 10);
+    const punkte = Number.isInteger(zahl) && zahl >= 0 && zahl <= 999 ? zahl : undefined;
+    return { name, ...(punkte === undefined ? {} : { punkte }) };
+  };
+
+  const runden: BaumRunde[] = [];
+  for (const roheRunde of rohRunden.slice(0, MAX_BAUM_RUNDEN)) {
+    const quelle = (typeof roheRunde === 'object' && roheRunde !== null ? roheRunde : {}) as Record<
+      string,
+      unknown
+    >;
+    const rohePaarungen = Array.isArray(quelle['paarungen']) ? quelle['paarungen'] : [];
+    const paarungen: BaumPaarung[] = [];
+    for (const rohePaarung of rohePaarungen.slice(0, MAX_BAUM_PAARUNGEN)) {
+      const pQuelle = (typeof rohePaarung === 'object' && rohePaarung !== null ? rohePaarung : {}) as Record<
+        string,
+        unknown
+      >;
+      const a = seite(pQuelle['a']);
+      const b = seite(pQuelle['b']);
+      if (a.name === '' && b.name === '') {
+        continue;
+      }
+      const roherSieger = pQuelle['sieger'];
+      const sieger = roherSieger === 'a' || roherSieger === 'b' ? roherSieger : undefined;
+      paarungen.push({ a, b, ...(sieger ? { sieger } : {}) });
+    }
+    if (paarungen.length === 0) {
+      continue;
+    }
+    runden.push({ label: text(quelle['label'], 30) ?? `Runde ${runden.length + 1}`, paarungen });
+  }
+
+  if (runden.length === 0) {
+    return undefined;
+  }
+  const herkunft = text(roh['tournamentId'], 40);
+  return { runden, ...(herkunft ? { tournamentId: herkunft } : {}) };
+}
+
 /**
  * Der Inhalt, gereinigt und auf die Felder des Typs beschnitten.
  *
@@ -270,14 +395,8 @@ export function normalisiereInhalt(typId: string, roh: unknown): PostInhalt {
   if (erlaubt('teams')) ergebnis.teams = begegnung(quelle['teams']);
   if (erlaubt('punkte')) ergebnis.punkte = punkte(quelle['punkte']);
   if (erlaubt('gewinner')) ergebnis.gewinner = text(quelle['gewinner'], 60);
-  if (erlaubt('bracket')) {
-    const roh2 = quelle['bracket'];
-    const id =
-      typeof roh2 === 'object' && roh2 !== null
-        ? text((roh2 as Record<string, unknown>)['tournamentId'], 40)
-        : undefined;
-    ergebnis.bracket = id ? { tournamentId: id } : undefined;
-  }
+  if (erlaubt('platzierung')) ergebnis.platzierung = text(quelle['platzierung'], 40);
+  if (erlaubt('bracket')) ergebnis.bracket = baum(quelle['bracket']);
   if (erlaubt('fusszeile')) ergebnis.fusszeile = text(quelle['fusszeile'], 80);
   if (erlaubt('branding')) {
     ergebnis.branding = quelle['branding'] === undefined ? true : quelle['branding'] !== false;

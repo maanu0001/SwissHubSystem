@@ -1,56 +1,28 @@
 import { prisma } from '@swisshub/database';
+import type { BaumPaarung, BaumRunde, PostBaum } from './posts';
 
 /**
- * Turnierdaten fuer den Post Creator (§45).
+ * Turnierdaten fuer den Post Creator.
  *
- * ## Warum gelesen und nicht gespeichert
+ * ## Startbefuellung, nicht Bindung
  *
- * Weil es die Turnierlogik schon gibt. Ein Post speichert die **Kennung** des
- * Turniers, nie seine Paarungen; der Baum entsteht beim Zeichnen aus dem
- * Turnier selbst. Die Alternative waere eine Kopie der Paarungen im Post - und
- * damit ein Bild, das nach dem naechsten Spiel noch den alten Stand zeigt,
- * obwohl beides «aus dem Turnier» heisst.
+ * Diese Datei liest ein bestehendes Turnier und bringt es in die Form, die
+ * ein Post speichert (`PostBaum`). Was danach damit geschieht, entscheidet
+ * der Post: der Schnappschuss gehoert ihm, er ist im Editor aenderbar, und
+ * ins Turnier schreibt von hier aus nichts zurueck.
  *
- * Es ist ausserdem die Antwort auf «keine zweite Turnierlogik»: diese Datei
- * rechnet nichts. Sie fragt die Tabellen ab, die das Turniermodul fuehrt, und
- * bringt sie in die Form, die eine Grafik braucht - eine Runde ist eine
- * Spalte, ein Match sind zwei Zeilen.
+ * Vorher band ein Post sich an eine `tournamentId` und der Baum wurde bei
+ * jedem Zeichnen frisch gelesen. Das hiess zweierlei: ohne Turniereintrag
+ * liess sich der Typ gar nicht benutzen, und mit einem liess sich am Bild
+ * nichts aendern - auch nicht ein zu langer Teamname. Ein Post ist aber eine
+ * Aussage zu einem Zeitpunkt, kein Fenster in eine Tabelle.
  *
  * ## Was sie nicht tut
  *
- * Sie schreibt nicht, sie setzt keinen Sieger, sie erzeugt keine Paarung. Wer
- * den Baum aendern will, tut das im Turniermodul.
+ * Sie rechnet nichts. Keine zweite Turnierlogik: sie fragt die Tabellen ab,
+ * die das Turniermodul fuehrt, und ordnet sie in Runden und Paarungen. Sie
+ * schreibt nicht, sie setzt keinen Sieger, sie erzeugt keine Paarung.
  */
-
-export interface BaumTeilnehmer {
-  name: string;
-  /** Hat diese Seite das Match gewonnen? `null`: noch nicht entschieden. */
-  sieger: boolean | null;
-  punkte: number | null;
-}
-
-export interface BaumMatch {
-  nummer: number;
-  a: BaumTeilnehmer;
-  b: BaumTeilnehmer;
-  entschieden: boolean;
-}
-
-export interface BaumRunde {
-  runde: number;
-  /** «Viertelfinal», «Halbfinal», «Final» - aus der Zahl der Matches. */
-  label: string;
-  matches: BaumMatch[];
-}
-
-export interface TurnierBaum {
-  tournamentId: string;
-  name: string;
-  spiel: string;
-  runden: BaumRunde[];
-  /** Der Gesamtsieger, wenn das Turnier durch ist. */
-  sieger: string | null;
-}
 
 /** Wie eine Runde heisst, wenn sie `matches` Begegnungen hat. */
 function rundenLabel(matches: number, runde: number): string {
@@ -74,13 +46,13 @@ function teilnehmerName(
 }
 
 /**
- * Der Baum eines Turniers - oder `null`.
+ * Der Baum eines Turniers als Schnappschuss - oder `null`.
  *
  * `null` bei einem Turnier, das es nicht gibt oder das noch keine Paarungen
  * hat. Ein leerer Baum waere eine Grafik mit leeren Klammern, und die sieht
  * aus wie ein Fehler im Export.
  */
-export async function ladeTurnierBaum(tournamentId: string, guildId: string): Promise<TurnierBaum | null> {
+export async function ladeTurnierBaum(tournamentId: string, guildId: string): Promise<PostBaum | null> {
   const turnier = await prisma.tournament.findUnique({
     where: { id: tournamentId },
     select: { id: true, guildId: true, name: true, gameName: true, status: true },
@@ -109,55 +81,41 @@ export async function ladeTurnierBaum(tournamentId: string, guildId: string): Pr
     return null;
   }
 
-  const nachRunde = new Map<number, BaumRunde>();
+  const nachRunde = new Map<number, BaumPaarung[]>();
   for (const match of matches) {
     const entschieden = match.status === 'COMPLETED';
-    const eintrag: BaumMatch = {
-      nummer: match.matchNumber,
+    const sieger =
+      !entschieden || !match.winnerId
+        ? undefined
+        : match.winnerId === match.participantAId
+          ? ('a' as const)
+          : match.winnerId === match.participantBId
+            ? ('b' as const)
+            : undefined;
+    const paarung: BaumPaarung = {
       a: {
         name: teilnehmerName(match.participantA),
-        sieger: entschieden ? match.winnerId === match.participantAId : null,
-        punkte: entschieden ? match.scoreA : null,
+        ...(entschieden && match.scoreA !== null ? { punkte: match.scoreA } : {}),
       },
       b: {
         name: teilnehmerName(match.participantB),
-        sieger: entschieden ? match.winnerId === match.participantBId : null,
-        punkte: entschieden ? match.scoreB : null,
+        ...(entschieden && match.scoreB !== null ? { punkte: match.scoreB } : {}),
       },
-      entschieden,
+      ...(sieger ? { sieger } : {}),
     };
-    const runde = nachRunde.get(match.round);
-    if (runde) {
-      runde.matches.push(eintrag);
+    const vorhanden = nachRunde.get(match.round);
+    if (vorhanden) {
+      vorhanden.push(paarung);
     } else {
-      nachRunde.set(match.round, { runde: match.round, label: '', matches: [eintrag] });
+      nachRunde.set(match.round, [paarung]);
     }
   }
 
-  const runden = [...nachRunde.values()].sort((links, rechts) => links.runde - rechts.runde);
-  for (const runde of runden) {
-    runde.label = rundenLabel(runde.matches.length, runde.runde);
-  }
+  const runden: BaumRunde[] = [...nachRunde.entries()]
+    .sort((links, rechts) => links[0] - rechts[0])
+    .map(([nummer, paarungen]) => ({ label: rundenLabel(paarungen.length, nummer), paarungen }));
 
-  /*
-   * Der Gesamtsieger - nur, wenn es ihn gibt.
-   *
-   * Platzierung 1 ist die Aussage des Turniermoduls darueber, wer gewonnen
-   * hat. Ihn aus dem letzten Match zu erraten waere eine zweite Logik, und
-   * bei Double Elimination waere sie falsch.
-   */
-  const ersteter = await prisma.tournamentParticipant.findFirst({
-    where: { tournamentId, placement: 1 },
-    select: { username: true, team: { select: { name: true } } },
-  });
-
-  return {
-    tournamentId: turnier.id,
-    name: turnier.name,
-    spiel: turnier.gameName,
-    runden,
-    sieger: ersteter ? teilnehmerName(ersteter) : null,
-  };
+  return { runden, tournamentId: turnier.id };
 }
 
 export interface TurnierWahl {
@@ -196,7 +154,14 @@ export async function ladeTurnierWahl(guildId: string, limit = 25): Promise<Turn
 export async function turnierVorschlag(
   tournamentId: string,
   guildId: string,
-): Promise<{ titel: string; untertitel: string; datum: string | null; sieger: string | null } | null> {
+): Promise<{
+  titel: string;
+  untertitel: string;
+  datum: string | null;
+  sieger: string | null;
+  /** Der Baum als Startbefuellung - im Editor danach frei aenderbar. */
+  baum: PostBaum | null;
+} | null> {
   const turnier = await prisma.tournament.findUnique({
     where: { id: tournamentId },
     select: { guildId: true, name: true, gameName: true, startsAt: true },
@@ -204,14 +169,18 @@ export async function turnierVorschlag(
   if (!turnier || turnier.guildId !== guildId) {
     return null;
   }
-  const ersteter = await prisma.tournamentParticipant.findFirst({
-    where: { tournamentId, placement: 1 },
-    select: { username: true, team: { select: { name: true } } },
-  });
+  const [ersteter, baum] = await Promise.all([
+    prisma.tournamentParticipant.findFirst({
+      where: { tournamentId, placement: 1 },
+      select: { username: true, team: { select: { name: true } } },
+    }),
+    ladeTurnierBaum(tournamentId, guildId),
+  ]);
   return {
     titel: turnier.name,
     untertitel: turnier.gameName,
     datum: turnier.startsAt ? turnier.startsAt.toISOString().slice(0, 10) : null,
     sieger: ersteter ? teilnehmerName(ersteter) : null,
+    baum,
   };
 }

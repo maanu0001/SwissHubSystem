@@ -48,7 +48,7 @@ type PostFormat = socialmedia.PostFormat;
 type PostDesign = socialmedia.PostDesign;
 type PostInhalt = socialmedia.PostInhalt;
 type InhaltsBlock = socialmedia.InhaltsBlock;
-type TurnierBaum = socialmedia.TurnierBaum;
+type PostBaum = socialmedia.PostBaum;
 
 // --- Farben ------------------------------------------------------------------
 //
@@ -229,8 +229,14 @@ export interface PostAuftrag {
   format: PostFormat;
   inhalt: PostInhalt;
   bilder: PostBilder;
-  /** Nur bei `baum` - gelesen aus dem Turnier, nicht aus dem Post (§45). */
-  baum?: TurnierBaum | null;
+  /*
+   * Der Baum steht im Inhalt, nicht daneben.
+   *
+   * Hier stand `baum?: TurnierBaum | null` - der Baum kam aus dem Turnier und
+   * nicht aus dem Post. Das machte den Typ von einem Turniereintrag abhaengig
+   * und den Export unveraenderlich. Jetzt ist er ein Feld wie jedes andere:
+   * `inhalt.bracket`, gespeichert, aenderbar, aus einem Turnier befuellbar.
+   */
 }
 
 // --- Bausteine ---------------------------------------------------------------
@@ -790,25 +796,72 @@ function Begegnung({ buehne, farben, auftrag, breite }: BlockArgs): React.JSX.El
  * ausschnittweiser.
  */
 function Baum({ buehne, farben, auftrag, breite }: BlockArgs): React.JSX.Element {
-  const baum = auftrag.baum;
+  const baum: PostBaum | undefined = auftrag.inhalt.bracket;
   if (!baum || baum.runden.length === 0) {
     return (
       <div style={{ display: 'flex', fontSize: Math.round(30 * buehne.skala), color: farben.leise }}>
-        Für dieses Turnier liegen noch keine Paarungen vor.
+        Noch keine Begegnungen erfasst.
       </div>
     );
   }
 
-  const maxSpalten = buehne.format === 'story' ? 3 : 4;
+  /*
+   * Was aufs Bild passt, haengt am Format - nicht an einer Teamzahl.
+   *
+   * Vier, acht oder sechzehn Teams sind einfach verschieden viele Paarungen
+   * in der ersten Runde; der Baum ist datengetrieben und kennt keine feste
+   * Groesse. Begrenzt wird nach dem, was bei 1080 Pixeln noch lesbar ist:
+   * mehr Spalten machen die Namen schmaler, mehr Zeilen machen sie kleiner.
+   *
+   * Beschnitten wird **von hinten**: der Final gehoert auf das Bild, die
+   * erste Runde eines Turniers mit 64 Teams nicht.
+   */
+  /*
+   * Vier Spalten in jedem Format - die Breite ist ueberall dieselbe.
+   *
+   * Hier stand drei fuer die Story, und damit fiel dort das Achtelfinal
+   * weg, waehrend es im Quadrat stand. Alle drei Formate sind 1080 Pixel
+   * breit; was sie unterscheidet, ist die Hoehe. Die Spaltenzahl haengt an
+   * der Breite und darf deshalb nicht je Format verschieden sein.
+   *
+   * Vier Spalten tragen ein Turnier mit sechzehn Teams vollstaendig. Wer
+   * mehr hat, verliert die erste Runde - und das ist die richtige, weil der
+   * Final auf das Bild gehoert und die erste Runde eines 64er-Turniers bei
+   * 1080 Pixeln ohnehin unleserlich waere.
+   */
+  const maxSpalten = 4;
   const runden = baum.runden.slice(-maxSpalten);
   const spalte = Math.floor((breite - (runden.length - 1) * 24) / runden.length);
-  const maxMatches = buehne.format === 'story' ? 8 : 6;
+  /*
+   * Acht Begegnungen - eine erste Runde mit sechzehn Teams.
+   *
+   * Hier stand sechs, und damit fehlten im Achtelfinal eines 16er-Turniers
+   * genau zwei Paarungen. Im Export sah das nicht nach «gekuerzt» aus,
+   * sondern nach falsch: vier Spalten, und die erste zeigt nur drei Viertel
+   * ihrer Teams. Platz ist da - die Schrift wird enger, nicht die Liste
+   * kuerzer.
+   */
+  const maxPaarungen = buehne.format === 'story' ? 10 : 8;
+
+  /*
+   * Die Schrift richtet sich nach der vollsten Spalte.
+   *
+   * Acht Paarungen in einer Spalte brauchen kleinere Zeilen als zwei, sonst
+   * laeuft die Spalte unten aus dem Bild. Gerechnet wird aus der hoechsten
+   * Paarungszahl aller gezeigten Runden, damit alle Spalten dieselbe Schrift
+   * tragen - verschieden grosse Namen nebeneinander lesen sich wie ein
+   * Fehler.
+   */
+  const dichteste = Math.max(...runden.map((runde) => Math.min(runde.paarungen.length, maxPaarungen)));
+  const enge = dichteste >= 9 ? 0.6 : dichteste >= 7 ? 0.72 : dichteste >= 5 ? 0.86 : 1;
+  const schrift = Math.round(21 * buehne.skala * enge);
+  const luft = Math.round(14 * buehne.skala * enge);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'row', width: breite, alignItems: 'flex-start' }}>
       {runden.map((runde, index) => (
         <div
-          key={runde.runde}
+          key={`${runde.label}-${index}`}
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -827,56 +880,60 @@ function Baum({ buehne, farben, auftrag, breite }: BlockArgs): React.JSX.Element
           >
             {gross(runde.label)}
           </div>
-          {runde.matches.slice(0, maxMatches).map((match) => (
+          {runde.paarungen.slice(0, maxPaarungen).map((paarung, stelle) => (
             <div
-              key={match.nummer}
+              key={`${index}-${stelle}`}
               style={{
                 display: 'flex',
                 flexDirection: 'column',
-                marginBottom: Math.round(14 * buehne.skala),
+                marginBottom: luft,
                 backgroundColor: farben.flaeche,
-                borderLeft: `3px solid ${match.entschieden ? farben.akzentHell : farben.linie}`,
+                borderLeft: `3px solid ${paarung.sieger ? farben.akzentHell : farben.linie}`,
               }}
             >
-              {[match.a, match.b].map((seite, stelle) => (
-                <div
-                  key={`${match.nummer}-${stelle}`}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    paddingTop: Math.round(10 * buehne.skala),
-                    paddingBottom: Math.round(10 * buehne.skala),
-                    paddingLeft: Math.round(14 * buehne.skala),
-                    paddingRight: Math.round(14 * buehne.skala),
-                    borderTop: stelle === 1 ? `1px solid ${farben.linie}` : 'none',
-                  }}
-                >
+              {(['a', 'b'] as const).map((seite, zeile) => {
+                const eintrag = paarung[seite];
+                const gewinnt = paarung.sieger === seite;
+                return (
                   <div
+                    key={`${index}-${stelle}-${seite}`}
                     style={{
                       display: 'flex',
-                      fontSize: Math.round(21 * buehne.skala),
-                      fontWeight: seite.sieger === true ? 700 : 400,
-                      color: seite.sieger === true ? farben.schrift : farben.gedaempft,
-                      maxWidth: spalte - Math.round(80 * buehne.skala),
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      paddingTop: Math.round(10 * buehne.skala * enge),
+                      paddingBottom: Math.round(10 * buehne.skala * enge),
+                      paddingLeft: Math.round(14 * buehne.skala),
+                      paddingRight: Math.round(14 * buehne.skala),
+                      borderTop: zeile === 1 ? `1px solid ${farben.linie}` : 'none',
                     }}
                   >
-                    {seite.name === '' ? '—' : seite.name}
-                  </div>
-                  {seite.punkte === null ? null : (
                     <div
                       style={{
                         display: 'flex',
-                        fontSize: Math.round(21 * buehne.skala),
-                        fontWeight: 700,
-                        color: seite.sieger === true ? farben.akzentHell : farben.leise,
+                        fontSize: schrift,
+                        fontWeight: gewinnt ? 700 : 400,
+                        color: gewinnt ? farben.schrift : farben.gedaempft,
+                        maxWidth: spalte - Math.round(80 * buehne.skala),
                       }}
                     >
-                      {seite.punkte}
+                      {eintrag.name === '' ? '—' : eintrag.name}
                     </div>
-                  )}
-                </div>
-              ))}
+                    {eintrag.punkte === undefined ? null : (
+                      <div
+                        style={{
+                          display: 'flex',
+                          fontSize: schrift,
+                          fontWeight: 700,
+                          color: gewinnt ? farben.akzentHell : farben.leise,
+                        }}
+                      >
+                        {eintrag.punkte}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>
@@ -911,6 +968,34 @@ function Person({ buehne, farben, auftrag, breite, zentriert }: BlockArgs): Reac
           {gross(auftrag.inhalt.titel)}
         </div>
       ) : null}
+      {/*
+        Die Platzierung als Band ueber dem Namen.
+
+        Sie steht auf der Akzentflaeche und nicht einfach als Zeile: «1. Platz»
+        ist die Aussage des Bildes, der Name ist ihr Gegenstand. Ohne
+        Hervorhebung lasen sich Titel, Platzierung und Name als drei gleich
+        wichtige Zeilen - und das ist keine Rangfolge.
+      */}
+      {auftrag.inhalt.platzierung ? (
+        <div
+          style={{
+            display: 'flex',
+            marginBottom: Math.round(18 * buehne.skala),
+            paddingTop: Math.round(8 * buehne.skala),
+            paddingBottom: Math.round(8 * buehne.skala),
+            paddingLeft: Math.round(18 * buehne.skala),
+            paddingRight: Math.round(18 * buehne.skala),
+            borderRadius: 8,
+            backgroundColor: farben.akzent,
+            color: '#ffffff',
+            fontSize: Math.round(26 * buehne.skala),
+            fontWeight: 800,
+            letterSpacing: 2,
+          }}
+        >
+          {gross(auftrag.inhalt.platzierung)}
+        </div>
+      ) : null}
       <div
         style={{
           display: 'flex',
@@ -936,6 +1021,20 @@ function Person({ buehne, farben, auftrag, breite, zentriert }: BlockArgs): Reac
           }}
         >
           {auftrag.inhalt.untertitel}
+        </div>
+      ) : null}
+      {/* Der Endstand - gross, weil ein Ergebnis eine Zahl ist. */}
+      {auftrag.inhalt.punkte ? (
+        <div
+          style={{
+            display: 'flex',
+            marginTop: Math.round(20 * buehne.skala),
+            fontSize: Math.round(54 * buehne.skala),
+            fontWeight: 800,
+            color: farben.akzentHell,
+          }}
+        >
+          {`${auftrag.inhalt.punkte.a} : ${auftrag.inhalt.punkte.b}`}
         </div>
       ) : null}
     </div>
@@ -1023,6 +1122,7 @@ function Inhalt(args: BlockArgs): React.JSX.Element {
         <div style={{ display: 'flex', marginTop: Math.round(40 * buehne.skala) }}>
           <Baum {...args} />
         </div>
+        <Sponsoren buehne={buehne} logos={auftrag.bilder.sponsoren} />
       </div>
     );
   }
@@ -1045,6 +1145,31 @@ function Inhalt(args: BlockArgs): React.JSX.Element {
               eintraege={punkte}
               breite={breite}
               zentriert={zentriert}
+            />
+          </div>
+        ) : null}
+        {/*
+          Partnerzeichen und Aufruf gehoeren auch hier hin.
+
+          Sie standen nur im unteren Zweig, und damit hatte ein Gewinnerpost
+          kein Sponsorenband und keinen Handlungsaufruf - obwohl genau diese
+          beiden auf einem Gewinnerpost ueblich sind. Ein Feld, das der Editor
+          anbietet und das Bild nicht zeigt, ist schlimmer als ein fehlendes.
+        */}
+        <Sponsoren buehne={buehne} logos={auftrag.bilder.sponsoren} />
+        {auftrag.inhalt.cta ? (
+          <div
+            style={{
+              display: 'flex',
+              marginTop: Math.round(36 * buehne.skala),
+              justifyContent: zentriert ? 'center' : 'flex-start',
+            }}
+          >
+            <Aufruf
+              buehne={buehne}
+              farben={farben}
+              text={auftrag.inhalt.cta}
+              aufFarbe={auftrag.design === 'bold'}
             />
           </div>
         ) : null}
