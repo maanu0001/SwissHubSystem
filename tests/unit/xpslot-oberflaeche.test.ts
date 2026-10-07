@@ -621,15 +621,20 @@ describe('Standard-Assets', () => {
      * mit allen zwoelf Feldern und durch das RTP-Tor; ein Symbolbild hat mit
      * der Spielbarkeit nichts zu tun.
      */
-    expect(verwaltung).toContain(
-      'symbolBildAction({ csrfToken, key: symbol.key, bildPfad: null, bildUrl: null })',
-    );
+    // Seit die Quelle ausdruecklich benannt wird, heisst «kein eigenes Bild»
+    // `quelle: 'standard'` - und raeumt beide Spalten zugleich.
+    expect(verwaltung).toContain("symbolBildAction({ quelle: 'standard', csrfToken, key: symbol.key })");
     expect(verwaltung).toContain('Auf Standard zurücksetzen');
   });
 
   it('zeigt in der Verwaltung, ob ein Asset eigen oder Standard ist', () => {
     const verwaltung = lies('apps/web/src/modules/level/xpslot/components/verwaltung.tsx');
-    expect(verwaltung).toContain("{eigenes ? 'Eigenes' : 'Standard'}");
+    /*
+     * Drei Zustaende statt zwei: dazugekommen ist «Datei fehlt» - eine
+     * Referenz, deren Datei nicht mehr da ist. Vorher sah man an dieser
+     * Stelle «Eigenes» und daneben ein leeres Bild, ohne jeden Hinweis.
+     */
+    expect(verwaltung).toContain("{fehlt ? 'Datei fehlt' : eigenes ? 'Eigenes' : 'Standard'}");
     expect(verwaltung).toContain("{klang.dateiname ? 'Eigener' : standard ? 'Standard' : 'Leer'}");
   });
 

@@ -105,6 +105,15 @@ type Bereich = (typeof BEREICHE)[number]['key'];
 export interface VerwaltungProps {
   csrfToken: string;
   konfiguration: Uebersicht;
+  /**
+   * Symbolschluessel, deren hochgeladene Datei fehlt.
+   *
+   * Serverseitig geprueft, weil nur der Server in das Upload-Verzeichnis
+   * sehen kann. Das Spiel nimmt in diesem Fall das mitgelieferte Zeichen;
+   * hier wird es gesagt, damit man es beheben kann statt zu raten, warum
+   * ein Symbol leer bleibt.
+   */
+  bilderFehlen: string[];
   rtp: Rtp;
   pakete: Pakete;
   freispiele: Freispiele;
@@ -798,7 +807,7 @@ function PremiumSymbolKasten({
 // Symbole
 // ---------------------------------------------------------------------------
 
-function SymboleTab({ csrfToken, konfiguration }: VerwaltungProps): React.JSX.Element {
+function SymboleTab({ csrfToken, konfiguration, bilderFehlen }: VerwaltungProps): React.JSX.Element {
   const { laeuft, fuehreAus } = useSpeichern();
 
   return (
@@ -810,6 +819,7 @@ function SymboleTab({ csrfToken, konfiguration }: VerwaltungProps): React.JSX.El
       {konfiguration.symbole.map((symbol) => (
         <SymbolZeile
           key={symbol.key}
+          fehlt={bilderFehlen.includes(symbol.key)}
           csrfToken={csrfToken}
           symbol={symbol}
           laeuft={laeuft}
@@ -823,11 +833,14 @@ function SymboleTab({ csrfToken, konfiguration }: VerwaltungProps): React.JSX.El
 function SymbolZeile({
   csrfToken,
   symbol,
+  fehlt,
   laeuft,
   fuehreAus,
 }: {
   csrfToken: string;
   symbol: Uebersicht['symbole'][number];
+  /** Die hochgeladene Datei dieses Symbols liegt nicht mehr im Verzeichnis. */
+  fehlt: boolean;
   laeuft: boolean;
   fuehreAus: ReturnType<typeof useSpeichern>['fuehreAus'];
 }): React.JSX.Element {
@@ -851,8 +864,17 @@ function SymbolZeile({
    * Dieselbe Aufloesung wie im Spiel - Vorschau und Produktivansicht duerfen
    * nicht auseinanderlaufen. Ohne eigenes Bild steht hier das mitgelieferte.
    */
-  const bild = symbolBild({ key: symbol.key, bildPfad: werte.bildPfad, bildUrl: werte.bildUrl || null });
-  const eigenes = istEigenesBild({ bildPfad: werte.bildPfad, bildUrl: werte.bildUrl || null });
+  /*
+   * Bei fehlender Datei wird das Standardbild gezeigt - mit Hinweis daneben.
+   *
+   * Ein kaputtes Bild neben «Datei fehlt» waere zweimal dieselbe schlechte
+   * Nachricht. So sieht man, was im Spiel gerade erscheint, **und** dass der
+   * eigene Upload weg ist. Die Referenz bleibt in der Datenbank stehen; wer
+   * sie los will, drueckt «Auf Standard zuruecksetzen».
+   */
+  const wirksamerPfad = fehlt ? null : werte.bildPfad;
+  const bild = symbolBild({ key: symbol.key, bildPfad: wirksamerPfad, bildUrl: werte.bildUrl || null });
+  const eigenes = istEigenesBild({ bildPfad: wirksamerPfad, bildUrl: werte.bildUrl || null });
 
   const hochladen = async (datei: File): Promise<void> => {
     setLaedt(true);
@@ -879,16 +901,19 @@ function SymbolZeile({
        * gespeicherter.
        */
       const gesetzt = await symbolBildAction({
+        quelle: 'upload',
         csrfToken,
         key: symbol.key,
         bildPfad: ergebnis.data.dateiname,
-        bildUrl: werte.bildUrl.trim() || null,
       });
       if (!gesetzt.ok) {
         toast.error(gesetzt.error?.message ?? 'Das Bild konnte nicht gespeichert werden.');
         return;
       }
-      setWerte((vorher) => ({ ...vorher, bildPfad: ergebnis.data.dateiname }));
+      // Die Adresse geht dabei weg - es gibt genau eine Quelle, und das ist
+      // jetzt die Datei. Sie stehen zu lassen hiesse, einen Wert zu halten,
+      // den niemand mehr sieht.
+      setWerte((vorher) => ({ ...vorher, bildPfad: ergebnis.data.dateiname, bildUrl: '' }));
       toast.success('Bild gespeichert.');
       router.refresh();
     } finally {
@@ -915,10 +940,14 @@ function SymbolZeile({
           <p
             className={cn(
               'mt-1.5 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-              eigenes ? 'bg-primary/15 text-[hsl(var(--primary-bright))]' : 'bg-muted text-muted-foreground',
+              fehlt
+                ? 'bg-destructive/15 text-destructive'
+                : eigenes
+                  ? 'bg-primary/15 text-[hsl(var(--primary-bright))]'
+                  : 'bg-muted text-muted-foreground',
             )}
           >
-            {eigenes ? 'Eigenes' : 'Standard'}
+            {fehlt ? 'Datei fehlt' : eigenes ? 'Eigenes' : 'Standard'}
           </p>
         </div>
         <div className="flex-1 space-y-3">
@@ -1028,13 +1057,18 @@ function SymbolZeile({
                   void fuehreAus(
                     () =>
                       symbolBildAction({
+                        quelle: 'adresse',
                         csrfToken,
                         key: symbol.key,
-                        bildPfad: werte.bildPfad,
-                        bildUrl: werte.bildUrl.trim() || null,
+                        bildUrl: werte.bildUrl.trim(),
                       }),
                     'Bildadresse übernommen.',
-                    () => router.refresh(),
+                    () => {
+                      // Die hochgeladene Datei tritt zurueck - sonst bliebe
+                      // die eben gespeicherte Adresse unsichtbar dahinter.
+                      setWerte((v) => ({ ...v, bildPfad: null }));
+                      router.refresh();
+                    },
                   )
                 }
               >
@@ -1074,7 +1108,7 @@ function SymbolZeile({
                 disabled={laeuft}
                 onClick={() =>
                   void fuehreAus(
-                    () => symbolBildAction({ csrfToken, key: symbol.key, bildPfad: null, bildUrl: null }),
+                    () => symbolBildAction({ quelle: 'standard', csrfToken, key: symbol.key }),
                     `${werte.name} nutzt wieder das Standardsymbol.`,
                     () => setWerte((v) => ({ ...v, bildPfad: null, bildUrl: '' })),
                   )

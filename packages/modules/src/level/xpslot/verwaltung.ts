@@ -371,11 +371,62 @@ export async function speichereSymbol(
   return { symbol, rtp };
 }
 
-export const symbolBildSchema = z.object({
-  key: z.string().min(1).max(40),
-  bildPfad: z.string().max(200).nullable(),
-  bildUrl: z.string().max(1000).nullable(),
-});
+/**
+ * Woher das Bild eines Symbols kommt - **eine** Quelle, nicht zwei Felder.
+ *
+ * ## Der Fehler, den das behebt
+ *
+ * Es gab zwei Wege, ein Symbolbild zu setzen - hochladen und eine Adresse
+ * eintragen -, und beide wurden nebeneinander gespeichert. Welcher gewann,
+ * entschied `quelle()` in der Oberflaeche: die hochgeladene Datei zuerst.
+ *
+ * Fuer ein Symbol, das schon eine Datei hatte, hiess das: Adresse eintragen,
+ * «Bildadresse übernommen.» lesen - und es aendert sich nichts. Der Wert
+ * stand in der Datenbank, er wurde nur nie angezeigt. Nachgestellt im
+ * Browser: gespeichert, bestaetigt, Bild unveraendert.
+ *
+ * Eine stille Vorrangregel ist schlimmer als eine Fehlermeldung. Jetzt sagt
+ * der Aufrufer, **welche** Quelle gelten soll, und die andere wird dabei
+ * geloescht. Danach gibt es keinen Zustand mehr, in dem ein gespeicherter
+ * Wert unsichtbar bleibt.
+ */
+export const symbolBildSchema = z.discriminatedUnion('quelle', [
+  z.object({
+    quelle: z.literal('upload'),
+    key: z.string().min(1).max(40),
+    /** Ein Dateiname aus dem Upload-Verzeichnis - erzeugt hat ihn der Server. */
+    bildPfad: z.string().max(200),
+  }),
+  z.object({
+    quelle: z.literal('adresse'),
+    key: z.string().min(1).max(40),
+    /*
+     * Nur https, und nur eine Adresse.
+     *
+     * Vorher war das Feld `z.string().max(1000)` - also auch `javascript:`,
+     * auch `http://`, auch ein Tippfehler. Gespeichert wurde alles, angezeigt
+     * nichts davon; die Person sah ein leeres Feld und keinen Grund. Eine
+     * Adresse, die nicht laedt, soll beim Eintragen auffallen und nicht beim
+     * naechsten Spin.
+     */
+    bildUrl: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1000)
+      .refine((wert) => {
+        try {
+          return new URL(wert).protocol === 'https:';
+        } catch {
+          return false;
+        }
+      }, 'Nur vollständige https-Adressen.'),
+  }),
+  z.object({
+    quelle: z.literal('standard'),
+    key: z.string().min(1).max(40),
+  }),
+]);
 
 export type SymbolBildEingabe = z.infer<typeof symbolBildSchema>;
 
@@ -411,10 +462,21 @@ export async function setzeSymbolbild(eingabe: SymbolBildEingabe, akteur: SlotAk
     throw notFound('Dieses Symbol gibt es nicht.');
   }
 
-  const symbol = await prisma.xpSlotSymbol.update({
-    where: { key: eingabe.key },
-    data: { imagePath: eingabe.bildPfad, imageUrl: eingabe.bildUrl },
-  });
+  /*
+   * Die gewaehlte Quelle gewinnt, die andere wird geloescht.
+   *
+   * Nicht «setzen und das andere stehen lassen»: genau daraus entstand der
+   * Zustand, in dem eine gespeicherte Adresse hinter einer hochgeladenen
+   * Datei unsichtbar blieb.
+   */
+  const daten =
+    eingabe.quelle === 'upload'
+      ? { imagePath: eingabe.bildPfad, imageUrl: null }
+      : eingabe.quelle === 'adresse'
+        ? { imagePath: null, imageUrl: eingabe.bildUrl }
+        : { imagePath: null, imageUrl: null };
+
+  const symbol = await prisma.xpSlotSymbol.update({ where: { key: eingabe.key }, data: daten });
 
   // Die ersetzte Datei geht mit: eine Datei ohne Zeile ist Muell im
   // Upload-Verzeichnis, und der Name ist zufaellig - niemand findet sie

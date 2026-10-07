@@ -7,6 +7,7 @@ import { bonusFuer } from './bonus';
 import { meineStatistik, type SitzungsStatistik } from './statistik';
 import { meinVerlauf, type MeinEintrag } from './historie';
 import { pruefeGrenzen } from './limits';
+import { fehlendeSymbolbilder } from './klang-speicher';
 import type { BonusStand } from './spin';
 import {
   offeneBonusMeldung,
@@ -145,16 +146,34 @@ export async function slotAnsicht(
   const rtp = rtpVon(k);
 
   const nachKey = new Map(k.regeln.symbole.map((symbol) => [symbol.key, symbol]));
+
+  /*
+   * Eine Bildreferenz ins Leere faellt auf das Standardbild zurueck.
+   *
+   * Der Rueckfall in `symbolBild()` haengt daran, dass **keine** Referenz da
+   * ist - nicht daran, dass sie auf eine Datei zeigt, die es nicht mehr gibt.
+   * Ein Symbol mit toter Referenz blieb deshalb dauerhaft leer: die
+   * Ausliefer-Route antwortet 404, und das mitgelieferte Zeichen kam nie zum
+   * Zug. Nachgestellt, indem eine Datei weggenommen wurde.
+   *
+   * Hier wird der Zustand einmal je Seitenaufbau geprueft - acht Dateien,
+   * parallel - und eine tote Referenz fuer die Anzeige auf `null` gesetzt.
+   * In der Datenbank bleibt sie stehen; was dort steht, aendert die
+   * Verwaltung, nicht die Ansicht.
+   */
+  const fehlend = await fehlendeSymbolbilder(k.symbole.map((symbol) => symbol.imagePath));
+
   const symbole: SymbolAnsicht[] = k.symbole
     .filter((symbol) => (nachKey.get(symbol.key)?.gewicht ?? 0) > 0)
     .map((symbol) => {
       const spiel = nachKey.get(symbol.key)!;
+      const bildPfad = symbol.imagePath && !fehlend.has(symbol.imagePath) ? symbol.imagePath : null;
       return {
         key: symbol.key,
         name: symbol.name,
         rolle: symbol.role,
         glow: symbol.glow,
-        bildPfad: symbol.imagePath,
+        bildPfad,
         bildUrl: symbol.imageUrl,
         auszahlung: [
           spiel.auszahlung[0] / BASISPUNKTE,

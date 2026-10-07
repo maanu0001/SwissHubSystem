@@ -1,3 +1,5 @@
+import { constants } from 'node:fs';
+import { access } from 'node:fs/promises';
 import { AppError } from '@swisshub/shared';
 import { createLogger } from '@swisshub/logger';
 import { loescheUpload, schreibeUpload, uploadName, uploadPfad } from '../../branding/storage';
@@ -185,4 +187,53 @@ export function symbolbildPfad(dateiname: string): string | null {
 
 export async function loescheSymbolbild(dateiname: string): Promise<void> {
   await loescheUpload(dateiname, SYMBOLBILD_MUSTER);
+}
+
+/**
+ * Welche dieser Symbolbilder liegen nicht mehr auf der Platte?
+ *
+ * ## Der Fehler, den das behebt
+ *
+ * Ein Symbol mit einer Bildreferenz, deren Datei fehlt, war dauerhaft kaputt:
+ * die Ausliefer-Route antwortet mit 404, der Browser zeigt ein leeres Feld,
+ * und der Rueckfall auf das mitgelieferte Standardbild greift nie - er haengt
+ * daran, dass **keine** Referenz da ist, nicht daran, dass sie ins Leere
+ * zeigt. Nachgestellt, indem eine Datei weggenommen wurde: 404, und das
+ * Symbol blieb leer, waehrend die uebrigen weiterliefen. Genau das Bild von
+ * «es funktionieren nicht mehr alle».
+ *
+ * Eine Referenz ins Leere entsteht leichter, als es klingt: ein Upload-Ordner,
+ * der neu angelegt wurde, eine Datei, die beim Aufraeumen mitging, eine
+ * Wiederherstellung der Datenbank ohne die Dateien daneben.
+ *
+ * ## Warum pruefen und nicht reparieren
+ *
+ * Diese Funktion loescht nichts. Sie sagt nur, was fehlt - die Oberflaeche
+ * entscheidet dann: das Spiel nimmt das Standardbild, die Verwaltung sagt es
+ * ausdruecklich. Eine Referenz stillschweigend aus der Datenbank zu raeumen
+ * waere derselbe Fehler in Gruen: dann waere das eigene Bild weg, und niemand
+ * wuesste, dass es je eines gab.
+ */
+export async function fehlendeSymbolbilder(
+  dateinamen: ReadonlyArray<string | null | undefined>,
+): Promise<Set<string>> {
+  const zuPruefen = [...new Set(dateinamen.filter((name): name is string => Boolean(name)))];
+  const fehlend = new Set<string>();
+  await Promise.all(
+    zuPruefen.map(async (name) => {
+      const pfad = symbolbildPfad(name);
+      if (!pfad) {
+        // Ein Name, den diese Anwendung nie erzeugt hat - der ist ebenso
+        // wenig auslieferbar wie eine fehlende Datei.
+        fehlend.add(name);
+        return;
+      }
+      try {
+        await access(pfad, constants.R_OK);
+      } catch {
+        fehlend.add(name);
+      }
+    }),
+  );
+  return fehlend;
 }

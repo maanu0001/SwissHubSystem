@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, expect, it } from 'vitest';
@@ -78,7 +78,7 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
     const vorher = await prisma.xpSlotSymbol.findUnique({ where: { key: 'eins' } });
     expect(vorher?.imagePath ?? null).toBeNull();
 
-    await S.setzeSymbolbild({ key: 'eins', bildPfad: BILD, bildUrl: null }, AKTEUR);
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'eins', bildPfad: BILD }, AKTEUR);
 
     // Frisch aus der Datenbank - nicht der Rückgabewert.
     const nachher = await prisma.xpSlotSymbol.findUnique({ where: { key: 'eins' } });
@@ -92,7 +92,7 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
   it('lässt Gewicht, Name und Auszahlungen unberührt', async () => {
     const S = level.xpslot;
     const vorher = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'drei' } });
-    await S.setzeSymbolbild({ key: 'drei', bildPfad: BILD, bildUrl: null }, AKTEUR);
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'drei', bildPfad: BILD }, AKTEUR);
     const nachher = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'drei' } });
 
     expect(nachher.name).toBe(vorher.name);
@@ -107,8 +107,8 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
 
   it('hält mehrere Symbole unabhängig', async () => {
     const S = level.xpslot;
-    await S.setzeSymbolbild({ key: 'fuenf', bildPfad: BILD, bildUrl: null }, AKTEUR);
-    await S.setzeSymbolbild({ key: 'zehn', bildPfad: ZWEITES, bildUrl: null }, AKTEUR);
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'fuenf', bildPfad: BILD }, AKTEUR);
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'zehn', bildPfad: ZWEITES }, AKTEUR);
 
     const fuenf = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'fuenf' } });
     const zehn = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'zehn' } });
@@ -123,8 +123,8 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
      * nichts steht.
      */
     const S = level.xpslot;
-    await S.setzeSymbolbild({ key: 'logo', bildPfad: BILD, bildUrl: null }, AKTEUR);
-    await S.setzeSymbolbild({ key: 'logo', bildPfad: null, bildUrl: null }, AKTEUR);
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'logo', bildPfad: BILD }, AKTEUR);
+    await S.setzeSymbolbild({ quelle: 'standard', key: 'logo' }, AKTEUR);
     const logo = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'logo' } });
     expect(logo.imagePath).toBeNull();
     expect(logo.imageUrl).toBeNull();
@@ -133,7 +133,7 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
   it('vermerkt jede Änderung im Audit Log', async () => {
     const S = level.xpslot;
     await prisma.auditLog.deleteMany({});
-    await S.setzeSymbolbild({ key: 'wild', bildPfad: BILD, bildUrl: null }, AKTEUR);
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'wild', bildPfad: BILD }, AKTEUR);
     const eintraege = await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 1 });
     expect(eintraege[0]?.actorDiscordId).toBe(AKTEUR.discordId);
     expect(JSON.stringify(eintraege[0]?.metadata ?? {})).toContain(BILD);
@@ -157,7 +157,7 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
    */
   it('verliert das Bild nicht, wenn danach die uebrigen Felder gespeichert werden', async () => {
     const S = level.xpslot;
-    await S.setzeSymbolbild({ key: 'premium', bildPfad: BILD, bildUrl: null }, AKTEUR);
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'premium', bildPfad: BILD }, AKTEUR);
 
     const stand = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'premium' } });
 
@@ -198,7 +198,7 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
     expect(ziel!.startsWith(uploadVerzeichnis)).toBe(true);
     await writeFile(ziel!, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
-    await S.setzeSymbolbild({ key: 'bonus', bildPfad: BILD, bildUrl: null }, AKTEUR);
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'bonus', bildPfad: BILD }, AKTEUR);
     const stand = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'bonus' } });
 
     await S.speichereSymbol(
@@ -223,10 +223,94 @@ describeWithDatabase('XP-Slot: Symbolbild', () => {
     expect(existsSync(ziel!), 'die hochgeladene PNG muss liegen bleiben').toBe(true);
   });
 
+  it('löscht die Adresse, wenn eine Datei hochgeladen wird', async () => {
+    /*
+     * Die stille Vorrangregel, die das behebt.
+     *
+     * Beide Quellen standen nebeneinander in der Zeile, und `quelle()`
+     * entschied: die Datei zuerst. Wer bei einem Symbol mit Datei eine
+     * Adresse eintrug, las «Bildadresse übernommen.» - und sah nichts. Der
+     * Wert war gespeichert, nur nie sichtbar.
+     */
+    const S = level.xpslot;
+    await S.setzeSymbolbild(
+      { quelle: 'adresse', key: 'zehn', bildUrl: 'https://cdn.example.org/a.png' },
+      AKTEUR,
+    );
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'zehn', bildPfad: BILD }, AKTEUR);
+    const zeile = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'zehn' } });
+    expect(zeile.imagePath).toBe(BILD);
+    expect(zeile.imageUrl, 'die Adresse darf nicht unsichtbar liegen bleiben').toBeNull();
+  });
+
+  it('löscht die Datei, wenn eine Adresse gesetzt wird', async () => {
+    const S = level.xpslot;
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'fuenf', bildPfad: BILD }, AKTEUR);
+    await S.setzeSymbolbild(
+      { quelle: 'adresse', key: 'fuenf', bildUrl: 'https://cdn.example.org/b.png' },
+      AKTEUR,
+    );
+    const zeile = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'fuenf' } });
+    expect(zeile.imageUrl).toBe('https://cdn.example.org/b.png');
+    expect(zeile.imagePath, 'die Datei darf die Adresse nicht weiter verdecken').toBeNull();
+  });
+
+  it('nimmt nur vollständige https-Adressen an', () => {
+    // Vorher war das Feld eine beliebige Zeichenkette bis 1000 Zeichen. Eine
+    // Adresse, die nie laedt, soll beim Eintragen auffallen - nicht als
+    // leeres Feld im Spiel.
+    const S = level.xpslot;
+    for (const wert of ['nicht-mal-eine-adresse', 'http://unsicher.example/a.png', 'javascript:alert(1)']) {
+      const ergebnis = S.symbolBildSchema.safeParse({ quelle: 'adresse', key: 'eins', bildUrl: wert });
+      expect(ergebnis.success, wert).toBe(false);
+    }
+    expect(
+      S.symbolBildSchema.safeParse({ quelle: 'adresse', key: 'eins', bildUrl: 'https://ok.example/a.png' })
+        .success,
+    ).toBe(true);
+  });
+
+  it('erkennt eine Referenz, deren Datei fehlt', async () => {
+    /*
+     * Der Fehler, den der Benutzer gemeldet hat: «die Symbole funktionieren
+     * nicht mehr alle». Ein Symbol mit einer Referenz auf eine Datei, die es
+     * nicht mehr gibt, blieb dauerhaft leer - die Ausliefer-Route antwortet
+     * 404, und der Rueckfall auf das mitgelieferte Zeichen greift nur, wenn
+     * **keine** Referenz da ist. Nachgestellt, indem eine Datei weggenommen
+     * wurde.
+     */
+    const S = level.xpslot;
+    const ziel = S.symbolbildPfad(ZWEITES);
+    expect(ziel).not.toBeNull();
+    await writeFile(ziel!, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const vorhanden = await S.fehlendeSymbolbilder([ZWEITES]);
+    expect(vorhanden.has(ZWEITES), 'eine Datei, die da ist, fehlt nicht').toBe(false);
+
+    await rm(ziel!, { force: true });
+    const fehlend = await S.fehlendeSymbolbilder([ZWEITES, null, undefined]);
+    expect(fehlend.has(ZWEITES), 'eine Datei, die weg ist, muss auffallen').toBe(true);
+    expect(fehlend.size, 'null und undefined sind keine fehlenden Dateien').toBe(1);
+  });
+
+  it('zeigt im Spiel das Standardbild statt einer toten Referenz', async () => {
+    const S = level.xpslot;
+    // Die Datei zu `ZWEITES` ist im Test davor entfernt worden.
+    await S.setzeSymbolbild({ quelle: 'upload', key: 'wild', bildPfad: ZWEITES }, AKTEUR);
+    const ansicht = await S.slotAnsicht();
+    const wild = ansicht.symbole.find((eintrag) => eintrag.key === 'wild');
+    expect(wild, 'das Wild muss in der Ansicht stehen').toBeDefined();
+    expect(wild?.bildPfad, 'eine tote Referenz darf nicht in die Ansicht').toBeNull();
+
+    // In der Datenbank bleibt sie stehen - die Ansicht raeumt nicht auf.
+    const zeile = await prisma.xpSlotSymbol.findUniqueOrThrow({ where: { key: 'wild' } });
+    expect(zeile.imagePath).toBe(ZWEITES);
+  });
+
   it('lehnt ein Symbol ab, das es nicht gibt', async () => {
     const S = level.xpslot;
     await expect(
-      S.setzeSymbolbild({ key: 'gibtesnicht', bildPfad: BILD, bildUrl: null }, AKTEUR),
+      S.setzeSymbolbild({ quelle: 'upload', key: 'gibtesnicht', bildPfad: BILD }, AKTEUR),
     ).rejects.toThrow();
   });
 });

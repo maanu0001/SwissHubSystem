@@ -49,6 +49,21 @@ export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
   ]);
 
   /*
+   * Welche hochgeladenen Symbolbilder fehlen?
+   *
+   * Nur der Server kann in das Upload-Verzeichnis sehen. Die Verwaltung sagt
+   * damit «Datei fehlt» statt ein leeres Feld zu zeigen - ein Symbol, das
+   * nicht erscheint und keinen Grund nennt, laesst einen an der Anwendung
+   * zweifeln statt an der Datei.
+   */
+  const fehlendeBilder = await S.fehlendeSymbolbilder(
+    konfiguration.symbole.map((symbol) => symbol.imagePath),
+  );
+  const bilderFehlen = konfiguration.symbole
+    .filter((symbol) => symbol.imagePath && fehlendeBilder.has(symbol.imagePath))
+    .map((symbol) => symbol.key);
+
+  /*
    * Die Namen hinter den Kennungen.
    *
    * In Statistik und Historie stand nur die Discord-ID - achtzehn Ziffern,
@@ -97,6 +112,7 @@ export default async function SlotVerwaltungPage(): Promise<React.JSX.Element> {
       />
 
       <SlotVerwaltung
+        bilderFehlen={bilderFehlen}
         csrfToken={csrfTokenFor(context)}
         konfiguration={konfiguration}
         rtp={S.rtpVon(konfiguration)}

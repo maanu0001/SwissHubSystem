@@ -72,7 +72,16 @@ describe('XP-Slot: Symbolbild persistiert sofort', () => {
     expect(aktionen).toContain('schema: S.symbolBildSchema');
     expect(aktionen).toContain('permission: P.xpslotManage');
     expect(kern).toContain('export async function setzeSymbolbild');
-    expect(kern).toContain('data: { imagePath: eingabe.bildPfad, imageUrl: eingabe.bildUrl }');
+    /*
+     * Die Zeile schreibt genau zwei Spalten - und seit dem Umbau haengt
+     * davon ab, welche Quelle gewaehlt wurde. Geprueft wird deshalb die
+     * Zusage und nicht mehr der Wortlaut: eine Quelle gewinnt, die andere
+     * wird dabei geloescht.
+     */
+    expect(kern).toContain("eingabe.quelle === 'upload'");
+    expect(kern).toContain('{ imagePath: eingabe.bildPfad, imageUrl: null }');
+    expect(kern).toContain('{ imagePath: null, imageUrl: eingabe.bildUrl }');
+    expect(kern).toContain('prisma.xpSlotSymbol.update({ where: { key: eingabe.key }, data: daten })');
   });
 
   it('räumt die ersetzte Datei weg', () => {
