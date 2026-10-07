@@ -57,7 +57,7 @@ export function AufDieserSeite({
   }
 
   return (
-    <div className="hidden xl:block">
+    <div className="hidden 2xl:block">
       <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto">
         <p className="pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Auf dieser Seite

@@ -90,12 +90,25 @@ export async function DokuSeiteAnsicht({
      * Text uebrig. Das war die Wortkaskade: eine unsichtbare Spalte, die
      * Platz reservierte.
      *
-     * Deshalb steckt die Randspalte jetzt selbst in `hidden xl:block`. Unter
-     * `xl` ist sie nicht unsichtbar, sondern **nicht da** - sie kann keinen
-     * Platz belegen, den sie nicht nutzt. Derselbe Breakpoint wie im Inhalt
-     * der Komponente, damit nicht eine Ebene zeigt, was die andere versteckt.
+     * Deshalb steckt die Randspalte jetzt selbst in `hidden 2xl:block`. Unter
+     * `2xl` ist sie nicht unsichtbar, sondern **nicht da** - sie kann keinen
+     * Platz belegen, den sie nicht nutzt.
+     *
+     * ## Warum `2xl` und nicht `xl`
+     *
+     * Gemessen am gebauten Server: auf 1366px standen bei `xl` drei Spalten
+     * nebeneinander - App-Navigation 256, Doku-Navigation 256, Randspalte 224 -
+     * und dem Text blieben 494px, also 41 Zeichen pro Zeile. Das ist derselbe
+     * Fehler wie auf dem Telefon, nur milder: eine Spalte zu viel fuer die
+     * vorhandene Breite.
+     *
+     * Ab `2xl` (1536px) ist Platz fuer alle drei; auf 1920px traegt der
+     * Artikel dann 768px und 81 Zeichen. Unter `2xl` weicht die Randspalte,
+     * und 1366px kommt auf 750px Lesebreite. Die Gliederung einer Seite steht
+     * ohnehin auch im Schubfach - der Platz, den sie auf einem Laptop kostet,
+     * steht in keinem Verhaeltnis dazu.
      */
-    <div className="flex min-w-0 flex-col xl:flex-row xl:gap-8">
+    <div className="flex min-w-0 flex-col 2xl:flex-row 2xl:gap-8">
       {/*
         `max-w-3xl` greift erst ab 768px und begrenzt daher nur die Lesebreite
         am Rechner. Auf dem Telefon bindet es nicht - dort entscheidet
@@ -175,7 +188,7 @@ export async function DokuSeiteAnsicht({
         sich nur selbst versteckt, belegt als Flex-Kind weiterhin seine
         Breite. Genau daran lag die zu schmale Lesespalte.
       */}
-      <aside className="hidden xl:block xl:w-56 xl:shrink-0">
+      <aside className="hidden 2xl:block 2xl:w-56 2xl:shrink-0">
         <AufDieserSeite eintraege={toc} />
       </aside>
     </div>
