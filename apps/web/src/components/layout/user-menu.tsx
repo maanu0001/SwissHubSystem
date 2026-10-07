@@ -68,7 +68,7 @@ export function UserMenu({
            * `h-10` wie die beiden Nachbarn: drei gleich hohe Flaechen in einer
            * Reihe sehen ruhig aus, drei verschieden hohe nicht.
            */
-          className="flex h-10 shrink-0 items-center gap-1 rounded-lg border border-transparent px-0.5 text-left transition-colors hover:border-border hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:gap-3 sm:px-2"
+          className="flex h-10 shrink-0 items-center gap-1 rounded-lg border border-transparent px-0.5 text-left transition-colors hover:border-border hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:gap-3 sm:px-2 sm:[--avatar-size:36px]"
           aria-label="Benutzermenü öffnen"
         >
           {/*
@@ -94,7 +94,7 @@ export function UserMenu({
             avatarHash={avatarHash}
             name={displayName}
             size={32}
-            className="ring-2 ring-primary/60 sm:size-9"
+            className="ring-2 ring-primary/60"
           />
           <span className="hidden flex-col leading-tight sm:flex">
             <span className="text-sm font-semibold">{displayName}</span>
