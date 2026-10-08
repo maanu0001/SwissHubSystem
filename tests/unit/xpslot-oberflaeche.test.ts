@@ -630,11 +630,23 @@ describe('Standard-Assets', () => {
   it('zeigt in der Verwaltung, ob ein Asset eigen oder Standard ist', () => {
     const verwaltung = lies('apps/web/src/modules/level/xpslot/components/verwaltung.tsx');
     /*
-     * Drei Zustaende statt zwei: dazugekommen ist «Datei fehlt» - eine
-     * Referenz, deren Datei nicht mehr da ist. Vorher sah man an dieser
-     * Stelle «Eigenes» und daneben ein leeres Bild, ohne jeden Hinweis.
+     * Inzwischen vier Zustaende. Dazugekommen waren erst «Datei fehlt» - eine
+     * Referenz, deren Datei nicht mehr da ist - und dann «Adresse laedt
+     * nicht»: eine eingetragene Adresse, die der Browser nicht holen kann.
+     * Vorher sah man an dieser Stelle «Eigenes» und daneben ein leeres Bild,
+     * ohne jeden Hinweis.
+     *
+     * Geprueft wird deshalb jeder Zustand und die Reihenfolge, nicht ein
+     * einzelnes Literal: an dem waere der Test bei jeder Umformatierung
+     * zerbrochen, ohne dass sich etwas Echtes geaendert haette.
      */
-    expect(verwaltung).toContain("{fehlt ? 'Datei fehlt' : eigenes ? 'Eigenes' : 'Standard'}");
+    for (const zustand of ["'Datei fehlt'", "'Adresse laedt nicht'", "'Eigenes'", "'Standard'"]) {
+      expect(verwaltung, zustand).toContain(zustand);
+    }
+    // Ein Fehlerzustand schlaegt «Eigenes» - sonst stuende dort die
+    // beruhigende Auskunft, waehrend das Bild fehlt.
+    expect(verwaltung.indexOf("'Datei fehlt'")).toBeLessThan(verwaltung.indexOf("'Eigenes'"));
+    expect(verwaltung.indexOf("'Adresse laedt nicht'")).toBeLessThan(verwaltung.indexOf("'Eigenes'"));
     expect(verwaltung).toContain("{klang.dateiname ? 'Eigener' : standard ? 'Standard' : 'Leer'}");
   });
 
