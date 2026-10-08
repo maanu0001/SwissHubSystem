@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { postSpeichernAction, turnierVorschlagAction } from '@/modules/socialmedia/actions';
 import { cn } from '@/lib/utils';
+import { meldungFuerFremdeAntwort } from '@/lib/upload-meldung';
 
 /**
  * Der Editor (§29, §38, §43).
@@ -289,11 +290,7 @@ export function PostEditor({
         // niemand mehr die Gelegenheit, die erlaubte Groesse zu nennen.
         // Deshalb steht sie hier: eine Meldung ohne Zahl laesst jemanden
         // raten, wie klein «klein genug» ist.
-        toast.error(
-          antwort.status === 413
-            ? `Die Datei ist zu gross. Maximal erlaubt: ${feld === 'hintergrundbild' ? 50 : 40} MB.`
-            : `Der Server hat unerwartet geantwortet (${antwort.status}).`,
-        );
+        toast.error(meldungFuerFremdeAntwort(antwort.status, feld === 'hintergrundbild' ? 50 : 40));
         return;
       }
 

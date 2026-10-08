@@ -34,6 +34,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ConfirmationDialog } from '@/components/shared/confirmation-dialog';
 import { cn } from '@/lib/utils';
+import { meldungFuerFremdeAntwort } from '@/lib/upload-meldung';
 import { istEigenesBild, quelle, STANDARD_KLAENGE } from '../adressen';
 import { SymbolGrafik, type Bildfehler } from './symbol-grafik';
 
@@ -920,11 +921,7 @@ function SymbolZeile({
        */
       const art = antwort.headers.get('content-type') ?? '';
       if (!art.includes('application/json')) {
-        toast.error(
-          antwort.status === 413
-            ? `Die Datei ist zu gross. Maximal erlaubt: ${SYMBOL_MAX_MB} MB.`
-            : `Der Server hat unerwartet geantwortet (${antwort.status}).`,
-        );
+        toast.error(meldungFuerFremdeAntwort(antwort.status, SYMBOL_MAX_MB));
         return;
       }
 
@@ -2033,11 +2030,7 @@ function KlangZeile({
        */
       const art = antwort.headers.get('content-type') ?? '';
       if (!art.includes('application/json')) {
-        toast.error(
-          antwort.status === 413
-            ? `Die Datei ist zu gross. Maximal erlaubt: ${SYMBOL_MAX_MB} MB.`
-            : `Der Server hat unerwartet geantwortet (${antwort.status}).`,
-        );
+        toast.error(meldungFuerFremdeAntwort(antwort.status, SYMBOL_MAX_MB));
         return;
       }
 

@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { meldungFuerFremdeAntwort } from '@/lib/upload-meldung';
 import { RotateCcw, Upload } from 'lucide-react';
 import { branding } from '@swisshub/config/client';
 import { Button } from '@/components/ui/button';
@@ -80,10 +81,7 @@ export function BrandingForm({
       // nichtssagende Fehlermeldung.
       const contentType = response.headers.get('content-type') ?? '';
       if (!contentType.includes('application/json')) {
-        const message =
-          response.status === 413
-            ? 'Die Datei wurde vom Server abgewiesen, weil sie zu gross ist. Bitte ein kleineres Bild wählen oder das Upload-Limit des Reverse Proxy erhöhen.'
-            : `Der Server hat den Upload abgelehnt (HTTP ${response.status}).`;
+        const message = meldungFuerFremdeAntwort(response.status);
         setError(message);
         toast.error(message);
         return;

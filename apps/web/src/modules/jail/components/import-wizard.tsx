@@ -4,6 +4,7 @@ import { useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Database, ShieldAlert, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { meldungFuerFremdeAntwort } from '@/lib/upload-meldung';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -75,7 +76,7 @@ export function ImportUploadStep({
       // Ein Proxy kann bei zu grossen Uploads antworten, bevor die Anwendung
       // die Anfrage überhaupt sieht - dann ist der Body kein JSON.
       if (response.status === 413) {
-        setError('Die Datei wurde vom Server abgewiesen, weil sie zu gross ist.');
+        setError(meldungFuerFremdeAntwort(response.status));
         return;
       }
       const text = await response.text();

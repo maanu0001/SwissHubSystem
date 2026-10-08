@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { clipEinreichenAction, clipVorschauAction } from '@/modules/clips/actions';
 import { ClipRahmen, MedalHinweis } from './clip-rahmen';
 import { cn } from '@/lib/utils';
+import { meldungFuerFremdeAntwort } from '@/lib/upload-meldung';
 
 export interface SpielOption {
   id: string;
@@ -189,7 +190,7 @@ export function EinreichAssistent({
             ok: false,
             meldung:
               anfrage.status === 413
-                ? 'Die Datei wurde vom Server abgewiesen, weil sie zu gross ist.'
+                ? meldungFuerFremdeAntwort(anfrage.status)
                 : 'Der Upload ist unterwegs abgebrochen. Versuche es noch einmal.',
           });
         }

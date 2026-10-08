@@ -125,10 +125,20 @@ describe('Symbol-Upload: nichts scheitert stumm', () => {
     expect(quelle).toContain('application/json');
   });
 
-  it('nennt beim rohen 413 des Proxy eine Zahl', () => {
-    const quelle = lies(VERWALTUNG);
-    expect(quelle).toContain('Die Datei ist zu gross. Maximal erlaubt:');
-    expect(quelle).toContain('antwort.status === 413');
+  it('erklaert den rohen 413 des Proxy, statt eine Zahl zu erfinden', () => {
+    /*
+     * Hier stand einmal «Die Datei ist zu gross. Maximal erlaubt: 24 MB.» -
+     * und genau das kam bei einer 3,1-MB-Datei heraus. Der Status sagt nur
+     * «zu gross fuer die Schicht, die geantwortet hat»; welche Grenze die
+     * hat, steht nicht darin. Die Meldung behauptete die eigene und schickte
+     * die Fehlersuche zu den Dateien, waehrend die Ursache davor lag.
+     *
+     * Der Text liegt jetzt zentral, damit alle Upload-Stellen dasselbe sagen;
+     * `tests/unit/upload-meldung.test.ts` prueft ihn.
+     */
+    const quelle = ohneKommentare(VERWALTUNG);
+    expect(quelle).toContain('meldungFuerFremdeAntwort');
+    expect(quelle).not.toContain('Die Datei ist zu gross. Maximal erlaubt:');
   });
 
   it('faengt jeden anderen Fehler ab, statt die Zusage abbrechen zu lassen', () => {
