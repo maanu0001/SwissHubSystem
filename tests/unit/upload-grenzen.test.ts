@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { meldungFuerFremdeAntwort } from '@/lib/upload-meldung';
 import { branding } from '@swisshub/modules';
 
 /**
@@ -267,17 +268,32 @@ describe('Upload-Fehler: die Meldung nennt die Grösse', () => {
     expect(quelle).toContain('SOCIALPOST_HINTERGRUND_BYTES');
   });
 
-  it('nennt auch beim rohen 413 des Proxy eine Zahl', () => {
+  it('nennt beim rohen 413 des Proxy eine Zahl - aber als Einordnung', () => {
     /*
-     * Ein 413 kommt von nginx, nicht aus der Anwendung - dann hat niemand
-     * mehr die Gelegenheit, die erlaubte Grösse zu nennen. Eine Meldung ohne
-     * Zahl lässt jemanden raten, wie klein «klein genug» ist.
+     * Die Sorge, aus der diese Zusicherung entstand, war richtig: eine
+     * Meldung ohne Zahl lässt jemanden raten, wie klein «klein genug» ist.
+     *
+     * Falsch war nur, die Zahl als Urteil über die Datei auszugeben. Ein 413
+     * kommt von nginx, und dessen Grenze kennt die Anwendung nicht - sie
+     * steht nicht in der Antwort. Gemeldet wurde genau der Widerspruch, der
+     * daraus folgte: eine Datei von 3,1 MB abgelehnt mit «Die Datei ist zu
+     * gross. Maximal erlaubt: 24 MB.» Das schickte die Fehlersuche zu den
+     * Dateien, während die Ursache einen Sprung davor lag.
+     *
+     * Beides gilt jetzt: die Zahl steht da, und daneben steht, dass die
+     * ablehnende Grenze eine andere und kleinere ist.
      */
     const editor = readFileSync(
       join(WURZEL, 'apps/web/src/modules/socialmedia/components/post-editor.tsx'),
       'utf8',
     );
-    expect(editor).toContain('Die Datei ist zu gross. Maximal erlaubt:');
-    expect(editor).not.toContain('Das Bild ist zu gross für den Server.');
+    expect(editor).toContain('meldungFuerFremdeAntwort');
+    // Die eigene Grenze wird weitergereicht - sonst stünde keine Zahl darin.
+    expect(editor).toMatch(/meldungFuerFremdeAntwort\([\s\S]{0,160}50 : 40/u);
+
+    const text = meldungFuerFremdeAntwort(413, 40);
+    expect(text).toContain('40 MB');
+    expect(text).toContain('die Grenze davor ist kleiner');
+    expect(text).not.toMatch(/Datei ist zu gross/u);
   });
 });
