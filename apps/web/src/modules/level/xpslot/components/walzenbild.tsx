@@ -32,8 +32,8 @@
  */
 import { useMemo } from 'react';
 import { formatSwissNumber } from '@swisshub/shared';
-import { symbolBild } from '../adressen';
 import { cn } from '@/lib/utils';
+import { SymbolGrafik } from './symbol-grafik';
 
 export interface SymbolBild {
   key: string;
@@ -254,8 +254,6 @@ function Zelle({
   treffer?: boolean;
   klebt?: boolean;
 }): React.JSX.Element {
-  const bild = symbol ? symbolBild(symbol) : null;
-
   return (
     <div
       className={cn(
@@ -265,15 +263,17 @@ function Zelle({
         klebt && 'slot-zelle--klebt',
       )}
     >
-      {bild ? (
-        // Bewusst `img` und nicht `next/image`: die Datei kommt aus einem
-        // Route Handler mit eigenem Cache-Kopf, und der Optimierer von Next
-        // wuerde sie durch eine zweite Umwandlung schicken, die bei einem
-        // 128x128-Symbol nichts spart.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img className="slot-zelle__bild" src={bild} alt={symbol?.name ?? ''} draggable={false} />
+      {/*
+        `SymbolGrafik` und kein blankes `img`: scheitert das eigene Bild -
+        geloeschte Datei, fremde Adresse, die nicht mehr antwortet -, nimmt
+        die Zelle das mitgelieferte Symbol und notfalls den Namen. Vorher
+        blieb an dieser Stelle das Fragezeichen des Browsers stehen, und
+        zwar dauerhaft.
+      */}
+      {symbol ? (
+        <SymbolGrafik symbol={symbol} className="slot-zelle__bild" />
       ) : (
-        <span className="slot-zelle__text">{symbol?.name ?? '?'}</span>
+        <span className="slot-zelle__text">?</span>
       )}
     </div>
   );

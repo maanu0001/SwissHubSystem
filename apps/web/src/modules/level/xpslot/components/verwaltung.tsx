@@ -34,7 +34,19 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ConfirmationDialog } from '@/components/shared/confirmation-dialog';
 import { cn } from '@/lib/utils';
-import { istEigenesBild, quelle, STANDARD_KLAENGE, symbolBild } from '../adressen';
+import { istEigenesBild, quelle, STANDARD_KLAENGE } from '../adressen';
+import { SymbolGrafik, type Bildfehler } from './symbol-grafik';
+
+/**
+ * Die Byte-Grenze eines Symbolbildes, in Megabyte.
+ *
+ * Dieselbe Zahl wie `UPLOAD_GRENZEN.slotsymbol` in der Speicherschicht -
+ * doppelt, weil die Tabelle dort an Prisma haengt und nicht in den Browser
+ * kann. Gebraucht wird sie nur fuer den einen Fall, in dem die Anwendung
+ * gar nicht antwortet: ein rohes 413 vom Reverse Proxy. Dass beide Zahlen
+ * uebereinstimmen, prueft ein Test.
+ */
+const SYMBOL_MAX_MB = 24;
 
 import {
   befehlSpeichernAction,
@@ -873,8 +885,18 @@ function SymbolZeile({
    * sie los will, drueckt «Auf Standard zuruecksetzen».
    */
   const wirksamerPfad = fehlt ? null : werte.bildPfad;
-  const bild = symbolBild({ key: symbol.key, bildPfad: wirksamerPfad, bildUrl: werte.bildUrl || null });
   const eigenes = istEigenesBild({ bildPfad: wirksamerPfad, bildUrl: werte.bildUrl || null });
+
+  /*
+   * Ob eine Adresse wirklich ein Bild liefert, weiss nur der Browser.
+   *
+   * Serverseitig laesst sich das nicht pruefen - der fremde Server kann weg
+   * sein, das Einbetten verbieten oder eine HTML-Seite schicken. Darum
+   * meldet die Grafik es von unten herauf, und hier steht es dann neben dem
+   * Bild. Ohne diesen Hinweis sieht «gespeichert» genauso aus wie
+   * «gespeichert und laedt nicht».
+   */
+  const [bildfehler, setBildfehler] = useState<Bildfehler | null>(null);
 
   const hochladen = async (datei: File): Promise<void> => {
     setLaedt(true);
@@ -884,6 +906,28 @@ function SymbolZeile({
       form.set('art', 'bild');
       form.set('datei', datei);
       const antwort = await fetch('/api/level/xp-slot/upload', { method: 'POST', body: form });
+
+      /*
+       * Erst nachsehen, was da ankam.
+       *
+       * Hier stand `await antwort.json()` ohne jede Pruefung - und ohne
+       * `catch` darum. Antwortete etwas anderes als diese Route (ein rohes
+       * 413 des Reverse Proxy, eine Fehlerseite, ein Gateway-Fehler), warf
+       * `json()`, die Zusage brach ab, und es geschah **gar nichts**: kein
+       * Hinweis, keine Meldung, nur ein Knopf, der aufhoerte zu drehen. Aus
+       * der Sicht davor heisst das «ich kann keine PNG hochladen», und
+       * niemand kann erraten, warum.
+       */
+      const art = antwort.headers.get('content-type') ?? '';
+      if (!art.includes('application/json')) {
+        toast.error(
+          antwort.status === 413
+            ? `Die Datei ist zu gross. Maximal erlaubt: ${SYMBOL_MAX_MB} MB.`
+            : `Der Server hat unerwartet geantwortet (${antwort.status}).`,
+        );
+        return;
+      }
+
       const ergebnis = (await antwort.json()) as
         { ok: true; data: { dateiname: string } } | { ok: false; error: { message: string } };
       if (!ergebnis.ok) {
@@ -916,6 +960,15 @@ function SymbolZeile({
       setWerte((vorher) => ({ ...vorher, bildPfad: ergebnis.data.dateiname, bildUrl: '' }));
       toast.success('Bild gespeichert.');
       router.refresh();
+    } catch (fehler) {
+      // Ein abgebrochener Upload, ein Netzfehler, eine Antwort, die sich
+      // nicht lesen laesst: alles davon endete vorher in einer abgebrochenen
+      // Zusage ohne eine einzige Zeile auf dem Bildschirm.
+      toast.error(
+        fehler instanceof Error && fehler.message
+          ? `Der Upload ist gescheitert: ${fehler.message}`
+          : 'Der Upload ist gescheitert.',
+      );
     } finally {
       setLaedt(false);
     }
@@ -926,12 +979,16 @@ function SymbolZeile({
       <div className="flex flex-wrap items-start gap-4">
         <div className="shrink-0 text-center">
           <div className="grid size-16 place-items-center rounded-lg border border-border bg-background/60">
-            {bild ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={bild} alt="" className="size-12 object-contain" />
-            ) : (
-              <span className="text-xs text-muted-foreground">kein Bild</span>
-            )}
+            <SymbolGrafik
+              symbol={{
+                key: symbol.key,
+                name: werte.name,
+                bildPfad: wirksamerPfad,
+                bildUrl: werte.bildUrl || null,
+              }}
+              className="size-12 object-contain"
+              onFehler={setBildfehler}
+            />
           </div>
           {/*
             Woher das Bild kommt, steht unter dem Bild und nicht im Text
@@ -940,14 +997,22 @@ function SymbolZeile({
           <p
             className={cn(
               'mt-1.5 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-              fehlt
+              fehlt || bildfehler
                 ? 'bg-destructive/15 text-destructive'
                 : eigenes
                   ? 'bg-primary/15 text-[hsl(var(--primary-bright))]'
                   : 'bg-muted text-muted-foreground',
             )}
           >
-            {fehlt ? 'Datei fehlt' : eigenes ? 'Eigenes' : 'Standard'}
+            {fehlt
+              ? 'Datei fehlt'
+              : bildfehler === 'adresse'
+                ? 'Adresse laedt nicht'
+                : bildfehler === 'datei'
+                  ? 'Datei fehlt'
+                  : eigenes
+                    ? 'Eigenes'
+                    : 'Standard'}
           </p>
         </div>
         <div className="flex-1 space-y-3">
@@ -1954,6 +2019,28 @@ function KlangZeile({
       form.set('packId', packId);
       form.set('datei', datei);
       const antwort = await fetch('/api/level/xp-slot/upload', { method: 'POST', body: form });
+
+      /*
+       * Erst nachsehen, was da ankam.
+       *
+       * Hier stand `await antwort.json()` ohne jede Pruefung - und ohne
+       * `catch` darum. Antwortete etwas anderes als diese Route (ein rohes
+       * 413 des Reverse Proxy, eine Fehlerseite, ein Gateway-Fehler), warf
+       * `json()`, die Zusage brach ab, und es geschah **gar nichts**: kein
+       * Hinweis, keine Meldung, nur ein Knopf, der aufhoerte zu drehen. Aus
+       * der Sicht davor heisst das «ich kann keine PNG hochladen», und
+       * niemand kann erraten, warum.
+       */
+      const art = antwort.headers.get('content-type') ?? '';
+      if (!art.includes('application/json')) {
+        toast.error(
+          antwort.status === 413
+            ? `Die Datei ist zu gross. Maximal erlaubt: ${SYMBOL_MAX_MB} MB.`
+            : `Der Server hat unerwartet geantwortet (${antwort.status}).`,
+        );
+        return;
+      }
+
       const ergebnis = (await antwort.json()) as
         { ok: true; data: { dateiname: string } } | { ok: false; error: { message: string } };
       if (!ergebnis.ok) {

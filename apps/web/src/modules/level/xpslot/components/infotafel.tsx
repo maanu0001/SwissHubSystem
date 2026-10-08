@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { symbolBild } from '../adressen';
+import { SymbolGrafik } from './symbol-grafik';
 
 /**
  * Die Infotafel.
@@ -98,15 +98,16 @@ export function Infotafel({ ansicht }: { ansicht: Ansicht }): React.JSX.Element 
                 </thead>
                 <tbody>
                   {ansicht.symbole.map((symbol) => {
-                    const bild = symbolBild(symbol);
                     return (
                       <tr key={symbol.key} className="border-t border-border">
                         <td className="p-2">
                           <span className="flex items-center gap-2">
-                            {bild ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={bild} alt="" className="size-6 object-contain" />
-                            ) : null}
+                            {/*
+                              Derselbe Rueckfall wie in der Walze: die Tafel
+                              soll zeigen, was das Spiel zeigt - auch dann,
+                              wenn ein eigenes Bild nicht laedt.
+                            */}
+                            <SymbolGrafik symbol={symbol} className="size-6 object-contain" />
                             <span className="font-medium">{symbol.name}</span>
                             {ROLLEN[symbol.rolle] ? (
                               <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[hsl(var(--primary-bright))]">

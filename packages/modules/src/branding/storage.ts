@@ -236,9 +236,13 @@ const MB = 1024 * 1024;
  * - **socialpost** traegt die Last eines Exports in 1080 x 1920 und soll
  *   hochwertige Vorlagen annehmen - 40 MB und 8000 Pixel, fuer den
  *   Hintergrund 50 MB (siehe `SOCIALPOST_HINTERGRUND_BYTES`).
- * - **slotsymbol** sitzt im Spiel in einer Zelle von rund 100 Pixeln. Gross
- *   genug fuer jedes vernuenftige Original (12 MB, 4096 Pixel), aber kein
- *   Grund fuer ein Plakat.
+ * - **slotsymbol** sitzt im Spiel in einer Zelle von rund 100 Pixeln -
+ *   das Original darf trotzdem gross sein, es wird ohnehin skaliert. 12 MB
+ *   und 4096 Pixel waren hier zu knapp. Nachgemessen an einer PNG, die sich
+ *   nicht komprimieren laesst: bei 2048 Pixeln Kantenlaenge sind das 16,0 MB
+ *   mit Transparenz und genau 12,0 MB ohne - die alte Grenze lag also
+ *   millimetergenau auf dem Normalfall, und wer sein Symbol in 4096
+ *   zeichnete, kam ohnehin nicht durch. Jetzt 24 MB und 8000 Pixel.
  * - **twintqr** ist ein QR-Code. Vier Megabyte sind dafuer schon viel.
  * - **clip** und die beiden Altlasten-Importe stehen nicht hier: sie tragen
  *   keine Bilder und kennen ihre Grenzen selbst.
@@ -263,7 +267,7 @@ export const UPLOAD_GRENZEN: Readonly<Record<UploadKind, UploadGrenze>> = {
   // Traegt keine Bilder - die Grenze steht in `clips/video-speicher.ts`.
   clip: { maxBytes: 8 * MB, minSize: 16, maxSize: 4096 },
   workspace: { maxBytes: 16 * MB, minSize: 16, maxSize: 8000 },
-  slotsymbol: { maxBytes: 12 * MB, minSize: 32, maxSize: 4096 },
+  slotsymbol: { maxBytes: 24 * MB, minSize: 32, maxSize: 8000 },
   // Traegt keine Bilder - die Grenzen stehen in `xpslot/klang-speicher.ts`.
   slotsound: { maxBytes: 8 * MB, minSize: 16, maxSize: 4096 },
   socialpost: { maxBytes: 40 * MB, minSize: 64, maxSize: 8000 },
