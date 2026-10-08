@@ -6,6 +6,27 @@ import { STANDARD_SYMBOLE, quelle } from '../adressen';
 /** Woran ein Symbolbild gescheitert ist - oder `null`, wenn alles passt. */
 export type Bildfehler = 'datei' | 'adresse';
 
+/**
+ * Die zwei Eigenschaften, an denen ein fertig geladenes, leeres Bild zu
+ * erkennen ist.
+ *
+ * Warum sie hier stehen und nicht einfach von `HTMLImageElement` kommen:
+ * `tsconfig.base.json` laedt bewusst kein `DOM`. Das Wurzelprojekt prueft
+ * Bot, Pakete und Tests, und dort gibt es kein Fenster - eine Datei, die
+ * versehentlich `window` anfasst, soll genau daran scheitern. Diese Datei
+ * wird von einem Test mitgezogen und deshalb ohne DOM-Typen uebersetzt,
+ * obwohl sie nur im Browser laeuft.
+ *
+ * Statt die Grenze fuer alle aufzuweichen, steht hier die Form, die der
+ * Browser fuer jedes `<img>` garantiert. `apps/web/tsconfig.json` prueft
+ * dieselbe Datei mit `DOM` - der Name `HTMLImageElement` in der Signatur
+ * bleibt also echt geprueft.
+ */
+interface Ladezustand {
+  readonly complete: boolean;
+  readonly naturalWidth: number;
+}
+
 export interface SymbolQuelle {
   key: string;
   name?: string;
@@ -107,7 +128,9 @@ export function SymbolGrafik({
   // Stufe stehen geblieben.
   const nachsehen = useCallback(
     (bild: HTMLImageElement | null): void => {
-      if (!bild || !aktuell || !bild.complete || bild.naturalWidth > 0) return;
+      if (!bild || !aktuell) return;
+      const stand = bild as unknown as Ladezustand;
+      if (!stand.complete || stand.naturalWidth > 0) return;
       melde(aktuell);
     },
     [aktuell, melde],
