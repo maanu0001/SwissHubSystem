@@ -267,6 +267,13 @@ export function PostEditor({
       const form = new FormData();
       form.set('csrfToken', csrfToken);
       form.set('datei', datei);
+      /*
+       * Das Feld geht mit, weil der Hintergrund mehr darf als die uebrigen
+       * Bilder - er fuellt die ganze Flaeche statt eines Ausschnitts. Die
+       * Entscheidung faellt serverseitig; hier steht nur, worum es sich
+       * handelt. Eine erfundene Angabe kann deshalb nichts erhoehen.
+       */
+      form.set('feld', feld);
       const antwort = await fetch('/api/social-media/upload', { method: 'POST', body: form });
 
       /*
@@ -278,9 +285,13 @@ export function PostEditor({
        */
       const art = antwort.headers.get('content-type') ?? '';
       if (!art.includes('application/json')) {
+        // Ein 413 kommt vom Reverse Proxy, nicht aus der Anwendung - dann hat
+        // niemand mehr die Gelegenheit, die erlaubte Groesse zu nennen.
+        // Deshalb steht sie hier: eine Meldung ohne Zahl laesst jemanden
+        // raten, wie klein «klein genug» ist.
         toast.error(
           antwort.status === 413
-            ? 'Das Bild ist zu gross für den Server.'
+            ? `Die Datei ist zu gross. Maximal erlaubt: ${feld === 'hintergrundbild' ? 50 : 40} MB.`
             : `Der Server hat unerwartet geantwortet (${antwort.status}).`,
         );
         return;

@@ -185,10 +185,16 @@ describe('Lesen und Löschen', () => {
       'logo-abc.png',
       'logo-00000000000000000000000000000000.svg',
     ]) {
-      // Entweder wirft die Namensprüfung, oder es kommt `null` zurück -
-      // ausgeliefert wird in keinem Fall etwas.
-      const result = await storage.readUpload(name).catch(() => null);
-      expect(result).toBeNull();
+      /*
+       * `null` und nicht geworfen.
+       *
+       * Hier stand `.catch(() => null)`, weil die Namensprüfung warf - und
+       * genau das wurde am gebauten Server sichtbar: eine Asset-Route
+       * antwortete mit 500 statt 404, weil niemand den Fehler fing.
+       * Ausgebrochen ist nie etwas, aber ein Serverfehler auf eine fremde
+       * Eingabe ist eine Fehlerzeile mit Stapelabbild für jeden Versuch.
+       */
+      expect(await storage.readUpload(name)).toBeNull();
     }
 
     // Die Datei ausserhalb ist unverändert und wurde nie ausgeliefert.

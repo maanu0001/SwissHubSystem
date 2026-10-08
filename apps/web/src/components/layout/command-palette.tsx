@@ -145,7 +145,13 @@ export function CommandPalette({
       </button>
 
       <Dialog open={offen} onOpenChange={setOffen}>
-        <DialogContent className="top-[15%] max-w-lg translate-y-0 gap-0 overflow-hidden p-0">
+        {/*
+          `geometrie="oben"` statt `top-[15%] translate-y-0` daneben: das
+          Ergebnis ist dasselbe - y = 15 % der Hoehe, nur die waagrechte
+          Zentrierung bleibt -, aber es haengt nicht mehr davon ab, welche von
+          zwei gleich spezifischen Klassen im Stylesheet weiter unten steht.
+        */}
+        <DialogContent geometrie="oben" className="gap-0 overflow-hidden p-0">
           <DialogTitle className="sr-only">Suchen und navigieren</DialogTitle>
 
           <div className="flex items-center gap-3 border-b border-border px-4">

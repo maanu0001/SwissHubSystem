@@ -99,7 +99,9 @@ const ROUTEN_GRENZE: Record<string, number | 'ausgenommen' | 'ohne Datei'> = {
   '/api/profil/[discordId]/banner': branding.UPLOAD_GRENZEN.profilbanner.maxBytes,
   '/api/workspace/upload': branding.UPLOAD_GRENZEN.workspace.maxBytes,
   '/api/wrapped/moment/[momentId]': branding.UPLOAD_GRENZEN.wrappedmoment.maxBytes,
-  '/api/social-media/upload': branding.UPLOAD_GRENZEN.socialpost.maxBytes,
+  // Der Hintergrund darf mehr als die uebrigen Postbilder - die groessere
+  // der beiden Zahlen ist das, was diese Route wirklich annimmt.
+  '/api/social-media/upload': branding.SOCIALPOST_HINTERGRUND_BYTES,
   // Bild und Klang zugleich - die grössere der beiden Grenzen zählt.
   '/api/level/xp-slot/upload': branding.UPLOAD_GRENZEN.slotsymbol.maxBytes,
   // Die drei grossen: bis 500 MB, 64 MB und 32 MB.
@@ -133,8 +135,33 @@ describe('Upload-Grenzen: eine Tabelle, keine verstreuten Zahlen', () => {
   });
 
   it('gibt dem Post Creator die grösste Grenze - er exportiert in 1080 × 1920', () => {
-    expect(branding.UPLOAD_GRENZEN.socialpost.maxBytes).toBe(branding.GROESSTE_BILDGRENZE);
-    expect(branding.UPLOAD_GRENZEN.socialpost.maxBytes).toBeGreaterThanOrEqual(20 * 1024 * 1024);
+    expect(branding.UPLOAD_GRENZEN.socialpost.maxBytes).toBeGreaterThanOrEqual(40 * 1024 * 1024);
+    // Grösser ist nur noch der Hintergrund desselben Moduls.
+    for (const kind of branding.UPLOAD_KINDS) {
+      if (kind === 'socialpost') {
+        continue;
+      }
+      expect(branding.UPLOAD_GRENZEN[kind].maxBytes, kind).toBeLessThanOrEqual(
+        branding.UPLOAD_GRENZEN.socialpost.maxBytes,
+      );
+    }
+  });
+
+  it('erlaubt dem Hintergrund mehr als den übrigen Postbildern', () => {
+    /*
+     * Ein Motiv, ein Logo, ein Partnerzeichen sind Ausschnitte. Ein
+     * Hintergrund füllt 1080 × 1920 vollständig aus und kommt deshalb
+     * regelmässig als unkomprimiertes Original - das ist die Datei, die an
+     * einer Grenze hängenbleibt, die für ein Logo gedacht war.
+     */
+    expect(branding.SOCIALPOST_HINTERGRUND_BYTES).toBe(50 * 1024 * 1024);
+    expect(branding.SOCIALPOST_HINTERGRUND_BYTES).toBeGreaterThan(
+      branding.UPLOAD_GRENZEN.socialpost.maxBytes,
+    );
+    // `GROESSTE_BILDGRENZE` steuert `middlewareClientMaxBodySize`. Zählte die
+    // Ausnahme nicht mit, schnitte Next genau die Dateien ab, für die sie da
+    // ist - und zwar still.
+    expect(branding.GROESSTE_BILDGRENZE).toBe(branding.SOCIALPOST_HINTERGRUND_BYTES);
   });
 
   it('erlaubt trotzdem nicht überall dasselbe', () => {
@@ -230,8 +257,27 @@ describe('Upload-Fehler: die Meldung nennt die Grösse', () => {
     expect(Number(genannt) * 1024 * 1024).toBe(klongrenze());
   });
 
-  it('meldet die Grenze des Namensraums beim Post Creator', () => {
+  it('meldet beim Post Creator die grössere der beiden Grenzen', () => {
+    /*
+     * Welche gilt, steht im Formular - und beim gescheiterten Lesen ist genau
+     * das nicht verfügbar. Die kleinere zu nennen wäre falsch, wenn es ein
+     * Hintergrund war; die grössere ist in jedem Fall wahr.
+     */
     const quelle = readFileSync(join(WURZEL, 'apps/web/src/app/api/social-media/upload/route.ts'), 'utf8');
-    expect(quelle).toContain('UPLOAD_GRENZEN.socialpost.maxBytes');
+    expect(quelle).toContain('SOCIALPOST_HINTERGRUND_BYTES');
+  });
+
+  it('nennt auch beim rohen 413 des Proxy eine Zahl', () => {
+    /*
+     * Ein 413 kommt von nginx, nicht aus der Anwendung - dann hat niemand
+     * mehr die Gelegenheit, die erlaubte Grösse zu nennen. Eine Meldung ohne
+     * Zahl lässt jemanden raten, wie klein «klein genug» ist.
+     */
+    const editor = readFileSync(
+      join(WURZEL, 'apps/web/src/modules/socialmedia/components/post-editor.tsx'),
+      'utf8',
+    );
+    expect(editor).toContain('Die Datei ist zu gross. Maximal erlaubt:');
+    expect(editor).not.toContain('Das Bild ist zu gross für den Server.');
   });
 });

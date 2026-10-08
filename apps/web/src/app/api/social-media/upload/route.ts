@@ -57,7 +57,16 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     assertMembership(context, { ...metadata, path: 'socialmedia.upload' });
 
-    const form = await leseFormular(request, branding.UPLOAD_GRENZEN.socialpost.maxBytes / 1024 / 1024);
+    /*
+     * Die Meldung nennt die groessere der beiden Grenzen.
+     *
+     * Welche gilt, steht im Formular - und das Formular ist genau das, was
+     * hier gerade nicht gelesen werden konnte. Die kleinere zu nennen waere
+     * falsch, wenn es ein Hintergrund war; die groessere ist in jedem Fall
+     * wahr («maximal erlaubt») und fuehrt niemanden in die Irre, der eine
+     * 45 MB grosse Datei als Hintergrund einsetzen will.
+     */
+    const form = await leseFormular(request, branding.SOCIALPOST_HINTERGRUND_BYTES / 1024 / 1024);
 
     const csrfToken = form.get('csrfToken');
     if (typeof csrfToken !== 'string' || !verifyCsrfToken(context.sessionId, csrfToken)) {
@@ -86,9 +95,23 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     const bytes = new Uint8Array(await datei.arrayBuffer());
-    // Die Grenze steht bei ihrem Namensraum in `UPLOAD_GRENZEN` - ein Post
-    // nimmt die groesste von allen, weil er in 1080 x 1920 exportiert.
-    const gespeichert = await branding.storeLogoUpload(bytes, datei.type || null, 'socialpost');
+    /*
+     * Der Hintergrund darf groesser sein als die uebrigen Postbilder.
+     *
+     * Er fuellt die ganze Flaeche, waehrend Motiv, Logo und Partnerzeichen
+     * Ausschnitte sind - und kommt deshalb regelmaessig als unkomprimiertes
+     * Original. Das Feld steht im Formular; faellt es weg oder heisst es
+     * anders, gilt die Tabellengrenze. Eine unbekannte Angabe kann damit
+     * nichts erhoehen.
+     */
+    const feld = form.get('feld');
+    const istHintergrund = feld === 'hintergrundbild';
+    const gespeichert = await branding.storeLogoUpload(
+      bytes,
+      datei.type || null,
+      'socialpost',
+      istHintergrund ? { maxBytes: branding.SOCIALPOST_HINTERGRUND_BYTES } : {},
+    );
 
     return NextResponse.json(
       ok({

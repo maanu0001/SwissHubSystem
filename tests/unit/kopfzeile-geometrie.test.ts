@@ -180,16 +180,31 @@ describe('Drawer: feste Breite, kein Verschieben des Inhalts', () => {
   const nav = lies('mobile-nav.tsx');
 
   it('misst die Breite am Bildschirm und nicht am Text', () => {
-    // `w-[19rem] max-w-[85vw]`: eine feste Breite mit einer Obergrenze fuer
-    // schmale Geraete - nicht eine, die mit dem laengsten Eintrag waechst.
+    /*
+     * Eine feste Breite mit einer Obergrenze fuer schmale Geraete - nicht
+     * eine, die mit dem laengsten Eintrag waechst.
+     *
+     * Die Obergrenze war `max-w-[85vw]`. `vw` zaehlt eine Bildlaufleiste mit,
+     * die es auf dem Telefon gar nicht gibt, und ergibt auf fast jedem Geraet
+     * eine gebrochene Pixelzahl; Prozent bezieht sich auf das, was der
+     * Browser tatsaechlich hat. Was diese Zusicherung bewacht, ist
+     * unveraendert: eine Breite, die nicht am Inhalt haengt.
+     */
     expect(nav).toContain('w-[19rem]');
-    expect(nav).toContain('max-w-[85vw]');
+    expect(nav).toContain('max-w-[calc(100%-3rem)]');
   });
 
   it('liegt über dem Inhalt, statt ihn zur Seite zu schieben', () => {
-    // Ein Dialog mit eigener Ebene. Waere es ein Geschwister im Fluss, ruckte
-    // die ganze Seite beim Oeffnen zur Seite.
+    /*
+     * Ein Dialog mit eigener Ebene. Waere es ein Geschwister im Fluss, ruckte
+     * die ganze Seite beim Oeffnen zur Seite.
+     *
+     * Die Verankerung stand frueher als `left-0 top-0` im `className` und
+     * uebermalte damit die mittige Vorgabe. Sie steht jetzt als benannte
+     * Geometrie in `dialog.tsx` - siehe `drawer-geometrie.test.ts`, wo auch
+     * steht, warum: die Position liess sich uebermalen, der Auftritt nicht.
+     */
     expect(nav).toContain('DialogContent');
-    expect(nav).toContain('left-0 top-0');
+    expect(nav).toContain('geometrie="drawer"');
   });
 });

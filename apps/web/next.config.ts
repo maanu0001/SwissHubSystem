@@ -81,7 +81,15 @@ const nextConfig: NextConfig = {
    * Build zum Stillstand gebracht. Als externe Pakete bleiben sie ein
    * gewoehnliches `require` zur Laufzeit.
    */
-  serverExternalPackages: ['@prisma/client', 'openai', '@anthropic-ai/sdk'],
+  /*
+   * `sharp` steht aus einem anderen Grund hier als die uebrigen: es ist ein
+   * **natives** Modul. Gebuendelt wuerde der Bundler versuchen, eine
+   * `.node`-Datei mitzunehmen, die er nicht lesen kann. Extern bleibt es ein
+   * gewoehnliches `require` zur Laufzeit - und liegt im Abbild bereits, weil
+   * die `web`-Stufe dieselben `node_modules` bekommt wie die `bot`-Stufe,
+   * die `sharp` fuer die Levelkarte benutzt.
+   */
+  serverExternalPackages: ['@prisma/client', 'openai', '@anthropic-ai/sdk', 'sharp'],
   experimental: {
     // Server Actions sind nur für die eigene Origin erlaubt (CSRF).
     serverActions: {
@@ -114,15 +122,20 @@ const nextConfig: NextConfig = {
      * ## Warum diese Zahl
      *
      * Sie muss ueber der groessten Grenze liegen, die ein Bild-Upload
-     * zulaesst (`GROESSTE_BILDGRENZE`, zurzeit 24 MB). Die drei Routen mit
-     * den wirklich grossen Dateien gehen die Middleware gar nicht erst an -
-     * sie sind in `middleware.ts` ausgenommen, damit ein 100-MB-Clip nicht
-     * zusaetzlich im Speicher dupliziert wird.
+     * zulaesst (`GROESSTE_BILDGRENZE`, zurzeit 50 MB - der Hintergrund eines
+     * Social-Media-Posts), und unter dem, was der Reverse Proxy durchlaesst
+     * (`client_max_body_size 72m` in `deploy/nginx/`). Dazwischen liegen
+     * 64 MB: genug Luft fuer die Multipart-Rahmen und das CSRF-Feld, und
+     * weit genug unter der Proxy-Grenze, dass nicht beide zugleich greifen.
+     *
+     * Die drei Routen mit den wirklich grossen Dateien gehen die Middleware
+     * gar nicht erst an - sie sind in `middleware.ts` ausgenommen, damit ein
+     * 100-MB-Clip nicht zusaetzlich im Speicher dupliziert wird.
      *
      * Ein Test haelt beide Seiten zusammen: jede Route, die `formData()`
      * liest, muss entweder unter dieser Zahl bleiben oder ausgenommen sein.
      */
-    middlewareClientMaxBodySize: '32mb',
+    middlewareClientMaxBodySize: '64mb',
   },
   images: {
     remotePatterns: [{ protocol: 'https', hostname: 'cdn.discordapp.com', pathname: '/**' }],
@@ -135,6 +148,43 @@ const nextConfig: NextConfig = {
           process.env.NODE_ENV === 'production'
             ? [...securityHeaders, ...productionHeaders]
             : securityHeaders,
+      },
+      /*
+       * Die mitgelieferten Mediendateien duerfen zwischengespeichert werden.
+       *
+       * ## Was hier nicht stimmte
+       *
+       * Next gibt allem unter `public/` `Cache-Control: public, max-age=0`.
+       * Mit einem ETag heisst das: kein zweiter Download, aber bei **jedem**
+       * Seitenaufruf eine bedingte Anfrage je Datei. Gemessen am gebauten
+       * Server: das Markenzeichen wurde auf jeder Seite zweimal angefragt -
+       * es steht in der Kopfzeile und im Banner. Und der XP-Slot bringt
+       * achtzehn WAV-Dateien und seine Standardsymbole mit; auf einer
+       * Mobilverbindung sind das achtzehn Umlaeufe, bevor der erste Klang
+       * spielt.
+       *
+       * ## Warum verschiedene Zeiten und kein `immutable`
+       *
+       * Weil die Namen nicht am Inhalt haengen. `swisshub-logo-32.png` heisst
+       * nach einem Austausch genauso - `immutable` waere das Versprechen,
+       * dass das nie passiert, und es stimmt nicht.
+       *
+       *  - **Schriften** aendern sich faktisch nie: ein Jahr.
+       *  - **XP-Slot-Medien** aendern sich mit einem Deploy. Eine Woche, und
+       *    `stale-while-revalidate` holt die neue Fassung im Hintergrund.
+       *    Ein eigenes Symbol oder einen eigenen Klang laedt die Verwaltung
+       *    ohnehin hoch - der liegt dann unter `/api/level/xp-slot/datei/`
+       *    mit eigenem Namen und eigener Kopfzeile.
+       *  - **Marke** ist das, was jemand am ehesten austauscht: ein Tag.
+       */
+      { source: '/schriften/:path*', headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000' }] },
+      {
+        source: '/xp-slot/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=604800, stale-while-revalidate=2592000' }],
+      },
+      {
+        source: '/branding/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }],
       },
     ];
   },

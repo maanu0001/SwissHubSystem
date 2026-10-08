@@ -15,6 +15,15 @@ import type { PostBilder } from './post-folie';
  * das den Dateinamen streng prueft und den aufgeloesten Pfad im
  * Upload-Verzeichnis haelt.
  *
+ * ## Warum nicht das Original
+ *
+ * Weil base64 ein Drittel aufschlaegt und ein Post bis zu elf Bilder fuehren
+ * kann. Bei 40 bis 50 MB je Datei waeren das ueber ein halbes Gigabyte an
+ * Zeichenketten, und dazu je Bild die entpackte Bitmap - ein 8000 x 8000
+ * grosses Bild sind 256 MB, unabhaengig von der Dateigroesse. Gespeichert
+ * bleibt das Original; gezeichnet wird mit einem Abbild in der Groesse, die
+ * ein Export von 1080 x 1920 ueberhaupt nutzen kann.
+ *
  * ## Warum ein fehlendes Bild kein Fehler ist
  *
  * Weil eine Grafik ohne Motiv brauchbar ist und eine Fehlermeldung statt
@@ -26,7 +35,7 @@ async function alsDatenUri(dateiname: string | undefined): Promise<string | unde
   if (!dateiname) {
     return undefined;
   }
-  const datei = await branding.readUpload(dateiname);
+  const datei = await branding.leseBildFuerExport(dateiname);
   if (!datei) {
     return undefined;
   }

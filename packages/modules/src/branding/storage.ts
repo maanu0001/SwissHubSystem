@@ -234,7 +234,8 @@ const MB = 1024 * 1024;
  * Nach oben begrenzt bleibt es trotzdem, und zwar verschieden je Zweck:
  *
  * - **socialpost** traegt die Last eines Exports in 1080 x 1920 und soll
- *   hochwertige Vorlagen annehmen - 24 MB und 8000 Pixel.
+ *   hochwertige Vorlagen annehmen - 40 MB und 8000 Pixel, fuer den
+ *   Hintergrund 50 MB (siehe `SOCIALPOST_HINTERGRUND_BYTES`).
  * - **slotsymbol** sitzt im Spiel in einer Zelle von rund 100 Pixeln. Gross
  *   genug fuer jedes vernuenftige Original (12 MB, 4096 Pixel), aber kein
  *   Grund fuer ein Plakat.
@@ -265,11 +266,39 @@ export const UPLOAD_GRENZEN: Readonly<Record<UploadKind, UploadGrenze>> = {
   slotsymbol: { maxBytes: 12 * MB, minSize: 32, maxSize: 4096 },
   // Traegt keine Bilder - die Grenzen stehen in `xpslot/klang-speicher.ts`.
   slotsound: { maxBytes: 8 * MB, minSize: 16, maxSize: 4096 },
-  socialpost: { maxBytes: 24 * MB, minSize: 64, maxSize: 8000 },
+  socialpost: { maxBytes: 40 * MB, minSize: 64, maxSize: 8000 },
 };
 
-/** Die groesste Bilddatei, die irgendein Namensraum annimmt. */
+/**
+ * Der Hintergrund eines Posts - die eine Ausnahme nach oben.
+ *
+ * ## Warum ueberhaupt eine Ausnahme
+ *
+ * Ein Motiv, ein Logo, ein Partnerzeichen sind Ausschnitte. Ein Hintergrund
+ * ist die ganze Flaeche: er fuellt 1080 x 1920 vollstaendig aus, traegt
+ * Verlaeufe ueber die komplette Diagonale und kommt deshalb regelmaessig als
+ * unkomprimiertes Original aus dem Grafikprogramm. Das sind die Dateien, die
+ * an einer Grenze haengenbleiben, die fuer ein Logo gedacht war.
+ *
+ * ## Warum kein eigener Namensraum
+ *
+ * Weil der Namensraum im Dateinamen steckt und entscheidet, als was eine
+ * Datei ausgeliefert werden darf. Ein Hintergrund **ist** ein Postbild - er
+ * soll im selben Topf liegen, von derselben Aufraeumung erfasst werden und
+ * durch dieselbe Pruefung gehen. Verschieden ist genau eine Zahl, und die
+ * steht hier, neben der Tabelle, statt verstreut an der Aufrufstelle.
+ */
+export const SOCIALPOST_HINTERGRUND_BYTES = 50 * MB;
+
+/**
+ * Die groesste Bilddatei, die irgendein Namensraum annimmt.
+ *
+ * Die Ausnahme oben zaehlt mit: `middlewareClientMaxBodySize` muss ueber
+ * **allem** liegen, was eine Route annehmen kann, nicht nur ueber dem
+ * Tabellenwert. Ein Test haelt beides zusammen.
+ */
 export const GROESSTE_BILDGRENZE = Math.max(
+  SOCIALPOST_HINTERGRUND_BYTES,
   ...Object.values(UPLOAD_GRENZEN).map((grenze) => grenze.maxBytes),
 );
 
@@ -442,9 +471,30 @@ export async function storeLogoUpload(
  *
  * Der Dateiname wird streng geprüft und der aufgelöste Pfad muss innerhalb des
  * Upload-Verzeichnisses liegen - `../` kann damit nicht ausbrechen.
+ *
+ * ## Warum ein unmoeglicher Name `null` ergibt und keinen Fehler
+ *
+ * Weil der Rueckgabewert schon sagt, was hier schiefgehen kann: «die Datei
+ * gibt es nicht». Ein Name, der nicht hierher gehoert, ist derselbe Fall -
+ * und zwar aus Sicht jedes Aufrufers.
+ *
+ * Gemessen am gebauten Server: `/api/social-media/asset/..%2f..%2fetc%2fpasswd`
+ * antwortete mit **500**. Ausgebrochen ist nichts, die Pruefung hielt - sie
+ * warf nur, und niemand fing es. Ein 500 auf eine fremde Eingabe ist zweimal
+ * falsch: die Person sieht einen Serverfehler statt «gibt es nicht», und
+ * jeder Versuch hinterlaesst eine Fehlerzeile mit Stapelabbild im Protokoll.
+ * Wer genug davon abschickt, fuellt damit die Platte.
+ *
+ * Dass ein Test den Fehler bereits mit `.catch(() => null)` umging, war der
+ * Hinweis darauf, dass die Form nicht stimmte.
  */
 export async function readUpload(fileName: string): Promise<{ data: Buffer; format: LogoFormat } | null> {
-  const format = assertSafeFileName(fileName);
+  let format: LogoFormat;
+  try {
+    format = assertSafeFileName(fileName);
+  } catch {
+    return null;
+  }
   const target = resolve(UPLOAD_DIR, fileName);
   if (!target.startsWith(resolve(UPLOAD_DIR) + '/')) {
     return null;
@@ -453,6 +503,78 @@ export async function readUpload(fileName: string): Promise<{ data: Buffer; form
     return { data: await readFile(target), format };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Die groesste Pixelzahl, die ein Dekoder hier anfassen darf.
+ *
+ * 8000 x 8000 ist das, was `UPLOAD_GRENZEN` an Kantenlaenge zulaesst - mehr
+ * kann gar nicht gespeichert worden sein. Die Zahl steht trotzdem hier, weil
+ * sie eine **zweite** Verteidigung ist: eine Datei kann klein sein und sich
+ * beim Entpacken zu etwas Riesigem ausdehnen (eine Dekompressionsbombe), und
+ * dann entscheidet nicht die Byte-Grenze, sondern diese.
+ */
+const MAX_DEKODIER_PIXEL = 64_000_000;
+
+/**
+ * Ein Bild in Exportgroesse - nicht das Original.
+ *
+ * ## Warum es das gibt
+ *
+ * Weil ein Export die Bytes **im Speicher** traegt. Satori bekommt keine
+ * Adresse, sondern eine `data:`-URI (siehe `socialmedia/bilder.ts`), und eine
+ * solche URI ist base64 - also ein Drittel groesser als die Datei. Ein Post
+ * kann elf Bilder fuehren: Motiv, Hintergrund, Logo, zwei Teamzeichen, das
+ * Signet und bis zu sechs Partnerzeichen. Bei 40 bis 50 MB je Datei waeren
+ * das im schlimmsten Fall ueber ein halbes Gigabyte an Zeichenketten, und
+ * dazu je Bild die entpackte Bitmap: 8000 x 8000 Pixel sind 256 MB, ganz
+ * gleich, wie klein die Datei war.
+ *
+ * Das ist der Grund, warum eine hoehere Upload-Grenze nicht allein eine
+ * groessere Zahl sein kann. Angenommen wird das Original - gezeichnet wird
+ * mit einem Abbild in der Groesse, die der Export ueberhaupt nutzen kann.
+ *
+ * ## Warum 2160 Pixel
+ *
+ * Der groesste Export ist 1080 x 1920. Das Doppelte deckt jeden Zuschnitt
+ * und jede Vergroesserung innerhalb der Flaeche ab; darueber liegende Pixel
+ * sind Bytes, die niemand je sieht. `withoutEnlargement` sorgt dafuer, dass
+ * ein kleineres Bild nicht kuenstlich aufgeblasen wird - es bleibt, wie es
+ * ist, und geht denselben Weg wie vorher.
+ *
+ * ## Was bei einem Fehler geschieht
+ *
+ * Das Original. Ein Bild nicht zu zeichnen, weil die Verkleinerung
+ * gescheitert ist, waere ein Rueckschritt gegenueber dem Zustand davor - und
+ * der Aufrufer hat bereits einen Weg fuer «kein Bild», aber keinen fuer
+ * «halbes Bild».
+ */
+export async function leseBildFuerExport(
+  fileName: string,
+  maxKante = 2160,
+): Promise<{ data: Buffer; format: LogoFormat } | null> {
+  const datei = await readUpload(fileName);
+  if (!datei) {
+    return null;
+  }
+  try {
+    // Erst hier laden: `sharp` ist ein natives Modul, und es soll nicht beim
+    // Hochfahren im Weg stehen, wenn nie jemand exportiert.
+    const { default: sharp } = await import('sharp');
+    const bild = sharp(datei.data, { limitInputPixels: MAX_DEKODIER_PIXEL });
+    const masse = await bild.metadata();
+    if ((masse.width ?? 0) <= maxKante && (masse.height ?? 0) <= maxKante) {
+      return datei;
+    }
+    const verkleinert = await bild
+      .resize({ width: maxKante, height: maxKante, fit: 'inside', withoutEnlargement: true })
+      .toFormat(datei.format === 'jpeg' ? 'jpeg' : datei.format)
+      .toBuffer();
+    return { data: verkleinert, format: datei.format };
+  } catch (error) {
+    log.warn('Bild liess sich nicht verkleinern - Original wird verwendet', { fileName, error });
+    return datei;
   }
 }
 

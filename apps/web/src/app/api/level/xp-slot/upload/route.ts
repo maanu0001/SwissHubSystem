@@ -34,14 +34,14 @@ export async function POST(request: NextRequest): Promise<Response> {
     assertMembership(context, { ...metadata, path: 'level.xpslot.upload' });
 
     /*
-     * Erst anmelden, dann den Koerper lesen - und 32 MB als Dach.
+     * Erst anmelden, dann den Koerper lesen - und 64 MB als Dach.
      *
      * Vorher stand `formData()` in der ersten Zeile, und damit las der Server
-     * bis zu zweiunddreissig Megabyte von jemandem, der gar nicht angemeldet
+     * bis zu vierundsechzig Megabyte von jemandem, der gar nicht angemeldet
      * ist. Die Sitzungspruefung braucht das Formular nicht; nur die
      * CSRF-Pruefung tut das, und die kommt danach.
      *
-     * Die 32 sind dieselbe Zahl wie `middlewareClientMaxBodySize`.
+     * Die 64 sind dieselbe Zahl wie `middlewareClientMaxBodySize`.
      *
      * Hier geht beides durch, Symbolbild und Klang, und die beiden haben
      * verschiedene Grenzen. Welche gilt, steht erst fest, wenn das Formular
@@ -49,11 +49,11 @@ export async function POST(request: NextRequest): Promise<Response> {
      * Grenze der Schicht darueber. Die eigentliche Zahl sagt danach
      * `storeLogoUpload` beziehungsweise `speichereKlang`.
      *
-     * Dass die 32 zu `next.config.ts` passt, prueft ein Test. Importieren
+     * Dass die 64 zu `next.config.ts` passt, prueft ein Test. Importieren
      * laesst sie sich von dort nicht: die Konfiguration wird vom Build
      * geladen, nicht von der Anwendung.
      */
-    const form = await leseFormular(request, 32);
+    const form = await leseFormular(request, 64);
 
     const csrfToken = form.get('csrfToken');
     if (typeof csrfToken !== 'string' || !verifyCsrfToken(context.sessionId, csrfToken)) {
