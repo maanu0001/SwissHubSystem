@@ -572,8 +572,8 @@ describe('Standard-Assets', () => {
 
   it('liefert für jedes der acht Symbole ein mitgeliefertes Bild', () => {
     for (const key of SYMBOL_KEYS) {
-      expect(adressen).toContain(`${key}: '/xp-slot/symbole/${key}.svg'`);
-      expect(existsSync(`apps/web/public/xp-slot/symbole/${key}.svg`)).toBe(true);
+      expect(adressen).toContain(`${key}: '/xp-slot/symbole/${key}.png'`);
+      expect(existsSync(`apps/web/public/xp-slot/symbole/${key}.png`)).toBe(true);
     }
   });
 

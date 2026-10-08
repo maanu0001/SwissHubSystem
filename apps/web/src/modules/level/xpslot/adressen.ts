@@ -39,16 +39,36 @@ export function quelle(pfad: string | null, url: string | null): string | null {
  * nicht gibt, hat kein Standardbild - dann zeigt die Zelle den Namen, so wie
  * bisher. Das ist kein Fehlerfall, sondern der Rest eines Symbols, das in der
  * Vorgabe nicht vorkommt.
+ *
+ * ## Warum diese Dateien hier liegen und nicht irgendwo im Netz
+ *
+ * Sie werden mit der Anwendung ausgeliefert, von derselben Domain, mit dem
+ * Cache-Kopf aus `next.config.ts` (eine Woche, danach im Hintergrund
+ * erneuert). Damit sind sie aus jedem Land erreichbar, solange SwissHub
+ * selbst erreichbar ist - es gibt keinen fremden Dienst, der sie wegnehmen,
+ * befristen oder das Einbetten verbieten kann. Genau daran war eine
+ * eingetragene Adresse vorher gescheitert.
+ *
+ * ## Warum 384 Pixel
+ *
+ * Nachgemessen am gebauten Server, wie gross ein Symbol tatsaechlich
+ * dargestellt wird: auf dem Desktop eine Zelle von 95 Pixeln bei doppelter
+ * Pixeldichte, also 190 echte Pixel; auf einem Handy mit dreifacher Dichte
+ * 54 x 3 = 162. 384 deckt beides doppelt ab und laesst Luft fuer eine
+ * dichtere Anzeige, ohne dass jemand 1254 Pixel laedt, um 95 zu zeigen.
+ *
+ * Die Vorlagen hatten 1254 Pixel und 20,9 MB; diese acht Dateien sind
+ * zusammen 514 KB. Sichtbar ist das kein Unterschied - gerechnet schon.
  */
 export const STANDARD_SYMBOLE: Readonly<Record<string, string>> = {
-  eins: '/xp-slot/symbole/eins.svg',
-  drei: '/xp-slot/symbole/drei.svg',
-  fuenf: '/xp-slot/symbole/fuenf.svg',
-  zehn: '/xp-slot/symbole/zehn.svg',
-  logo: '/xp-slot/symbole/logo.svg',
-  wild: '/xp-slot/symbole/wild.svg',
-  bonus: '/xp-slot/symbole/bonus.svg',
-  premium: '/xp-slot/symbole/premium.svg',
+  eins: '/xp-slot/symbole/eins.png',
+  drei: '/xp-slot/symbole/drei.png',
+  fuenf: '/xp-slot/symbole/fuenf.png',
+  zehn: '/xp-slot/symbole/zehn.png',
+  logo: '/xp-slot/symbole/logo.png',
+  wild: '/xp-slot/symbole/wild.png',
+  bonus: '/xp-slot/symbole/bonus.png',
+  premium: '/xp-slot/symbole/premium.png',
 };
 
 /** Das Bild eines Symbols: das eigene zuerst, sonst das mitgelieferte. */
