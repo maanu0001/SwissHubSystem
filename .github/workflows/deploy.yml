@@ -80,15 +80,56 @@ jobs:
       # Fehlt eines davon, wuerden sich Pruefungen selbst ueberspringen - und
       # ein uebersprungener Test ist bei einem Backup die schlechteste aller
       # Auskuenfte. Deshalb hier ausdruecklich sicherstellen.
+      #
+      # **Der Client muss die Hauptversion des Servers haben, niemals eine
+      # neuere.** Das ist keine Vorsicht, sondern ein gemessener Ausfall:
+      # `postgresql-client` ohne Versionsnummer zog auf dem Runner
+      # irgendwann 18.7, waehrend der Dienst oben PostgreSQL 16 ist. Ein
+      # pg_dump 18 schreibt `SET transaction_timeout = 0;` in den Export -
+      # einen Parameter, den es erst ab PostgreSQL 17 gibt. Beim Einspielen
+      # bricht `psql -v ON_ERROR_STOP=1` daran ab:
+      #
+      #     ERROR: unrecognized configuration parameter "transaction_timeout"
+      #
+      # Der Restore-Test wurde damit rot, ohne dass sich am Code etwas
+      # geaendert hatte - und er hatte recht: ein Export, der sich nicht
+      # einspielen laesst, ist keine Sicherung. Exporte sind vorwaerts
+      # vertraeglich, nicht rueckwaerts.
+      #
+      # Deshalb die Version festgenagelt, ihr Pfad vor den unversionierten
+      # Wrapper gestellt, und die Behauptung danach geprueft: laeuft die
+      # Fassung wieder auseinander, scheitert dieser Schritt mit einem Satz,
+      # statt irgendwo in einer Wiederherstellung.
       - name: Werkzeuge fuer die Backup-Tests
         run: |
           set -euo pipefail
-          if ! command -v pg_dump >/dev/null 2>&1 || ! command -v age >/dev/null 2>&1; then
-            sudo apt-get update -qq
-            sudo apt-get install -y --no-install-recommends postgresql-client age
-          fi
+
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-16 age
+
+          # Vor den unversionierten Wrapper - sonst gewinnt eine neuere
+          # Fassung, die daneben installiert ist. Gilt auch fuer die
+          # folgenden Schritte, also die Tests.
+          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
+          export PATH=/usr/lib/postgresql/16/bin:$PATH
+
           pg_dump --version
+          psql --version
           age --version
+
+          server=$(psql "$DATABASE_URL" -tAXc "SELECT current_setting('server_version_num')::int / 10000")
+          # Das dritte Feld, erstes Glied: `pg_dump (PostgreSQL) 16.15 (...)`.
+          # Ein greedy `sed` auf die letzte Zahl der Zeile ergab hier `04` aus
+          # `...0ubuntu0.24.04.1` - ausprobiert, nicht angenommen.
+          client=$(pg_dump --version | awk '{print $3}' | cut -d. -f1)
+          echo "   Server: $server, Client: $client"
+          if [ "$client" -gt "$server" ]; then
+            echo "FEHLER: pg_dump $client ist neuer als der Server $server."
+            echo "       Ein neuerer Client schreibt Anweisungen in den Export, die der"
+            echo "       Server beim Einspielen nicht kennt - die Sicherung waere dann"
+            echo "       nicht wiederherstellbar. Bitte postgresql-client-$server verwenden."
+            exit 1
+          fi
 
       - name: Lint
         run: npm run lint

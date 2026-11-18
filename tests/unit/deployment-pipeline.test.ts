@@ -129,6 +129,76 @@ describe('Deployment-Workflow', () => {
  * Gemerkt wird das beim Wiederherstellen - dem einen Moment, in dem man es
  * nicht mehr aendern kann.
  */
+/**
+ * Der Client darf nie neuer sein als der Server.
+ *
+ * Gemeldet hat das die Pipeline selbst, und zwar ohne eine Codeaenderung:
+ * `postgresql-client` ohne Versionsnummer zog auf dem Runner irgendwann 18.7,
+ * waehrend Dienst und Produktion auf PostgreSQL 16 laufen. Ein `pg_dump` 18
+ * schreibt `SET transaction_timeout = 0;` in den Export - ein Parameter, den
+ * es erst ab PostgreSQL 17 gibt -, und `psql -v ON_ERROR_STOP=1` brach beim
+ * Einspielen daran ab:
+ *
+ *     ERROR: unrecognized configuration parameter "transaction_timeout"
+ *
+ * Der Restore-Test wurde rot und hatte recht: ein Export, der sich nicht
+ * einspielen laesst, ist keine Sicherung. Exporte sind vorwaerts
+ * vertraeglich, nicht rueckwaerts.
+ *
+ * Diese Pruefung haelt die drei Zahlen zusammen, die auseinanderlaufen
+ * koennen: die Hauptversion in der Produktion, die im Testdienst und die des
+ * Clients, den die Pipeline installiert.
+ */
+describe('PostgreSQL: Server und Client in derselben Hauptversion', () => {
+  /** `postgres:16-alpine` -> 16. */
+  function hauptversion(quelle: string, wo: string): string {
+    const treffer = /image:\s*postgres:(\d+)[-.]/u.exec(quelle);
+    expect(treffer, `Kein postgres-Abbild in ${wo}`).not.toBeNull();
+    return (treffer as RegExpExecArray)[1] ?? '';
+  }
+
+  const produktion = hauptversion(compose, 'docker-compose.prod.yml');
+  const testdienst = hauptversion(workflow, '.github/workflows/deploy.yml');
+
+  it('prueft gegen dieselbe Fassung, die in der Produktion laeuft', () => {
+    /*
+     * Ein Testdienst mit einer anderen Hauptversion prueft die Migrationen
+     * gegen eine Datenbank, die es nicht gibt - und ein Fehler, der nur in
+     * einer der beiden auftritt, faellt genau dort auf, wo niemand mehr
+     * eingreifen kann.
+     */
+    expect(testdienst, 'Testdienst und Produktion muessen dieselbe Hauptversion haben').toBe(produktion);
+  });
+
+  it('nagelt den Client auf diese Hauptversion fest', () => {
+    expect(workflow).toContain(`postgresql-client-${produktion}`);
+    /*
+     * Und nirgends mehr das unversionierte Paket **installieren**.
+     *
+     * Genau diese Zeile hat den Ausfall verursacht: welche Fassung
+     * `postgresql-client` zieht, entscheidet das Runner-Abbild. Geprueft wird
+     * der Aufruf und nicht die Erwaehnung - ein `apt-get install` ist eine
+     * Entscheidung, ein Wort im Kommentar ist die Begruendung dafuer.
+     */
+    const installiert = workflow
+      .split('\n')
+      .filter((zeile) => /apt-get install/u.test(zeile) && /postgresql-client(?![\d-])/u.test(zeile));
+    expect(installiert, 'apt-get install postgresql-client ohne Hauptversion').toEqual([]);
+    // Und ihr Pfad gewinnt gegen eine neuere Fassung daneben.
+    expect(workflow).toContain(`/usr/lib/postgresql/${produktion}/bin`);
+  });
+
+  it('bricht ab, wenn der Client trotzdem neuer ist', () => {
+    /*
+     * Der Rueckhalt fuer den naechsten Wechsel des Runner-Abbilds: dann
+     * scheitert die Pipeline mit einem Satz, statt irgendwo in einer
+     * Wiederherstellung.
+     */
+    expect(workflow).toContain('ist neuer als der Server');
+    expect(workflow).toMatch(/if \[ "\$client" -gt "\$server" \]; then/u);
+  });
+});
+
 describe('Sicherung', () => {
   /*
    * Das Skript liegt jetzt in `deploy/backup/`; `deploy/backup.sh` ist eine

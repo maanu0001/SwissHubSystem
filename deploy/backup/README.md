@@ -104,6 +104,18 @@ Dateisystems und nicht eine Regel in einer Route, die jemand übersehen kann.
 Im Compose-Betrieb läuft `pg_dump` **im Postgres-Container** – auf dem Host ist
 kein PostgreSQL installiert, und das soll so bleiben.
 
+> **Der Client darf nie neuer sein als der Server.** Das ist der Grund, warum
+> `pg_dump` im Container läuft und nicht auf dem Host: dort stimmt die
+> Hauptversion von selbst. Ein neuerer Client schreibt Anweisungen in den
+> Export, die der Server beim Einspielen nicht kennt – und eine Sicherung, die
+> sich nicht einspielen lässt, ist keine. Gemessen in der Pipeline: ein
+> `pg_dump` 18 gegen PostgreSQL 16 legt `SET transaction_timeout = 0;` in den
+> Export, ein Parameter ab PostgreSQL 17, und `psql -v ON_ERROR_STOP=1` bricht
+> beim Restore-Test mit `unrecognized configuration parameter` ab. Exporte sind
+> vorwärts verträglich, nicht rückwärts. Wer auf dem Host doch einmal einen
+> Client braucht, nimmt `postgresql-client-16` – dieselbe Hauptversion wie
+> `postgres:16-alpine` in `docker-compose.prod.yml`.
+
 Eine Sicherung gilt nur als gelungen, wenn sie es wirklich ist. Vier Prüfungen,
 und jede fängt einen anderen Fehler:
 
