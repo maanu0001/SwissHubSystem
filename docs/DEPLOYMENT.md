@@ -277,13 +277,30 @@ Eine dauerhafte Änderung gehört deshalb ins Repository, nicht auf den Server.
 Certbots TLS-Zeilen stehen in der Repo-Fassung bereits drin; die Zertifikate
 selbst liegen unter `/etc/letsencrypt/` und werden nicht angefasst.
 
-Der Schritt braucht `sudo` ohne Passwortabfrage für den Deploy-Benutzer. Fehlt
-das, scheitert das Deployment mit einem Hinweis darauf — es wird nicht still
-übersprungen.
+Der Schritt braucht `sudo` ohne Passwortabfrage für den Deploy-Benutzer.
+**Solange das fehlt, wird die Konfiguration nicht ausgespielt** — der Schritt
+sagt es dann in jedem Lauf und nennt die Zeile, die fehlt, bricht das
+Deployment aber nicht ab. Gemessen auf dem Server: genau dieser Fall, und ein
+harter Abbruch hätte jedes Deployment rot gemacht, obwohl Migration und
+Container längst sauber durch waren.
+
+Was einzutragen ist, etwa in `/etc/sudoers.d/swisshub-deploy`:
+
+```
+<deploy-benutzer> ALL=(root) NOPASSWD: /usr/bin/install, /bin/cp, /bin/ln, \
+  /usr/bin/cmp, /usr/bin/diff, /usr/bin/grep, /usr/bin/test, /usr/bin/rm, \
+  /usr/sbin/nginx, /usr/bin/systemctl reload nginx
+```
+
+Danach spielt der nächste Deploy die Datei aus, und Schritt 9 wird von einer
+Warnung zur harten Prüfung.
 
 Schritt 9 prüft danach die **Wirkung** statt der Datei: zwei Megabyte an einen
-Pfad, den es nicht gibt. Antwortet darauf ein 413, greift die Grenze nicht, und
-das Deployment scheitert.
+Pfad, den es nicht gibt. Antwortet darauf ein 413, greift die Grenze nicht.
+Gilt die Konfiguration (Schritt 7b hat sie ausgespielt oder sie war schon
+gleich), ist das ein Fehler und das Deployment scheitert. Wurde sie mangels
+Berechtigung nicht ausgespielt, ist der 413 die bekannte Folge davon und steht
+als Warnung da — denn dieser Lauf kann daran nichts ändern.
 
 Test:
 

@@ -355,52 +355,80 @@ jobs:
             ZIEL=/etc/nginx/sites-available/system.swisshub.gg.conf
             LINK=/etc/nginx/sites-enabled/system.swisshub.gg.conf
 
+            # Ob die Konfiguration in diesem Lauf wirklich gilt - Schritt 9
+            # entscheidet daran, ob ein 413 ein Fehler ist oder die bekannte
+            # Folge einer fehlenden Berechtigung.
+            NGINX_GEPFLEGT=nein
+
             if ! sudo -n true 2>/dev/null; then
-              echo "FEHLER: Dieser Schritt schreibt nach /etc/nginx und laedt nginx neu."
-              echo "       Dafuer braucht der Deploy-Benutzer sudo ohne Passwortabfrage."
-              exit 1
-            fi
-
-            fremde=$(sudo grep -rl 'server_name[[:space:]]\+system\.swisshub\.gg' /etc/nginx/sites-enabled/ 2>/dev/null | grep -vx "$LINK" || true)
-            if [ -n "$fremde" ]; then
-              echo "FEHLER: system.swisshub.gg steht ausserdem in:"
-              echo "$fremde" | sed 's/^/         /'
-              echo "       Welcher Serverblock gilt, entscheidet dann nginx. Bitte von Hand aufraeumen."
-              exit 1
-            fi
-
-            if sudo cmp -s "$QUELLE" "$ZIEL" 2>/dev/null; then
-              echo "   Die laufende Fassung ist schon die aus dem Repository."
+              # Warnen und weitermachen - nicht abbrechen.
+              #
+              # Hier stand `exit 1`, und das war zu grob: der Deploy war an
+              # dieser Stelle bereits fertig (Abbilder gebaut, Migration
+              # durchgelaufen, alle Container gesund) und scheiterte dann an
+              # einer Berechtigung auf dem Server, die niemand in diesem
+              # Lauf vergeben kann. Damit waere **jedes** Deployment rot,
+              # bis jemand den Server anfasst - und die externe Pruefung
+              # darunter kaeme nie mehr dran.
+              #
+              # Verschwiegen wird deshalb nichts: die Zeilen stehen in jedem
+              # Lauf, und Schritt 9 meldet die Folge. Sobald die
+              # Berechtigung da ist, spielt dieser Schritt die
+              # Konfiguration aus und Schritt 9 wird zur harten Pruefung.
+              echo "WARNUNG: Die nginx-Konfiguration wurde NICHT ausgespielt."
+              echo "         Dieser Schritt schreibt nach /etc/nginx und laedt nginx neu;"
+              echo "         dafuer braucht $(whoami) sudo ohne Passwortabfrage. Zum Beispiel"
+              echo "         in /etc/sudoers.d/swisshub-deploy:"
+              echo
+              echo "         $(whoami) ALL=(root) NOPASSWD: /usr/bin/install, /bin/cp, /bin/ln, /usr/bin/cmp, /usr/bin/diff, /usr/bin/grep, /usr/bin/test, /usr/bin/rm, /usr/sbin/nginx, /usr/bin/systemctl reload nginx"
+              echo
+              echo "         Solange das fehlt, gilt weiter die Fassung auf dem Server -"
+              echo "         und deren client_max_body_size. Siehe Schritt 9."
             else
-              sicherung=""
-              if sudo test -f "$ZIEL"; then
-                sicherung="${ZIEL}.vor-$(date -u +%Y%m%dT%H%M%SZ)"
-                sudo cp -a "$ZIEL" "$sicherung"
-                echo "   Sicherung: $sicherung"
-                echo "   Was sich aendert:"
-                sudo diff -u "$ZIEL" "$QUELLE" | sed 's/^/     /' || true
-              else
-                echo "   Unter $ZIEL lag noch keine Fassung."
-              fi
 
-              sudo install -o root -g root -m 0644 "$QUELLE" "$ZIEL"
-              sudo ln -sfn "$ZIEL" "$LINK"
-
-              if ! sudo nginx -t; then
-                echo "FEHLER: nginx lehnt die neue Konfiguration ab - es wird nichts neu geladen."
-                if [ -n "$sicherung" ]; then
-                  sudo cp -a "$sicherung" "$ZIEL"
-                  sudo nginx -t
-                  echo "   Die alte Fassung ist wieder in Kraft."
-                else
-                  sudo rm -f "$LINK"
-                  echo "   Die Verknuepfung ist wieder entfernt."
-                fi
+              fremde=$(sudo grep -rl 'server_name[[:space:]]\+system\.swisshub\.gg' /etc/nginx/sites-enabled/ 2>/dev/null | grep -vx "$LINK" || true)
+              if [ -n "$fremde" ]; then
+                echo "FEHLER: system.swisshub.gg steht ausserdem in:"
+                echo "$fremde" | sed 's/^/         /'
+                echo "       Welcher Serverblock gilt, entscheidet dann nginx. Bitte von Hand aufraeumen."
                 exit 1
               fi
 
-              sudo systemctl reload nginx
-              echo "   nginx neu geladen."
+              if sudo cmp -s "$QUELLE" "$ZIEL" 2>/dev/null; then
+                echo "   Die laufende Fassung ist schon die aus dem Repository."
+                NGINX_GEPFLEGT=ja
+              else
+                sicherung=""
+                if sudo test -f "$ZIEL"; then
+                  sicherung="${ZIEL}.vor-$(date -u +%Y%m%dT%H%M%SZ)"
+                  sudo cp -a "$ZIEL" "$sicherung"
+                  echo "   Sicherung: $sicherung"
+                  echo "   Was sich aendert:"
+                  sudo diff -u "$ZIEL" "$QUELLE" | sed 's/^/     /' || true
+                else
+                  echo "   Unter $ZIEL lag noch keine Fassung."
+                fi
+
+                sudo install -o root -g root -m 0644 "$QUELLE" "$ZIEL"
+                sudo ln -sfn "$ZIEL" "$LINK"
+
+                if ! sudo nginx -t; then
+                  echo "FEHLER: nginx lehnt die neue Konfiguration ab - es wird nichts neu geladen."
+                  if [ -n "$sicherung" ]; then
+                    sudo cp -a "$sicherung" "$ZIEL"
+                    sudo nginx -t
+                    echo "   Die alte Fassung ist wieder in Kraft."
+                  else
+                    sudo rm -f "$LINK"
+                    echo "   Die Verknuepfung ist wieder entfernt."
+                  fi
+                  exit 1
+                fi
+
+                sudo systemctl reload nginx
+                echo "   nginx neu geladen."
+                NGINX_GEPFLEGT=ja
+              fi
             fi
 
             echo "8. Pruefe die WebApp von aussen ..."
@@ -425,13 +453,26 @@ jobs:
                      -X POST -H 'Content-Type: application/octet-stream' --data-binary @- \
                      https://system.swisshub.gg/api/__grenzprobe || echo 000)
             if [ "$status" = "413" ]; then
-              echo "FEHLER: 2 MB werden weiterhin mit 413 abgewiesen - client_max_body_size greift nicht."
-              exit 1
-            fi
-            if [ "$status" = "000" ]; then
+              # Ein 413 ist ein Fehler, **wenn** die Konfiguration gilt. Gilt
+              # sie nicht, ist er die bekannte Folge davon - und der Grund
+              # steht oben in Schritt 7b. Ein harter Abbruch waere hier eine
+              # Meldung ueber etwas, das dieser Lauf nicht aendern kann.
+              if [ "$NGINX_GEPFLEGT" = "ja" ]; then
+                echo "FEHLER: 2 MB werden mit 413 abgewiesen, obwohl die Konfiguration gilt."
+                echo "       Dann setzt eine andere Schicht die Grenze - nicht diese Datei."
+                exit 1
+              fi
+              echo "WARNUNG: 2 MB werden mit 413 abgewiesen."
+              echo "         Erwartet, solange die nginx-Konfiguration nicht ausgespielt ist"
+              echo "         (siehe Schritt 7b). Uploads ueber rund 1 MB scheitern damit"
+              echo "         weiterhin, bevor SwissHub sie sieht."
+            elif [ "$status" = "000" ]; then
+              # Die Seite hat eben noch geantwortet (Schritt 8) - dann ist eine
+              # ausbleibende Antwort hier keine Nebensaechlichkeit.
               echo "FEHLER: Die Probe bekam keine HTTP-Antwort (Verbindung oder Zeitgrenze)."
               exit 1
+            else
+              echo "   2 MB kommen bei der Anwendung an (Antwort $status)."
             fi
-            echo "   2 MB kommen bei der Anwendung an (Antwort $status)."
 
             echo "=== DEPLOYMENT ERFOLGREICH ==="

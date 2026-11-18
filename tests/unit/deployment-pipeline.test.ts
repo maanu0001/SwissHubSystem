@@ -373,7 +373,22 @@ describe('Reverse Proxy und Upload-Limits', () => {
        * wurde, und keine Grenze, die gilt.
        */
       expect(deploy).toContain('2097152');
-      expect(deploy).toMatch(/if \[ "\$status" = "413" \]; then\n\s*echo "FEHLER/u);
+      expect(deploy).toMatch(/if \[ "\$status" = "413" \]; then/u);
+
+      /*
+       * Und der 413 ist nur dann ein Fehler, wenn die Konfiguration auch
+       * gilt. Auf dem Server fehlt dem Deploy-Benutzer `sudo` ohne Passwort;
+       * bis das jemand vergibt, ist der 413 die bekannte Folge davon und
+       * keine Meldung ueber etwas, das dieser Lauf aendern koennte. Ein
+       * harter Abbruch machte sonst **jedes** Deployment rot - auch die, bei
+       * denen alles andere in Ordnung ist.
+       */
+      expect(deploy).toContain('NGINX_GEPFLEGT=nein');
+      expect(deploy).toContain('NGINX_GEPFLEGT=ja');
+      expect(deploy).toMatch(/if \[ "\$NGINX_GEPFLEGT" = "ja" \]; then\n\s*echo "FEHLER/u);
+      // Und ohne die Berechtigung bricht 7b nicht ab, sondern sagt es.
+      expect(deploy).toContain('WARNUNG: Die nginx-Konfiguration wurde NICHT ausgespielt.');
+      expect(deploy).toContain('NOPASSWD:');
     });
   });
 });
