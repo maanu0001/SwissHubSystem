@@ -150,15 +150,20 @@ describe('Deployment-Workflow', () => {
  * Clients, den die Pipeline installiert.
  */
 describe('PostgreSQL: Server und Client in derselben Hauptversion', () => {
-  /** `postgres:16-alpine` -> 16. */
-  function hauptversion(quelle: string, wo: string): string {
-    const treffer = /image:\s*postgres:(\d+)[-.]/u.exec(quelle);
-    expect(treffer, `Kein postgres-Abbild in ${wo}`).not.toBeNull();
-    return (treffer as RegExpExecArray)[1] ?? '';
+  /** `image: postgres:16-alpine` -> alle Hauptversionen, die dort stehen. */
+  function hauptversionen(quelle: string): string[] {
+    return [...quelle.matchAll(/postgres:(\d+)-/gu)].map((treffer) => treffer[1] ?? '');
   }
 
-  const produktion = hauptversion(compose, 'docker-compose.prod.yml');
-  const testdienst = hauptversion(workflow, '.github/workflows/deploy.yml');
+  const produktion = hauptversionen(compose);
+  const pipeline = hauptversionen(workflow);
+
+  it('nennt ueberhaupt eine Fassung', () => {
+    // Die Gegenprobe zu den beiden Pruefungen darunter: ohne Treffer waere
+    // ein Vergleich zweier leerer Listen gruen und wertlos.
+    expect(produktion.length, 'Kein postgres-Abbild in docker-compose.prod.yml').toBeGreaterThan(0);
+    expect(pipeline.length, 'Kein postgres-Abbild im Workflow').toBeGreaterThan(0);
+  });
 
   it('prueft gegen dieselbe Fassung, die in der Produktion laeuft', () => {
     /*
@@ -167,35 +172,48 @@ describe('PostgreSQL: Server und Client in derselben Hauptversion', () => {
      * einer der beiden auftritt, faellt genau dort auf, wo niemand mehr
      * eingreifen kann.
      */
-    expect(testdienst, 'Testdienst und Produktion muessen dieselbe Hauptversion haben').toBe(produktion);
+    expect(new Set([...produktion, ...pipeline]).size, `Produktion ${produktion}, Pipeline ${pipeline}`).toBe(
+      1,
+    );
   });
 
-  it('nagelt den Client auf diese Hauptversion fest', () => {
-    expect(workflow).toContain(`postgresql-client-${produktion}`);
+  it('holt die Client-Werkzeuge aus demselben Abbild und nicht aus apt', () => {
     /*
-     * Und nirgends mehr das unversionierte Paket **installieren**.
+     * Zweimal gescheitert, bevor es so stand, und beide Male hatte der
+     * Restore-Test recht:
      *
-     * Genau diese Zeile hat den Ausfall verursacht: welche Fassung
-     * `postgresql-client` zieht, entscheidet das Runner-Abbild. Geprueft wird
-     * der Aufruf und nicht die Erwaehnung - ein `apt-get install` ist eine
-     * Entscheidung, ein Wort im Kommentar ist die Begruendung dafuer.
+     * 1. `postgresql-client` ohne Zahl zog 18.7 gegen einen Server 16. Ein
+     *    pg_dump 18 schreibt `SET transaction_timeout = 0;` in den Export -
+     *    ein Parameter ab PostgreSQL 17 -, und `psql -v ON_ERROR_STOP=1`
+     *    brach beim Einspielen daran ab.
+     * 2. `postgresql-client-16` gibt es auf Ubuntu 26.04 nicht. Die Fassung
+     *    festzunageln half also nicht - das Paket muss es auch geben.
+     *
+     * Aus dem Abbild des Dienstes gibt es die Frage nicht mehr, und es ist
+     * derselbe Weg wie in der Produktion: dort laeuft `pg_dump` im
+     * Postgres-Container.
      */
     const installiert = workflow
       .split('\n')
-      .filter((zeile) => /apt-get install/u.test(zeile) && /postgresql-client(?![\d-])/u.test(zeile));
-    expect(installiert, 'apt-get install postgresql-client ohne Hauptversion').toEqual([]);
-    // Und ihr Pfad gewinnt gegen eine neuere Fassung daneben.
-    expect(workflow).toContain(`/usr/lib/postgresql/${produktion}/bin`);
+      .filter((zeile) => /apt-get install/u.test(zeile) && /postgresql-client/u.test(zeile));
+    expect(installiert, 'postgresql-client gehoert nicht mehr aus apt').toEqual([]);
+
+    expect(workflow).toContain('ABBILD=postgres:');
+    expect(workflow).toMatch(/docker run --rm -i --network host/u);
+    for (const werkzeug of ['pg_dump', 'psql', 'createdb', 'dropdb']) {
+      expect(workflow, `Huelle fuer ${werkzeug} fehlt`).toContain(werkzeug);
+    }
   });
 
-  it('bricht ab, wenn der Client trotzdem neuer ist', () => {
+  it('bricht ab, wenn Client und Server doch auseinanderlaufen', () => {
     /*
-     * Der Rueckhalt fuer den naechsten Wechsel des Runner-Abbilds: dann
-     * scheitert die Pipeline mit einem Satz, statt irgendwo in einer
-     * Wiederherstellung.
+     * Der Rueckhalt, der beide Ausfaelle oben an derselben Stelle gefangen
+     * haette: die Pipeline scheitert dann mit einem Satz, statt irgendwo in
+     * einer Wiederherstellung.
      */
-    expect(workflow).toContain('ist neuer als der Server');
-    expect(workflow).toMatch(/if \[ "\$client" -gt "\$server" \]; then/u);
+    expect(workflow).toContain('passt nicht zum Server');
+    expect(workflow).toMatch(/if \[ "\$client" != "\$server" \]; then/u);
+    expect(workflow).toContain("SELECT current_setting('server_version_num')::int / 10000");
   });
 });
 

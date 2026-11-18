@@ -81,53 +81,70 @@ jobs:
       # ein uebersprungener Test ist bei einem Backup die schlechteste aller
       # Auskuenfte. Deshalb hier ausdruecklich sicherstellen.
       #
-      # **Der Client muss die Hauptversion des Servers haben, niemals eine
-      # neuere.** Das ist keine Vorsicht, sondern ein gemessener Ausfall:
-      # `postgresql-client` ohne Versionsnummer zog auf dem Runner
-      # irgendwann 18.7, waehrend der Dienst oben PostgreSQL 16 ist. Ein
-      # pg_dump 18 schreibt `SET transaction_timeout = 0;` in den Export -
-      # einen Parameter, den es erst ab PostgreSQL 17 gibt. Beim Einspielen
-      # bricht `psql -v ON_ERROR_STOP=1` daran ab:
+      # **Die Client-Werkzeuge kommen aus dem Abbild des Dienstes, nicht aus
+      # apt.** Damit stimmt die Hauptversion per Definition - und zwar auf
+      # demselben Weg wie in der Produktion, wo `pg_dump` im Postgres-Container
+      # laeuft und auf dem Host gar kein PostgreSQL installiert ist.
       #
-      #     ERROR: unrecognized configuration parameter "transaction_timeout"
+      # Der Weg ueber apt ist daran zweimal gescheitert, und beide Male hatte
+      # der Restore-Test recht:
       #
-      # Der Restore-Test wurde damit rot, ohne dass sich am Code etwas
-      # geaendert hatte - und er hatte recht: ein Export, der sich nicht
-      # einspielen laesst, ist keine Sicherung. Exporte sind vorwaerts
-      # vertraeglich, nicht rueckwaerts.
+      # 1. `postgresql-client` ohne Versionsnummer zog auf dem Runner 18.7,
+      #    waehrend der Dienst PostgreSQL 16 ist. Ein pg_dump 18 schreibt
+      #    `SET transaction_timeout = 0;` in den Export - einen Parameter ab
+      #    PostgreSQL 17 -, und `psql -v ON_ERROR_STOP=1` brach beim
+      #    Einspielen ab: «unrecognized configuration parameter». Ein Export,
+      #    der sich nicht einspielen laesst, ist keine Sicherung.
+      # 2. `postgresql-client-16` gibt es auf dem Abbild Ubuntu 26.04 nicht:
+      #    «E: Unable to locate package». Die Fassung festzunageln half also
+      #    nicht - das Paket, auf das man zeigt, muss es auch geben.
       #
-      # Deshalb die Version festgenagelt, ihr Pfad vor den unversionierten
-      # Wrapper gestellt, und die Behauptung danach geprueft: laeuft die
-      # Fassung wieder auseinander, scheitert dieser Schritt mit einem Satz,
-      # statt irgendwo in einer Wiederherstellung.
+      # Aus dem Abbild gibt es diese Frage nicht mehr. Das Abbild ist bereits
+      # geladen - der Dienst oben laeuft darauf -, und `--network host` sieht
+      # dessen abgebildeten Port auf `localhost`.
+      #
+      # Die Skripte rufen diese Werkzeuge ausschliesslich mit
+      # Verbindungsadressen und ueber Standardeingabe auf, nie mit einem
+      # Dateipfad. Nur deshalb traegt die Huelle: ein Pfad des Hosts waere im
+      # Container nicht da.
       - name: Werkzeuge fuer die Backup-Tests
         run: |
           set -euo pipefail
 
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends postgresql-client-16 age
+          sudo apt-get install -y --no-install-recommends age
 
-          # Vor den unversionierten Wrapper - sonst gewinnt eine neuere
-          # Fassung, die daneben installiert ist. Gilt auch fuer die
-          # folgenden Schritte, also die Tests.
-          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
-          export PATH=/usr/lib/postgresql/16/bin:$PATH
+          ABBILD=postgres:16-alpine
+          mkdir -p "$HOME/pgbin"
+          for werkzeug in pg_dump psql createdb dropdb; do
+            printf '#!/bin/sh\nexec docker run --rm -i --network host %s %s "$@"\n' \
+              "$ABBILD" "$werkzeug" > "$HOME/pgbin/$werkzeug"
+            chmod +x "$HOME/pgbin/$werkzeug"
+          done
+          # Auch fuer die folgenden Schritte, also die Tests.
+          echo "$HOME/pgbin" >> "$GITHUB_PATH"
+          export PATH="$HOME/pgbin:$PATH"
 
           pg_dump --version
           psql --version
           age --version
 
+          # Die Behauptung pruefen, statt sie zu glauben: der Client darf nie
+          # neuer sein als der Server. Laeuft das auseinander, scheitert dieser
+          # Schritt mit einem Satz - und nicht irgendwo in einer
+          # Wiederherstellung.
           server=$(psql "$DATABASE_URL" -tAXc "SELECT current_setting('server_version_num')::int / 10000")
           # Das dritte Feld, erstes Glied: `pg_dump (PostgreSQL) 16.15 (...)`.
           # Ein greedy `sed` auf die letzte Zahl der Zeile ergab hier `04` aus
           # `...0ubuntu0.24.04.1` - ausprobiert, nicht angenommen.
           client=$(pg_dump --version | awk '{print $3}' | cut -d. -f1)
           echo "   Server: $server, Client: $client"
-          if [ "$client" -gt "$server" ]; then
-            echo "FEHLER: pg_dump $client ist neuer als der Server $server."
+          if [ "$client" != "$server" ]; then
+            echo "FEHLER: pg_dump $client passt nicht zum Server $server."
             echo "       Ein neuerer Client schreibt Anweisungen in den Export, die der"
             echo "       Server beim Einspielen nicht kennt - die Sicherung waere dann"
-            echo "       nicht wiederherstellbar. Bitte postgresql-client-$server verwenden."
+            echo "       nicht wiederherstellbar. ABBILD und der Dienst oben muessen"
+            echo "       dieselbe Hauptversion tragen."
             exit 1
           fi
 

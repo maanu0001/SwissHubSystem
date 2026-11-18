@@ -112,9 +112,19 @@ kein PostgreSQL installiert, und das soll so bleiben.
 > `pg_dump` 18 gegen PostgreSQL 16 legt `SET transaction_timeout = 0;` in den
 > Export, ein Parameter ab PostgreSQL 17, und `psql -v ON_ERROR_STOP=1` bricht
 > beim Restore-Test mit `unrecognized configuration parameter` ab. Exporte sind
-> vorwärts verträglich, nicht rückwärts. Wer auf dem Host doch einmal einen
-> Client braucht, nimmt `postgresql-client-16` – dieselbe Hauptversion wie
-> `postgres:16-alpine` in `docker-compose.prod.yml`.
+> vorwärts verträglich, nicht rückwärts.
+>
+> Wer die Werkzeuge doch einmal auf einem Host braucht, nimmt sie aus dem
+> Abbild statt aus der Paketverwaltung – dort stimmt die Hauptversion von
+> selbst, und sie muss nicht als Paket existieren:
+>
+> ```sh
+> docker run --rm -i --network host postgres:16-alpine pg_dump "$DATABASE_URL"
+> ```
+>
+> Genau diesen Weg geht die Pipeline. `postgresql-client-16` wäre die
+> naheliegende Alternative und scheiterte am Runner-Abbild Ubuntu 26.04:
+> `E: Unable to locate package`.
 
 Eine Sicherung gilt nur als gelungen, wenn sie es wirklich ist. Vier Prüfungen,
 und jede fängt einen anderen Fehler:
