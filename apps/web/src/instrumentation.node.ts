@@ -6,12 +6,13 @@ import {
 } from '@swisshub/config';
 import { createLogger } from '@swisshub/logger';
 import { ensureBootstrapRoles } from '@swisshub/permissions';
-import { backfillModuleViewPermissions, importGuildFromEnvironment } from '@swisshub/modules';
+import { backfillModuleViewPermissions, importGuildFromEnvironment, logs } from '@swisshub/modules';
 import {
   assertIntegrationsReady,
   ensureSystemBot,
   refreshIntegrationRuntimeIfChanged,
 } from '@swisshub/secrets';
+import { setzeFehlerMelder } from './fehler-melder';
 
 const log = createLogger('web');
 
@@ -117,5 +118,26 @@ function registerShutdownHooks(): void {
   process.once('SIGTERM', () => shutdown('SIGTERM'));
   process.once('SIGINT', () => shutdown('SIGINT'));
 }
+
+/*
+ * Den Fehler-Melder eintragen - als Erstes, vor `bootstrap()`.
+ *
+ * Diese Datei laeuft ausschliesslich in der Node-Laufzeit; `onRequestError`
+ * in `instrumentation.ts` wird fuer beide uebersetzt und darf
+ * `@swisshub/modules` deshalb nicht importieren. Die ganze Begruendung steht
+ * in `fehler-melder.ts`.
+ *
+ * Vor dem Start und nicht danach: ein Fehler **waehrend** des Starts ist der
+ * interessanteste von allen. Danach eingetragen waere er der einzige, den der
+ * Log nicht sieht.
+ */
+setzeFehlerMelder(async (meldung) => {
+  await logs.meldeFehler({
+    source: 'WEBAPP',
+    origin: meldung.origin,
+    fehler: meldung.fehler,
+    kontext: meldung.kontext,
+  });
+});
 
 await bootstrap();

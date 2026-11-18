@@ -203,6 +203,8 @@ export type {
   DiscordLogDelivery,
   DiscordLogDeliveryStatus,
   DiscordLogHealth,
+  ErrorLogEntry,
+  ErrorLogSource,
   ModerationAction,
   ModerationActionType,
   ModerationActorType,

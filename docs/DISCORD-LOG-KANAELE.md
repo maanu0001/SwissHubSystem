@@ -32,12 +32,13 @@ wurde: kein `sendeLog(...)` in jedem Event-Handler. Beim nächsten neuen
 Ereignis vergisst es jemand, und ein fehlendes Log sieht aus wie ein Ereignis,
 das nicht stattgefunden hat.
 
-Stattdessen genau zwei Stellen:
+Stattdessen genau drei Stellen:
 
 | Anknüpfpunkt       | Datei                                       | speist                                  |
 | ------------------ | ------------------------------------------- | --------------------------------------- |
 | `meldeMassnahme()` | `packages/modules/src/moderation/events.ts` | `MODERATION`                            |
 | `recordEvent()`    | `packages/modules/src/analytics/events.ts`  | `MESSAGES`, `VOICE`, `MEMBERS`, `ADMIN` |
+| `meldeFehler()`    | `packages/modules/src/logs/fehler.ts`       | `ERRORS`                                |
 
 Beide schrieben ihren Logeintrag ohnehin schon. Sie melden ihn jetzt zusätzlich
 weiter — und tun das für **alle** Quellen gleichermassen: eine Massnahme aus
@@ -46,7 +47,7 @@ Zeitsteuerung ausgelöst nimmt denselben Weg.
 
 ## 3. Kategorien
 
-Fünf, und jede hat eine tatsächliche Quelle im System. Eine Kategorie ohne
+Sieben, und jede hat eine tatsächliche Quelle im System. Eine Kategorie ohne
 Quelle wäre ein Auswahlfeld, das nie etwas sendet — schlimmer als ein
 fehlendes Feld, weil jemand darauf vertraut.
 
@@ -58,6 +59,7 @@ fehlendes Feld, weil jemand darauf vertraut.
 | `JOIN_LEAVE` | `DiscordEvent` / MEMBER                | Beitritt (mit Einladung), Austritt                           |
 | `MEMBERS`    | `DiscordEvent` / MEMBER                | Rollen, Spitzname — und Beitritt/Austritt ohne eigenen Kanal |
 | `ADMIN`      | `DiscordEvent` / ROLE, CHANNEL, SERVER | Kanal gelöscht, Rolle bearbeitet                             |
+| `ERRORS`     | `ErrorLogEntry`                        | gescheiterter Slash-Befehl, Server Action fehlgeschlagen     |
 
 ### `JOIN_LEAVE` und der Rückfall auf `MEMBERS`
 
@@ -318,6 +320,44 @@ Intent bliebe der Spiegel zwischen zwei Beitritten stehen.
 
 Mehr nicht. Ohne Eintrag greift eine neutrale Ersatzdarstellung, es wird also
 nichts verschluckt.
+
+### `ERRORS` — die Kategorie, die vom Misserfolg erzählt
+
+Die übrigen sechs berichten von Vorgängen auf dem Server. `ERRORS` berichtet
+davon, dass einer **nicht** funktioniert hat: ein Slash-Befehl, der abbricht,
+eine Server Action, die mit einem Toast endet, eine unbehandelte Ablehnung im
+Bot. Alles davon stand bisher nur im Serverprotokoll — und dort liest es
+niemand, solange nicht schon jemand gemeldet hat, dass etwas kaputt ist.
+
+Drei Eigenschaften machen sie benutzbar, und alle drei stehen in
+`packages/modules/src/logs/fehler.ts`:
+
+| Eigenschaft       | Was sie tut                                                                                    |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| `fingerprint`     | Gleiche Fehler sind eine Zeile. Kennungen und Zahlen werden vor dem Hash entstellt.            |
+| Ruhezeit (30 min) | Nach einer Meldung bleibt derselbe Fehler still. Danach darf er sich erneut melden.            |
+| `MELDEPFLICHTIG`  | «Dir fehlt die Berechtigung» ist eine Antwort, kein Fehler — und steht deshalb nicht im Kanal. |
+
+**Bereinigung ist nicht optional.** Eine Fehlermeldung zitiert gern die
+Anfrage, die sie ausgelöst hat, und eine Anfrage trägt Tokens und
+Verbindungszeichenfolgen. `bereinige` ist der einzige Weg in die Tabelle;
+`tests/unit/fehler-log.test.ts` hält das fest — inklusive der Gegenprobe, dass
+Dateipfade im Stapel **stehen bleiben**. Ein Log, der jeden Pfad als `[lang]`
+maskiert, ist sauber und wertlos.
+
+Angeknüpft ist sie an vier Stellen, und keine davon ist ein einzelner
+`catch`-Block in einem Feature:
+
+| Stelle                              | fängt                                                   |
+| ----------------------------------- | ------------------------------------------------------- |
+| `apps/web/src/instrumentation.ts`   | alles, was die WebApp serverseitig wirft (Next-Haken)   |
+| `apps/web/src/server/action.ts`     | Server Actions — die fängt die Kette selbst, siehe dort |
+| `apps/bot/src/commands/register.ts` | was ein Befehlsadapter durchlässt                       |
+| `apps/bot/src/index.ts`             | `unhandledRejection` und `uncaughtException`            |
+
+Die Kategorie wird von **keiner** Migration auf einen Kanal gelegt. Ohne
+eingerichteten Kanal zählt die Tabelle weiter und sendet nichts — der Log hört
+nicht auf zu zählen, nur weil niemand zuhört.
 
 **Neue Kategorie** — vier Stellen:
 

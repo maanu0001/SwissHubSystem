@@ -104,9 +104,18 @@ export function defineAction<TSchema extends z.ZodTypeAny, TResult>(
 ): (input: ActionInput) => Promise<ActionResult<TResult>> {
   return async (rawInput: ActionInput): Promise<ActionResult<TResult>> => {
     const metadata = await getRequestMetadata();
+    /*
+     * Wer es war - fuer den Fehler-Log im `catch`.
+     *
+     * Ausserhalb des `try`, weil `context` dort drin lebt und im `catch`
+     * nicht mehr erreichbar waere. Bleibt `null`, wenn die Kette bereits an
+     * der Anmeldung abgebrochen ist; dann gibt es auch niemanden zu nennen.
+     */
+    let actorFuerLog: string | null = null;
 
     try {
       const context = await getActionAuthContext(definition.freshness ?? 'critical');
+      actorFuerLog = context?.user.discordId ?? null;
 
       if (!context) {
         await recordSecurityEvent({
@@ -249,6 +258,35 @@ export function defineAction<TSchema extends z.ZodTypeAny, TResult>(
           reason: appError.internalMessage,
         });
       }
+      /*
+       * Der Fehler-Log.
+       *
+       * `onRequestError` in `instrumentation.ts` sieht diesen Fehler nie:
+       * diese Kette faengt ihn und antwortet dem Browser mit einem Ergebnis,
+       * statt ihn zu werfen. Ohne diese Zeile waere jede gescheiterte Server
+       * Action die eine Fehlerquelle, die im Fehlerkanal fehlt - und das
+       * sind die Fehler, die ein Mitglied als Toast sieht und niemand sonst.
+       *
+       * `meldeFehler` entscheidet selbst, was meldepflichtig ist: eine
+       * fehlende Berechtigung und eine ungueltige Eingabe sind Antworten und
+       * keine Fehler. Hier wird deshalb nicht vorgefiltert - sonst stuende
+       * dieselbe Regel an zwei Stellen.
+       *
+       * Nicht abgewartet. Die Person, die gerade gespeichert hat, soll nicht
+       * darauf warten, dass ein Logeintrag geschrieben ist.
+       */
+      const original = error;
+      void import('@swisshub/modules')
+        .then(({ logs }) =>
+          logs.meldeFehler({
+            source: 'WEBAPP',
+            origin: `action:${definition.name}`,
+            fehler: original,
+            actorDiscordId: actorFuerLog,
+            kontext: { modul: definition.module ?? null },
+          }),
+        )
+        .catch(() => undefined);
       return fail(appError);
     }
   };

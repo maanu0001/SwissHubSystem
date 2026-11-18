@@ -841,7 +841,17 @@ describe('Der Sprung - der zweite Klick auf Spin', () => {
     // «Spin» auf einem Knopf, der abbricht, waere eine Luege - und jemand
     // wuerde darauf klicken, um einen zweiten Spin zu bekommen.
     expect(quelle).toContain("springbar ? 'Stop' : imFreispiel ? 'Freispiel' : 'Spin'");
-    expect(quelle).toContain('disabled={(beschaeftigt && !springbar)');
+    /*
+     * Die Bedingung steht in `gesperrt` und nicht mehr im Attribut.
+     *
+     * Seit die Leertaste spinnt, brauchen Knopf und Taste **dieselbe**
+     * Bedingung - sonst tut die Taste etwas, was der Knopf verbietet, und
+     * zwar genau in dem Moment, in dem er «Stop» zeigt. Deshalb wird hier
+     * die Bedingung geprueft und dass der Knopf sie benutzt, statt eines
+     * Attributtexts, der nur eine der beiden Stellen festhalten wuerde.
+     */
+    expect(quelle).toContain('const gesperrt = (beschaeftigt && !springbar)');
+    expect(quelle).toContain('disabled={gesperrt}');
   });
 
   it('gibt den Sprung nach den Walzen wieder frei', () => {
@@ -1033,5 +1043,71 @@ describe('Die grossen Meldungen', () => {
     expect(meldung).toContain("stimmung !== 'verlust' && !ruhig ? <Partikel");
     const css = lies(CSS);
     expect(css).toContain('.slot-meldung__karte--verlust');
+  });
+});
+
+describe('Die Gesamt-Gewinnnachricht am Ende einer Runde', () => {
+  /**
+   * Gemeldet war: «Die Gesamt-Gewinnnachricht beim Bonus soll erst am ende des
+   * letzten Spinns kommen, wenn alle gewinnlinien angezeigt wurden.»
+   *
+   * Sie kam vorher, sobald die Antwort des Servers da war - und legte sich
+   * damit ueber die Walzen, waehrend die letzten Linien noch einzeln
+   * aufleuchteten. Man sah die Summe, bevor man gesehen hatte, woher sie kommt.
+   *
+   * Geprueft wird die **Reihenfolge im Quelltext**, nicht ein Text. Eine
+   * Reihenfolge laesst sich ohne Browser nicht anders festhalten, und sie ist
+   * genau das, was hier falsch war: dieselben vier Schritte, nur in der
+   * falschen Folge.
+   */
+  const quelle = ohneKommentare(lies(SPIEL));
+
+  const stelle = (teil: string): number => {
+    const index = quelle.indexOf(teil);
+    expect(index, `nicht gefunden: ${teil}`).toBeGreaterThan(-1);
+    return index;
+  };
+
+  it('setzt den Rundenabschluss nach der Linienfolge', () => {
+    // `allLinesFinished` ist das Ende der Reihe einzelner Gewinnlinien.
+    expect(stelle("melde({ art: 'allLinesFinished' })")).toBeLessThan(stelle('bonusEnde: spin.bonusEnde'));
+    expect(stelle("melde({ art: 'allLinesFinished' })")).toBeLessThan(
+      stelle('freispielEnde: spin.freispielEnde'),
+    );
+  });
+
+  it('setzt den Rundenabschluss nach der grossen Meldung', () => {
+    /*
+     * Big Win, Mega Win, Jackpot kommen vor dem Rundenabschluss: erst der
+     * Gewinn dieses Spins, dann die Summe der Runde. Umgekehrt stuenden zwei
+     * Overlays uebereinander - und das obere waere das falsche.
+     */
+    expect(stelle('setGrosseMeldung({ stufe: folge.meldung')).toBeLessThan(
+      stelle('bonusEnde: spin.bonusEnde'),
+    );
+  });
+
+  it('setzt ihn genau einmal und nur hier', () => {
+    // Zwei Stellen waeren zwei Reihenfolgen, und eine davon pruefte niemand.
+    expect(quelle.match(/bonusEnde: spin\.bonusEnde/gu)).toHaveLength(1);
+    expect(quelle.match(/freispielEnde: spin\.freispielEnde/gu)).toHaveLength(1);
+  });
+
+  it('überspringt beim Sprung die Vorführung, nicht das Ergebnis', () => {
+    /*
+     * Beim Sprung faellt die Linienfolge weg. Der Abschluss darf nicht
+     * mitfallen - sonst verschwaende die Gesamtmeldung genau fuer den, der
+     * schneller sein wollte.
+     *
+     * Im Quelltext steht der Abschluss deshalb **ausserhalb** des Blocks, der
+     * die Folge zeigt: er haengt nur an `spin.bonusEnde` und an keiner
+     * Sprungbedingung.
+     */
+    const abschnitt = quelle.slice(
+      stelle("melde({ art: 'allLinesFinished' })"),
+      stelle('freispielEnde: spin.freispielEnde'),
+    );
+    expect(abschnitt).not.toContain('uebersprungenRef.current');
+    expect(abschnitt).not.toContain('springbar');
   });
 });

@@ -203,7 +203,14 @@ export function WalzenBild({
                   <div
                     key={index}
                     className="slot-haftend__zelle"
-                    style={{ top: `calc(var(--slot-zelle) * ${index % reihen})` }}
+                    style={
+                      {
+                        top: `calc(var(--slot-zelle) * ${index % reihen})`,
+                        // Welche Reihe das ist - die CSS-Scheibe des
+                        // Walzenhintergrunds richtet sich danach.
+                        '--slot-reihe': index % reihen,
+                      } as React.CSSProperties
+                    }
                   >
                     <Zelle symbol={wildSymbol} klebt />
                   </div>

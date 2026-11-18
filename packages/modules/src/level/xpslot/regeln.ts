@@ -205,3 +205,68 @@ export function dreheWalzen(
     return ziehSymbol(ziehbar, random).key;
   });
 }
+
+/**
+ * Wo die Bonusrunde beginnt - abhaengig davon, wie viele Scatter kamen.
+ *
+ * ## Die Regel
+ *
+ * Mehr Scatter als noetig heben den **Einstieg in die Risikoleiter**, nicht
+ * den Gewinn daneben. Mit der Vorgabe (Ausloeser 3, garantiert 8, Leiter 12
+ * und 16) heisst das:
+ *
+ *     3 Scatter   8 nehmen  oder auf 12 riskieren, dann auf 16
+ *     4 Scatter  12 nehmen  oder auf 16 riskieren
+ *     5 Scatter  12 nehmen  oder auf 16 riskieren
+ *     6 Scatter  16 sofort, ohne Leiter
+ *
+ * ## Warum relativ zum Ausloeser und nicht «ab vier»
+ *
+ * Weil der Ausloeser einstellbar ist. Stuende hier die feste Zahl vier,
+ * waere die Staffel bei einem Ausloeser von fuenf sinnlos: der erste
+ * moegliche Treffer waere schon die zweite Stufe. Gezaehlt wird deshalb, wie
+ * viele Scatter **ueber** dem Ausloeser liegen - einer mehr hebt eine
+ * Sprosse, drei mehr geben das Maximum sofort.
+ *
+ * ## Warum nie nach unten
+ *
+ * Eine abgeschaltete Leiter traegt die Null (`leiter1`, `leiter2`), und eine
+ * Null waere ein Rueckschritt: sechs Scatter duerfen nicht weniger bringen
+ * als drei. Die Stufe faellt deshalb zurueck, solange die naechste nicht
+ * mehr Freispiele traegt als die vorige. `pruefeKonfig` stellt sicher, dass
+ * eine eingeschaltete Leiter echt steigt - diese Pruefung deckt den Fall ab,
+ * dass sie ganz aus ist.
+ */
+export interface BonusEinstieg {
+  stufe: 'LADDER_1' | 'LADDER_2' | 'SPINS';
+  /** Die Freispiele, die sofort anstehen - nur bei `SPINS` gesetzt. */
+  freispiele: number;
+}
+
+export function bonusEinstieg(
+  scatter: number,
+  werte: {
+    bonusAusloeser: number;
+    bonusFreispiele: number;
+    leiter1: number;
+    leiter2: number;
+  },
+): BonusEinstieg {
+  const sprossen: Array<{ stufe: BonusEinstieg['stufe']; wert: number }> = [
+    { stufe: 'LADDER_1', wert: werte.bonusFreispiele },
+    { stufe: 'LADDER_2', wert: werte.leiter1 },
+    { stufe: 'SPINS', wert: werte.leiter2 },
+  ];
+
+  const ueber = scatter - werte.bonusAusloeser;
+  let ziel = ueber >= 3 ? 2 : ueber >= 1 ? 1 : 0;
+  while (ziel > 0 && (sprossen[ziel]?.wert ?? 0) <= (sprossen[ziel - 1]?.wert ?? 0)) {
+    ziel -= 1;
+  }
+
+  const sprosse = sprossen[ziel] ?? sprossen[0];
+  return {
+    stufe: sprosse?.stufe ?? 'LADDER_1',
+    freispiele: sprosse?.stufe === 'SPINS' ? (sprosse.wert ?? 0) : 0,
+  };
+}

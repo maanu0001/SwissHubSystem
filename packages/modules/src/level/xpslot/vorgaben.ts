@@ -48,10 +48,29 @@ export interface SymbolVorgabe {
  *
  * ## Die Zahlen, und warum genau diese
  *
- * Mit diesen Werten rechnet `rechneRtp` eine Quote von 92,6 Prozent, davon
+ * Mit diesen Werten rechnet `rechneRtp` eine Quote von 92,2 Prozent, davon
  * 55 Punkte aus dem Grundspiel und 37 aus den Freispielen. Das Verhaeltnis
  * ist Absicht: ein Automat, der fast alles ueber das Bonusspiel ausschuettet,
  * fuehlt sich zwischen zwei Bonusrunden wie ein Totalausfall an.
+ *
+ * ## Warum die Zahlen so krumm sind
+ *
+ * Sie waren einmal glatt - 30, 24, 17, 11, 5, 7, 3, 1 - und sind es nicht
+ * mehr, weil die Scatter-Staffel eine feinere Abstufung braucht. Seit mehr
+ * Scatter den Einstieg in die Risikoleiter heben (siehe `bonusEinstieg`),
+ * ist die Quote sehr empfindlich gegen den Anteil des Bonussymbols: mit dem
+ * alten Verhaeltnis 3 zu 94 lag sie bei 99,3 Prozent, mit 2 zu 94 bei 71,3.
+ * Dazwischen gab es keine ganze Zahl.
+ *
+ * Alle Gewichte sind deshalb mit 16 multipliziert; das Bonussymbol nur mit
+ * 15. Die Verhaeltnisse der uebrigen Symbole zueinander sind damit
+ * unveraendert, der Anteil des Bonussymbols sinkt um ein Sechzehntel, und
+ * eine Stufe verschiebt die Quote noch um gut zwei Punkte statt um
+ * achtundzwanzig. Eine Bonusrunde kommt jetzt etwa alle 117 Spins statt alle
+ * 98.
+ *
+ * Wer hier rundet, verschiebt die Quote. Die Zahlen sehen willkuerlich aus,
+ * sie sind es nicht.
  *
  * Das Premiumsymbol zahlt **XP und Tage**. Nur Tage waere ein Gewicht, das
  * die Quote senkt, ohne in XP etwas zurueckzugeben - jedes Event mit Premium
@@ -65,7 +84,7 @@ export const SYMBOL_VORGABEN: readonly SymbolVorgabe[] = [
     key: 'eins',
     name: '1',
     rolle: 'NORMAL',
-    gewicht: 30,
+    gewicht: 480,
     auszahlung: [1000, 4000, 13000],
     premiumTage: [0, 0, 0],
     glow: false,
@@ -75,7 +94,7 @@ export const SYMBOL_VORGABEN: readonly SymbolVorgabe[] = [
     key: 'drei',
     name: '3',
     rolle: 'NORMAL',
-    gewicht: 24,
+    gewicht: 384,
     auszahlung: [1600, 6500, 24000],
     premiumTage: [0, 0, 0],
     glow: false,
@@ -85,7 +104,7 @@ export const SYMBOL_VORGABEN: readonly SymbolVorgabe[] = [
     key: 'fuenf',
     name: '5',
     rolle: 'NORMAL',
-    gewicht: 17,
+    gewicht: 272,
     auszahlung: [3200, 13000, 48000],
     premiumTage: [0, 0, 0],
     glow: false,
@@ -95,7 +114,7 @@ export const SYMBOL_VORGABEN: readonly SymbolVorgabe[] = [
     key: 'zehn',
     name: '10',
     rolle: 'NORMAL',
-    gewicht: 11,
+    gewicht: 176,
     auszahlung: [6500, 26500, 106000],
     premiumTage: [0, 0, 0],
     glow: true,
@@ -105,7 +124,7 @@ export const SYMBOL_VORGABEN: readonly SymbolVorgabe[] = [
     key: 'logo',
     name: 'SwissHub Logo',
     rolle: 'JACKPOT',
-    gewicht: 5,
+    gewicht: 80,
     auszahlung: [13000, 66000, 0],
     premiumTage: [0, 0, 0],
     glow: true,
@@ -115,7 +134,7 @@ export const SYMBOL_VORGABEN: readonly SymbolVorgabe[] = [
     key: 'wild',
     name: 'Wild',
     rolle: 'WILD',
-    gewicht: 7,
+    gewicht: 112,
     auszahlung: [0, 0, 0],
     premiumTage: [0, 0, 0],
     glow: true,
@@ -126,7 +145,7 @@ export const SYMBOL_VORGABEN: readonly SymbolVorgabe[] = [
     key: 'bonus',
     name: 'Bonus',
     rolle: 'SCATTER',
-    gewicht: 3,
+    gewicht: 45,
     auszahlung: [0, 0, 0],
     premiumTage: [0, 0, 0],
     glow: true,
@@ -136,7 +155,7 @@ export const SYMBOL_VORGABEN: readonly SymbolVorgabe[] = [
     key: 'premium',
     name: 'Premium',
     rolle: 'PREMIUM',
-    gewicht: 1,
+    gewicht: 16,
     auszahlung: [20000, 90000, 260000],
     premiumTage: [1, 3, 7],
     glow: true,

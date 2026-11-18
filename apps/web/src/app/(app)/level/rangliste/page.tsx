@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
-import { isModuleEnabled, level } from '@swisshub/modules';
+import Link from 'next/link';
+import { isModuleEnabled, level, profile } from '@swisshub/modules';
+import { systemRoutes } from '@swisshub/shared';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable } from '@/components/shared/data-table';
@@ -45,6 +47,15 @@ export default async function LevelLeaderboardPage({
 
   const totalPages = Math.max(1, Math.ceil(board.total / PAGE_SIZE));
 
+  /*
+   * Die oeffentlichen Adressen der gezeigten Mitglieder - in einer Abfrage.
+   *
+   * Dieselbe Quelle wie auf der oeffentlichen Rangliste: `slugsVon` gibt nur
+   * veroeffentlichte, nicht gesperrte Profile heraus. Wer keines hat, steht
+   * unverlinkt da.
+   */
+  const slugs = await profile.slugsVon(board.entries.map((eintrag) => eintrag.discordId));
+
   return (
     <>
       <PageHeader
@@ -77,9 +88,20 @@ export default async function LevelLeaderboardPage({
                   name={row.displayName ?? row.username ?? row.discordId}
                   size={28}
                 />
-                <span className="truncate text-sm font-medium">
-                  {row.displayName ?? row.username ?? row.discordId}
-                </span>
+                {(() => {
+                  const name = row.displayName ?? row.username ?? row.discordId;
+                  const slug = slugs.get(row.discordId);
+                  return slug ? (
+                    <Link
+                      href={systemRoutes.oeffentlichesProfil(slug)}
+                      className="truncate text-sm font-medium underline-offset-4 hover:underline"
+                    >
+                      {name}
+                    </Link>
+                  ) : (
+                    <span className="truncate text-sm font-medium">{name}</span>
+                  );
+                })()}
               </div>
             ),
           },

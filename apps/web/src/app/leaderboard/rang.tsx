@@ -1,4 +1,6 @@
+import Link from 'next/link';
 import type { level } from '@swisshub/modules';
+import { systemRoutes } from '@swisshub/shared';
 import { DiscordAvatar } from '@/components/shared/discord-avatar';
 import { cn } from '@/lib/utils';
 
@@ -21,6 +23,37 @@ type Eintrag = Awaited<ReturnType<typeof level.getPublicLeaderboard>>['entries']
  * Standardbild, und scheitert auch das, ein Monogramm. Ein kaputtes Bild kann
  * auf einer oeffentlichen Seite nicht stehenbleiben.
  */
+
+/**
+ * Der Name - verlinkt, wo es ein oeffentliches Profil gibt.
+ *
+ * `slug` ist genau dann gesetzt, wenn `slugsVon` ihn herausgegeben hat, und
+ * das tut es nur fuer ein veroeffentlichtes, nicht gesperrtes Profil. Die
+ * Entscheidung faellt also in der Datenschicht; hier wird sie nur noch
+ * gezeigt. Wer kein oeffentliches Profil hat, steht unverlinkt da - und
+ * nicht als toter Link, der auf eine Sperrseite fuehrt.
+ */
+function Name({
+  name,
+  slug,
+  className,
+}: {
+  name: string;
+  slug: string | null;
+  className?: string;
+}): React.JSX.Element {
+  if (!slug) {
+    return <span className={className}>{name}</span>;
+  }
+  return (
+    <Link
+      href={systemRoutes.oeffentlichesProfil(slug)}
+      className={cn('rounded-sm underline-offset-4 hover:underline focus-visible:underline', className)}
+    >
+      {name}
+    </Link>
+  );
+}
 
 /** Die Tonfolge der ersten drei Plaetze. */
 const EDELMETALL: Record<number, { rand: string; ring: string; ziffer: string; schimmer: string }> = {
@@ -47,7 +80,13 @@ const EDELMETALL: Record<number, { rand: string; ring: string; ziffer: string; s
 const xp = (wert: number): string => wert.toLocaleString('de-CH');
 
 /** Karte fuer die ersten drei Plaetze. */
-export function RangKarte({ eintrag }: { eintrag: Eintrag }): React.JSX.Element {
+export function RangKarte({
+  eintrag,
+  slug = null,
+}: {
+  eintrag: Eintrag;
+  slug?: string | null;
+}): React.JSX.Element {
   const ton = EDELMETALL[eintrag.rank] ?? EDELMETALL[3]!;
   const erster = eintrag.rank === 1;
 
@@ -89,7 +128,7 @@ export function RangKarte({ eintrag }: { eintrag: Eintrag }): React.JSX.Element 
           )}
           title={eintrag.displayName}
         >
-          {eintrag.displayName}
+          <Name name={eintrag.displayName} slug={slug} />
         </h2>
 
         <p className="mt-1 text-sm text-muted-foreground">
@@ -105,7 +144,13 @@ export function RangKarte({ eintrag }: { eintrag: Eintrag }): React.JSX.Element 
 }
 
 /** Zeile ab Rang 4. */
-export function RangZeile({ eintrag }: { eintrag: Eintrag }): React.JSX.Element {
+export function RangZeile({
+  eintrag,
+  slug = null,
+}: {
+  eintrag: Eintrag;
+  slug?: string | null;
+}): React.JSX.Element {
   return (
     <div className="flex items-center gap-3 px-3 py-3 transition-colors hover:bg-card/70 sm:gap-4 sm:px-5">
       <span className="w-9 shrink-0 text-right text-sm font-semibold tabular-nums text-muted-foreground sm:w-12 sm:text-base">
@@ -121,7 +166,7 @@ export function RangZeile({ eintrag }: { eintrag: Eintrag }): React.JSX.Element 
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium sm:text-base" title={eintrag.displayName}>
-          {eintrag.displayName}
+          <Name name={eintrag.displayName} slug={slug} />
         </p>
         {/*
           Auf dem Telefon steht die XP-Zahl unter dem Namen statt in einer

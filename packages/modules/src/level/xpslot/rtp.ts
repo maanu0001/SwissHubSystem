@@ -71,7 +71,15 @@
  */
 
 import { besterLinienfaktor, type LinienFaktor } from './auswertung';
-import { BASISPUNKTE, LINIEN, verteilung, ZELLEN, type SpielSymbol, type Spielregeln } from './regeln';
+import {
+  BASISPUNKTE,
+  bonusEinstieg,
+  LINIEN,
+  verteilung,
+  ZELLEN,
+  type SpielSymbol,
+  type Spielregeln,
+} from './regeln';
 
 /** Das Ergebnis der Rechnung. */
 export interface RtpErgebnis {
@@ -209,6 +217,17 @@ export function mindestens(k: number, p: number, felder = ZELLEN): number {
     summe += binom(felder, treffer) * p ** treffer * (1 - p) ** (felder - treffer);
   }
   return summe;
+}
+
+/** `P(genau k von 15)` bei Einzelwahrscheinlichkeit `p`. */
+export function genau(k: number, p: number, felder = ZELLEN): number {
+  if (k < 0 || k > felder) {
+    return 0;
+  }
+  if (p <= 0) {
+    return k === 0 ? 1 : 0;
+  }
+  return binom(felder, k) * p ** k * (1 - p) ** (felder - k);
 }
 
 function binom(n: number, k: number): number {
@@ -385,10 +404,69 @@ export function rechneRtp(regeln: Spielregeln, bonus: BonusAnnahmen): RtpErgebni
     },
   ];
 
-  const freispieleJeBonus = stufe0.spiele;
-  const rtpBonus = bonusChance * bestFaktor;
-  const rtpBonusOhneRisiko = bonusChance * stufe0.faktor;
-  const premiumProSpin = grund.premiumTage * linien + bonusChance * bestTage;
+  /*
+   * Nicht jede Runde beginnt unten.
+   *
+   * `bonusEinstieg` hebt den Einstieg, wenn mehr Scatter fielen als noetig.
+   * Hier stand vorher einfach `bestFaktor` - der Wert einer Runde, die auf
+   * der ersten Sprosse anfaengt. Das war ab dem Moment zu wenig, in dem die
+   * Staffel eingebaut wurde, und zwar lautlos: die Oberflaeche haette eine
+   * Quote angezeigt, die der Automat gar nicht auszahlt.
+   *
+   * Gewichtet wird mit der Verteilung der Scatter-Zahl **unter der
+   * Bedingung**, dass der Bonus ueberhaupt ausgeloest hat - also geteilt
+   * durch `bonusChance`. Die drei Einstiegswerte stehen schon da: `bestFaktor`
+   * fuer die erste Sprosse, `wert1Faktor` fuer die zweite, `wert2.faktor`
+   * fuer die Freispiele ohne Leiter.
+   */
+  const einstiegsWert = (stufe: 'LADDER_1' | 'LADDER_2' | 'SPINS'): number =>
+    stufe === 'SPINS' ? wert2.faktor : stufe === 'LADDER_2' ? wert1Faktor : bestFaktor;
+  const einstiegsTage = (stufe: 'LADDER_1' | 'LADDER_2' | 'SPINS'): number =>
+    stufe === 'SPINS' ? wert2.premiumTage : stufe === 'LADDER_2' ? wert1Tage : bestTage;
+  const einstiegsSpiele = (stufe: 'LADDER_1' | 'LADDER_2' | 'SPINS'): number =>
+    stufe === 'SPINS' ? stufe2.spiele : stufe === 'LADDER_2' ? stufe1.spiele : stufe0.spiele;
+  const einstiegsNehmen = (stufe: 'LADDER_1' | 'LADDER_2' | 'SPINS'): number =>
+    stufe === 'SPINS' ? stufe2.faktor : stufe === 'LADDER_2' ? stufe1.faktor : stufe0.faktor;
+
+  let gewichteterFaktor = bestFaktor;
+  let gewichteteTage = bestTage;
+  let gewichteteSpiele = stufe0.spiele;
+  let gewichtetOhneRisiko = stufe0.faktor;
+  if (bonusChance > 0 && pBonusZelle > 0) {
+    let summeF = 0;
+    let summeT = 0;
+    let summeS = 0;
+    let summeO = 0;
+    let masse = 0;
+    for (let k = regeln.bonusAusloeser; k <= ZELLEN; k += 1) {
+      const anteil = genau(k, pBonusZelle) / bonusChance;
+      if (anteil <= 0) {
+        continue;
+      }
+      const stufe = bonusEinstieg(k, {
+        bonusAusloeser: regeln.bonusAusloeser,
+        bonusFreispiele: bonus.freispiele,
+        leiter1: bonus.leiter1,
+        leiter2: bonus.leiter2,
+      }).stufe;
+      summeF += anteil * einstiegsWert(stufe);
+      summeT += anteil * einstiegsTage(stufe);
+      summeS += anteil * einstiegsSpiele(stufe);
+      summeO += anteil * einstiegsNehmen(stufe);
+      masse += anteil;
+    }
+    if (masse > 0) {
+      gewichteterFaktor = summeF / masse;
+      gewichteteTage = summeT / masse;
+      gewichteteSpiele = summeS / masse;
+      gewichtetOhneRisiko = summeO / masse;
+    }
+  }
+
+  const freispieleJeBonus = gewichteteSpiele;
+  const rtpBonus = bonusChance * gewichteterFaktor;
+  const rtpBonusOhneRisiko = bonusChance * gewichtetOhneRisiko;
+  const premiumProSpin = grund.premiumTage * linien + bonusChance * gewichteteTage;
 
   // --- Deckel --------------------------------------------------------------
   const maxLinienfaktor = regeln.symbole.reduce((wert, symbol) => {

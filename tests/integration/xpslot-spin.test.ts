@@ -602,6 +602,44 @@ describeWithDatabase('XP-Slot: Spin', () => {
     );
   });
 
+  it('steigt bei mehr Scattern hoeher in die Leiter ein', async () => {
+    /*
+     * Die Staffel, wie der Besitzer sie bestellt hat - hier an der echten
+     * Datenbank, mit `stage` und `awarded` wie sie in der Zeile stehen.
+     *
+     * `schwelle = 14` heisst: einer mehr als noetig. Dann faellt die erste
+     * Sprosse weg, die Runde beginnt bei zwoelf und darf auf sechzehn
+     * riskieren. Die Nachrechnung der Regel selbst steht im Unit-Test.
+     */
+    const einerMehr = await bonusAusloesen(14);
+    expect(einerMehr.stufe).toBe('LADDER_2');
+    expect(einerMehr.wahl?.nehmen).toBe(12);
+    expect(einerMehr.wahl?.riskierenAuf).toBe(16);
+    /*
+     * Noch nichts zugesagt - und das ist der Punkt.
+     *
+     * Auf einer Leitersprosse ist die Zahl ein Angebot und keine Gutschrift:
+     * `awarded` bleibt 0, bis jemand nimmt oder riskiert. Stuenden hier
+     * schon zwoelf, waere sie zweimal gutgeschrieben, sobald er nimmt.
+     */
+    expect(einerMehr.zugesagt).toBe(0);
+    expect(einerMehr.offen).toBe(0);
+  });
+
+  it('gibt bei drei Scattern mehr die sechzehn ohne Entscheidung', async () => {
+    /*
+     * Die oberste Sprosse, und sie hat **keine** Wahl: wer sechs Scatter
+     * trifft, bekommt die sechzehn Freispiele und spielt sofort. Eine
+     * Entscheidung anzubieten, deren eine Seite leer ist, waere eine Frage
+     * ohne Antwortmoeglichkeit.
+     */
+    const dreiMehr = await bonusAusloesen(12);
+    expect(dreiMehr.stufe).toBe('SPINS');
+    expect(dreiMehr.zugesagt).toBe(16);
+    expect(dreiMehr.offen).toBe(16);
+    expect(dreiMehr.wahl).toBeFalsy();
+  });
+
   it('gibt beim Nehmen die garantierten Freispiele', async () => {
     const runde = await bonusAusloesen();
     const { bonus } = await S.nimmFreispiele(SPIELER, runde.id);
@@ -976,12 +1014,39 @@ describeWithDatabase('XP-Slot: Spin', () => {
    * Walzen - dann ist jeder Spin ein Bonus. Danach wird die Konfiguration
    * wieder hergestellt, damit die Freispiele danach gewoehnlich laufen.
    */
-  async function bonusAusloesen(): Promise<NonNullable<Awaited<ReturnType<typeof S.dreheSpin>>['bonus']>> {
+  /**
+   * Einen Bonus ausloesen - auf einer bestimmten Sprosse der Leiter.
+   *
+   * ## Warum die Ausloeseschwelle mitgedreht wird
+   *
+   * Der Griff ist, alle anderen Gewichte auf 0 zu setzen: dann sind **alle
+   * fuenfzehn** Zellen Scatter, und der Bonus kommt mit Sicherheit. Eine
+   * bestimmte Scatter-Zahl zu erzwingen ginge nur ueber eine Seed-Suche, und
+   * drei Scatter kommen etwa einmal in hundert Spins - der Test waere langsam
+   * und launisch.
+   *
+   * Seit der Staffel entscheidet die Scatter-Zahl aber, **wo** die Runde
+   * beginnt: `bonusEinstieg` rechnet relativ zur Ausloeseschwelle, und
+   * fuenfzehn Scatter bei Schwelle 3 sind zwoelf darueber - oberste Sprosse,
+   * sechzehn Freispiele, keine Entscheidung.
+   *
+   * Deshalb wandert die Schwelle mit: `schwelle = 15` heisst «genau
+   * ausgeloest, keine Zugabe» und damit die unterste Sprosse mit ihrer
+   * Entscheidung - der Fall, den die Tests darunter prueften, bevor es die
+   * Staffel gab. `schwelle = 14` ergibt einen darueber, `schwelle = 12` drei
+   * darueber. Die Staffel selbst wird in `tests/unit/xpslot-staffel.test.ts`
+   * geprueft, wo sie ohne Datenbank nachrechenbar ist.
+   */
+  async function bonusAusloesen(
+    schwelle = 15,
+  ): Promise<NonNullable<Awaited<ReturnType<typeof S.dreheSpin>>['bonus']>> {
     const vorher = await prisma.xpSlotSymbol.findMany();
+    const konfigVorher = await prisma.xpSlotConfig.findFirst({ select: { bonusTriggerCount: true } });
     await prisma.xpSlotSymbol.updateMany({
       where: { key: { not: 'bonus' } },
       data: { weight: 0 },
     });
+    await prisma.xpSlotConfig.updateMany({ data: { bonusTriggerCount: schwelle } });
 
     const ergebnis = await S.dreheSpin({
       discordId: SPIELER,
@@ -992,6 +1057,11 @@ describeWithDatabase('XP-Slot: Spin', () => {
 
     for (const zeile of vorher) {
       await prisma.xpSlotSymbol.update({ where: { key: zeile.key }, data: { weight: zeile.weight } });
+    }
+    if (konfigVorher) {
+      await prisma.xpSlotConfig.updateMany({
+        data: { bonusTriggerCount: konfigVorher.bonusTriggerCount },
+      });
     }
 
     expect(ergebnis.bonusAusgeloest).toBe(true);

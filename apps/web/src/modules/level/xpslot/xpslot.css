@@ -233,6 +233,23 @@
   left: 0;
   right: 0;
   height: var(--slot-zelle);
+  /*
+   * Deckend, und zwar mit genau der Scheibe des Walzenhintergrunds, die an
+   * dieser Stelle liegt.
+   *
+   * Vorher war diese Lage durchsichtig: das Wild stand still, aber hinter
+   * ihm liefen die Symbole weiter vorbei. Gemeldet war genau das - «im Feld
+   * der Sticky Wilds soll die Rolle nicht drehen». Ein Wild, das klebt,
+   * waehrend es hinter ihm rauscht, sieht aus wie ein Aufkleber auf einem
+   * fahrenden Zug.
+   *
+   * Der Verlauf ist derselbe wie beim Walzenfenster, nur auf dessen volle
+   * Hoehe gespannt und um die eigene Reihe nach oben geschoben. Damit trifft
+   * die Scheibe den Hintergrund an dieser Zelle und nicht ungefaehr.
+   */
+  background-image: linear-gradient(180deg, hsl(240 6% 11%) 0%, hsl(240 7% 6%) 100%);
+  background-size: 100% calc(var(--slot-zelle) * 3);
+  background-position: 0 calc(var(--slot-zelle) * var(--slot-reihe, 0) * -1);
 }
 
 .slot-zelle {
@@ -2075,4 +2092,44 @@
   .slot-partikel--mitte {
     --slot-funken-weite: clamp(96px, 34vw, 150px);
   }
+}
+
+/*
+ * Vollbild.
+ *
+ * Im Vollbild steht der ganze Automat - Kopfzeile, Buehne, Steuerung -, und
+ * zwar mittig. Ohne das Zentrieren klebte er oben, weil ein Vollbildelement
+ * den ganzen Bildschirm bekommt und der Automat ihn nicht fuellt.
+ *
+ * `:fullscreen` und keine eigene Klasse: der Browser setzt den Zustand
+ * selbst, auch wenn jemand mit Escape aussteigt. Eine Klasse, die daneben
+ * gefuehrt wird, liefe genau dann auseinander.
+ */
+.slot-automat:fullscreen {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  /* Der Hintergrund der Seite fehlt im Vollbild - sonst stuende der Automat
+     auf dem Weiss, das der Browser als Vorgabe malt. */
+  background: hsl(var(--background));
+  padding: clamp(0.5rem, 2vmin, 1.5rem);
+  /* Die Breitenbegrenzung der Seite gilt hier nicht: der Platz ist da. */
+  max-width: min(92rem, 100%);
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+/*
+ * Im Vollbild duerfen die Walzen groesser werden.
+ *
+ * Die Deckelung auf 132 Pixel stammt aus dem Seitenlayout, wo neben dem
+ * Automaten noch eine Seite steht. Im Vollbild gibt es die nicht, und ein
+ * Automat, der mitten auf einem 27-Zoll-Schirm briefmarkengross bleibt,
+ * waere kein Vollbild. Die untere Grenze und die Rechnung bleiben, damit
+ * das Raster auf kleinen Geraeten unveraendert sitzt.
+ */
+.slot-automat:fullscreen .slot-walzen {
+  --slot-rest: 21rem;
+  --slot-zelle: clamp(36px, min(var(--slot-breit), var(--slot-hoch)), 200px);
 }

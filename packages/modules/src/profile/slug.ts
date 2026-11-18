@@ -86,6 +86,7 @@ const GESPERRT = new Set([
   'kalender',
   'level',
   'members',
+  'mitglieder',
   'migrate',
   'moderation',
   'modules',

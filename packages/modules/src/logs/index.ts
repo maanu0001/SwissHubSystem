@@ -5,3 +5,4 @@ export * from './config';
 export * from './dispatcher';
 export * from './delivery';
 export * from './test-nachricht';
+export * from './fehler';

@@ -225,9 +225,18 @@ describe('Unspielbare Konfigurationen', () => {
   });
 
   it('sperrt eine Bonusrunde, die im Mittel nicht endet', () => {
+    /*
+     * 960 und nicht mehr 60.
+     *
+     * Die Zahl bedeutet nichts fuer sich - sie ist ein Anteil. Mit den alten
+     * Gewichten waren 60 von 154 ein Bonussymbol auf 39 Prozent der Zellen;
+     * seit alle Gewichte mal 16 gehen (siehe `SYMBOL_VORGABEN`), sind 60 von
+     * 1564 noch 3,8 Prozent - viel zu selten, um eine Runde endlos zu machen.
+     * 960 von 2464 trifft denselben Anteil wieder.
+     */
     const haeufigerBonus = vorgabeRegeln({
       symbole: vorgabeRegeln().symbole.map((eintrag) =>
-        eintrag.rolle === 'SCATTER' ? { ...eintrag, gewicht: 60 } : eintrag,
+        eintrag.rolle === 'SCATTER' ? { ...eintrag, gewicht: 960 } : eintrag,
       ),
     });
     const ergebnis = S.rechneRtp(haeufigerBonus, vorgabeBonus({ retriggerSpins: 20 }));

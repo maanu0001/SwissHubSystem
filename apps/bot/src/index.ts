@@ -19,6 +19,7 @@ import {
   getGuildConfig,
   importGuildFromEnvironment,
   jail,
+  logs,
   invalidateSyncCaches,
   syncDiscord,
   syncMembers,
@@ -591,10 +592,32 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('unhandledRejection', (reason) => log.error('Unbehandelte Promise-Ablehnung', { reason }));
+  /*
+   * Was niemand gefangen hat, geht auch in den Fehler-Log.
+   *
+   * Eine unbehandelte Ablehnung ist der Fehler, von dem sonst niemand
+   * erfaehrt: kein Aufrufer wartet darauf, keine Oberflaeche zeigt ihn, und
+   * im Protokoll steht er zwischen zehntausend Zeilen Betrieb.
+   */
+  process.on('unhandledRejection', (reason) => {
+    log.error('Unbehandelte Promise-Ablehnung', { reason });
+    void logs
+      .meldeFehler({ source: 'BOT', origin: 'unhandledRejection', fehler: reason })
+      .catch(() => undefined);
+  });
   process.on('uncaughtException', (error) => {
     log.error('Unbehandelte Ausnahme', { error });
-    void shutdown('uncaughtException');
+    /*
+     * Erst melden, dann herunterfahren - und auf das Melden warten.
+     *
+     * Der Prozess endet gleich. Eine Meldung, die nicht abgewartet wird,
+     * geht mit ihm unter, und genau diese eine will man lesen: ein
+     * `uncaughtException` ist der Grund, warum der Bot neu gestartet ist.
+     */
+    void logs
+      .meldeFehler({ source: 'BOT', origin: 'uncaughtException', fehler: error })
+      .catch(() => undefined)
+      .finally(() => void shutdown('uncaughtException'));
   });
 }
 

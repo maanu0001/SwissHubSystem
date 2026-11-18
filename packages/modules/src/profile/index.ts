@@ -18,6 +18,8 @@ export * from './auszeichnungs-arten';
 export * from './berechnete-arten';
 export * from './bearbeiten';
 export * from './entdecken';
+export * from './verzeichnis';
+export * from './kommentare';
 export * from './gestaltung';
 export * from './links';
 export * from './schemas';

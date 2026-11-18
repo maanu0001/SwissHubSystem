@@ -14,6 +14,7 @@ export interface TicketListRow {
     assignedToUsername: string | null;
     lastMessageAt: Date | null;
     createdAt: Date;
+    closedAt: Date | null;
   };
   categoryName: string | null;
   tagNames: string[];
@@ -86,8 +87,20 @@ export function TicketList({
               <PriorityBadge priority={ticket.priority} />
               <StatusBadge status={ticket.status} />
             </span>
-            <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:w-32">
-              {formatDateTime(ticket.lastMessageAt ?? ticket.createdAt)}
+            {/*
+              Welches Datum hier steht, haengt am Zustand des Tickets.
+
+              Bei einem offenen Ticket ist die letzte Nachricht die Auskunft,
+              auf die es ankommt: wie lange ist hier nichts passiert. Bei
+              einem geschlossenen ist es der Schluss - danach ist die Liste
+              sortiert, und ein Datum, nach dem sortiert wird, soll auch
+              dastehen. Sonst sieht die Reihenfolge willkuerlich aus.
+            */}
+            <span
+              className="shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:w-32"
+              title={ticket.closedAt ? 'Geschlossen am' : 'Letzte Nachricht'}
+            >
+              {formatDateTime(ticket.closedAt ?? ticket.lastMessageAt ?? ticket.createdAt)}
             </span>
           </Link>
         </li>

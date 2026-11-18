@@ -22,7 +22,7 @@ import {
   type BonusAbschluss,
   type FreispielAbschluss,
 } from './geschenke';
-import { dreheWalzen, ZELLEN } from './regeln';
+import { bonusEinstieg, dreheWalzen, ZELLEN } from './regeln';
 
 const log = createLogger('level:xpslot:spin');
 
@@ -472,14 +472,27 @@ async function spinInTransaktion(
      */
     await schliesseGeschenkAb(tx, laufende);
   } else if (auswertung.bonusAusgeloest) {
+    /*
+     * Wo die Runde beginnt, haengt an der Zahl der Scatter.
+     *
+     * Hier stand `stage: 'LADDER_1'` fest - jede ausgeloeste Runde fing
+     * unten an, ob sie von drei Scattern kam oder von sechs. Die Regel steht
+     * jetzt in `bonusEinstieg`: ein Scatter ueber dem Ausloeser hebt eine
+     * Sprosse, drei darueber geben das Maximum sofort.
+     *
+     * Bei `SPINS` ist die Runde ohne Zutun im Freispielmodus: `awarded` und
+     * `remaining` tragen die Freispiele, und der naechste Spin dieser Person
+     * geht als Freispiel durch. Die Leiter wird dann gar nicht erst gezeigt.
+     */
+    const einstieg = bonusEinstieg(auswertung.bonusSymbole, konfiguration.wirksam);
     laufende = await tx.xpSlotBonusRound.create({
       data: {
         discordId: eingabe.discordId,
         triggerSpinId: spin.id,
-        stage: 'LADDER_1',
+        stage: einstieg.stufe,
         bet: einsatz,
-        awarded: 0,
-        remaining: 0,
+        awarded: einstieg.freispiele,
+        remaining: einstieg.freispiele,
         stickyCells: [],
       },
     });

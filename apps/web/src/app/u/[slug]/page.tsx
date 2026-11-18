@@ -7,6 +7,7 @@ import { profile, streamer } from '@swisshub/modules';
 import { systemRoutes } from '@swisshub/shared';
 import { OeffentlicheProfilseite } from '@/modules/profile/components/oeffentlich/oe-seite';
 import { TeilenKnopf } from '@/modules/profile/components/teilen-knopf';
+import { OeKommentare } from '@/modules/profile/components/oeffentlich/oe-kommentare';
 import { ProfilStreamingAbschnitt } from '@/modules/streamer/components/profil-streaming';
 import { profilMetadaten } from '@/modules/profile/oe-metadaten';
 import { hostnameDerApp } from '@/server/hostname';
@@ -102,6 +103,24 @@ export default async function OeffentlichesProfilPage({
       <div className="mt-8 flex justify-center">
         <TeilenKnopf slug={oeffentlich.slug} variante="dezent" />
       </div>
+
+      {/*
+        Die Pinnwand - ausserhalb von `OeffentlicheProfilseite`, und das mit
+        Absicht.
+
+        Innerhalb laege sie im Design des Mitglieds: dessen Farben, dessen
+        Flaechen, dessen Hintergrund. Die Kommentare gehoeren aber nicht dem
+        Mitglied, sondern den Leuten, die sie geschrieben haben - und sie
+        muessen auf jedem Profil lesbar sein, auch auf einem, dessen
+        Besitzerin ein sehr eigenes Design gewaehlt hat.
+
+        Sie laedt ihren Inhalt selbst nach. Diese Seite behaelt dadurch ihren
+        Zwischenspeicher (`revalidate = 60`), obwohl die Kommentarliste fuer
+        jeden Besucher anders aussieht - die Loeschknoepfe stehen nur an
+        eigenen Kommentaren. Der ganze Grund steht in
+        `app/api/profil/kommentare/[slug]/route.ts`.
+      */}
+      <OeKommentare slug={oeffentlich.slug} />
     </>
   );
 }

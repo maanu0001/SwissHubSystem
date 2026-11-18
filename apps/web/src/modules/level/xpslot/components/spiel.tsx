@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Gauge,
+  Maximize2,
+  Minimize2,
   Minus,
   Music,
   Pause,
@@ -643,38 +645,18 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
     }));
 
     /*
-     * Schliesst dieser Spin eine Bonusrunde ab, gehoert das Overlay dazu.
+     * Die Abschlussmeldungen einer Runde stehen in dieser Antwort -
+     * serverseitig gezaehlt, ueber die ganze Runde. Die Oberflaeche summiert
+     * nichts; sie zeigt, was in der Zeile steht.
      *
-     * Die Zahlen stehen in derselben Antwort - serverseitig gezaehlt, ueber
-     * die ganze Runde. Die Oberflaeche summiert nichts: sie zeigt, was in der
-     * Zeile steht, und braucht dafuer keine zweite Abfrage.
+     * Gesetzt werden sie weiter unten, nach der Linienfolge. Dass sie
+     * ueberhaupt mit der Spinantwort kommen und nicht erst beim naechsten
+     * Seitenaufruf, war ein eigener Fehler: wer sein letztes geschenktes
+     * Freispiel drehte, sah sonst gar nichts, und die Meldung erschien beim
+     * naechsten Besuch ohne Zusammenhang. Die Ansicht beim Oeffnen bleibt
+     * als zweiter Weg bestehen - wer den Tab schliesst, bevor er wegklickt,
+     * soll sie beim naechsten Mal sehen.
      */
-    if (spin.bonusEnde) {
-      melde({ art: 'bonusFinished', gewonnen: !spin.bonusEnde.verloren });
-      setMeldungen((vorher) => ({ ...vorher, bonusEnde: spin.bonusEnde }));
-    }
-
-    /*
-     * Und dasselbe fuer ein geschenktes Freispielpaket.
-     *
-     * ## Der Fehler, den das behebt
-     *
-     * Die Abschlussmeldung hing allein an der Ansicht, die beim Oeffnen der
-     * Seite geladen wird. Wer sein letztes geschenktes Freispiel drehte, sah
-     * also **nichts** - die Meldung erschien erst beim naechsten Besuch,
-     * ohne Zusammenhang zu dem Spin, der sie ausgeloest hatte. Gefunden hat
-     * das der Browser-Smoke: in der Phase danach stand sie da, in der Phase,
-     * die sie erwartete, nicht.
-     *
-     * Jetzt kommt sie mit der Spinantwort - mit denselben serverseitig
-     * gezaehlten Zahlen, in dem Moment, in dem sie endgueltig sind. Die
-     * Ansicht beim Oeffnen bleibt als zweiter Weg bestehen: wer den Tab
-     * schliesst, bevor er wegklickt, soll sie beim naechsten Mal sehen.
-     */
-    if (spin.freispielEnde) {
-      melde({ art: 'freespinsFinished' });
-      setMeldungen((vorher) => ({ ...vorher, freispielEnde: spin.freispielEnde }));
-    }
 
     /*
      * Die Linien einzeln zeigen - jede mit ihrem Klang und ihrem XP-Schild.
@@ -751,6 +733,35 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
         return { weiter: false, grund: null };
       }
       setGrosseMeldung(null);
+    }
+
+    /*
+     * Jetzt erst der Abschluss der Runde.
+     *
+     * ## Der Fehler, den das behebt
+     *
+     * Gemeldet war: «die Gesamt-Gewinnnachricht beim Bonus soll erst am Ende
+     * des letzten Spins kommen, wenn alle Gewinnlinien angezeigt wurden». Sie
+     * kam vorher **vor** der Linienfolge - gesetzt wurde sie, sobald die
+     * Antwort da war. Das Overlay legte sich damit ueber die Walzen, waehrend
+     * die letzten Linien noch einzeln aufleuchteten: man sah die Summe, bevor
+     * man gesehen hatte, woher sie kommt.
+     *
+     * Die Reihenfolge ist jetzt dieselbe wie bei jedem einzelnen Spin: erst
+     * die Linien, dann die Gesamtansicht, dann die grosse Meldung, dann der
+     * Abschluss der Runde. Beim Sprung faellt die Vorfuehrung weg und der
+     * Abschluss kommt sofort - uebersprungen wird die Darbietung, nicht das
+     * Ergebnis.
+     *
+     * Der Klang zieht mit: er gehoert zur Meldung und nicht zur Antwort.
+     */
+    if (spin.bonusEnde) {
+      melde({ art: 'bonusFinished', gewonnen: !spin.bonusEnde.verloren });
+      setMeldungen((vorher) => ({ ...vorher, bonusEnde: spin.bonusEnde }));
+    }
+    if (spin.freispielEnde) {
+      melde({ art: 'freespinsFinished' });
+      setMeldungen((vorher) => ({ ...vorher, freispielEnde: spin.freispielEnde }));
     }
 
     /*
@@ -1042,6 +1053,96 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
   const springbar = laufend.some(Boolean);
   const entscheidung = spieler.bonus?.stufe === 'LADDER_1' || spieler.bonus?.stufe === 'LADDER_2';
 
+  /*
+   * Was der Spin-Knopf tut - an einer Stelle.
+   *
+   * Der Knopf ruft es, die Leertaste ruft es. Zwei Kopien derselben
+   * Bedingung waeren zwei Stellen, an denen irgendwann verschiedene Regeln
+   * stehen, und auffallen wuerde es an der, die niemand drueckt.
+   */
+  const gesperrt = (beschaeftigt && !springbar) || entscheidung || spieler.gesperrt !== null;
+  const spinKnopf = useCallback(() => {
+    if (springbar) {
+      ueberspringen();
+      return;
+    }
+    void spin();
+  }, [springbar, ueberspringen, spin]);
+
+  /*
+   * Die Leertaste dreht.
+   *
+   * Drei Einschraenkungen, und jede hat einen Grund:
+   *
+   * - **Nicht in Eingaben.** Wer den Einsatz tippt oder im Chat schreibt,
+   *   erwartet ein Leerzeichen und keinen Spin.
+   * - **Nicht auf einem Knopf.** Der Browser loest einen fokussierten Knopf
+   *   mit der Leertaste ohnehin aus; wir wuerden sonst zweimal drehen.
+   * - **Nicht bei gehaltener Taste.** `repeat` kaeme als Dauerfeuer und
+   *   wuerde das Guthaben leerspielen, ohne dass jemand es so gemeint hat.
+   *
+   * `preventDefault` verhindert zusaetzlich, dass die Seite springt - die
+   * Leertaste blaettert sonst nach unten.
+   */
+  useEffect(() => {
+    const taste = (ereignis: KeyboardEvent): void => {
+      if (ereignis.code !== 'Space' && ereignis.key !== ' ') {
+        return;
+      }
+      if (ereignis.repeat || ereignis.altKey || ereignis.ctrlKey || ereignis.metaKey) {
+        return;
+      }
+      const ziel = ereignis.target as HTMLElement | null;
+      if (
+        ziel &&
+        (ziel.isContentEditable ||
+          ziel.tagName === 'INPUT' ||
+          ziel.tagName === 'TEXTAREA' ||
+          ziel.tagName === 'SELECT' ||
+          ziel.tagName === 'BUTTON')
+      ) {
+        return;
+      }
+      ereignis.preventDefault();
+      if (gesperrt) {
+        return;
+      }
+      spinKnopf();
+    };
+    window.addEventListener('keydown', taste);
+    return () => window.removeEventListener('keydown', taste);
+  }, [gesperrt, spinKnopf]);
+
+  /*
+   * Vollbild fuer die Buehne.
+   *
+   * Nicht fuer die ganze Seite: im Vollbild soll der Automat stehen, nicht
+   * die Seitenleiste daneben. Deshalb haengt es am Automaten - also am
+   * Element, das Kopfzeile, Buehne und Steuerung zusammen enthaelt.
+   *
+   * Der Knopf erscheint nur, wo der Browser es kann. Auf dem iPhone kann
+   * Safari Vollbild ausschliesslich fuer Videos - ein Knopf, der dort nichts
+   * tut, waere ein kaputter Knopf. `fullscreenEnabled` sagt es vorher.
+   */
+  const automatRef = useRef<HTMLDivElement | null>(null);
+  const [vollbild, setVollbild] = useState(false);
+  const [vollbildMoeglich, setVollbildMoeglich] = useState(false);
+
+  useEffect(() => {
+    setVollbildMoeglich(document.fullscreenEnabled === true);
+    const merke = (): void => setVollbild(document.fullscreenElement !== null);
+    document.addEventListener('fullscreenchange', merke);
+    return () => document.removeEventListener('fullscreenchange', merke);
+  }, []);
+
+  const vollbildUmschalten = useCallback((): void => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+      return;
+    }
+    void automatRef.current?.requestFullscreen().catch(() => undefined);
+  }, []);
+
   if (!ansicht.spielbar) {
     return (
       <div className="slot-buehne p-10 text-center">
@@ -1053,7 +1154,14 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
   }
 
   return (
-    <div className="mx-auto w-full max-w-[54rem] space-y-3">
+    /*
+      Der Ref sitzt hier und nicht auf der Buehne.
+
+      Vollbild auf der Buehne allein haette den Spin-Knopf ausgeblendet: die
+      Steuerung, die Kopfzeile und die Werkzeuge sind Geschwister der Buehne,
+      keine Kinder. Ins Vollbild gehoert der ganze Automat.
+    */
+    <div ref={automatRef} className={cn('slot-automat mx-auto w-full max-w-[54rem] space-y-3')}>
       {/*
         Der Wartungsmodus - fuer die Verwaltung sichtbar, nicht versteckt.
 
@@ -1429,14 +1537,8 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
             ansicht.design.knopfStil === 'puls' && 'slot-knopf--puls',
             ansicht.design.knopfStil === 'ring' && 'slot-knopf--ring',
           )}
-          disabled={(beschaeftigt && !springbar) || entscheidung || spieler.gesperrt !== null}
-          onClick={() => {
-            if (springbar) {
-              ueberspringen();
-              return;
-            }
-            void spin();
-          }}
+          disabled={gesperrt}
+          onClick={spinKnopf}
         >
           {springbar ? (
             <Square aria-hidden="true" className="size-5" />
@@ -1503,6 +1605,32 @@ export function Spiel({ csrfToken, ansicht, spieler: start }: SpielProps): React
       */}
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Infotafel ansicht={ansicht} />
+
+        {/*
+          Vollbild - nur, wo der Browser es wirklich kann.
+
+          Auf dem iPhone beherrscht Safari Vollbild nur fuer Videos. Der Knopf
+          fehlt dort deshalb ganz, statt zu erscheinen und nichts zu tun.
+        */}
+        {vollbildMoeglich ? (
+          <button
+            type="button"
+            className={cn('slot-chip', vollbild && 'slot-chip--an')}
+            aria-label="Vollbild"
+            aria-pressed={vollbild}
+            onClick={() => {
+              melde({ art: 'uiClick' });
+              vollbildUmschalten();
+            }}
+          >
+            {vollbild ? (
+              <Minimize2 aria-hidden="true" className="size-3.5" />
+            ) : (
+              <Maximize2 aria-hidden="true" className="size-3.5" />
+            )}
+            Vollbild
+          </button>
+        ) : null}
 
         <button
           type="button"

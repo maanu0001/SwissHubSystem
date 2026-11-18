@@ -142,6 +142,30 @@ registerModule({
       group: 'overview',
       order: 18,
     },
+    {
+      /*
+       * Das Mitgliederverzeichnis - unter «Community», nicht unter
+       * «Support & Moderation».
+       *
+       * Es ist kein Verwaltungswerkzeug: keine Kennungen, keine
+       * Rollenvergabe, keine Auswahlkaestchen. Es beantwortet «wer ist hier
+       * eigentlich» und steht deshalb bei den Dingen, die der Gemeinschaft
+       * gehoeren - neben Kalender, Turnieren und Level.
+       *
+       * Dieselbe Grundberechtigung wie «Mein Profil»: jedes angemeldete
+       * Mitglied sieht es. Die Mitgliederliste des Servers ist in Discord
+       * ohnehin fuer alle sichtbar; sie hier zu verstecken waere eine
+       * Huerde ohne Schutzwirkung.
+       */
+      href: '/mitglieder',
+      label: 'Mitglieder',
+      description: 'Alle Mitglieder nach Rollen geordnet, mit ihren öffentlichen Profilen',
+      permission: 'members.view.basic.own',
+      baseline: true,
+      icon: 'Users',
+      group: 'modules',
+      order: 12,
+    },
   ],
 });
 

@@ -14,6 +14,7 @@ import { EVENT_TYPES } from '../analytics/event-types';
  * ```
  * ModerationAction  → MODERATION
  * DiscordEvent      → MESSAGES | VOICE | MEMBERS | ADMIN
+ * ErrorLogEntry     → ERRORS
  * ```
  *
  * Mehr gibt es heute nicht, und deshalb steht hier auch nicht mehr.
@@ -86,6 +87,13 @@ export const LOG_KATEGORIEN: readonly LogKategorieDefinition[] = [
     label: 'Server & Verwaltung',
     beschreibung: 'Rollen, Kanäle und Serveränderungen.',
     beispiel: 'Kanal gelöscht · Rolle bearbeitet',
+  },
+  {
+    id: 'ERRORS',
+    label: 'Fehler',
+    beschreibung:
+      'Gescheiterte Slash-Befehle und Fehler in der WebApp. Gleiche Fehler werden zusammengefasst und gezählt; nach einer Meldung bleibt derselbe Fehler eine halbe Stunde still. Eingaben stehen nie im Eintrag.',
+    beispiel: '/level gescheitert · Server Action fehlgeschlagen',
   },
 ] as const;
 

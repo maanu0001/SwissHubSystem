@@ -390,3 +390,35 @@ export async function slugVon(discordId: string): Promise<string | null> {
   }
   return zeile.publicSlug;
 }
+
+/**
+ * Wem gehoert diese oeffentliche Adresse?
+ *
+ * Dieselbe Pruefung wie `ladeOeffentlichesProfilOderSperre`, aber ohne das
+ * Profil zusammenzubauen: veroeffentlicht, nicht gesperrt, Adresse gueltig.
+ * Fuer Aufrufer, die nur die Kennung hinter einem Slug brauchen - etwa um
+ * einen Kommentar daran zu haengen.
+ *
+ * Die Pruefung steht **hier** und nicht beim Aufrufer. Sonst gaebe es eine
+ * zweite Vorstellung davon, was «oeffentlich» heisst, und an einer gesperrten
+ * oder privaten Seite liesse sich vorbei schreiben, indem man die Adresse
+ * raet: die Seite zeigte den Eintrag nie an, in der Datenbank stuende er
+ * trotzdem.
+ *
+ * Ein Alias zaehlt bewusst **nicht**. Eine alte Adresse fuehrt zur neuen
+ * Seite, aber geschrieben wird an der aktuellen - sonst haengt der Eintrag an
+ * einem Namen, den es nicht mehr gibt.
+ */
+export async function discordIdZuSlug(slug: string): Promise<string | null> {
+  if (!istGueltigerSlug(slug)) {
+    return null;
+  }
+  const zeile = await prisma.memberProfile.findUnique({
+    where: { publicSlug: slug },
+    select: { discordId: true, visibilityProfile: true, publicLockedAt: true },
+  });
+  if (!zeile || zeile.visibilityProfile !== 'PUBLIC' || zeile.publicLockedAt !== null) {
+    return null;
+  }
+  return zeile.discordId;
+}

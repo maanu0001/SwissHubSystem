@@ -272,7 +272,7 @@ model User {
   sessions             Session[]
   identityCache        DiscordIdentityCache?
   premiumGrants        PremiumGrant[]
-  socialPosts           SocialPost[]
+  socialPosts          SocialPost[]
   /// Premium-Abonnements. Bewusst am bestehenden Benutzer statt an einem
   /// zweiten Konto - Premium ist ein Modul, kein eigenes Produkt.
   premiumSubscriptions PremiumSubscription[]
@@ -6786,6 +6786,14 @@ enum DiscordLogCategory {
   ACCOUNT_CHANGES
   /// Aus `DiscordEvent` der Kategorien ROLE, CHANNEL und SERVER.
   ADMIN
+  /// Fehler aus `ErrorLogEntry` - gescheiterte Befehle und WebApp-Fehler.
+  ///
+  /// Die einzige Kategorie, die nicht von einem Vorgang auf dem Server
+  /// erzaehlt, sondern davon, dass einer nicht funktioniert hat. Sie steht
+  /// bewusst neben den anderen und nicht in einem eigenen System: wer schon
+  /// einen Kanal fuer Moderation einrichtet, soll den fuer Fehler am selben
+  /// Ort einrichten koennen.
+  ERRORS
 }
 
 /// Zustand eines konfigurierten Log-Ziels.
@@ -6923,6 +6931,74 @@ model DiscordLogDelivery {
   /// Der Arbeitsvorrat des Zustellers.
   @@index([status, runAt])
   @@index([channelId, createdAt])
+}
+
+/// Woher ein Fehler kam.
+enum ErrorLogSource {
+  /// Ein Slash-Befehl auf Discord ist gescheitert.
+  DISCORD_COMMAND
+  /// Eine andere Interaktion des Bots - Knopf, Modal, Auswahlmenue.
+  DISCORD_INTERACTION
+  /// Der Bot selbst: ein Job, ein Listener, eine unbehandelte Ablehnung.
+  BOT
+  /// Die WebApp auf dem Server: Server Action, Route, Server Component.
+  WEBAPP
+}
+
+/// Ein Fehler, zusammengefasst nach seiner Art.
+///
+/// ## Warum das eine Tabelle ist und nicht nur eine Discord-Nachricht
+///
+/// Weil ein Fehler selten einmal auftritt. Ein kaputter Befehl scheitert bei
+/// jedem, der ihn versucht - und eine Nachricht je Versuch macht aus einem
+/// Log-Kanal eine Lawine, in der die zweite Ursache untergeht. Deshalb
+/// zaehlt diese Tabelle: gleicher Fehler, gleicher `fingerprint`, eine Zeile,
+/// `occurrences` hoch. Nach Discord geht die erste Meldung und danach nur
+/// noch, wenn genug Zeit vergangen ist.
+///
+/// Sie ist ausserdem die Antwort auf «seit wann» und «wie oft», und die gibt
+/// keine Nachricht in einem Kanal, in dem jemand nach oben scrollen muss.
+///
+/// ## Was hier NICHT steht
+///
+/// Keine Tokens, keine Passwoerter, keine Schluessel, keine Verbindungs-
+/// zeichenfolgen. `meldeFehler` bereinigt Meldung, Stapel und Kontext, bevor
+/// etwas hier ankommt - und ein Test haelt das fest. Ein Fehler-Log ist die
+/// Stelle, an der ein Geheimnis am leichtesten versehentlich landet: eine
+/// Fehlermeldung zitiert gern die Anfrage, die sie ausgeloest hat.
+model ErrorLogEntry {
+  id String @id @default(cuid())
+
+  /// Was denselben Fehler zum selben Fehler macht - siehe `fehler.ts`.
+  fingerprint String @unique
+
+  source  ErrorLogSource
+  /// Wo es geschah: Befehlsname, Aktionsname oder Pfad.
+  origin  String
+  /// Der Fehlercode, wenn es einen gibt - `AppErrorCode` oder Klassenname.
+  code    String?
+  /// Die bereinigte Meldung, gekuerzt.
+  message String
+  /// Der bereinigte Stapel, gekuerzt. Fehlt, wo es keinen gab.
+  stack   String?
+  /// Weiterer bereinigter Zusammenhang - niemals Eingabedaten im Klartext.
+  context Json?
+
+  /// Wen es getroffen hat. Nur die Kennung, kein Name, kein Inhalt.
+  actorDiscordId String?
+
+  occurrences Int      @default(1)
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  /// Wann zuletzt nach Discord gemeldet - Grundlage der Ruhezeit.
+  notifiedAt    DateTime?
+  /// Wie oft gemeldet. Teil des Dedupe-Schluessels der Zustellung, damit
+  /// eine zweite Meldung desselben Fehlers nicht als Doppelung gilt.
+  notifiedCount Int       @default(0)
+
+  @@index([lastSeenAt])
+  @@index([source, lastSeenAt])
 }
 
 /// Wie weit eine Übertragung ist.
@@ -8118,6 +8194,45 @@ model MemberProfile {
   @@index([playStyle])
   /// Die faellige Abfrage der befristeten Profilsperren.
   @@index([publicLockUntil])
+}
+
+/// Ein Kommentar unter einem oeffentlichen Profil.
+///
+/// ## Warum eine eigene Tabelle und kein Feld am Profil
+///
+/// Weil es viele sind und sie jemand anderem gehoeren als das Profil. Der
+/// Text stammt vom Schreibenden, die Seite vom Besitzer - und geloescht
+/// duerfen beide.
+///
+/// ## Warum weich geloescht wird
+///
+/// `deletedAt` statt `DELETE`: wer einen Kommentar entfernt, soll das
+/// nachvollziehbar tun koennen. Ein hart geloeschter Kommentar laesst die
+/// Frage «stand da etwas, und was» unbeantwortbar - gerade dann, wenn sich
+/// jemand ueber eine Entfernung beschwert.
+model MemberProfileComment {
+  id String @id @default(cuid())
+
+  /// Auf wessen Profil der Kommentar steht.
+  profileDiscordId String
+  /// Wer ihn geschrieben hat.
+  authorDiscordId  String
+  /// Der Name des Schreibenden zum Zeitpunkt des Schreibens.
+  ///
+  /// Mitgefuehrt und nicht nachgeschlagen: wer den Server verlaesst, soll
+  /// nicht als nackte Kennung unter einem Profil stehen.
+  authorName       String
+
+  body String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deletedAt          DateTime?
+  deletedByDiscordId String?
+
+  @@index([profileDiscordId, deletedAt, createdAt])
+  @@index([authorDiscordId])
 }
 
 /// Eine von Hand verliehene Auszeichnung.

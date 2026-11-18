@@ -262,10 +262,23 @@ describe('XP-Glücksrad in der Seitenleiste', () => {
  * Seiten gibt es weiterhin - sie haben nur keinen eigenen Eintrag mehr und
  * hängen am Profil.
  *
+ * «Mitglieder» (`/mitglieder`) ist der dritte, und er hat denselben Grund wie
+ * die zwei darüber: es ist das Verzeichnis aller Mitglieder mit ihren
+ * öffentlichen Profilen - das Gegenstück zur Mitgliederliste in Discord, die
+ * dort ohnehin jeder sieht. Es hinter eine Zuteilung zu stellen wäre eine
+ * Hürde ohne Schutzwirkung, und «sieht es nicht» wäre der Sonderfall, den
+ * niemand einstellt.
+ *
+ * Es ist ausdrücklich **nicht** «Mitglieder entdecken» und nicht das Member
+ * Center: dort stehen Kennungen, Akten und Rollenvergabe, und beides bleibt
+ * hinter `members.view`. Das Verzeichnis zeigt Name, Rolle und Profillink -
+ * und die Seite prüft `members.view.basic.own` selbst, wie jeder
+ * baseline-Eintrag.
+ *
  * Die Liste steht hier als Whitelist und nicht als Ausnahme im Test darunter:
  * `baseline` umgeht die Rechtevergabe, und was dazukommt, soll auffallen.
  */
-const OHNE_BERECHTIGUNG_SICHTBAR = new Set(['/xp-gluecksrad', '/profil']);
+const OHNE_BERECHTIGUNG_SICHTBAR = new Set(['/xp-gluecksrad', '/profil', '/mitglieder']);
 
 describe('Navigation gewährt keine Rechte', () => {
   it('liefert für jeden Eintrag eine Berechtigung, die der Betrachter besitzt', () => {

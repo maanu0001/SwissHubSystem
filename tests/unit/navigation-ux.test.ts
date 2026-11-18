@@ -67,19 +67,29 @@ describe('Sichtbarkeit bleibt unverändert', () => {
   );
 
   it('zeigt einer Rolle ohne Rechte weiterhin nur die baseline-Einträge', () => {
-    // Ohne laufende Verlosung bleiben davon die eigenen Bereiche - das
-    // XP-Glücksrad hängt zusätzlich an seinem Laufzeit-Kennzeichen.
+    /*
+     * Ohne laufende Verlosung bleiben davon die eigenen Bereiche - das
+     * XP-Glücksrad hängt zusätzlich an seinem Laufzeit-Kennzeichen.
+     *
+     * `/mitglieder` ist der dritte baseline-Eintrag: das Verzeichnis aller
+     * Mitglieder mit ihren öffentlichen Profilen. Dieselbe Begründung wie bei
+     * «Mein Profil» - die Mitgliederliste des Servers sieht in Discord
+     * ohnehin jeder, und die ausführliche Fassung steht in
+     * `navigation-capabilities.test.ts`. Das Member Center bleibt davon
+     * unberührt und hängt weiter an `members.view`; der Test darunter prüft
+     * genau das.
+     */
     expect(
       buildNavigation(rechteVon([]), ALLE_MODULE)
         .map((eintrag) => eintrag.href)
         .sort(),
-    ).toEqual(['/profil']);
+    ).toEqual(['/mitglieder', '/profil']);
 
     expect(
       buildNavigation(rechteVon([]), ALLE_MODULE, ALLE_SIGNALE)
         .map((eintrag) => eintrag.href)
         .sort(),
-    ).toEqual(['/profil', '/xp-gluecksrad']);
+    ).toEqual(['/mitglieder', '/profil', '/xp-gluecksrad']);
   });
 
   it('zeigt ohne members.view weiterhin keinen Mitgliederbereich', () => {
@@ -170,7 +180,13 @@ describe('Schnellnavigation', () => {
   it('bietet einem Mitglied ohne Rechte nur seine eigenen Bereiche an', () => {
     const ohneRechte = ausGruppen(groupNavigation(buildNavigation(rechteVon([]), ALLE_MODULE, ALLE_SIGNALE)));
 
-    expect(ohneRechte.map((eintrag) => eintrag.href).sort()).toEqual(['/profil', '/xp-gluecksrad']);
+    expect(ohneRechte.map((eintrag) => eintrag.href).sort()).toEqual([
+      '/mitglieder',
+      '/profil',
+      '/xp-gluecksrad',
+    ]);
+    // `/mitglieder` ist das Verzeichnis und nicht das Member Center. Dass
+    // `/members` weiterhin fehlt, ist der Unterschied, auf den es ankommt.
     expect(ohneRechte.some((eintrag: Eintrag) => eintrag.href === '/members')).toBe(false);
   });
 

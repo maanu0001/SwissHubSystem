@@ -1,9 +1,9 @@
 import { prisma } from '@swisshub/database';
-import type { DiscordEvent, DiscordLogCategory, ModerationAction } from '@swisshub/database';
+import type { DiscordEvent, DiscordLogCategory, ErrorLogEntry, ModerationAction } from '@swisshub/database';
 import type { DiscordEmbed } from '@swisshub/discord';
 import { createLogger } from '@swisshub/logger';
 import { logKanalIds, zielFuer } from './config';
-import { formatiereEreignis, formatiereMassnahme } from './formatters';
+import { formatiereEreignis, formatiereFehler, formatiereMassnahme } from './formatters';
 import { kategorienFuerEreignis, NICHT_NACH_DISCORD } from './registry';
 
 const log = createLogger('logs:dispatch');
@@ -22,10 +22,11 @@ const log = createLogger('logs:dispatch');
  * ```
  * ModerationAction geschrieben  → meldeMassnahme()  → hier
  * DiscordEvent geschrieben      → recordEvent()     → hier
+ * ErrorLogEntry geschrieben     → meldeFehler()     → hier
  * ```
  *
- * Ein neues Modul, das Discord-Ausgabe will, haengt sich an einen der beiden -
- * oder bringt einen dritten mit und traegt seine Kategorie in die Registry
+ * Ein neues Modul, das Discord-Ausgabe will, haengt sich an einen der drei -
+ * oder bringt einen vierten mit und traegt seine Kategorie in die Registry
  * ein. Es aendert nichts an dieser Datei.
  *
  * ## Diese Datei wirft nie
@@ -42,7 +43,7 @@ const log = createLogger('logs:dispatch');
  */
 
 /** Woraus die Zustellung entstand - Teil des Schluessels gegen Doppelungen. */
-type Quelle = 'moderation' | 'event';
+type Quelle = 'moderation' | 'event' | 'fehler';
 
 /**
  * Der Schluessel, der eine zweite Nachricht verhindert.
@@ -209,6 +210,59 @@ export async function dispatchEreignis(ereignis: DiscordEvent): Promise<Dispatch
     return neu ? { ergebnis: 'eingereiht', channelId: ziel.channelId } : { ergebnis: 'bereits-eingereiht' };
   } catch (error) {
     log.warn('Ereignis konnte nicht für Discord eingereiht werden', { error, id: ereignis.id });
+    return { ergebnis: 'uebersprungen', grund: 'fehler' };
+  }
+}
+
+/**
+ * Einen Fehler nach Discord geben.
+ *
+ * ## Warum der Schluessel die Meldungsnummer traegt
+ *
+ * Ein Fehlereintrag meldet sich mehrfach: beim ersten Auftreten und danach
+ * nach jeder Ruhezeit, solange er weiter auftritt. Der Dedupe-Schluessel
+ * enthaelt deshalb `notifiedCount` - ohne ihn waere jede Meldung nach der
+ * ersten eine Doppelung desselben Eintrags und wuerde verworfen. Der
+ * Eintrag verschwaende damit still aus dem Kanal, obwohl er weiterlaeuft.
+ *
+ * Der Zaehler ist beim Aufruf bereits erhoeht (`meldeFehler` stellt den
+ * Anspruch in der Datenbank), und genau dieser Anspruch macht die Nummer
+ * eindeutig: zwei gleichzeitige Laeufe koennen nicht dieselbe bekommen.
+ *
+ * ## Und warum «kein Ziel» hier gewoehnlich ist
+ *
+ * Die Kategorie `ERRORS` wird von keiner Migration auf einen Kanal gelegt.
+ * Auf einem Server, auf dem niemand sie eingerichtet hat, endet jeder Fehler
+ * hier mit `kein-ziel` - und das ist richtig. Der Eintrag steht trotzdem in
+ * der Tabelle; der Log hoert nicht auf zu zaehlen, nur weil niemand zuhoert.
+ */
+export async function dispatchFehler(eintrag: ErrorLogEntry): Promise<DispatchErgebnis> {
+  try {
+    const ziel = await zielFuer('ERRORS');
+    if (!ziel) {
+      return { ergebnis: 'kein-ziel' };
+    }
+    const embed = formatiereFehler(eintrag);
+    const neu = await reiheEin(
+      {
+        quelle: 'fehler',
+        logId: `${eintrag.id}:${eintrag.notifiedCount}`,
+        category: 'ERRORS',
+        guildId: ziel.guildId,
+        embed,
+      },
+      ziel.channelId,
+    );
+    return neu ? { ergebnis: 'eingereiht', channelId: ziel.channelId } : { ergebnis: 'bereits-eingereiht' };
+  } catch (error) {
+    /*
+     * Hier wird nicht `meldeFehler` aufgerufen.
+     *
+     * Das waere die Schleife: ein Fehler beim Melden eines Fehlers erzeugte
+     * einen Fehler beim Melden eines Fehlers. Eine Warnung im Protokoll ist
+     * das Ende der Kette.
+     */
+    log.warn('Fehler konnte nicht für Discord eingereiht werden', { error, id: eintrag.id });
     return { ergebnis: 'uebersprungen', grund: 'fehler' };
   }
 }

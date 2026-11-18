@@ -1,5 +1,7 @@
 import type {
   DiscordEvent,
+  ErrorLogEntry,
+  ErrorLogSource,
   ModerationAction,
   ModerationActionType,
   ModerationSource,
@@ -519,4 +521,94 @@ function neuesProfilbild(ereignis: DiscordEvent): string | null {
   }
   const adresse = typeof daten.avatarUrl === 'string' ? daten.avatarUrl : null;
   return adresse && adresse.startsWith('https://') ? adresse : null;
+}
+
+/**
+ * Woher der Fehler kam - in Klartext.
+ *
+ * «WEBAPP» im Embed waere ein Enum-Wert in einem Kanal, den auch jemand
+ * liest, der den Quelltext nie gesehen hat.
+ */
+const FEHLER_QUELLE: Record<ErrorLogSource, string> = {
+  DISCORD_COMMAND: 'Slash-Befehl',
+  DISCORD_INTERACTION: 'Discord-Interaktion',
+  BOT: 'Bot',
+  WEBAPP: 'WebApp',
+};
+
+/**
+ * Ein Fehler als Embed.
+ *
+ * ## Was darin steht und warum
+ *
+ * **Ort, Code, Meldung, Haeufigkeit, Stapel.** Jedes davon beantwortet eine
+ * Frage, die man sonst stellen muesste: *wo*, *was*, *wie oft*, *woher*.
+ *
+ * Die Haeufigkeit steht ausdruecklich drin, und sie ist der wichtigste Wert
+ * im Embed: «1×, gerade jetzt» ist ein Vorfall, «340×, seit vorgestern» ist
+ * eine Baustelle. Ohne diese Zahl sehen beide gleich aus.
+ *
+ * ## Was nicht darin steht
+ *
+ * Keine Eingabedaten. Was der Benutzer getippt hat, kann ein Passwort sein,
+ * eine Adresse, eine Nachricht an jemanden - und ein Fehlerkanal ist der
+ * falsche Ort dafuer. Der Kontext, den der Aufrufer ausdruecklich mitgibt,
+ * ist bereits bereinigt; mehr wird nicht erfunden.
+ *
+ * Die Person steht als Verweis da und nicht als Name: `<@123>` ist
+ * anklickbar, und wer sie braucht, kann nachsehen. «wer war es» ist bei einem
+ * Fehler ohnehin die zweite Frage - meistens kann der Betroffene nichts
+ * dafuer.
+ */
+export function formatiereFehler(eintrag: ErrorLogEntry): DiscordEmbed {
+  const felder: DiscordEmbedField[] = [
+    ...feld('Quelle', FEHLER_QUELLE[eintrag.source]),
+    ...feld('Ort', `\`${kuerze(eintrag.origin, 100)}\``),
+    ...feld('Code', eintrag.code ? `\`${kuerze(eintrag.code, 60)}\`` : null),
+    ...feld(
+      'Häufigkeit',
+      eintrag.occurrences > 1
+        ? `${eintrag.occurrences}× seit ${zeitpunkt(eintrag.firstSeenAt)}`
+        : 'Erstmals aufgetreten',
+      false,
+    ),
+    ...feld('Betroffen', eintrag.actorDiscordId ? `<@${eintrag.actorDiscordId}>` : null),
+  ];
+
+  const kontext = eintrag.context as Record<string, string> | null;
+  if (kontext && Object.keys(kontext).length > 0) {
+    felder.push({
+      name: 'Zusammenhang',
+      /*
+       * Zeilenweise `schluessel: wert`.
+       *
+       * Kein JSON: ein Embed-Feld mit geschweiften Klammern und
+       * Anfuehrungszeichen liest sich in Discord schlecht, und der Kontext
+       * ist bereits flach - er hat keine Struktur, die JSON zeigen koennte.
+       */
+      value: alsZitat(
+        Object.entries(kontext)
+          .map(([schluessel, wert]) => `${schluessel}: ${wert}`)
+          .join('\n'),
+      ),
+      inline: false,
+    });
+  }
+
+  if (eintrag.stack) {
+    felder.push({
+      name: 'Stapel',
+      value: `\`\`\`\n${kuerze(eintrag.stack, EMBED_LIMITS.fieldValue - 10)}\n\`\`\``,
+      inline: false,
+    });
+  }
+
+  return begrenze({
+    title: '🐞 Fehler',
+    description: alsZitat(eintrag.message),
+    color: FARBE.hart,
+    fields: felder,
+    timestamp: eintrag.lastSeenAt.toISOString(),
+    footer: { text: 'SwissHub · Fehler-Log' },
+  });
 }

@@ -317,6 +317,30 @@ export async function listTickets(
     ];
   }
 
+  /*
+   * Das Archiv sortiert nach Datum, die Warteschlange nach Dringlichkeit.
+   *
+   * ## Warum zwei Ordnungen
+   *
+   * In der Warteschlange ist die Frage «wer wartet am laengsten auf eine
+   * Antwort» - dort gehoert das dringendste und aelteste nach oben. Im
+   * Archiv ist nichts mehr dringend: jedes Ticket darin ist erledigt. Eine
+   * Liste geschlossener Tickets nach Prioritaet zu ordnen heisst, nach einem
+   * Merkmal zu sortieren, das keine Aussage mehr traegt - und das zuletzt
+   * geschlossene, das man am ehesten sucht, steht irgendwo mittendrin.
+   *
+   * Sortiert wird nach dem Schliessungszeitpunkt, neueste zuerst. `closedAt`
+   * kann bei Altbestand fehlen (Tickets, die vor der Einfuehrung des Feldes
+   * geschlossen wurden); dann traegt `updatedAt` die Ordnung weiter, und
+   * `createdAt` entscheidet den Rest. `nulls: 'last'` haelt die Luecken
+   * unten statt sie oben einzustreuen.
+   */
+  const nurGeschlossen =
+    query.closed === true ||
+    (query.status !== undefined &&
+      query.status.length > 0 &&
+      query.status.every((wert) => wert === 'CLOSED' || wert === 'ARCHIVED'));
+
   const [eintraege, total] = await Promise.all([
     prisma.ticket.findMany({
       where,
@@ -325,25 +349,35 @@ export async function listTickets(
         tags: { include: { tag: { select: { name: true } } } },
         _count: { select: { messages: true } },
       },
-      orderBy: [{ priority: 'asc' }, { lastMessageAt: 'asc' }, { createdAt: 'asc' }],
+      orderBy: nurGeschlossen
+        ? [{ closedAt: { sort: 'desc', nulls: 'last' } }, { updatedAt: 'desc' }, { createdAt: 'desc' }]
+        : [{ priority: 'asc' }, { lastMessageAt: 'asc' }, { createdAt: 'asc' }],
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
     }),
     prisma.ticket.count({ where }),
   ]);
 
-  const rows = eintraege
-    .map((eintrag) => {
-      const { category, tags, _count, ...ticket } = eintrag;
-      return {
-        ticket,
-        categoryName: category?.name ?? null,
-        tagNames: tags.map((zuweisung) => zuweisung.tag.name),
-        messageCount: _count.messages,
-      };
-    })
-    // Prisma sortiert Enums alphabetisch, nicht nach Dringlichkeit.
-    .sort((a, b) => DRINGLICHKEIT[a.ticket.priority] - DRINGLICHKEIT[b.ticket.priority]);
+  const rows = eintraege.map((eintrag) => {
+    const { category, tags, _count, ...ticket } = eintrag;
+    return {
+      ticket,
+      categoryName: category?.name ?? null,
+      tagNames: tags.map((zuweisung) => zuweisung.tag.name),
+      messageCount: _count.messages,
+    };
+  });
+
+  /*
+   * Die Nachsortierung nach Dringlichkeit gilt nur fuer offene Tickets.
+   *
+   * Prisma sortiert Enums alphabetisch, nicht nach Dringlichkeit - deshalb
+   * steht sie ueberhaupt hier. Im Archiv wuerde sie die Datumsordnung
+   * wieder zerwuerfeln, die die Datenbank eben hergestellt hat.
+   */
+  if (!nurGeschlossen) {
+    rows.sort((a, b) => DRINGLICHKEIT[a.ticket.priority] - DRINGLICHKEIT[b.ticket.priority]);
+  }
 
   return { rows, total };
 }

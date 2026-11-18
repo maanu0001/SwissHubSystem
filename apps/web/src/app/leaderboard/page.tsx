@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { z } from 'zod';
 import { branding } from '@swisshub/config/client';
-import { isModuleEnabled, level } from '@swisshub/modules';
+import { isModuleEnabled, level, profile } from '@swisshub/modules';
 import { EmptyState } from '@/components/shared/states';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -78,6 +78,16 @@ export default async function LeaderboardPage({
   const podest = seite === 1 ? board.entries.slice(0, 3) : [];
   const liste = seite === 1 ? board.entries.slice(3) : board.entries;
 
+  /*
+   * Die oeffentlichen Adressen der gezeigten Mitglieder - in einer Abfrage.
+   *
+   * `slugsVon` gibt einen Slug nur fuer ein veroeffentlichtes, nicht
+   * gesperrtes Profil heraus; wer keines hat, steht unverlinkt in der Liste.
+   * Die Pruefung bleibt damit in der Datenschicht, und eine Rangliste mit
+   * fuenfzig Namen bleibt eine Abfrage statt fuenfzig.
+   */
+  const slugs = await profile.slugsVon(board.entries.map((eintrag) => eintrag.discordId));
+
   return (
     <Rahmen>
       {podest.length > 0 ? (
@@ -97,7 +107,7 @@ export default async function LeaderboardPage({
                   eintrag.rank === 3 && 'sm:order-3',
                 )}
               >
-                <RangKarte eintrag={eintrag} />
+                <RangKarte eintrag={eintrag} slug={slugs.get(eintrag.discordId) ?? null} />
               </li>
             ))}
           </ol>
@@ -109,7 +119,7 @@ export default async function LeaderboardPage({
           <ol className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-card/40">
             {liste.map((eintrag) => (
               <li key={eintrag.discordId}>
-                <RangZeile eintrag={eintrag} />
+                <RangZeile eintrag={eintrag} slug={slugs.get(eintrag.discordId) ?? null} />
               </li>
             ))}
           </ol>

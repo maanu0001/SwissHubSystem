@@ -43,6 +43,10 @@ const EXPLICIT_CHECKS = [
   // deckt alle Termine ab, `calendar.manageOwn` nur die eigenen - das laesst
   // sich nicht als eine feste Permission ausdruecken.
   'requireEventZugriff',
+  // Profilkommentare: wer loeschen darf, steht erst zur Laufzeit fest - der
+  // Verfasser, der Profilbesitzer oder die Moderation. Dieselbe Lage wie beim
+  // Kalender, und derselbe Ausweg: eine benannte Pruefung im Rumpf.
+  'requireKommentarZugriff',
 ];
 
 interface Action {
