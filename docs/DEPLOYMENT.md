@@ -250,6 +250,41 @@ sudo nginx -t && sudo systemctl reload nginx
 Certbot richtet die automatische Verlängerung selbst ein
 (`systemctl status certbot.timer`).
 
+### Danach pflegt der Deploy diese Datei
+
+Die drei Zeilen oben sind nur noch die **Erstinstallation**. Bei jedem
+Deployment vergleicht Schritt 7b die laufende Fassung mit
+`deploy/nginx/system.swisshub.gg.conf` und spielt sie aus, wenn sie abweicht.
+
+Der Grund dafür war ein gemeldeter Fehler: die Datei lag im Repository und
+wurde nie ausgespielt. nginx lief mit seiner Vorgabe von **1 MB** für
+`client_max_body_size` und wies damit jeden Upload ab, bevor die Anwendung ihn
+sah — mit einem rohen 413. Die Grenzen im Code (40 bzw. 50 MB) waren über alle
+Schichten nachgezogen; die Schicht davor kannte sie nie.
+
+Was der Schritt dabei zusichert:
+
+| Fall                                    | Was geschieht                                                              |
+| --------------------------------------- | -------------------------------------------------------------------------- |
+| gleich                                  | nichts                                                                     |
+| abweichend, neue Fassung gültig         | Sicherung `…conf.vor-<Zeitstempel>`, Unterschied im Protokoll, dann Reload |
+| abweichend, neue Fassung ungültig       | `nginx -t` fällt, die Sicherung kommt zurück, das Deployment scheitert     |
+| noch keine Fassung vorhanden            | ablegen, verlinken, prüfen, laden                                          |
+| zweiter Serverblock für dieselbe Domain | Abbruch — welcher gälte, entscheidet sonst nginx                           |
+
+**Was von Hand bearbeitet wurde, geht dabei verloren** (die Sicherung bleibt).
+Eine dauerhafte Änderung gehört deshalb ins Repository, nicht auf den Server.
+Certbots TLS-Zeilen stehen in der Repo-Fassung bereits drin; die Zertifikate
+selbst liegen unter `/etc/letsencrypt/` und werden nicht angefasst.
+
+Der Schritt braucht `sudo` ohne Passwortabfrage für den Deploy-Benutzer. Fehlt
+das, scheitert das Deployment mit einem Hinweis darauf — es wird nicht still
+übersprungen.
+
+Schritt 9 prüft danach die **Wirkung** statt der Datei: zwei Megabyte an einen
+Pfad, den es nicht gibt. Antwortet darauf ein 413, greift die Grenze nicht, und
+das Deployment scheitert.
+
 Test:
 
 ```bash

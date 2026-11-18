@@ -227,4 +227,65 @@ describe('Reverse Proxy und Upload-Limits', () => {
       `DEPLOYMENT.md muss ${megabyte} MB nennen - die nginx-Konfiguration setzt das.`,
     ).toContain(`**${megabyte} MB**`);
   });
+
+  /*
+   * Die Luecke, die die drei Pruefungen darueber offen liessen.
+   *
+   * Sie alle lasen `deploy/nginx/system.swisshub.gg.conf` - eine Datei, die
+   * **nie ausgespielt wurde**. Die Grenze stimmte darin seit Monaten, und
+   * nginx lief die ganze Zeit mit seiner Vorgabe von 1 MB. Gemeldet wurde es
+   * als «meine Bilder sind zu gross»; gemessen war es ein roher 413 der
+   * Schicht davor.
+   *
+   * Ein Waechter, der eine Datei prueft, die niemand liest, ist schlimmer als
+   * keiner: er sagt «stimmt», und es stimmt nur auf der Platte.
+   */
+  describe('Der Deploy spielt die Konfiguration auch aus', () => {
+    const deploy = workflow;
+
+    it('legt die Datei ab und verlinkt sie', () => {
+      expect(deploy).toContain('/etc/nginx/sites-available/system.swisshub.gg.conf');
+      expect(deploy).toContain('/etc/nginx/sites-enabled/system.swisshub.gg.conf');
+      expect(deploy).toContain('deploy/nginx/system.swisshub.gg.conf');
+      expect(deploy).toMatch(/sudo install .*"\$QUELLE" "\$ZIEL"/u);
+      expect(deploy).toMatch(/sudo ln -sfn "\$ZIEL" "\$LINK"/u);
+    });
+
+    it('prueft mit nginx -t, bevor es neu laedt', () => {
+      /*
+       * Die Reihenfolge ist die ganze Sicherheit dieses Schritts. Ein Reload
+       * vor dem Test koennte eine kaputte Konfiguration laden - und dann ist
+       * die Seite weg, nicht nur der Upload.
+       */
+      const test = deploy.indexOf('sudo nginx -t');
+      const reload = deploy.indexOf('sudo systemctl reload nginx');
+      expect(test, 'nginx -t fehlt im Deploy').toBeGreaterThan(-1);
+      expect(reload, 'Der Reload fehlt im Deploy').toBeGreaterThan(-1);
+      expect(test).toBeLessThan(reload);
+    });
+
+    it('sichert die laufende Fassung und holt sie bei einem Fehler zurueck', () => {
+      // Auf dem Server kann von Hand etwas stehen - certbot schreibt dort.
+      expect(deploy).toMatch(/sudo cp -a "\$ZIEL" "\$sicherung"/u);
+      expect(deploy).toMatch(/sudo cp -a "\$sicherung" "\$ZIEL"/u);
+      // Und der Unterschied steht im Protokoll, statt lautlos zu geschehen.
+      expect(deploy).toContain('sudo diff -u "$ZIEL" "$QUELLE"');
+    });
+
+    it('bricht ab, wenn zwei Dateien dieselbe Domain bedienen', () => {
+      // Welcher Serverblock gilt, entscheidet sonst nginx.
+      expect(deploy).toContain("grep -rl 'server_name[[:space:]]\\+system\\.swisshub\\.gg'");
+    });
+
+    it('prueft am Ende die Wirkung und nicht die Datei', () => {
+      /*
+       * Zwei Megabyte an einen Pfad, den es nicht gibt. Ein 413 darauf heisst:
+       * die Grenze greift weiterhin nicht - genau der gemeldete Fehler. Ohne
+       * diese Probe waere der Schritt darueber eine Datei, die ausgespielt
+       * wurde, und keine Grenze, die gilt.
+       */
+      expect(deploy).toContain('2097152');
+      expect(deploy).toMatch(/if \[ "\$status" = "413" \]; then\n\s*echo "FEHLER/u);
+    });
+  });
 });

@@ -267,8 +267,113 @@ jobs:
             echo "7. Uebersicht:"
             $COMPOSE ps
 
+            # ---------------------------------------------------------------
+            # 7b. Die nginx-Konfiguration.
+            #
+            # Sie lag im Repository und wurde nie ausgespielt. Das war kein
+            # theoretischer Mangel: nginx laeuft mit seiner Vorgabe von 1 MB
+            # fuer `client_max_body_size`, und damit wies es jeden Upload ab,
+            # bevor die Anwendung ihn ueberhaupt sah - mit einem rohen 413, zu
+            # dem SwissHub nur raten konnte, woher er kommt. Die Grenzen im
+            # Code (40 bzw. 50 MB) waren ueber alle Schichten nachgezogen; die
+            # Schicht davor kannte sie nie.
+            #
+            # Drei Dinge sichern diesen Schritt ab, jedes gegen einen anderen
+            # Fehler:
+            #
+            # 1. **Sicherung vor dem Ueberschreiben.** Auf der laufenden
+            #    Fassung kann von Hand etwas stehen - certbot ergaenzt seine
+            #    TLS-Zeilen dort. Sie stillschweigend zu ersetzen hiesse, eine
+            #    Aenderung zu verlieren, von der niemand mehr weiss.
+            # 2. **`nginx -t` vor dem Neuladen.** Eine kaputte Konfiguration
+            #    darf nie geladen werden; faellt der Test, kommt die alte
+            #    Fassung zurueck und das Deployment scheitert sichtbar.
+            # 3. **Kein Raten bei zwei Dateien.** Zwei Serverbloecke fuer
+            #    dieselbe Domain sind ein Zustand, in dem nginx entscheidet,
+            #    welcher gilt. Dann wird nichts angefasst.
+            # ---------------------------------------------------------------
+            echo "7b. Pruefe die nginx-Konfiguration ..."
+            QUELLE=/opt/swisshub/deploy/nginx/system.swisshub.gg.conf
+            ZIEL=/etc/nginx/sites-available/system.swisshub.gg.conf
+            LINK=/etc/nginx/sites-enabled/system.swisshub.gg.conf
+
+            if ! sudo -n true 2>/dev/null; then
+              echo "FEHLER: Dieser Schritt schreibt nach /etc/nginx und laedt nginx neu."
+              echo "       Dafuer braucht der Deploy-Benutzer sudo ohne Passwortabfrage."
+              exit 1
+            fi
+
+            fremde=$(sudo grep -rl 'server_name[[:space:]]\+system\.swisshub\.gg' /etc/nginx/sites-enabled/ 2>/dev/null | grep -vx "$LINK" || true)
+            if [ -n "$fremde" ]; then
+              echo "FEHLER: system.swisshub.gg steht ausserdem in:"
+              echo "$fremde" | sed 's/^/         /'
+              echo "       Welcher Serverblock gilt, entscheidet dann nginx. Bitte von Hand aufraeumen."
+              exit 1
+            fi
+
+            if sudo cmp -s "$QUELLE" "$ZIEL" 2>/dev/null; then
+              echo "   Die laufende Fassung ist schon die aus dem Repository."
+            else
+              sicherung=""
+              if sudo test -f "$ZIEL"; then
+                sicherung="${ZIEL}.vor-$(date -u +%Y%m%dT%H%M%SZ)"
+                sudo cp -a "$ZIEL" "$sicherung"
+                echo "   Sicherung: $sicherung"
+                echo "   Was sich aendert:"
+                sudo diff -u "$ZIEL" "$QUELLE" | sed 's/^/     /' || true
+              else
+                echo "   Unter $ZIEL lag noch keine Fassung."
+              fi
+
+              sudo install -o root -g root -m 0644 "$QUELLE" "$ZIEL"
+              sudo ln -sfn "$ZIEL" "$LINK"
+
+              if ! sudo nginx -t; then
+                echo "FEHLER: nginx lehnt die neue Konfiguration ab - es wird nichts neu geladen."
+                if [ -n "$sicherung" ]; then
+                  sudo cp -a "$sicherung" "$ZIEL"
+                  sudo nginx -t
+                  echo "   Die alte Fassung ist wieder in Kraft."
+                else
+                  sudo rm -f "$LINK"
+                  echo "   Die Verknuepfung ist wieder entfernt."
+                fi
+                exit 1
+              fi
+
+              sudo systemctl reload nginx
+              echo "   nginx neu geladen."
+            fi
+
             echo "8. Pruefe die WebApp von aussen ..."
             curl --fail --silent --show-error --max-time 30 https://system.swisshub.gg > /dev/null
             echo "   system.swisshub.gg antwortet."
+
+            # ---------------------------------------------------------------
+            # 9. Kommt ein Koerper ueber 1 MB wirklich durch?
+            #
+            # Die Gegenprobe zu 7b, und sie prueft die Wirkung statt der
+            # Datei: zwei Megabyte an einen Pfad, den es nicht gibt. Die
+            # Anwendung antwortet darauf 404 oder 405 - eine zu kleine Grenze
+            # davor antwortet 413, und zwar bevor die Anwendung etwas sieht.
+            # Genau dieser 413 war der gemeldete Fehler.
+            #
+            # Ohne diese Zeile waere 7b eine Datei, die ausgespielt wurde, und
+            # nicht eine Grenze, die gilt.
+            # ---------------------------------------------------------------
+            echo "9. Pruefe die Upload-Grenze von aussen ..."
+            status=$(head -c 2097152 /dev/zero | tr '\0' 'a' \
+              | curl --silent --output /dev/null --write-out '%{http_code}' --max-time 60 \
+                     -X POST -H 'Content-Type: application/octet-stream' --data-binary @- \
+                     https://system.swisshub.gg/api/__grenzprobe || echo 000)
+            if [ "$status" = "413" ]; then
+              echo "FEHLER: 2 MB werden weiterhin mit 413 abgewiesen - client_max_body_size greift nicht."
+              exit 1
+            fi
+            if [ "$status" = "000" ]; then
+              echo "FEHLER: Die Probe bekam keine HTTP-Antwort (Verbindung oder Zeitgrenze)."
+              exit 1
+            fi
+            echo "   2 MB kommen bei der Anwendung an (Antwort $status)."
 
             echo "=== DEPLOYMENT ERFOLGREICH ==="
