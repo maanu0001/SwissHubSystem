@@ -8,7 +8,6 @@ import {
   Lock,
   Music,
   ScrollText,
-  Search,
   Settings,
   ShieldCheck,
   Ticket,
@@ -60,7 +59,6 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
   const canCreateJail = can(context, jail.JAIL_PERMISSIONS.create);
   const canReleaseJail = can(context, jail.JAIL_PERMISSIONS.release);
   const canViewAudit = can(context, 'audit.view');
-  const canViewMembers = can(context, 'members.view');
   const canManageModules = can(context, 'modules.manage');
   const canViewSettings = can(context, 'settings.view');
   // Die drei Wege eines gewoehnlichen Mitglieds. Jeweils genau die
@@ -142,15 +140,19 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
 
   // Bleibt nichts uebrig, verschwindet die ganze Karte. Eine Ueberschrift
   // «Schnellaktionen» ueber einer leeren Flaeche ist schlechter als keine.
-  const hatSchnellaktionen =
-    offeneVerifikationen !== null ||
-    canCreateTicket ||
-    canCreateSpielwahl ||
-    canUseMusic ||
-    canCreateJail ||
-    canViewMembers ||
-    canViewAudit ||
-    canViewSettings;
+  /*
+   * Der Abschnitt steht jetzt immer.
+   *
+   * Hier wurde gezaehlt, ob ueberhaupt eine Schnellaktion sichtbar waere -
+   * sonst stand eine leere Ueberschrift da. Seit «Mitglieder» an keiner
+   * Berechtigung mehr haengt, gibt es diesen Fall nicht mehr: jedes
+   * angemeldete Mitglied sieht mindestens diese eine Kachel.
+   *
+   * Die Bedingung bleibt als Konstante stehen und nicht als weggelassenes
+   * `if`: faellt die unbedingte Kachel eines Tages weg, faellt hier auf,
+   * dass wieder gezaehlt werden muss.
+   */
+  const hatSchnellaktionen = true;
 
   // Verfügbare Module zuerst, geplante als Ausblick dahinter.
   const visibleModules = moduleStatus
@@ -604,14 +606,27 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
                 </QuickAction>
               ) : null}
 
-              {canViewMembers ? (
-                <QuickAction
-                  title="Mitglied suchen"
-                  description="Nach Mitgliedern suchen"
-                  icon={<Search />}
-                  href="/members"
-                />
-              ) : null}
+              {/*
+                Der Weg zu den Mitgliedern fuehrt ins Verzeichnis, nicht ins
+                Member Center.
+
+                Er stand auf `/members` und war an `members.view` gebunden -
+                eine Verwaltungsberechtigung. Fuer alle anderen gab es vom
+                Dashboard aus gar keinen Weg zu den Mitgliedern, obwohl es
+                mit `/mitglieder` eine Seite gibt, die jedes angemeldete
+                Mitglied oeffnen darf.
+
+                Das Member Center ist damit nicht weg: es steht weiterhin in
+                der Seitenleiste unter «Support & Moderation», und zwar fuer
+                die, die es duerfen. Was sich aendert, ist der Schnellzugriff
+                - und der soll dorthin fuehren, wo alle hinkommen.
+              */}
+              <QuickAction
+                title="Mitglieder"
+                description="Alle Mitglieder des Servers"
+                icon={<Users />}
+                href="/mitglieder"
+              />
 
               {canViewAudit ? (
                 <QuickAction

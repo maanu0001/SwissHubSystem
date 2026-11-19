@@ -94,7 +94,15 @@ registerModule({
   navigation: [
     {
       href: '/members',
-      label: 'Mitglieder',
+      /*
+       * «Member Center» und nicht «Mitglieder».
+       *
+       * Seit es das offene Verzeichnis unter `/mitglieder` gibt, stuenden
+       * sonst zwei Eintraege gleichen Namens in derselben Seitenleiste -
+       * fuer genau die Leute, die beide sehen duerfen. Der Name, den der
+       * Rest der Anwendung ohnehin verwendet, trennt sie.
+       */
+      label: 'Member Center',
       description: 'Mitglieder des SwissHub Discord-Servers suchen und einsehen',
       permission: 'members.view',
       icon: 'Users',

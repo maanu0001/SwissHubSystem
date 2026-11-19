@@ -96,7 +96,9 @@ describe('Dashboard steht wieder auf dem Stand vor dem Umbau', () => {
       'title="Was spielen wir?"',
       'title="Musik starten"',
       'title="Mitglied jailen"',
-      'title="Mitglied suchen"',
+      // Stand an dieser Stelle: «Mitglied suchen» mit dem Ziel `/members`.
+      // Der Platz bleibt derselbe, das Ziel ist jetzt das offene Verzeichnis.
+      'title="Mitglieder"',
       'title="Audit Log"',
       'title="Einstellungen"',
     ];
@@ -147,7 +149,16 @@ describe('Dashboard steht wieder auf dem Stand vor dem Umbau', () => {
       'Spielersuche starten',
       'Musik starten',
       'Mitglied jailen',
-      'Mitglied suchen',
+      /*
+       * Fruehher stand hier «Mitglied suchen» mit dem Ziel `/members`.
+       *
+       * Die Schnellaktion fuehrt jetzt ins offene Verzeichnis, das jedes
+       * angemeldete Mitglied oeffnen darf - die Suche im Member Center
+       * steht weiterhin in der Seitenleiste, aber nur fuer die, die sie
+       * duerfen. Geprueft wird deshalb das Ziel und nicht die Beschriftung:
+       * «Mitglieder» allein stuende ohnehin schon als Kennzahl oben.
+       */
+      '/mitglieder',
       'Audit Log',
       'Einstellungen',
       'Nächste Events',
@@ -163,7 +174,8 @@ describe('Dashboard steht wieder auf dem Stand vor dem Umbau', () => {
       'canCreateJail',
       'canReleaseJail',
       'canViewAudit',
-      'canViewMembers',
+      // `canViewMembers` ist entfallen: die Mitglieder-Schnellaktion haengt
+      // an keiner Berechtigung mehr, weil ihr Ziel an keiner haengt.
       'canManageModules',
       'canViewSettings',
       'darfNutzen',
