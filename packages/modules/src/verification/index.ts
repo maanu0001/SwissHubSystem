@@ -9,3 +9,4 @@ export * from './setup';
 export * from './abschluss';
 export * from './erinnerung';
 export * from './nachricht-frist';
+export * from './ablehnung-nachricht';

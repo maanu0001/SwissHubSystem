@@ -41,6 +41,18 @@ function attrappe() {
   const gesetzteRollen: Array<{ discordId: string; roleIds: string[] }> = [];
   const banns: string[] = [];
   const kicks: Array<{ discordId: string; grund?: string }> = [];
+  const direktnachrichten: Array<{ discordId: string; nutzlast: unknown }> = [];
+  /*
+   * Die Reihenfolge, nicht nur das Ergebnis.
+   *
+   * Dass eine Direktnachricht und ein Bann stattgefunden haben, sagt nichts
+   * darueber, ob die Nachricht noch ankommen konnte: nach dem Bann teilen Bot
+   * und Empfaenger keinen Server mehr. Dieses Protokoll haelt deshalb fest,
+   * was zuerst geschah.
+   */
+  const ablauf: string[] = [];
+  /** Nimmt der Empfaenger Direktnachrichten an? Produktiv entscheidet das er. */
+  let nimmtDirektnachrichten = true;
   const gateway = {
     members: {
       get: vi.fn(async (discordId: string) => ({
@@ -67,6 +79,7 @@ function attrappe() {
     bans: {
       add: vi.fn(async (discordId: string) => {
         banns.push(discordId);
+        ablauf.push('bann');
       }),
     },
     // Die Rangfolgeprüfung der Moderation braucht Rollen, Bot und Guild -
@@ -93,9 +106,30 @@ function attrappe() {
     channels: {
       send: vi.fn(async (channelId: string) => ({ id: 'msg-1', channelId })),
       edit: vi.fn(async () => undefined),
+      sendDirect: vi.fn(async (discordId: string, nutzlast: unknown) => {
+        ablauf.push('direktnachricht');
+        if (!nimmtDirektnachrichten) {
+          // Genau wie produktiv: geschlossene Direktnachrichten sind kein
+          // Fehler, sondern ein `false`.
+          return false;
+        }
+        direktnachrichten.push({ discordId, nutzlast });
+        return true;
+      }),
     },
   } as unknown as NonNullable<Parameters<typeof verification.verify>[2]>['gateway'];
-  return { gateway, gesetzteRollen, banns, kicks };
+  return {
+    gateway,
+    gesetzteRollen,
+    banns,
+    kicks,
+    direktnachrichten,
+    ablauf,
+    /** Stellt die Attrappe auf einen Empfaenger um, der keine DMs annimmt. */
+    verschliesseDirektnachrichten: () => {
+      nimmtDirektnachrichten = false;
+    },
+  };
 }
 
 async function neuerFall(discordId = '900000000000009001') {
@@ -278,6 +312,80 @@ describeWithDatabase('Verifikation: Entscheidungen', () => {
       where: { targetDiscordId: '900000000000009304', type: 'BAN' },
     });
     expect(aktion).not.toBeNull();
+  });
+
+  it('schreibt der Person vor dem Bann - mit Grund und Weg zurück', async () => {
+    /*
+     * Die Reihenfolge ist der eigentliche Prüfgegenstand.
+     *
+     * Nach dem Bann teilen Bot und Empfänger keinen Server mehr; eine
+     * Direktnachricht scheitert dann lautlos. Dass beides passiert ist,
+     * genügt deshalb nicht - die Nachricht muss zuerst passiert sein.
+     */
+    const fall = await neuerFall('900000000000009306');
+    const { gateway, direktnachrichten, ablauf } = attrappe();
+
+    await verification.humanReject(VOLL, fall.id, 'Werbung im ersten Satz', { gateway });
+
+    expect(ablauf).toEqual(['direktnachricht', 'bann']);
+    expect(direktnachrichten).toHaveLength(1);
+    expect(direktnachrichten[0]!.discordId).toBe('900000000000009306');
+
+    const nutzlast = direktnachrichten[0]!.nutzlast as {
+      embeds: Array<{ description: string; fields: Array<{ value: string }> }>;
+      components: Array<{ components: Array<{ url: string }> }>;
+    };
+    // Der Grund steht drin - sonst darf die Person raten.
+    expect(nutzlast.embeds[0]!.description).toContain('Werbung im ersten Satz');
+    // Und der Weg zurück, als Text und als Knopf.
+    expect(nutzlast.embeds[0]!.fields[0]!.value).toContain('/entbannung');
+    expect(nutzlast.components[0]!.components[0]!.url).toContain('/entbannung');
+  });
+
+  it('hält den Vermerk fest, dass die Person informiert wurde', async () => {
+    const fall = await neuerFall('900000000000009307');
+    const { gateway } = attrappe();
+
+    await verification.humanReject(VOLL, fall.id, 'Spam', { gateway });
+
+    const eintrag = await prisma.auditLog.findFirst({
+      where: { action: 'VERIFICATION_REJECTED', targetDiscordId: '900000000000009307' },
+    });
+    expect((eintrag?.metadata as { benachrichtigt?: boolean } | null)?.benachrichtigt).toBe(true);
+  });
+
+  it('bannt auch, wenn die Person keine Direktnachrichten annimmt', async () => {
+    // Entschieden ist entschieden. Wer DMs abgeschaltet hat, wird deshalb
+    // nicht weniger gebannt - der Vermerk sagt dann nur, dass er nichts weiss.
+    const fall = await neuerFall('900000000000009308');
+    const attr = attrappe();
+    attr.verschliesseDirektnachrichten();
+
+    const ergebnis = await verification.humanReject(VOLL, fall.id, 'Spam', { gateway: attr.gateway });
+
+    expect(ergebnis.gewonnen).toBe(true);
+    expect(ergebnis.request.status).toBe('REJECTED');
+    expect(attr.banns).toContain('900000000000009308');
+    expect(attr.direktnachrichten).toHaveLength(0);
+
+    const eintrag = await prisma.auditLog.findFirst({
+      where: { action: 'VERIFICATION_REJECTED', targetDiscordId: '900000000000009308' },
+    });
+    expect((eintrag?.metadata as { benachrichtigt?: boolean } | null)?.benachrichtigt).toBe(false);
+  });
+
+  it('schreibt niemandem, wenn gar nicht abgelehnt wird', async () => {
+    // Eine Freischaltung ist keine Ablehnung - und ein zweiter Klick auf
+    // «Ablehnen» danach auch keine. Beides darf keine Nachricht auslösen.
+    const fall = await neuerFall('900000000000009309');
+    const attr = attrappe();
+
+    await verification.humanVerify(VOLL, fall.id, { gateway: attr.gateway });
+    const spaet = await verification.humanReject(VOLL, fall.id, 'Doch Spam', { gateway: attr.gateway });
+
+    expect(spaet.gewonnen).toBe(false);
+    expect(attr.direktnachrichten).toHaveLength(0);
+    expect(attr.ablauf).not.toContain('direktnachricht');
   });
 
   it('verlangt für die Ablehnung einen Grund', async () => {

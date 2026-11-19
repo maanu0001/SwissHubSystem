@@ -6,6 +6,7 @@ import { conflict, forbidden } from '@swisshub/shared';
 import { banMember, type ModerationActor } from '../moderation/service';
 import { VERIFICATION_MODULE_ID, VERIFICATION_PERMISSIONS, type VerificationSettings } from './config';
 import { classify, reichtZumFreischalten, type AiAusgang, type AiClient } from './ai';
+import { baueAblehnungsNachricht } from './ablehnung-nachricht';
 import {
   entscheide,
   requireRequest,
@@ -176,6 +177,36 @@ export async function humanReject(
     return { request: frisch, gewonnen: false };
   }
 
+  /*
+   * Erst schreiben, dann bannen - und zwar zwingend in dieser Reihenfolge.
+   *
+   * Eine Direktnachricht setzt voraus, dass Bot und Empfaenger einen Server
+   * teilen. Der Bann beendet genau das: danach antwortet Discord auf den
+   * Versuch, einen DM-Kanal zu oeffnen, mit «Cannot send messages to this
+   * user». Wer die Nachricht nach dem Bann verschicken wollte, verschickte
+   * sie nie - und zwar lautlos, weil ein fehlgeschlagener Versand hier
+   * bewusst kein Fehler ist.
+   *
+   * Was darin steht, entscheidet `baueAblehnungsNachricht`: der Grund und
+   * der Weg zum Entbannungsantrag.
+   *
+   * **Der Versand haelt nichts auf.** Entschieden ist entschieden; wer
+   * Direktnachrichten von Servermitgliedern abgeschaltet hat, wird deshalb
+   * nicht weniger gebannt. `sendDirect` gibt in dem Fall `false` zurueck und
+   * wirft nicht - das `catch` daneben faengt den Fall, dass Discord gar
+   * nicht antwortet.
+   */
+  const gateway = options.gateway ?? (await import('@swisshub/discord')).discord;
+  let benachrichtigt = false;
+  try {
+    benachrichtigt = await gateway.channels.sendDirect(vorher.discordId, baueAblehnungsNachricht({ grund }));
+  } catch (error) {
+    logger.warn('Ablehnungs-Nachricht konnte nicht zugestellt werden', { requestId, error });
+  }
+  if (!benachrichtigt) {
+    logger.info('Ablehnung ohne Direktnachricht - das Mitglied nimmt keine an', { requestId });
+  }
+
   try {
     await banMember(
       {
@@ -222,7 +253,19 @@ export async function humanReject(
     targetDiscordId: vorher.discordId,
     targetLabel: vorher.displayName ?? vorher.username ?? vorher.discordId,
     success: true,
-    metadata: { requestId, reason: grund, quelle: actor.source ?? null },
+    metadata: {
+      requestId,
+      reason: grund,
+      quelle: actor.source ?? null,
+      /*
+       * Ob die Person Bescheid weiss, steht in der Akte.
+       *
+       * «Sie wurde informiert» ist eine Behauptung, die man spaeter belegen
+       * koennen muss - etwa wenn ein Entbannungsantrag mit «ich wusste von
+       * nichts» beginnt.
+       */
+      benachrichtigt,
+    },
   });
 
   // Nur eine Meldung. Die Automation Engine hat den Bann weder ausgeloest
