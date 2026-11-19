@@ -25,32 +25,48 @@ type Eintrag = Awaited<ReturnType<typeof level.getPublicLeaderboard>>['entries']
  */
 
 /**
- * Der Name - verlinkt, wo es ein oeffentliches Profil gibt.
+ * Die Huelle um eine Kachel - verlinkt, wo es ein oeffentliches Profil gibt.
+ *
+ * ## Warum die ganze Kachel und nicht nur der Name
+ *
+ * Weil die Kachel aussieht wie ein Ziel. Wer auf das Bild oder die Zahl
+ * daneben klickt, erwartet dasselbe wie beim Namen - und bekam vorher
+ * nichts. Auf dem Telefon kommt dazu, dass ein Name in einer Zeile ein
+ * Ziel von wenigen Millimetern ist; die Kachel ist das ganze Feld.
  *
  * `slug` ist genau dann gesetzt, wenn `slugsVon` ihn herausgegeben hat, und
  * das tut es nur fuer ein veroeffentlichtes, nicht gesperrtes Profil. Die
  * Entscheidung faellt also in der Datenschicht; hier wird sie nur noch
  * gezeigt. Wer kein oeffentliches Profil hat, steht unverlinkt da - und
  * nicht als toter Link, der auf eine Sperrseite fuehrt.
+ *
+ * ## Was die Huelle am Aussehen nicht aendert
+ *
+ * Nichts. `display: contents` nimmt sie aus dem Raster heraus: das Kind
+ * behaelt seine Breite, seinen Abstand und seine Reihe, und die Karte bleibt
+ * die Karte. Ein `<a>` mit eigener Box haette das Raster der ersten drei
+ * Plaetze aufgebrochen.
  */
-function Name({
-  name,
+function Huelle({
   slug,
-  className,
+  name,
+  children,
 }: {
-  name: string;
   slug: string | null;
-  className?: string;
+  /** Fuer die Vorlesehilfe: «Mara, oeffentliches Profil». */
+  name: string;
+  children: React.ReactNode;
 }): React.JSX.Element {
   if (!slug) {
-    return <span className={className}>{name}</span>;
+    return <>{children}</>;
   }
   return (
     <Link
       href={systemRoutes.oeffentlichesProfil(slug)}
-      className={cn('rounded-sm underline-offset-4 hover:underline focus-visible:underline', className)}
+      aria-label={`Öffentliches Profil von ${name}`}
+      className="group/kachel contents"
     >
-      {name}
+      {children}
     </Link>
   );
 }
@@ -91,55 +107,70 @@ export function RangKarte({
   const erster = eintrag.rank === 1;
 
   return (
-    <article
-      className={cn(
-        'relative overflow-hidden rounded-2xl border bg-card/60 px-5 text-center backdrop-blur-sm',
-        ton.rand,
-        // Der erste Platz ist hoeher - auf dem Telefon steht er schlicht
-        // oben, nebeneinander wird daraus ein Podest ohne gemaltes Podest.
-        erster ? 'py-8 sm:py-10' : 'py-6 sm:py-7',
-      )}
-    >
-      <div
+    <Huelle slug={slug} name={eintrag.displayName}>
+      <article
         className={cn(
-          'pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b to-transparent',
-          ton.schimmer,
+          'relative overflow-hidden rounded-2xl border bg-card/60 px-5 text-center backdrop-blur-sm',
+          ton.rand,
+          /*
+            Sichtbar anklickbar - aber nur, wo es auch ein Ziel gibt. Ein
+            Zeiger ueber einer Kachel, die nichts tut, ist ein Versprechen,
+            das beim Klick nicht eingeloest wird.
+          */
+          slug ? 'cursor-pointer transition-colors hover:bg-card/80' : null,
+          // Der erste Platz ist hoeher - auf dem Telefon steht er schlicht
+          // oben, nebeneinander wird daraus ein Podest ohne gemaltes Podest.
+          erster ? 'py-8 sm:py-10' : 'py-6 sm:py-7',
         )}
-        aria-hidden="true"
-      />
-
-      <div className="relative">
-        <span className={cn('block text-xs font-semibold tracking-[0.2em]', ton.ziffer)}>
-          #{eintrag.rank}
-        </span>
-
-        <DiscordAvatar
-          discordId={eintrag.discordId}
-          avatarHash={eintrag.avatarHash}
-          name={eintrag.displayName}
-          size={erster ? 96 : 64}
-          className={cn('mx-auto mt-4 ring-1', ton.ring)}
+      >
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b to-transparent',
+            ton.schimmer,
+          )}
+          aria-hidden="true"
         />
 
-        <h2
-          className={cn(
-            'mt-4 truncate font-semibold tracking-tight',
-            erster ? 'text-lg sm:text-xl' : 'text-base',
-          )}
-          title={eintrag.displayName}
-        >
-          <Name name={eintrag.displayName} slug={slug} />
-        </h2>
+        <div className="relative">
+          <span className={cn('block text-xs font-semibold tracking-[0.2em]', ton.ziffer)}>
+            #{eintrag.rank}
+          </span>
 
-        <p className="mt-1 text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">Level {eintrag.level}</span>
-          <span aria-hidden="true"> · </span>
-          <span className="tabular-nums">{xp(eintrag.xp)} XP</span>
-        </p>
+          <DiscordAvatar
+            discordId={eintrag.discordId}
+            avatarHash={eintrag.avatarHash}
+            name={eintrag.displayName}
+            size={erster ? 96 : 64}
+            className={cn('mx-auto mt-4 ring-1', ton.ring)}
+          />
 
-        {eintrag.progress === null ? null : <Fortschritt wert={eintrag.progress} className="mt-4" />}
-      </div>
-    </article>
+          <h2
+            className={cn(
+              'mt-4 truncate font-semibold tracking-tight',
+              erster ? 'text-lg sm:text-xl' : 'text-base',
+              /*
+                Die Unterstreichung haengt an der Kachel, nicht am Namen:
+                `group-hover` auf dem Link waere eine zweite Stelle, an der
+                entschieden wird, ob es ein Ziel gibt. Ohne Slug gibt es
+                keine Huelle - und damit auch keine Gruppe.
+              */
+              slug ? 'underline-offset-4 group-hover/kachel:underline' : null,
+            )}
+            title={eintrag.displayName}
+          >
+            {eintrag.displayName}
+          </h2>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Level {eintrag.level}</span>
+            <span aria-hidden="true"> · </span>
+            <span className="tabular-nums">{xp(eintrag.xp)} XP</span>
+          </p>
+
+          {eintrag.progress === null ? null : <Fortschritt wert={eintrag.progress} className="mt-4" />}
+        </div>
+      </article>
+    </Huelle>
   );
 }
 
@@ -152,41 +183,54 @@ export function RangZeile({
   slug?: string | null;
 }): React.JSX.Element {
   return (
-    <div className="flex items-center gap-3 px-3 py-3 transition-colors hover:bg-card/70 sm:gap-4 sm:px-5">
-      <span className="w-9 shrink-0 text-right text-sm font-semibold tabular-nums text-muted-foreground sm:w-12 sm:text-base">
-        {eintrag.rank}
-      </span>
-
-      <DiscordAvatar
-        discordId={eintrag.discordId}
-        avatarHash={eintrag.avatarHash}
-        name={eintrag.displayName}
-        size={40}
-      />
-
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium sm:text-base" title={eintrag.displayName}>
-          <Name name={eintrag.displayName} slug={slug} />
-        </p>
-        {/*
-          Auf dem Telefon steht die XP-Zahl unter dem Namen statt in einer
-          eigenen Spalte - drei Spalten auf 320 px zwingen sonst entweder zum
-          Querscrollen oder schneiden den Namen ab.
-        */}
-        <p className="text-xs tabular-nums text-muted-foreground sm:hidden">
-          Level {eintrag.level} · {xp(eintrag.xp)} XP
-        </p>
-      </div>
-
-      <div className="hidden shrink-0 items-center gap-6 sm:flex">
-        <span className="w-24 text-right text-sm tabular-nums text-muted-foreground">
-          {xp(eintrag.xp)} XP
+    <Huelle slug={slug} name={eintrag.displayName}>
+      <div
+        className={cn(
+          'flex items-center gap-3 px-3 py-3 transition-colors hover:bg-card/70 sm:gap-4 sm:px-5',
+          slug ? 'cursor-pointer' : null,
+        )}
+      >
+        <span className="w-9 shrink-0 text-right text-sm font-semibold tabular-nums text-muted-foreground sm:w-12 sm:text-base">
+          {eintrag.rank}
         </span>
-        <span className="w-20 rounded-md border border-border/70 bg-background/60 py-1 text-center text-xs font-medium tabular-nums">
-          Level {eintrag.level}
-        </span>
+
+        <DiscordAvatar
+          discordId={eintrag.discordId}
+          avatarHash={eintrag.avatarHash}
+          name={eintrag.displayName}
+          size={40}
+        />
+
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              'truncate text-sm font-medium sm:text-base',
+              slug ? 'underline-offset-4 group-hover/kachel:underline' : null,
+            )}
+            title={eintrag.displayName}
+          >
+            {eintrag.displayName}
+          </p>
+          {/*
+            Auf dem Telefon steht die XP-Zahl unter dem Namen statt in einer
+            eigenen Spalte - drei Spalten auf 320 px zwingen sonst entweder zum
+            Querscrollen oder schneiden den Namen ab.
+          */}
+          <p className="text-xs tabular-nums text-muted-foreground sm:hidden">
+            Level {eintrag.level} · {xp(eintrag.xp)} XP
+          </p>
+        </div>
+
+        <div className="hidden shrink-0 items-center gap-6 sm:flex">
+          <span className="w-24 text-right text-sm tabular-nums text-muted-foreground">
+            {xp(eintrag.xp)} XP
+          </span>
+          <span className="w-20 rounded-md border border-border/70 bg-background/60 py-1 text-center text-xs font-medium tabular-nums">
+            Level {eintrag.level}
+          </span>
+        </div>
       </div>
-    </div>
+    </Huelle>
   );
 }
 

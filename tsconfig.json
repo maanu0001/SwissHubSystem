@@ -21,5 +21,22 @@
     "tests/**/*.ts",
     "vitest.config.ts"
   ],
-  "exclude": ["node_modules", "**/dist", "**/.next"]
+  "exclude": [
+    "node_modules",
+    "**/dist",
+    "**/.next",
+    /*
+     * Tests, die Bauteile der WebApp wirklich zeichnen, gehoeren in das
+     * TypeScript-Projekt der WebApp - `apps/web/tsconfig.json` listet sie
+     * dort auf.
+     *
+     * Hier steht `lib: ["ES2022"]` ohne DOM, und das mit Absicht: der Bot
+     * und die Pakete laufen in Node, und ein versehentliches `document`
+     * soll dort auffallen. Ein Bauteil wie `DiscordAvatar` fragt aber
+     * `img.complete` ab - echter Browser-Code, der ohne DOM-Typen nicht
+     * uebersetzt. Die Wahl ist also: DOM fuer alles aufmachen, oder diese
+     * paar Tests dort pruefen, wo die DOM-Typen ohnehin gelten.
+     */
+    "tests/unit/leaderboard-kachel.test.ts"
+  ]
 }
