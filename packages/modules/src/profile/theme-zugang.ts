@@ -6,10 +6,7 @@ import {
   loadRoleConfiguration,
   resolvePermissions,
 } from '@swisshub/permissions';
-import { getModuleSettings, isModuleEnabled } from '../module-state';
-import { PREMIUM_MODULE_ID, type PremiumSettings } from '../premium/config';
-import { ENTITLEMENTS } from '../premium/entitlements';
-import { hatAnspruch } from '../premium/queries';
+import { darfPremiumVorteile } from '../premium/rolle';
 import { levelFromXp } from '../level/curve';
 import type { ThemeVoraussetzungen } from './profil-themes';
 
@@ -37,46 +34,17 @@ import type { ThemeVoraussetzungen } from './profil-themes';
  *
  * Sie ist **kein Premium**. Sie oeffnet die Designs der oeffentlichen
  * Profilseite und sonst nichts: keine Discord-Rolle, keine Abzeichen, kein
- * sonstiger Anspruch. Die bestehende Premium-Pruefung bleibt unveraendert
- * daneben stehen - diese Funktion fragt sie, sie ersetzt sie nicht.
+ * sonstiger Anspruch. Die Premium-Pruefung steht unveraendert daneben -
+ * diese Datei fragt sie, sie ersetzt sie nicht.
+ *
+ * ## Wo «hat Premium» entschieden wird
+ *
+ * Nicht hier, sondern in `premium/rolle.ts`: Abonnement **oder**
+ * Premium-Rolle auf Discord. Die Rolle vergibt auf diesem Server MEE6, und
+ * damit steht in `PremiumSubscription` nichts darueber. Die Entscheidung
+ * gehoert dorthin, weil sie fuer jede Premium-Leistung gilt und nicht nur
+ * fuer die Designs.
  */
-
-/**
- * Traegt diese Person die Premium-Rolle auf Discord?
- *
- * ## Warum das ueberhaupt eine eigene Quelle ist
- *
- * Bisher gab es zwei Wege zu den Designs: ein aktives Abonnement im System
- * oder die Berechtigung `members.profile.themes.premium`. Wer die
- * Premium-Rolle von Hand bekam - als Dank, als Gewinn, als Ausgleich -, ging
- * leer aus, obwohl auf Discord «Premium» an ihm stand. Das war schwer zu
- * erklaeren.
- *
- * Gefragt wird nach der **konfigurierten Rollenkennung** aus den
- * Premium-Einstellungen, nicht nach einem Rollennamen. Ein Name aendert
- * sich, eine Kennung nicht; und wer die Rolle umbenennt, soll damit keine
- * Berechtigung verschieben. Dieselbe Einstellung benutzt der Bot, um die
- * Rolle beim Kauf zu vergeben - die Quelle ist also dieselbe, nur
- * andersherum gelesen.
- *
- * Ist das Premium-Modul aus oder keine Rolle hinterlegt, gibt es diesen Weg
- * nicht. Dann gilt wie vorher: Abonnement oder Berechtigung.
- */
-async function hatPremiumRolle(discordId: string): Promise<boolean> {
-  if (!(await isModuleEnabled(PREMIUM_MODULE_ID))) {
-    return false;
-  }
-  const einstellungen = await getModuleSettings<PremiumSettings>(PREMIUM_MODULE_ID);
-  const rolle = einstellungen?.premiumRoleId;
-  if (!rolle) {
-    return false;
-  }
-  const spiegel = await prisma.discordMemberCache.findUnique({
-    where: { discordId },
-    select: { roleIds: true },
-  });
-  return spiegel?.roleIds.includes(rolle) === true;
-}
 
 /**
  * Woher das Recht kommt.
@@ -121,19 +89,19 @@ async function hatThemeBerechtigung(discordId: string): Promise<boolean> {
  * Team ist.
  */
 export async function themeZugang(discordId: string): Promise<ThemeZugang> {
-  if (await hatAnspruch(discordId, ENTITLEMENTS.premiumRole)) {
-    return 'premium';
-  }
   /*
-   * Die Rolle zaehlt als Premium und nicht als dritte Auskunft.
+   * Abonnement **oder** Premium-Rolle - beides heisst «Premium».
    *
    * Fuer die Person ist es dasselbe: sie hat Premium. Ob der Anspruch aus
-   * einem Abonnement oder aus einer von Hand vergebenen Rolle stammt, ist
-   * eine Frage der Buchhaltung und nicht der Oberflaeche. Eine vierte
+   * einem Abonnement oder aus der Rolle auf Discord stammt, ist eine Frage
+   * der Buchhaltung und nicht der Oberflaeche. Eine vierte
    * Zustandsbezeichnung haette jede Stelle, die `ThemeZugang` auswertet, um
    * einen Zweig erweitert - fuer einen Unterschied, den niemand sieht.
+   *
+   * Die Entscheidung selbst steht in `premium/rolle.ts` und nicht hier: sie
+   * gilt fuer **jede** Premium-Leistung, nicht nur fuer die Designs.
    */
-  if (await hatPremiumRolle(discordId)) {
+  if (await darfPremiumVorteile(discordId)) {
     return 'premium';
   }
   return (await hatThemeBerechtigung(discordId)) ? 'berechtigung' : 'keiner';

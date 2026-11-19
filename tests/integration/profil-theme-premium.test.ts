@@ -129,6 +129,14 @@ describeWithDatabase('Premium-Themes', () => {
     await prisma.rolePermission.deleteMany({});
     await prisma.managedRole.deleteMany({});
     await prisma.levelProfile.deleteMany({});
+    await prisma.discordIdentityCache.deleteMany({});
+    /*
+     * Die Moduleinstellungen tragen die Kennung der Premium-Rolle. Bleiben
+     * sie zwischen den Tests stehen, oeffnet eine Rolle aus einem frueheren
+     * Test die Designs im naechsten - und der waere gruen, ohne etwas zu
+     * pruefen.
+     */
+    await prisma.moduleState.deleteMany({ where: { moduleId: { in: ['premium', 'level'] } } });
     invalidateRoleConfiguration();
 
     /*
@@ -348,6 +356,172 @@ describeWithDatabase('Premium-Themes', () => {
    * Normalfall: ein Abonnement, eine Adminrolle und eine Moderationsrolle
    * duerfen nichts bewirken, und ein manipulierter Request schon gar nichts.
    */
+
+  /**
+   * Die Premium-Rolle, wie sie auf diesem Server wirklich vorkommt.
+   *
+   * MEE6 vergibt sie, nicht SwissHub - in `PremiumSubscription` steht
+   * darueber nichts. Welche Rolle gemeint ist, steht in den
+   * Moduleinstellungen, und zwar an zwei Stellen: das Level-Modul kennt sie
+   * laenger (XP-Multiplikator, kuerzerer Cooldown), das Premium-Modul kam
+   * mit dem Verkauf ueber SwissHub dazu.
+   */
+  const PREMIUM_ROLLE = '900000000000000555';
+
+  async function setzeRollenKennung(
+    modul: 'premium' | 'level',
+    rolle: string | null,
+    optionen: { eingeschaltet?: boolean } = {},
+  ): Promise<void> {
+    const daten = {
+      enabled: optionen.eingeschaltet ?? true,
+      settings: { premiumRoleId: rolle },
+      updatedBy: 'test',
+    };
+    await prisma.moduleState.upsert({
+      where: { moduleId: modul },
+      create: { moduleId: modul, ...daten },
+      update: daten,
+    });
+  }
+
+  /** Die Rolle im Mitgliederspiegel - der Weg des Sync-Dienstes. */
+  async function gibRolleImSpiegel(...rollen: string[]): Promise<void> {
+    await prisma.discordMemberCache.update({
+      where: { discordId: MITGLIED },
+      data: { roleIds: rollen },
+    });
+  }
+
+  /** Die Rolle im Identitaetsspiegel - der Weg der Anmeldung. */
+  async function gibRolleInDerIdentitaet(...rollen: string[]): Promise<void> {
+    await prisma.discordIdentityCache.upsert({
+      where: { discordId: MITGLIED },
+      create: { discordId: MITGLIED, isMember: true, roleIds: rollen },
+      update: { isMember: true, roleIds: rollen },
+    });
+  }
+
+  /**
+   * Premium ueber die Discord-Rolle - der Normalfall auf diesem Server.
+   *
+   * ## Was gemeldet war
+   *
+   * «Ein User der die Premiumrolle hat, darf die Premium-Themes noch nicht
+   * verwenden.» Es gab bereits eine Rollenpruefung, und sie konnte nie
+   * greifen - aus zwei Gruenden, die beide hier ihren Test haben:
+   *
+   * 1. Sie verlangte ein **eingeschaltetes** Premium-Modul. Wer Premium
+   *    ueber MEE6 fuehrt, hat es aus.
+   * 2. Sie las die Rollenkennung nur aus den **Premium**-Einstellungen. Auf
+   *    einem solchen Server steht sie im **Level**-Modul.
+   *
+   * Dass es keinen Test gab, ist der eigentliche Grund, warum das bis in die
+   * Produktion kam.
+   */
+  it('laesst ein Premium-Design zu, wenn die Rolle im Level-Modul steht', async () => {
+    await setzeRollenKennung('level', PREMIUM_ROLLE);
+    await gibRolleImSpiegel(PREMIUM_ROLLE);
+
+    await profile.speichereGestaltung(MITGLIED, eingabe('crimson'));
+    const zeile = await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } });
+    expect(zeile?.premiumTheme).toBe('crimson');
+  });
+
+  it('laesst ein Premium-Design zu, wenn die Rolle im Premium-Modul steht', async () => {
+    await setzeRollenKennung('premium', PREMIUM_ROLLE);
+    await gibRolleImSpiegel(PREMIUM_ROLLE);
+
+    await profile.speichereGestaltung(MITGLIED, eingabe('aurora'));
+    expect((await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } }))?.premiumTheme).toBe(
+      'aurora',
+    );
+  });
+
+  it('zaehlt die Rolle auch bei abgeschaltetem Premium-Modul', async () => {
+    /*
+     * Der erste der beiden Fehler. Ein Server, der Premium ueber MEE6
+     * fuehrt, hat das Premium-Modul aus - SwissHub verkauft dort nichts. Die
+     * Frage «traegt diese Person die Rolle» hat damit nichts zu tun.
+     */
+    await setzeRollenKennung('premium', PREMIUM_ROLLE, { eingeschaltet: false });
+    await gibRolleImSpiegel(PREMIUM_ROLLE);
+
+    await profile.speichereGestaltung(MITGLIED, eingabe('matrix'));
+    expect((await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } }))?.premiumTheme).toBe(
+      'matrix',
+    );
+  });
+
+  it('erkennt die Rolle auch aus dem Identitaetsspiegel', async () => {
+    /*
+     * Der Mitgliederspiegel haengt dem Sync-Dienst ein paar Minuten
+     * hinterher; der Identitaetsspiegel wird bei der Anmeldung und vor jeder
+     * schreibenden Aktion aufgefrischt. Wer die Rolle eben bekommen hat,
+     * steht zuerst dort - und soll nicht warten muessen.
+     */
+    await setzeRollenKennung('level', PREMIUM_ROLLE);
+    await gibRolleInDerIdentitaet(PREMIUM_ROLLE);
+
+    await profile.speichereGestaltung(MITGLIED, eingabe('nebula'));
+    expect((await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } }))?.premiumTheme).toBe(
+      'nebula',
+    );
+  });
+
+  it('oeffnet ohne konfigurierte Rolle gar nichts', async () => {
+    // Keine Kennung eingetragen: dann gibt es keine Premium-Rolle, und eine
+    // beliebige Rolle darf nicht zufaellig eine werden.
+    await gibRolleImSpiegel(PREMIUM_ROLLE, '900000000000000999');
+
+    await expect(profile.speichereGestaltung(MITGLIED, eingabe('crimson'))).rejects.toThrow();
+    expect(await profile.themeZugang(MITGLIED)).toBe('keiner');
+  });
+
+  it('oeffnet mit einer anderen Rolle nichts', async () => {
+    await setzeRollenKennung('level', PREMIUM_ROLLE);
+    await gibRolleImSpiegel('900000000000000999');
+
+    await expect(profile.speichereGestaltung(MITGLIED, eingabe('crimson'))).rejects.toThrow();
+    expect(await profile.themeZugang(MITGLIED)).toBe('keiner');
+  });
+
+  it('nennt die Rolle «premium» und nicht «berechtigung»', async () => {
+    /*
+     * Fuer die Person ist es dasselbe: sie hat Premium. Ob der Anspruch aus
+     * einem Abonnement oder aus der Rolle stammt, ist eine Frage der
+     * Buchhaltung und nicht der Oberflaeche.
+     */
+    expect(await profile.themeZugang(MITGLIED)).toBe('keiner');
+
+    await setzeRollenKennung('level', PREMIUM_ROLLE);
+    await gibRolleImSpiegel(PREMIUM_ROLLE);
+    expect(await profile.themeZugang(MITGLIED)).toBe('premium');
+  });
+
+  it('oeffnet dem Rollentraeger die Galerie im Editor', async () => {
+    await setzeRollenKennung('level', PREMIUM_ROLLE);
+    await gibRolleImSpiegel(PREMIUM_ROLLE);
+
+    const editor = await profile.ladeEditor(MITGLIED);
+    expect(editor.gestaltung.darfPremium).toBe(true);
+  });
+
+  it('faellt auf das Standarddesign zurueck, wenn die Rolle entzogen wird', async () => {
+    await setzeRollenKennung('level', PREMIUM_ROLLE);
+    await gibRolleImSpiegel(PREMIUM_ROLLE);
+    await profile.speichereGestaltung(MITGLIED, eingabe('matrix'));
+    expect((await profile.ladeProfil(MITGLIED, 'wer-auch-immer'))?.gestaltung.theme).toBe('matrix');
+
+    await gibRolleImSpiegel();
+
+    const ansicht = await profile.ladeProfil(MITGLIED, 'wer-auch-immer');
+    expect(ansicht?.gestaltung.theme).toBe('classic');
+    // Die Wahl bleibt gespeichert - genau wie beim Ablauf eines Abonnements.
+    expect((await prisma.memberProfile.findUnique({ where: { discordId: MITGLIED } }))?.premiumTheme).toBe(
+      'matrix',
+    );
+  });
 
   it('Prestige: Level 30 ist gesperrt', async () => {
     await setzeLevel(30);

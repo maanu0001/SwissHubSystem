@@ -5,6 +5,7 @@ export * from './service';
 export * from './vergabe';
 export * from './discord';
 export * from './queries';
+export * from './rolle';
 export * from './reconcile';
 export * from './payments/types';
 export * from './payments/provider';
