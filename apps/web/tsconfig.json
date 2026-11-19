@@ -19,7 +19,8 @@
     ".next/types/**/*.ts",
     // Tests, die Bauteile dieser Anwendung zeichnen. Sie brauchen die
     // DOM-Typen von hier; das Wurzelprojekt laesst sie deshalb aus.
-    "../../tests/unit/leaderboard-kachel.test.ts"
+    "../../tests/unit/leaderboard-kachel.test.ts",
+    "../../tests/unit/warteschlange-filter.test.ts"
   ],
   "exclude": ["node_modules"]
 }

@@ -37,6 +37,7 @@
      * uebersetzt. Die Wahl ist also: DOM fuer alles aufmachen, oder diese
      * paar Tests dort pruefen, wo die DOM-Typen ohnehin gelten.
      */
-    "tests/unit/leaderboard-kachel.test.ts"
+    "tests/unit/leaderboard-kachel.test.ts",
+    "tests/unit/warteschlange-filter.test.ts"
   ]
 }

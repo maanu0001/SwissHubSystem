@@ -33,6 +33,26 @@ export interface WarteEintrag {
   ohneAvatar: boolean;
 }
 
+/**
+ * Hat dieser Fall etwas zu lesen?
+ *
+ * Gefiltert wird an `latestMessage` und nicht an `messageCount`. Der Zweck
+ * des Filters ist «zeig mir, was ich jetzt entscheiden kann» - und
+ * entscheiden laesst sich nur, was auch zu lesen ist. `messageCount` zaehlt
+ * jede je geschriebene Nachricht, auch eine geloeschte; ein Fall mit
+ * `messageCount: 1` und ohne Text stuende dann in der gefilterten Liste und
+ * truege darunter «Noch keine Nachricht geschrieben».
+ *
+ * Es ist dieselbe Bedingung, an der auch der Freischalten-Knopf haengt.
+ *
+ * Steht hier und nicht als Ausdruck im Rumpf der Ansicht, damit sie sich
+ * pruefen laesst, ohne die ganze Warteschlange mit Live-Strom und Router
+ * aufzubauen.
+ */
+export function hatNachricht(eintrag: Pick<WarteEintrag, 'latestMessage'>): boolean {
+  return eintrag.latestMessage !== null;
+}
+
 const GRUENDE = [
   'Spam/Bot',
   'Keine sinnvolle Verifikation',
@@ -70,6 +90,15 @@ export function Warteschlange({
   const [ablehnen, setAblehnen] = useState<WarteEintrag | null>(null);
   const [grund, setGrund] = useState(GRUENDE[0]!);
   const [live, setLive] = useState(false);
+  /*
+   * Der Filter «Nachricht gesendet».
+   *
+   * Gefiltert wird im Browser und nicht in der Abfrage - die Liste kommt
+   * ohnehin vollstaendig herein und wird per Live-Strom ersetzt. Eine
+   * zweite, gefilterte Abfrage muesste denselben Strom noch einmal
+   * filtern, und zwar an einer zweiten Stelle.
+   */
+  const [nurMitNachricht, setNurMitNachricht] = useState(false);
 
   // Der Server bleibt die Wahrheit: kommt ein frischer Stand herein, ersetzt
   // er die Liste vollständig.
@@ -132,18 +161,52 @@ export function Warteschlange({
     );
   }
 
+  const sichtbar = nurMitNachricht ? eintraege.filter(hatNachricht) : eintraege;
+  const versteckt = eintraege.length - sichtbar.length;
+
   return (
     <>
-      <p className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span
-          aria-hidden="true"
-          className={`size-2 rounded-full ${live ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span
+            aria-hidden="true"
+            className={`size-2 rounded-full ${live ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}
+          />
+          {live ? 'Live - neue Fälle erscheinen von selbst.' : 'Nicht verbunden - bitte neu laden.'}
+        </p>
+
+        <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={nurMitNachricht}
+            onChange={(ereignis) => setNurMitNachricht(ereignis.target.checked)}
+            className="size-4 cursor-pointer accent-primary"
+          />
+          Nur mit gesendeter Nachricht
+          {/*
+            Die Zahl der ausgeblendeten Faelle steht daneben, und zwar
+            immer, wenn gefiltert wird.
+
+            Eine gefilterte Warteschlange sieht aus wie eine leere - und
+            eine leere Warteschlange heisst «niemand wartet». Wer das
+            verwechselt, geht nach Hause, waehrend zwanzig Leute auf ihre
+            erste Nachricht warten.
+          */}
+          {nurMitNachricht && versteckt > 0 ? (
+            <span className="text-muted-foreground/70">({versteckt} ohne Nachricht ausgeblendet)</span>
+          ) : null}
+        </label>
+      </div>
+
+      {sichtbar.length === 0 ? (
+        <EmptyState
+          title="Niemand hat geschrieben"
+          description={`${versteckt} ${versteckt === 1 ? 'Fall wartet' : 'Fälle warten'} noch auf die erste Nachricht. Nimm den Haken weg, um sie zu sehen.`}
         />
-        {live ? 'Live - neue Fälle erscheinen von selbst.' : 'Nicht verbunden - bitte neu laden.'}
-      </p>
+      ) : null}
 
       <div className="space-y-3">
-        {eintraege.map((eintrag) => {
+        {sichtbar.map((eintrag) => {
           const busy = pending !== null;
           const name = eintrag.displayName ?? eintrag.username ?? eintrag.discordId;
           return (
